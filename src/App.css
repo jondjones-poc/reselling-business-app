@@ -147,6 +147,74 @@
   color: #4ecdc4;
 }
 
+.scanner-section {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.scanner-button {
+  padding: 15px 30px;
+  background: linear-gradient(45deg, #4ecdc4, #44a08d);
+  color: white;
+  border: none;
+  border-radius: 25px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  min-width: 200px;
+}
+
+.scanner-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(78, 205, 196, 0.4);
+}
+
+.scanned-info {
+  background: rgba(78, 205, 196, 0.2);
+  border: 1px solid rgba(78, 205, 196, 0.5);
+  color: #4ecdc4;
+  padding: 10px 15px;
+  border-radius: 10px;
+  font-size: 14px;
+  margin: 0;
+}
+
+.scanner-container {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 15px;
+  padding: 25px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.scanner-container h3 {
+  margin: 0;
+  color: #fff;
+  font-size: 1.3rem;
+}
+
+.close-scanner-button {
+  padding: 10px 20px;
+  background: rgba(255, 107, 107, 0.8);
+  color: white;
+  border: none;
+  border-radius: 20px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.close-scanner-button:hover {
+  background: rgba(255, 107, 107, 1);
+  transform: translateY(-1px);
+}
+
 @media (max-width: 768px) {
   .input-group {
     flex-direction: column;
@@ -159,6 +227,11 @@
   }
   
   .search-button {
+    width: 100%;
+    max-width: 300px;
+  }
+  
+  .scanner-button {
     width: 100%;
     max-width: 300px;
   }

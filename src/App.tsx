@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import BarcodeScanner from 'react-qr-barcode-scanner';
 import './App.css';
 
 interface SoldItem {
@@ -21,6 +22,8 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [priceRange, setPriceRange] = useState<PriceRange | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showScanner, setShowScanner] = useState(false);
+  const [scannedData, setScannedData] = useState<string | null>(null);
 
   const searchSoldListings = async () => {
     if (!brand.trim()) {
@@ -34,28 +37,43 @@ function App() {
 
     try {
       // eBay Finding API endpoint for sold listings
-      const response = await fetch(`https://api.ebay.com/buy/browse/v1/item_summary/search?q=${encodeURIComponent(brand)}&filter=conditionIds:{3000}&sort=-endTime&limit=5`, {
-        headers: {
-          'Authorization': `Bearer ${process.env.REACT_APP_EBAY_APP_ID}`,
-          'Content-Type': 'application/json',
-          'X-EBAY-C-MARKETPLACE-ID': 'EBAY_GB'
-        }
+      const appId = process.env.REACT_APP_EBAY_APP_ID;
+      const endpoint = 'https://svcs.ebay.com/services/search/FindingService/v1';
+      
+      const params = new URLSearchParams({
+        'OPERATION-NAME': 'findCompletedItems',
+        'SERVICE-VERSION': '1.0.0',
+        'SECURITY-APPNAME': appId || '',
+        'RESPONSE-DATA-FORMAT': 'JSON',
+        'REST-PAYLOAD': '',
+        'keywords': brand,
+        'itemFilter(0).name': 'SoldItemsOnly',
+        'itemFilter(0).value': 'true',
+        'sortOrder': 'EndTimeSoonest',
+        'paginationInput.entriesPerPage': '5',
+        'GLOBAL-ID': 'EBAY-GB'
       });
 
+      const response = await fetch(`${endpoint}?${params.toString()}`);
+      
       if (!response.ok) {
         throw new Error(`eBay API error: ${response.status}`);
       }
 
       const data = await response.json();
       
-      if (data.itemSummaries && data.itemSummaries.length > 0) {
-        const prices = data.itemSummaries
-          .filter((item: any) => item.price && item.price.value)
+      if (data.findCompletedItemsResponse && 
+          data.findCompletedItemsResponse[0].searchResult && 
+          data.findCompletedItemsResponse[0].searchResult[0].item) {
+        
+        const items = data.findCompletedItemsResponse[0].searchResult[0].item;
+        const prices = items
+          .filter((item: any) => item.sellingStatus && item.sellingStatus[0].currentPrice)
           .map((item: any) => ({
-            title: item.title,
-            price: parseFloat(item.price.value),
-            currency: item.price.currency || 'GBP',
-            soldDate: item.condition || 'Unknown'
+            title: item.title[0],
+            price: parseFloat(item.sellingStatus[0].currentPrice[0].__value__),
+            currency: item.sellingStatus[0].currentPrice[0]['@currencyId'] || 'GBP',
+            soldDate: item.listingInfo[0].endTime[0] || 'Unknown'
           }));
 
         if (prices.length > 0) {
@@ -85,6 +103,20 @@ function App() {
     }
   };
 
+  const handleBarcodeScan = (err: any, result: any) => {
+    if (result) {
+      setScannedData(result.text);
+      setBrand(result.text);
+      setShowScanner(false);
+      // Automatically search for the scanned barcode
+      setTimeout(() => {
+        searchSoldListings();
+      }, 1000);
+    } else if (err) {
+      console.error('Barcode scan error:', err);
+    }
+  };
+
   return (
     <div className="App">
       <header className="App-header">
@@ -92,23 +124,54 @@ function App() {
         <p>Find the value of items before you buy them!</p>
         
         <div className="search-container">
-          <div className="input-group">
-            <input
-              type="text"
-              value={brand}
-              onChange={(e) => setBrand(e.target.value)}
-              placeholder="Enter brand name (e.g., Nike, Adidas, Apple)"
-              className="brand-input"
-              onKeyPress={(e) => e.key === 'Enter' && searchSoldListings()}
-            />
-            <button 
-              onClick={searchSoldListings}
-              disabled={loading}
-              className="search-button"
-            >
-              {loading ? 'Searching...' : 'Search Sold Listings'}
-            </button>
-          </div>
+          {!showScanner ? (
+            <>
+              <div className="input-group">
+                <input
+                  type="text"
+                  value={brand}
+                  onChange={(e) => setBrand(e.target.value)}
+                  placeholder="Enter brand name (e.g., Nike, Adidas, Apple)"
+                  className="brand-input"
+                  onKeyPress={(e) => e.key === 'Enter' && searchSoldListings()}
+                />
+                <button 
+                  onClick={searchSoldListings}
+                  disabled={loading}
+                  className="search-button"
+                >
+                  {loading ? 'Searching...' : 'Search Sold Listings'}
+                </button>
+              </div>
+              
+              <div className="scanner-section">
+                <button 
+                  onClick={() => setShowScanner(true)}
+                  className="scanner-button"
+                >
+                  📷 Scan Barcode
+                </button>
+                {scannedData && (
+                  <p className="scanned-info">Last scanned: {scannedData}</p>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="scanner-container">
+              <h3>Scan Barcode</h3>
+              <BarcodeScanner
+                onUpdate={handleBarcodeScan}
+                width={300}
+                height={200}
+              />
+              <button 
+                onClick={() => setShowScanner(false)}
+                className="close-scanner-button"
+              >
+                Close Scanner
+              </button>
+            </div>
+          )}
 
           {error && (
             <div className="error-message">
