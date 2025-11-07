@@ -10,6 +10,7 @@ function App() {
     <div className="App">
       <nav className="navigation">
         <div className="nav-container">
+          <h1 className="nav-title">Reseller App</h1>
           <div className="nav-menu">
             <button 
               className={`nav-button ${currentPage === 'ebay-search' ? 'active' : ''}`}

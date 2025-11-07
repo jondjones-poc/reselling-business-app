@@ -1,20 +1,52 @@
 const express = require('express');
 const cors = require('cors');
-require('dotenv').config();
+const fetch = require('node-fetch');
+const fs = require('fs');
+const path = require('path');
+require('dotenv').config(); // Ensure dotenv is loaded
 
 const app = express();
-const PORT = 5001;
+const PORT = 5003; // Changed from 5001
 
-// Enable CORS for all routes
 app.use(cors());
 app.use(express.json());
 
-// Test endpoint
+const settingsPath = path.join(__dirname, 'settings.json');
+let appSettings = { categories: [], material: [], colors: [], brands: [] };
+
+const loadSettings = () => {
+  try {
+    if (fs.existsSync(settingsPath)) {
+      const settingsContent = fs.readFileSync(settingsPath, 'utf-8');
+      const parsed = JSON.parse(settingsContent);
+      console.log('Loaded settings snapshot:', parsed);
+      appSettings = {
+        categories: parsed.categories ?? [],
+        material: parsed.material ?? [],
+        colors: parsed.colors ?? [],
+        brands: parsed.brands ?? []
+      };
+      return appSettings;
+    }
+    console.warn('settings.json not found at project root. Using empty settings.');
+    return appSettings;
+  } catch (settingsError) {
+    console.error('Failed to load settings.json:', settingsError);
+    return appSettings;
+  }
+};
+
+// Load once at startup
+loadSettings();
+
 app.get('/api/test', (req, res) => {
   res.json({ message: 'Server is working!', timestamp: new Date().toISOString() });
 });
 
-// eBay API proxy endpoint
+app.get('/api/settings', (req, res) => {
+  res.json(loadSettings());
+});
+
 app.get('/api/ebay/search', async (req, res) => {
   try {
     const { q, limit = '5', sort = '-price' } = req.query;
