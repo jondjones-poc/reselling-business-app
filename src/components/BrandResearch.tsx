@@ -3,12 +3,6 @@ import brandsToBuy from '../data/brands-to-buy.json';
 import brandsToAvoid from '../data/brands-to-avoid.json';
 import './BrandResearch.css';
 
-interface BrandData {
-  name: string;
-  category: string;
-  minimumPrice: number;
-}
-
 interface BrandResult {
   name: string;
   category: string;
