@@ -1,0 +1,27 @@
+[
+  {
+    "name": "Primark",
+    "category": "Jumper",
+    "minimumPrice": 0.00
+  },
+  {
+    "name": "H&M",
+    "category": "Jumper",
+    "minimumPrice": 0.00
+  },
+  {
+    "name": "Zara",
+    "category": "Jumper",
+    "minimumPrice": 0.00
+  },
+  {
+    "name": "Forever 21",
+    "category": "Jumper",
+    "minimumPrice": 0.00
+  },
+  {
+    "name": "F&F",
+    "category": "Jumper",
+    "minimumPrice": 0.00
+  }
+]
