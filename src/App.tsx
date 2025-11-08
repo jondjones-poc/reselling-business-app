@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import BrandResearch from './components/BrandResearch';
 import EbaySearch from './components/EbaySearch';
+import Research from './components/Research';
 import './App.css';
 
 function App() {
@@ -24,6 +25,12 @@ function App() {
             >
               Brand Research
             </button>
+            <button 
+              className={`nav-button ${currentPage === 'research' ? 'active' : ''}`}
+              onClick={() => setCurrentPage('research')}
+            >
+              Research
+            </button>
           </div>
         </div>
       </nav>
@@ -34,6 +41,10 @@ function App() {
 
       {currentPage === 'brand-research' && (
         <BrandResearch />
+      )}
+
+      {currentPage === 'research' && (
+        <Research />
       )}
     </div>
   );
