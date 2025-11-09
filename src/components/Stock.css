@@ -231,15 +231,48 @@
 
 .filter-group {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  align-items: center;
+}
+.filter-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 12px;
+  align-items: center;
 }
 
-.filter-label {
+.view-group {
+  display: flex;
+  align-items: center;
+}
+
+.all-year-group {
+  display: flex;
+  align-items: center;
+}
+
+.all-year-button {
+  padding: 10px 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 120, 120, 0.3);
+  background: rgba(255, 120, 120, 0.08);
+  color: rgba(255, 248, 226, 0.75);
   font-size: 0.85rem;
   letter-spacing: 0.08rem;
   text-transform: uppercase;
-  color: rgba(255, 248, 226, 0.7);
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.all-year-button:hover {
+  background: rgba(255, 120, 120, 0.16);
+  color: var(--text-strong);
+}
+
+.all-year-button.active {
+  background: rgba(140, 255, 195, 0.2);
+  border-color: rgba(140, 255, 195, 0.4);
+  color: #9dffd5;
+  box-shadow: 0 0 12px rgba(140, 255, 195, 0.3);
 }
 
 .filter-select {
@@ -260,6 +293,11 @@
   border-color: var(--neon-border-strong);
   box-shadow: var(--neon-shadow);
   background: rgba(255, 214, 91, 0.2);
+}
+
+.filter-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .view-toggle {
@@ -286,6 +324,11 @@
 
 .view-toggle-button:hover {
   color: var(--text-strong);
+}
+
+.view-toggle-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .view-toggle-button.active {

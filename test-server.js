@@ -69,6 +69,13 @@ const ensureIsoDateString = (value) => {
   return date.toISOString().slice(0, 10);
 };
 
+const coalesceNetProfitExpression = `
+  COALESCE(
+    net_profit,
+    COALESCE(sale_price, 0) - COALESCE(purchase_price, 0)
+  )
+`;
+
 const loadSettings = () => {
   try {
     if (fs.existsSync(settingsPath)) {
@@ -527,6 +534,149 @@ app.put('/api/stock/:id', async (req, res) => {
       return res.status(400).json({ error: 'Failed to update stock record', details: error.message });
     }
     res.status(500).json({ error: 'Failed to update stock record', details: error.message });
+  }
+});
+
+app.get('/api/analytics/reporting', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const now = new Date();
+    const requestedYearRaw = req.query.year;
+    const requestedYear = requestedYearRaw ? Number(requestedYearRaw) : now.getFullYear();
+    const targetYear = Number.isNaN(requestedYear) ? now.getFullYear() : requestedYear;
+
+    const yearsResult = await pool.query(`
+      SELECT DISTINCT year FROM (
+        SELECT EXTRACT(YEAR FROM purchase_date)::int AS year FROM stock WHERE purchase_date IS NOT NULL
+        UNION
+        SELECT EXTRACT(YEAR FROM sale_date)::int AS year FROM stock WHERE sale_date IS NOT NULL
+      ) AS years
+      WHERE year IS NOT NULL
+      ORDER BY year DESC
+    `);
+
+    const availableYears = yearsResult.rows.map((row) => row.year);
+    const effectiveYear = availableYears.length > 0
+      ? (availableYears.includes(targetYear) ? targetYear : availableYears[0])
+      : targetYear;
+
+    const profitTimelineResult = await pool.query(
+      `
+        WITH purchase_totals AS (
+          SELECT
+            DATE_TRUNC('month', purchase_date) AS month_start,
+            SUM(COALESCE(purchase_price, 0))::numeric AS total_purchase
+          FROM stock
+          WHERE purchase_date IS NOT NULL
+          GROUP BY month_start
+        ),
+        sale_totals AS (
+          SELECT
+            DATE_TRUNC('month', sale_date) AS month_start,
+            SUM(COALESCE(sale_price, 0))::numeric AS total_sales
+          FROM stock
+          WHERE sale_date IS NOT NULL
+          GROUP BY month_start
+        )
+        SELECT
+          COALESCE(sale_totals.month_start, purchase_totals.month_start) AS month_start,
+          EXTRACT(YEAR FROM COALESCE(sale_totals.month_start, purchase_totals.month_start))::int AS year,
+          EXTRACT(MONTH FROM COALESCE(sale_totals.month_start, purchase_totals.month_start))::int AS month,
+          COALESCE(sale_totals.total_sales, 0) AS total_sales,
+          COALESCE(purchase_totals.total_purchase, 0) AS total_purchase,
+          COALESCE(sale_totals.total_sales, 0) - COALESCE(purchase_totals.total_purchase, 0) AS profit
+        FROM sale_totals
+        FULL OUTER JOIN purchase_totals
+          ON sale_totals.month_start = purchase_totals.month_start
+        ORDER BY month_start ASC
+      `
+    );
+
+    const profitByMonthResult = await pool.query(
+      `
+        WITH purchase_totals AS (
+          SELECT
+            EXTRACT(MONTH FROM purchase_date)::int AS month,
+            SUM(COALESCE(purchase_price, 0))::numeric AS total_purchase
+          FROM stock
+          WHERE purchase_date IS NOT NULL
+            AND EXTRACT(YEAR FROM purchase_date)::int = $1
+          GROUP BY month
+        ),
+        sale_totals AS (
+          SELECT
+            EXTRACT(MONTH FROM sale_date)::int AS month,
+            SUM(COALESCE(sale_price, 0))::numeric AS total_sales
+          FROM stock
+          WHERE sale_date IS NOT NULL
+            AND EXTRACT(YEAR FROM sale_date)::int = $1
+          GROUP BY month
+        )
+        SELECT
+          COALESCE(sale_totals.month, purchase_totals.month) AS month,
+          COALESCE(sale_totals.total_sales, 0) AS total_sales,
+          COALESCE(purchase_totals.total_purchase, 0) AS total_purchase,
+          COALESCE(sale_totals.total_sales, 0) - COALESCE(purchase_totals.total_purchase, 0) AS profit
+        FROM sale_totals
+        FULL OUTER JOIN purchase_totals
+          ON sale_totals.month = purchase_totals.month
+        ORDER BY month ASC
+      `,
+      [effectiveYear]
+    );
+
+    const expensesByMonthResult = await pool.query(
+      `
+        SELECT
+          EXTRACT(MONTH FROM purchase_date)::int AS month,
+          SUM(COALESCE(purchase_price, 0))::numeric AS expense
+        FROM stock
+        WHERE purchase_date IS NOT NULL
+          AND EXTRACT(YEAR FROM purchase_date)::int = $1
+        GROUP BY month
+        ORDER BY month ASC
+      `,
+      [effectiveYear]
+    );
+
+    const profitTimeline = profitTimelineResult.rows.map((row) => ({
+      year: row.year,
+      month: row.month,
+      label: new Date(Date.UTC(row.year, row.month - 1, 1)).toISOString().slice(0, 10),
+      profit: Number(row.profit)
+    }));
+
+    const monthlyProfit = Array.from({ length: 12 }, (_value, index) => {
+      const found = profitByMonthResult.rows.find((row) => row.month === index + 1);
+      return {
+        month: index + 1,
+        profit: found ? Number(found.profit) : 0
+      };
+    });
+
+    const monthlyExpenses = Array.from({ length: 12 }, (_value, index) => {
+      const found = expensesByMonthResult.rows.find((row) => row.month === index + 1);
+      return {
+        month: index + 1,
+        expense: found ? Number(found.expense) : 0
+      };
+    });
+
+    res.json({
+      availableYears,
+      selectedYear: effectiveYear,
+      profitTimeline,
+      monthlyProfit,
+      monthlyExpenses
+    });
+  } catch (error) {
+    console.error('Reporting analytics error:', error);
+    res.status(500).json({ error: 'Failed to load reporting analytics', details: error.message });
   }
 });
 

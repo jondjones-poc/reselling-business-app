@@ -118,7 +118,8 @@ const Stock: React.FC = () => {
   const now = useMemo(() => new Date(), []);
   const [selectedMonth, setSelectedMonth] = useState<string>(String(now.getMonth() + 1));
   const [selectedYear, setSelectedYear] = useState<string>(String(now.getFullYear()));
-  const [viewMode, setViewMode] = useState<'listing' | 'sales' | 'all'>('listing');
+  const [viewMode, setViewMode] = useState<'listing' | 'sales'>('listing');
+  const [showAllYear, setShowAllYear] = useState(false);
   const [showNewEntry, setShowNewEntry] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createForm, setCreateForm] = useState({
@@ -228,22 +229,22 @@ const Stock: React.FC = () => {
     }
 
     return rows.filter((row) => {
-      const targetDate =
-        viewMode === 'listing'
-          ? row.purchase_date
-          : viewMode === 'sales'
-            ? row.sale_date
-            : null;
+      const purchaseDateYear =
+        row.purchase_date && new Date(row.purchase_date).getFullYear().toString();
+      const saleDateYear =
+        row.sale_date && new Date(row.sale_date).getFullYear().toString();
 
-      if (viewMode === 'all') {
-        const matchesPurchase = matchesMonthYear(row.purchase_date, selectedMonth, selectedYear);
-        const matchesSale = matchesMonthYear(row.sale_date, selectedMonth, selectedYear);
-        return matchesPurchase || matchesSale;
+      if (showAllYear) {
+        return purchaseDateYear === selectedYear || saleDateYear === selectedYear;
       }
 
-      return matchesMonthYear(targetDate, selectedMonth, selectedYear);
+      if (viewMode === 'listing') {
+        return matchesMonthYear(row.purchase_date, selectedMonth, selectedYear);
+      }
+
+      return matchesMonthYear(row.sale_date, selectedMonth, selectedYear);
     });
-  }, [rows, selectedMonth, selectedYear, viewMode]);
+  }, [rows, selectedMonth, selectedYear, viewMode, showAllYear]);
 
   const totals = useMemo(() => {
     if (!filteredRows.length) {
@@ -617,30 +618,6 @@ const Stock: React.FC = () => {
 
   return (
     <div className="stock-container">
-      <header className="stock-header">
-        <div>
-          <h1>Inventory Overview</h1>
-          <p>Live snapshot of Supabase stock records.</p>
-        </div>
-        <div className="header-actions">
-          <button type="button" className="refresh-button" onClick={loadStock} disabled={loading || saving}>
-            {loading ? 'Refreshing…' : 'Refresh'}
-          </button>
-        </div>
-        <button
-          type="button"
-          className="new-entry-button"
-          onClick={() => {
-            setShowNewEntry(true);
-            setEditingRowId(null);
-            resetCreateForm();
-          }}
-          disabled={showNewEntry || creating}
-        >
-          + Add Stock
-        </button>
-      </header>
-
       {error && <div className="stock-error">{error}</div>}
       {successMessage && <div className="stock-success">{successMessage}</div>}
 
@@ -765,12 +742,22 @@ const Stock: React.FC = () => {
       )}
 
       <div className="stock-filters">
+        <div className="filter-group all-year-group">
+          <button
+            type="button"
+            className={`all-year-button${showAllYear ? ' active' : ''}`}
+            onClick={() => setShowAllYear((prev) => !prev)}
+          >
+            All Year
+          </button>
+        </div>
+
         <div className="filter-group">
-          <span className="filter-label">Month</span>
           <select
             value={selectedMonth}
             onChange={(event) => setSelectedMonth(event.target.value)}
             className="filter-select"
+            disabled={showAllYear}
           >
             {MONTHS.map((month) => (
               <option key={month.value} value={month.value}>
@@ -781,7 +768,6 @@ const Stock: React.FC = () => {
         </div>
 
         <div className="filter-group">
-          <span className="filter-label">Year</span>
           <select
             value={selectedYear}
             onChange={(event) => setSelectedYear(event.target.value)}
@@ -795,13 +781,13 @@ const Stock: React.FC = () => {
           </select>
         </div>
 
-        <div className="filter-group">
-          <span className="filter-label">View</span>
+        <div className="filter-group view-group">
           <div className="view-toggle">
             <button
               type="button"
               className={`view-toggle-button${viewMode === 'listing' ? ' active' : ''}`}
               onClick={() => setViewMode('listing')}
+              disabled={showAllYear}
             >
               Listings
             </button>
@@ -809,17 +795,29 @@ const Stock: React.FC = () => {
               type="button"
               className={`view-toggle-button${viewMode === 'sales' ? ' active' : ''}`}
               onClick={() => setViewMode('sales')}
+              disabled={showAllYear}
             >
               Sales
             </button>
-            <button
-              type="button"
-              className={`view-toggle-button${viewMode === 'all' ? ' active' : ''}`}
-              onClick={() => setViewMode('all')}
-            >
-              All
-            </button>
           </div>
+        </div>
+
+        <div className="filter-group filter-actions">
+          <button type="button" className="refresh-button" onClick={loadStock} disabled={loading || saving}>
+            {loading ? 'Refreshing…' : 'Refresh'}
+          </button>
+          <button
+            type="button"
+            className="new-entry-button"
+            onClick={() => {
+              setShowNewEntry(true);
+              setEditingRowId(null);
+              resetCreateForm();
+            }}
+            disabled={showNewEntry || creating}
+          >
+            + Add Stock
+          </button>
         </div>
       </div>
 
