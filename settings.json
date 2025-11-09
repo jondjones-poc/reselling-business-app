@@ -119,6 +119,7 @@
     "Cashmere",
     "Cashmere Blend",
     "Corduroy",
+    "Denim",
     "Down",
     "Emmetex",
     "Goose Feather",
@@ -128,6 +129,7 @@
     "Merino Wool",
     "Shearling",
     "Sheepskin",
+    "Silk",
     "Softshell",
     "Suede",
     "Technical Fabrics",
@@ -145,6 +147,7 @@
     "Bronze",
     "Brown",
     "Burgundy",
+    "Camel",
     "Charcoal",
     "Coral",
     "Cream",
@@ -194,6 +197,10 @@
     "Plaid",
     "Polka Dot",
     "Striped"
+  ],
+  "gender": [
+    "Mens",
+    "Womens"
   ],
   "brands": [
     "Acai Outdoorwear",

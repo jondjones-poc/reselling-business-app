@@ -13,9 +13,11 @@ interface AppSettings {
   colors: string[];
   patterns: string[];
   brands: string[];
+  gender: string[];
 }
 
 const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5003';
+const DEFAULT_GENDER = 'Mens';
 
 const EbaySearch: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -26,6 +28,7 @@ const EbaySearch: React.FC = () => {
   const [colors, setColors] = useState<string[]>([]);
   const [patterns, setPatterns] = useState<string[]>([]);
   const [brands, setBrands] = useState<string[]>([]);
+  const [genders, setGenders] = useState<string[]>([]);
   const [settingsLoading, setSettingsLoading] = useState(true);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [selectedCategoryName, setSelectedCategoryName] = useState('');
@@ -34,6 +37,9 @@ const EbaySearch: React.FC = () => {
   const [selectedColor, setSelectedColor] = useState('');
   const [selectedPattern, setSelectedPattern] = useState('');
   const [selectedBrand, setSelectedBrand] = useState('');
+  const [selectedGender, setSelectedGender] = useState(DEFAULT_GENDER);
+
+  const genderOptions = genders.length > 0 ? genders : [DEFAULT_GENDER];
 
   const hasSearchableInput = [
     searchTerm,
@@ -46,10 +52,23 @@ const EbaySearch: React.FC = () => {
     scannedData ?? ''
   ].some((value) => value.trim().length > 0);
 
+  const resolveDefaultGender = (availableGenders: string[]) => {
+    if (!availableGenders || availableGenders.length === 0) {
+      return DEFAULT_GENDER;
+    }
+
+    const matchedDefault = availableGenders.find(
+      (gender) => gender.toLowerCase() === DEFAULT_GENDER.toLowerCase()
+    );
+
+    return matchedDefault ?? availableGenders[0];
+  };
+
   const buildSearchTokens = () => {
     const tokens: string[] = [];
 
     const trimmedSearch = searchTerm.trim();
+    const trimmedGender = selectedGender.trim();
     const trimmedCategory = selectedCategoryName.trim();
     const trimmedDetail = selectedSubCategory.trim();
     const trimmedMaterial = selectedMaterial.trim();
@@ -59,6 +78,10 @@ const EbaySearch: React.FC = () => {
 
     if (trimmedSearch) {
       tokens.push(trimmedSearch);
+    }
+
+    if (trimmedGender) {
+      tokens.push(trimmedGender);
     }
 
     if (trimmedDetail) {
@@ -83,7 +106,7 @@ const EbaySearch: React.FC = () => {
       tokens.push(trimmedBrand);
     }
 
-    const uniqueTokens = Array.from(new Set(tokens));
+    const uniqueTokens = tokens.filter((token, index) => tokens.indexOf(token) === index);
 
     if (trimmedDetail && trimmedCategory) {
       return uniqueTokens.filter((token) => token !== trimmedCategory);
@@ -100,6 +123,7 @@ const EbaySearch: React.FC = () => {
     setSelectedColor('');
     setSelectedPattern('');
     setSelectedBrand('');
+    setSelectedGender(resolveDefaultGender(genders));
     setScannedData(null);
     setShowScanner(false);
   };
@@ -178,18 +202,38 @@ const EbaySearch: React.FC = () => {
         const sortedBrands = [...(data.brands ?? [])].sort((a, b) =>
           a.localeCompare(b, undefined, { sensitivity: 'base' })
         );
+        const sanitizedGenders = Array.from(
+          new Set(
+            (data.gender ?? [])
+              .filter((item): item is string => typeof item === 'string')
+              .map((item) => item.trim())
+              .filter((item) => item.length > 0)
+          )
+        );
+
+        if (sanitizedGenders.length === 0) {
+          sanitizedGenders.push(DEFAULT_GENDER);
+        }
+
+        const defaultGenderValue = resolveDefaultGender(sanitizedGenders);
 
         setCategorySettings(sanitizedCategories);
         setMaterials(sortedMaterials);
         setColors(sortedColors);
         setPatterns(sortedPatterns);
         setBrands(sortedBrands);
+        setGenders(sanitizedGenders);
+        setSelectedGender((previous) =>
+          sanitizedGenders.includes(previous) ? previous : defaultGenderValue
+        );
 
         return (
           sanitizedCategories.length > 0 ||
           sortedColors.length > 0 ||
           sortedMaterials.length > 0 ||
-          sortedBrands.length > 0
+          sortedBrands.length > 0 ||
+          sortedPatterns.length > 0 ||
+          sanitizedGenders.length > 0
         );
       };
 
@@ -262,6 +306,15 @@ const EbaySearch: React.FC = () => {
     setSelectedBrand(value);
   };
 
+  const handleGenderSelect = (value: string) => {
+    if (!value) {
+      setSelectedGender(resolveDefaultGender(genders));
+      return;
+    }
+
+    setSelectedGender(value);
+  };
+
   const handleBarcodeScan = (err: any, result: any) => {
     if (result) {
       setScannedData(result.text);
@@ -305,46 +358,41 @@ const EbaySearch: React.FC = () => {
       <form onSubmit={handleSubmit} className="ebay-search-form">
         {!showScanner ? (
           <>
-            <div className="search-input-wrapper">
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Enter search term (e.g., joop jumper, nike shoes)"
-                className="ebay-search-input"
-                autoComplete="off"
-              />
+            <div className="search-bar-group">
+              <div className="search-input-wrapper">
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Enter search term (e.g., joop jumper, nike shoes)"
+                  className="ebay-search-input"
+                  autoComplete="off"
+                />
+              </div>
             </div>
-            <div className="search-button-wrapper">
+            <div className="primary-action-row">
+              <button
+                type="submit"
+                className="ebay-search-button"
+                disabled={!hasSearchableInput}
+              >
+                Search eBay
+              </button>
+              <button
+                type="button"
+                onClick={handleCopyToClipboard}
+                className="copy-button"
+                disabled={!hasSearchableInput}
+              >
+                📋 Copy
+              </button>
               <button
                 type="button"
                 onClick={clearAll}
                 className="clear-button"
                 disabled={!hasSearchableInput}
               >
-                Clear
-              </button>
-              <button
-                type="button"
-                onClick={handleCopyToClipboard}
-                className="clipboard-button"
-                disabled={!hasSearchableInput}
-              >
-                Copy to Clipboard
-              </button>
-              <button 
-                type="button"
-                onClick={() => setShowScanner(true)}
-                className="scanner-button"
-              >
-                📷 Scan Barcode
-              </button>
-              <button 
-                type="submit"
-                className="ebay-search-button"
-                disabled={!hasSearchableInput}
-              >
-                Search eBay
+                Reset
               </button>
             </div>
             {scannedData && (
@@ -359,7 +407,7 @@ const EbaySearch: React.FC = () => {
               width={300}
               height={200}
             />
-            <button 
+            <button
               type="button"
               onClick={() => setShowScanner(false)}
               className="close-scanner-button"
@@ -446,10 +494,7 @@ const EbaySearch: React.FC = () => {
               className="dropdown-select"
               disabled={!selectedCategoryName || subCategories.length === 0}
             >
-              <option
-                value=""
-                disabled={subCategories.length > 0}
-              >
+              <option value="" disabled={subCategories.length > 0}>
                 {subCategories.length > 0 ? 'Details (select...)' : 'Details unavailable'}
               </option>
               {subCategories.map((subCategory) => (
@@ -478,6 +523,36 @@ const EbaySearch: React.FC = () => {
           </div>
         </div>
 
+        <div className="gender-section">
+          <div className="category-control">
+            <select
+              id="gender-select"
+              value={selectedGender}
+              onChange={(e) => handleGenderSelect(e.target.value)}
+              className="dropdown-select"
+              disabled={genderOptions.length === 0}
+            >
+              {genderOptions.map((gender) => (
+                <option key={gender} value={gender}>
+                  {gender}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="bottom-action-row">
+          {!showScanner && (
+            <button
+              type="button"
+              onClick={() => setShowScanner(true)}
+              className="scanner-button"
+            >
+              📷 Scan Barcode
+            </button>
+          )}
+        </div>
+
         {settingsLoading && (
           <div className="settings-status">Loading settings...</div>
         )}
@@ -486,7 +561,6 @@ const EbaySearch: React.FC = () => {
           <div className="settings-error">{settingsError}</div>
         )}
       </form>
-
     </div>
   );
 };

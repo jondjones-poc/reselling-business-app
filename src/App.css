@@ -474,23 +474,28 @@ body {
 @media (max-width: 768px) {
   .nav-container {
     flex-direction: column;
-    gap: 18px;
-    padding: 14px;
+    align-items: flex-start;
+    gap: 12px;
   }
-  
+
   .nav-title {
-    font-size: 1.4rem;
-    text-align: center;
+    cursor: pointer;
   }
-  
+
   .nav-menu {
+    display: none;
+    width: 100%;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .nav-menu.show-mobile {
+    display: flex;
+  }
+
+  .nav-button {
     width: 100%;
     justify-content: center;
-  }
-  
-  .nav-button {
-    flex: 1;
-    max-width: 160px;
   }
   
   .App-header {

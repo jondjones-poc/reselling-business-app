@@ -12,7 +12,7 @@ app.use(cors());
 app.use(express.json());
 
 const settingsPath = path.join(__dirname, 'settings.json');
-let appSettings = { categories: [], material: [], colors: [], patterns: [], brands: [] };
+let appSettings = { categories: [], material: [], colors: [], brands: [], patterns: [], gender: [] }; // Added gender
 
 const loadSettings = () => {
   try {
@@ -24,8 +24,9 @@ const loadSettings = () => {
         categories: parsed.categories ?? [],
         material: parsed.material ?? [],
         colors: parsed.colors ?? [],
+        brands: parsed.brands ?? [],
         patterns: parsed.patterns ?? [],
-        brands: parsed.brands ?? []
+        gender: parsed.gender ?? [] // Load gender
       };
       return appSettings;
     }
