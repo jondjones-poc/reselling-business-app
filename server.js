@@ -133,10 +133,27 @@ const getDatabasePool = () => {
     return null;
   }
 
-  dbPool = new Pool({
+  let originalHostname = null;
+  let resolvedHostAddress = null;
+
+  try {
+    const dbUrl = new URL(connectionString);
+    originalHostname = dbUrl.hostname;
+
+    if (typeof dns.lookupSync === 'function') {
+      const lookupResult = dns.lookupSync(originalHostname, { family: 4 });
+      resolvedHostAddress =
+        typeof lookupResult === 'string' ? lookupResult : lookupResult.address;
+    }
+  } catch (error) {
+    console.warn('Unable to pre-resolve IPv4 address for database host:', error.message);
+  }
+
+  const poolConfig = {
     connectionString,
     ssl: {
-      rejectUnauthorized: false
+      rejectUnauthorized: false,
+      ...(originalHostname ? { servername: originalHostname } : {})
     },
     lookup: (hostname, options, callback) => {
       const lookupOptions = {
@@ -152,7 +169,13 @@ const getDatabasePool = () => {
 
       return dns.lookup(hostname, lookupOptions, callback);
     }
-  });
+  };
+
+  if (resolvedHostAddress) {
+    poolConfig.host = resolvedHostAddress;
+  }
+
+  dbPool = new Pool(poolConfig);
 
   dbPool.on('error', (poolError) => {
     console.error('Unexpected Postgres client error:', poolError);
