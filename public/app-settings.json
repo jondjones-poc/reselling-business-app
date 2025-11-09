@@ -26,19 +26,23 @@
       ]
     },
     {
-      "name": "Coats, Jackets & Waistcoats",
+      "name": "Coat",
       "subCategories": [
-        "Jackets",
-        "Coats",
-        "Blazers",
-        "Fleece Jackets",
         "Gilet",
         "Overcoats",
         "Trenchcoat"
       ]
     },
     {
-      "name": "Jumpers & Cardigans",
+      "name": "Jacket",
+      "subCategories": [
+        "Jacket",
+        "Blazer",
+        "Fleece Jackets"
+      ]
+    },
+    {
+      "name": "Jumpers",
       "subCategories": [
         "Aran Jumper",
         "Cable Knit Jumper",
@@ -64,7 +68,7 @@
       ]
     },
     {
-      "name": "Shirts & Tops",
+      "name": "Shirts",
       "subCategories": [
         "Casual Shirt",
         "Dress Shirt",
@@ -215,6 +219,7 @@
   ],
   "gender": [
     "Mens",
+    "None",
     "Womens"
   ],
   "brands": [

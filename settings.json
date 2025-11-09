@@ -23,18 +23,22 @@
         "Watch"
       ] },
     {
-      "name": "Coats, Jackets & Waistcoats",
+      "name": "Coat",
       "subCategories": [
-        "Jackets",
-        "Coats",
-        "Blazers",
-        "Fleece Jackets",
         "Gilet",
         "Overcoats",
         "Trenchcoat"
       ]
     },
-    { "name": "Jumpers & Cardigans", "subCategories":  [
+    {
+      "name": "Jacket",
+      "subCategories": [
+        "Jacket",
+        "Blazer",
+        "Fleece Jackets"
+      ]
+    },
+    { "name": "Jumper", "subCategories":  [
         "Aran Jumper",
         "Cable Knit Jumper",
         "Cardigan",
@@ -57,7 +61,7 @@
         "Knitted Sweatshirt",
         "Sweater Vest"
       ] },
-    { "name": "Shirts & Tops", "subCategories": [
+    { "name": "Shirts", "subCategories": [
         "Casual Shirt",
         "Dress Shirt",
         "Oxford Shirt",
@@ -200,6 +204,7 @@
   ],
   "gender": [
     "Mens",
+    "None",
     "Womens"
   ],
   "brands": [

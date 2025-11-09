@@ -80,7 +80,7 @@ const EbaySearch: React.FC = () => {
       tokens.push(trimmedSearch);
     }
 
-    if (trimmedGender) {
+    if (trimmedGender && trimmedGender.toLowerCase() !== 'none') {
       tokens.push(trimmedGender);
     }
 
