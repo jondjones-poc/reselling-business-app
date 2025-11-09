@@ -137,6 +137,20 @@ const getDatabasePool = () => {
     connectionString,
     ssl: {
       rejectUnauthorized: false
+    },
+    lookup: (hostname, options, callback) => {
+      const lookupOptions = {
+        family: 4,
+        hints: dns.ADDRCONFIG
+      };
+
+      if (options) {
+        Object.assign(lookupOptions, options);
+        lookupOptions.hints = (options.hints ?? 0) | dns.ADDRCONFIG;
+        lookupOptions.family = 4;
+      }
+
+      return dns.lookup(hostname, lookupOptions, callback);
     }
   });
 
