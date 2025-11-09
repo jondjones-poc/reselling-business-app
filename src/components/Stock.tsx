@@ -1,0 +1,1031 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
+import './Stock.css';
+
+const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5003';
+
+type Nullable<T> = T | null | undefined;
+
+interface StockRow {
+  id: number;
+  item_name: Nullable<string>;
+  category: Nullable<string>;
+  purchase_price: Nullable<string | number>;
+  purchase_date: Nullable<string>;
+  sale_date: Nullable<string>;
+  sale_price: Nullable<string | number>;
+  sold_platform: Nullable<string>;
+  net_profit: Nullable<string | number>;
+}
+
+interface StockApiResponse {
+  rows: StockRow[];
+  count: number;
+}
+
+const MONTHS = [
+  { value: '1', label: 'January' },
+  { value: '2', label: 'February' },
+  { value: '3', label: 'March' },
+  { value: '4', label: 'April' },
+  { value: '5', label: 'May' },
+  { value: '6', label: 'June' },
+  { value: '7', label: 'July' },
+  { value: '8', label: 'August' },
+  { value: '9', label: 'September' },
+  { value: '10', label: 'October' },
+  { value: '11', label: 'November' },
+  { value: '12', label: 'December' }
+];
+
+const formatCurrency = (value: Nullable<string | number>) => {
+  if (value === null || value === undefined || value === '') {
+    return '—';
+  }
+
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (Number.isNaN(parsed)) {
+    return `${value}`;
+  }
+
+  return new Intl.NumberFormat('en-GB', {
+    style: 'currency',
+    currency: 'GBP',
+    minimumFractionDigits: 2
+  }).format(parsed);
+};
+
+const formatDate = (value: Nullable<string>) => {
+  if (!value) {
+    return '—';
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat('en-GB', {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit'
+  }).format(date);
+};
+
+const normalizeDateInput = (value: Nullable<string>) => {
+  if (!value) {
+    return '';
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  const iso = date.toISOString();
+  return iso.slice(0, 10);
+};
+
+const stringToDate = (value: Nullable<string>) => {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const dateToIsoString = (value: Date | null) => {
+  if (!value) {
+    return '';
+  }
+  const iso = value.toISOString();
+  return iso.slice(0, 10);
+};
+
+const Stock: React.FC = () => {
+  const [rows, setRows] = useState<StockRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [editingRowId, setEditingRowId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState<Partial<StockRow>>({});
+  const [saving, setSaving] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [sortConfig, setSortConfig] = useState<{
+    key: keyof Omit<StockRow, 'id'>;
+    direction: 'asc' | 'desc';
+  } | null>(null);
+  const now = useMemo(() => new Date(), []);
+  const [selectedMonth, setSelectedMonth] = useState<string>(String(now.getMonth() + 1));
+  const [selectedYear, setSelectedYear] = useState<string>(String(now.getFullYear()));
+  const [viewMode, setViewMode] = useState<'listing' | 'sales' | 'all'>('listing');
+  const [showNewEntry, setShowNewEntry] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    item_name: '',
+    category: '',
+    purchase_price: '',
+    purchase_date: '',
+    sale_date: '',
+    sale_price: '',
+    sold_platform: ''
+  });
+
+  const loadStock = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const response = await fetch(`${API_BASE}/api/stock`);
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || 'Failed to load stock data');
+      }
+
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        throw new Error(text || 'Unexpected response format');
+      }
+
+      const data: StockApiResponse = await response.json();
+      setRows(Array.isArray(data.rows) ? data.rows : []);
+      setEditingRowId(null);
+      setEditForm({});
+    } catch (err: any) {
+      console.error('Stock load error:', err);
+      setError(err.message || 'Unable to load stock data');
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadStock();
+  }, []);
+
+  useEffect(() => {
+    if (!successMessage) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setSuccessMessage(null);
+    }, 4000);
+
+    return () => window.clearTimeout(timeout);
+  }, [successMessage]);
+
+  const availableYears = useMemo(() => {
+    const yearSet = new Set<number>([now.getFullYear()]);
+    rows.forEach((row) => {
+      const purchaseDate = row.purchase_date ? new Date(row.purchase_date) : null;
+      if (purchaseDate && !Number.isNaN(purchaseDate.getTime())) {
+        yearSet.add(purchaseDate.getFullYear());
+      }
+
+      const saleDate = row.sale_date ? new Date(row.sale_date) : null;
+      if (saleDate && !Number.isNaN(saleDate.getTime())) {
+        yearSet.add(saleDate.getFullYear());
+      }
+    });
+
+    return Array.from(yearSet)
+      .sort((a, b) => b - a)
+      .map((year) => String(year));
+  }, [rows, now]);
+
+  useEffect(() => {
+    if (availableYears.length === 0) {
+      return;
+    }
+
+    if (!availableYears.includes(selectedYear)) {
+      setSelectedYear(availableYears[0]);
+    }
+  }, [availableYears, selectedYear]);
+
+  const matchesMonthYear = (dateValue: Nullable<string>, month: string, year: string) => {
+    if (!dateValue) {
+      return false;
+    }
+
+    const date = new Date(dateValue);
+    if (Number.isNaN(date.getTime())) {
+      return false;
+    }
+
+    return (
+      String(date.getMonth() + 1) === month &&
+      String(date.getFullYear()) === year
+    );
+  };
+
+  const filteredRows = useMemo(() => {
+    if (!rows.length) {
+      return [];
+    }
+
+    return rows.filter((row) => {
+      const targetDate =
+        viewMode === 'listing'
+          ? row.purchase_date
+          : viewMode === 'sales'
+            ? row.sale_date
+            : null;
+
+      if (viewMode === 'all') {
+        const matchesPurchase = matchesMonthYear(row.purchase_date, selectedMonth, selectedYear);
+        const matchesSale = matchesMonthYear(row.sale_date, selectedMonth, selectedYear);
+        return matchesPurchase || matchesSale;
+      }
+
+      return matchesMonthYear(targetDate, selectedMonth, selectedYear);
+    });
+  }, [rows, selectedMonth, selectedYear, viewMode]);
+
+  const totals = useMemo(() => {
+    if (!filteredRows.length) {
+      return {
+        purchase: 0,
+        sale: 0,
+        profit: 0
+      };
+    }
+
+    return filteredRows.reduce(
+      (acc, row) => {
+        const purchase = Number(row.purchase_price);
+        const sale = Number(row.sale_price);
+
+        const nextPurchase = !Number.isNaN(purchase) ? acc.purchase + purchase : acc.purchase;
+        const nextSale = !Number.isNaN(sale) ? acc.sale + sale : acc.sale;
+
+        return {
+          purchase: nextPurchase,
+          sale: nextSale,
+          profit: nextSale - nextPurchase
+        };
+      },
+      { purchase: 0, sale: 0, profit: 0 }
+    );
+  }, [filteredRows]);
+
+  const sortedRows = useMemo(() => {
+    if (!sortConfig) {
+      return filteredRows;
+    }
+
+    const { key, direction } = sortConfig;
+    const multiplier = direction === 'asc' ? 1 : -1;
+
+    const getComparableValue = (row: StockRow) => {
+      const value = row[key];
+
+      if (value === null || value === undefined) {
+        return '';
+      }
+
+      if (key === 'purchase_price' || key === 'sale_price' || key === 'net_profit') {
+        const numeric = Number(value);
+        return Number.isNaN(numeric) ? Number.NEGATIVE_INFINITY : numeric;
+      }
+
+      if (key === 'purchase_date' || key === 'sale_date') {
+        const date = new Date(String(value));
+        return Number.isNaN(date.getTime()) ? Number.NEGATIVE_INFINITY : date.getTime();
+      }
+
+      return String(value).toLowerCase();
+    };
+
+    return [...filteredRows].sort((a, b) => {
+      const aValue = getComparableValue(a);
+      const bValue = getComparableValue(b);
+
+      if (aValue === bValue) {
+        return 0;
+      }
+
+      if (aValue > bValue) {
+        return 1 * multiplier;
+      }
+
+      return -1 * multiplier;
+    });
+  }, [filteredRows, sortConfig]);
+
+  const computeDifference = (
+    purchase: Nullable<string | number>,
+    sale: Nullable<string | number>
+  ) => {
+    const normalize = (value: Nullable<string | number>) => {
+      if (value === null || value === undefined) {
+        return Number.NaN;
+      }
+
+      if (typeof value === 'number') {
+        return Number.isNaN(value) ? Number.NaN : value;
+      }
+
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return Number.NaN;
+      }
+
+      const numeric = Number(trimmed);
+      return Number.isNaN(numeric) ? Number.NaN : numeric;
+    };
+
+    const purchaseValue = normalize(purchase);
+    const saleValue = normalize(sale);
+
+    if (Number.isNaN(purchaseValue) || Number.isNaN(saleValue)) {
+      return null;
+    }
+
+    return saleValue - purchaseValue;
+  };
+
+  const createFormProfit = useMemo(
+    () => computeDifference(createForm.purchase_price, createForm.sale_price),
+    [createForm.purchase_price, createForm.sale_price]
+  );
+
+  const startEditingRow = (row: StockRow) => {
+    if (saving) {
+      return;
+    }
+
+    if (editingRowId === row.id) {
+      return;
+    }
+
+    setEditingRowId(row.id);
+    setEditForm({
+      id: row.id,
+      item_name: row.item_name ?? '',
+      category: row.category ?? '',
+      purchase_price: row.purchase_price ?? '',
+      purchase_date: normalizeDateInput(row.purchase_date ?? ''),
+      sale_date: normalizeDateInput(row.sale_date ?? ''),
+      sale_price: row.sale_price ?? '',
+      sold_platform: row.sold_platform ?? '',
+      net_profit: row.net_profit ?? ''
+    });
+    setSuccessMessage(null);
+  };
+
+  const cancelEditing = () => {
+    if (saving) {
+      return;
+    }
+
+    setEditingRowId(null);
+    setEditForm({});
+  };
+
+  const handleEditChange = (
+    key: keyof Omit<StockRow, 'id'>,
+    value: string
+  ) => {
+    setEditForm((prev) => ({
+      ...prev,
+      [key]: value
+    }));
+  };
+
+  const resetCreateForm = () => {
+    setCreateForm({
+      item_name: '',
+      category: '',
+      purchase_price: '',
+      purchase_date: '',
+      sale_date: '',
+      sale_price: '',
+      sold_platform: ''
+    });
+  };
+
+  const handleCreateChange = (key: keyof typeof createForm, value: string) => {
+    setCreateForm((prev) => ({
+      ...prev,
+      [key]: value
+    }));
+  };
+
+  const handleCreateSubmit = async () => {
+    try {
+      setCreating(true);
+      setError(null);
+
+      const response = await fetch(`${API_BASE}/api/stock`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(createForm)
+      });
+
+      if (!response.ok) {
+        let message = 'Failed to create stock record';
+        try {
+          const errorBody = await response.json();
+          message = errorBody?.details || errorBody?.error || message;
+        } catch {
+          const text = await response.text();
+          message = text || message;
+        }
+        throw new Error(message);
+      }
+
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        throw new Error(text || 'Unexpected response format');
+      }
+
+      const data = await response.json();
+      const newRow: StockRow | undefined = data?.row;
+
+      if (!newRow) {
+        throw new Error('Server did not return the new row.');
+      }
+
+      setRows((prev) => [newRow, ...prev]);
+      setSuccessMessage('Stock record created successfully.');
+      setShowNewEntry(false);
+      resetCreateForm();
+      setSortConfig(null);
+    } catch (err: any) {
+      console.error('Stock create error:', err);
+      setError(err.message || 'Unable to create stock record');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (editingRowId === null) {
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setError(null);
+
+      const payload = {
+        item_name: editForm.item_name ?? '',
+        category: editForm.category ?? '',
+        purchase_price: editForm.purchase_price ?? '',
+        purchase_date: editForm.purchase_date ?? '',
+        sale_date: editForm.sale_date ?? '',
+        sale_price: editForm.sale_price ?? '',
+        sold_platform: editForm.sold_platform ?? ''
+      };
+
+      const response = await fetch(`${API_BASE}/api/stock/${editingRowId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        let message = 'Failed to update stock record';
+        try {
+          const errorBody = await response.json();
+          message = errorBody?.details || errorBody?.error || message;
+        } catch {
+          const text = await response.text();
+          message = text || message;
+        }
+        throw new Error(message);
+      }
+
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        throw new Error(text || 'Unexpected response format');
+      }
+
+      const data = await response.json();
+      const updatedRow: StockRow | undefined = data?.row;
+
+      if (!updatedRow) {
+        throw new Error('Server did not return the updated row.');
+      }
+
+      setRows((prev) =>
+        prev.map((row) => (row.id === updatedRow.id ? updatedRow : row))
+      );
+
+      setSuccessMessage('Stock record updated successfully.');
+      setEditingRowId(null);
+      setEditForm({});
+    } catch (err: any) {
+      console.error('Stock update error:', err);
+      setError(err.message || 'Unable to update stock record');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const renderCellContent = (
+    row: StockRow,
+    key: keyof Omit<StockRow, 'id'>,
+    formatter?: (value: Nullable<string | number>) => string,
+    isDate?: boolean
+  ) => {
+    const isEditing = editingRowId === row.id;
+    const value = row[key];
+
+    if (key === 'net_profit') {
+      return formatCurrency(value as Nullable<string | number>);
+    }
+
+    if (!isEditing) {
+      if (formatter) {
+        return formatter(value as Nullable<string | number>);
+      }
+
+      return value ?? '—';
+    }
+
+    const editValue = (editForm[key] as string | number | null | undefined) ?? '';
+
+    if (isDate) {
+      const selectedDate = stringToDate(String(editValue));
+      return (
+        <DatePicker
+          selected={selectedDate}
+          onChange={(date) => handleEditChange(key, dateToIsoString(date ?? null))}
+          dateFormat="yyyy-MM-dd"
+          placeholderText="Select date"
+          className="date-picker-input"
+          calendarClassName="date-picker-calendar"
+          wrapperClassName="date-picker-wrapper"
+        />
+      );
+    }
+
+    if (key === 'purchase_price' || key === 'sale_price') {
+      return (
+        <input
+          type="number"
+          step="0.01"
+          className="edit-input"
+          value={String(editValue)}
+          onChange={(event) => handleEditChange(key, event.target.value)}
+        />
+      );
+    }
+
+    return (
+      <input
+        type="text"
+        className="edit-input"
+        value={String(editValue)}
+        onChange={(event) => handleEditChange(key, event.target.value)}
+      />
+    );
+  };
+
+  const handleSort = (key: keyof Omit<StockRow, 'id'>) => {
+    setSortConfig((current) => {
+      if (!current || current.key !== key) {
+        return { key, direction: 'asc' };
+      }
+
+      if (current.direction === 'asc') {
+        return { key, direction: 'desc' };
+      }
+
+      return null;
+    });
+  };
+
+  const resolveSortIndicator = (key: keyof Omit<StockRow, 'id'>) => {
+    if (!sortConfig || sortConfig.key !== key) {
+      return '⇅';
+    }
+
+    return sortConfig.direction === 'asc' ? '↑' : '↓';
+  };
+
+  return (
+    <div className="stock-container">
+      <header className="stock-header">
+        <div>
+          <h1>Inventory Overview</h1>
+          <p>Live snapshot of Supabase stock records.</p>
+        </div>
+        <div className="header-actions">
+          <button type="button" className="refresh-button" onClick={loadStock} disabled={loading || saving}>
+            {loading ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
+        <button
+          type="button"
+          className="new-entry-button"
+          onClick={() => {
+            setShowNewEntry(true);
+            setEditingRowId(null);
+            resetCreateForm();
+          }}
+          disabled={showNewEntry || creating}
+        >
+          + Add Stock
+        </button>
+      </header>
+
+      {error && <div className="stock-error">{error}</div>}
+      {successMessage && <div className="stock-success">{successMessage}</div>}
+
+      {showNewEntry && (
+        <div className="new-entry-card">
+          <h2>Add Stock Entry</h2>
+          <div className="new-entry-grid">
+            <label className="new-entry-field">
+              <span>Name</span>
+              <input
+                type="text"
+                value={createForm.item_name}
+                onChange={(event) => handleCreateChange('item_name', event.target.value)}
+                placeholder="e.g. Barbour jacket"
+              />
+            </label>
+            <label className="new-entry-field">
+              <span>Category</span>
+              <input
+                type="text"
+                value={createForm.category}
+                onChange={(event) => handleCreateChange('category', event.target.value)}
+                placeholder="e.g. Coats"
+              />
+            </label>
+            <label className="new-entry-field">
+              <span>Purchase Price (£)</span>
+              <input
+                type="number"
+                step="0.01"
+                value={createForm.purchase_price}
+                onChange={(event) => handleCreateChange('purchase_price', event.target.value)}
+                placeholder="e.g. 45.00"
+              />
+            </label>
+            <label className="new-entry-field">
+              <span>Purchase Date</span>
+              <DatePicker
+                selected={stringToDate(createForm.purchase_date)}
+                onChange={(date) =>
+                  handleCreateChange('purchase_date', dateToIsoString(date ?? null))
+                }
+                dateFormat="yyyy-MM-dd"
+                placeholderText="Select purchase date"
+                className="date-picker-input"
+                calendarClassName="date-picker-calendar"
+                wrapperClassName="date-picker-wrapper"
+              />
+            </label>
+            <label className="new-entry-field">
+              <span>Sale Price (£)</span>
+              <input
+                type="number"
+                step="0.01"
+                value={createForm.sale_price}
+                onChange={(event) => handleCreateChange('sale_price', event.target.value)}
+                placeholder="e.g. 95.00"
+              />
+            </label>
+            <label className="new-entry-field">
+              <span>Sale Date</span>
+              <DatePicker
+                selected={stringToDate(createForm.sale_date)}
+                onChange={(date) =>
+                  handleCreateChange('sale_date', dateToIsoString(date ?? null))
+                }
+                dateFormat="yyyy-MM-dd"
+                placeholderText="Select sale date"
+                className="date-picker-input"
+                calendarClassName="date-picker-calendar"
+                wrapperClassName="date-picker-wrapper"
+              />
+            </label>
+            <label className="new-entry-field">
+              <span>Sold Platform</span>
+              <input
+                type="text"
+                value={createForm.sold_platform}
+                onChange={(event) => handleCreateChange('sold_platform', event.target.value)}
+                placeholder="e.g. eBay"
+              />
+            </label>
+          </div>
+          <div className="profit-preview-wrapper">
+            <span className="profit-preview-label">Profit Preview:</span>
+            <span
+              className={`profit-preview-value ${
+                createFormProfit !== null
+                  ? createFormProfit >= 0
+                    ? 'positive'
+                    : 'negative'
+                  : ''
+              }`}
+            >
+              {createFormProfit !== null ? formatCurrency(createFormProfit) : '—'}
+            </span>
+          </div>
+          <div className="new-entry-actions">
+            <button
+              type="button"
+              className="save-button"
+              onClick={handleCreateSubmit}
+              disabled={creating}
+            >
+              {creating ? 'Saving…' : 'Save'}
+            </button>
+            <button
+              type="button"
+              className="cancel-button"
+              onClick={() => {
+                if (!creating) {
+                  setShowNewEntry(false);
+                  resetCreateForm();
+                }
+              }}
+              disabled={creating}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="stock-filters">
+        <div className="filter-group">
+          <span className="filter-label">Month</span>
+          <select
+            value={selectedMonth}
+            onChange={(event) => setSelectedMonth(event.target.value)}
+            className="filter-select"
+          >
+            {MONTHS.map((month) => (
+              <option key={month.value} value={month.value}>
+                {month.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="filter-group">
+          <span className="filter-label">Year</span>
+          <select
+            value={selectedYear}
+            onChange={(event) => setSelectedYear(event.target.value)}
+            className="filter-select"
+          >
+            {availableYears.map((year) => (
+              <option key={year} value={year}>
+                {year}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="filter-group">
+          <span className="filter-label">View</span>
+          <div className="view-toggle">
+            <button
+              type="button"
+              className={`view-toggle-button${viewMode === 'listing' ? ' active' : ''}`}
+              onClick={() => setViewMode('listing')}
+            >
+              Listings
+            </button>
+            <button
+              type="button"
+              className={`view-toggle-button${viewMode === 'sales' ? ' active' : ''}`}
+              onClick={() => setViewMode('sales')}
+            >
+              Sales
+            </button>
+            <button
+              type="button"
+              className={`view-toggle-button${viewMode === 'all' ? ' active' : ''}`}
+              onClick={() => setViewMode('all')}
+            >
+              All
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <section className="stock-summary">
+        <div className="summary-card">
+          <span className="summary-label">Total Purchase</span>
+          <span className="summary-value">{formatCurrency(totals.purchase)}</span>
+        </div>
+        <div className="summary-card">
+          <span className="summary-label">Total Sales</span>
+          <span className="summary-value">{formatCurrency(totals.sale)}</span>
+        </div>
+        <div className="summary-card">
+          <span className="summary-label">Profit</span>
+          <span className={`summary-value ${totals.profit >= 0 ? 'positive' : 'negative'}`}>
+            {formatCurrency(totals.profit)}
+          </span>
+        </div>
+        <div className="summary-card">
+          <span className="summary-label">Records</span>
+          <span className="summary-value">{rows.length.toLocaleString()}</span>
+        </div>
+      </section>
+
+      <div className="table-wrapper">
+        <table className="stock-table">
+          <thead>
+            <tr>
+              <th>
+                <button
+                  type="button"
+                  className={`sortable-header${sortConfig?.key === 'item_name' ? ` sorted-${sortConfig.direction}` : ''}`}
+                  onClick={() => handleSort('item_name')}
+                >
+                  Item <span className="sort-indicator">{resolveSortIndicator('item_name')}</span>
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  className={`sortable-header${sortConfig?.key === 'category' ? ` sorted-${sortConfig.direction}` : ''}`}
+                  onClick={() => handleSort('category')}
+                >
+                  Category <span className="sort-indicator">{resolveSortIndicator('category')}</span>
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  className={`sortable-header${sortConfig?.key === 'purchase_price' ? ` sorted-${sortConfig.direction}` : ''}`}
+                  onClick={() => handleSort('purchase_price')}
+                >
+                  Purchase Price <span className="sort-indicator">{resolveSortIndicator('purchase_price')}</span>
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  className={`sortable-header${sortConfig?.key === 'purchase_date' ? ` sorted-${sortConfig.direction}` : ''}`}
+                  onClick={() => handleSort('purchase_date')}
+                >
+                  Purchase Date <span className="sort-indicator">{resolveSortIndicator('purchase_date')}</span>
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  className={`sortable-header${sortConfig?.key === 'sale_date' ? ` sorted-${sortConfig.direction}` : ''}`}
+                  onClick={() => handleSort('sale_date')}
+                >
+                  Sale Date <span className="sort-indicator">{resolveSortIndicator('sale_date')}</span>
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  className={`sortable-header${sortConfig?.key === 'sale_price' ? ` sorted-${sortConfig.direction}` : ''}`}
+                  onClick={() => handleSort('sale_price')}
+                >
+                  Sale Price <span className="sort-indicator">{resolveSortIndicator('sale_price')}</span>
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  className={`sortable-header${sortConfig?.key === 'sold_platform' ? ` sorted-${sortConfig.direction}` : ''}`}
+                  onClick={() => handleSort('sold_platform')}
+                >
+                  Platform <span className="sort-indicator">{resolveSortIndicator('sold_platform')}</span>
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  className={`sortable-header${sortConfig?.key === 'net_profit' ? ` sorted-${sortConfig.direction}` : ''}`}
+                  onClick={() => handleSort('net_profit')}
+                >
+                  Net Profit <span className="sort-indicator">{resolveSortIndicator('net_profit')}</span>
+                </button>
+              </th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {!loading && sortedRows.length === 0 && (
+              <tr>
+                <td colSpan={9} className="empty-state">
+                  No stock records found.
+                </td>
+              </tr>
+            )}
+            {sortedRows.map((row) => {
+              const isEditing = editingRowId === row.id;
+              const storedProfit =
+                row.net_profit !== null && row.net_profit !== undefined
+                  ? Number(row.net_profit)
+                  : computeDifference(row.purchase_price, row.sale_price);
+              const editingProfit = isEditing
+                ? computeDifference(editForm.purchase_price, editForm.sale_price)
+                : storedProfit;
+              const profitValue = editingProfit;
+              const profitClass =
+                profitValue !== null
+                  ? profitValue >= 0
+                    ? 'profit-chip positive'
+                    : 'profit-chip negative'
+                  : 'profit-chip neutral';
+              const profitDisplay = profitValue !== null ? formatCurrency(profitValue) : '—';
+
+              return (
+                <tr
+                  key={row.id}
+                  className={isEditing ? 'editing-row' : ''}
+                  onClick={() => startEditingRow(row)}
+                >
+                  <td>{renderCellContent(row, 'item_name')}</td>
+                  <td>{renderCellContent(row, 'category')}</td>
+                  <td>{renderCellContent(row, 'purchase_price', formatCurrency)}</td>
+                  <td>
+                    {renderCellContent(
+                      row,
+                      'purchase_date',
+                      (val) => formatDate(val as Nullable<string>),
+                      true
+                    )}
+                  </td>
+                  <td>
+                    {renderCellContent(
+                      row,
+                      'sale_date',
+                      (val) => formatDate(val as Nullable<string>),
+                      true
+                    )}
+                  </td>
+                  <td>{renderCellContent(row, 'sale_price', formatCurrency)}</td>
+                  <td>{renderCellContent(row, 'sold_platform')}</td>
+                  <td>
+                    <span className={profitClass}>{profitDisplay}</span>
+                  </td>
+                  <td>
+                    {isEditing ? (
+                      <div className="row-actions">
+                        <button
+                          type="button"
+                          className="save-button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleSave();
+                          }}
+                          disabled={saving}
+                        >
+                          {saving ? 'Saving…' : 'Update'}
+                        </button>
+                        <button
+                          type="button"
+                          className="cancel-button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            cancelEditing();
+                          }}
+                          disabled={saving}
+                        >
+                          Close
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className="row-hint-button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          startEditingRow(row);
+                        }}
+                      >
+                        Edit
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+export default Stock;

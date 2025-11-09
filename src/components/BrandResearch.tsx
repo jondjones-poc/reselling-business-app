@@ -83,6 +83,37 @@ const BrandResearch: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (typeof window === 'undefined' || settingsBrands.length === 0) {
+      return;
+    }
+
+    try {
+      const stored = window.localStorage.getItem('saerch term');
+      const trimmed = stored ? stored.trim() : '';
+
+      if (!trimmed) {
+        return;
+      }
+
+      setSearchTerm((current) =>
+        current.trim().length > 0 ? current : trimmed
+      );
+
+      const matchedBrand = settingsBrands.find(
+        (brand) => brand.toLowerCase() === trimmed.toLowerCase()
+      );
+
+      if (matchedBrand) {
+        setSelectedSettingsBrand((current) =>
+          current.trim().length > 0 ? current : matchedBrand
+        );
+      }
+    } catch (storageError) {
+      console.warn('Unable to read stored search term for brand research:', storageError);
+    }
+  }, [settingsBrands]);
+
+  useEffect(() => {
     if (searchTerm.trim().length > 0) {
       const filteredResults: BrandResult[] = [];
       

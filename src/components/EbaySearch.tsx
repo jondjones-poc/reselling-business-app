@@ -346,6 +346,12 @@ const EbaySearch: React.FC = () => {
     // Adding LH_PrefLoc=1 for UK preferred location
     
     const combinedSearchTerm = searchTokens.join(' ');
+
+    try {
+      window.localStorage.setItem('saerch term', combinedSearchTerm);
+    } catch (storageError) {
+      console.warn('Unable to persist search term to localStorage:', storageError);
+    }
     const encodedSearch = encodeURIComponent(combinedSearchTerm);
     const ebayUrl = `https://www.ebay.co.uk/sch/260012/i.html?_nkw=${encodedSearch}&_from=R40&rt=nc&LH_Sold=1&LH_Complete=1&LH_PrefLoc=1`;
     

@@ -1,0 +1,108 @@
+.auth-gate {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at top, rgba(255, 214, 91, 0.14), rgba(5, 4, 3, 0.96) 65%);
+  padding: 32px;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 420px;
+  background: rgba(5, 4, 3, 0.92);
+  border: 1px solid rgba(255, 214, 91, 0.35);
+  border-radius: 28px;
+  padding: 36px;
+  text-align: center;
+  box-shadow: 0 22px 48px rgba(0, 0, 0, 0.6), 0 0 24px rgba(255, 214, 91, 0.2);
+  backdrop-filter: blur(12px);
+}
+
+.auth-title {
+  margin: 0 0 12px 0;
+  font-size: 2rem;
+  color: var(--neon-primary-strong);
+  letter-spacing: 0.08rem;
+}
+
+.auth-subtitle {
+  margin: 0 0 24px 0;
+  color: rgba(255, 248, 226, 0.75);
+  font-size: 1rem;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.auth-input {
+  padding: 18px 26px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 214, 91, 0.4);
+  background: rgba(255, 214, 91, 0.12);
+  color: var(--text-strong);
+  font-size: 1rem;
+  outline: none;
+  transition: all 0.3s ease;
+  box-shadow: inset 0 0 18px rgba(255, 214, 91, 0.18);
+}
+
+.auth-input:focus {
+  background: rgba(255, 214, 91, 0.2);
+  box-shadow: var(--neon-shadow);
+  border-color: var(--neon-border-strong);
+}
+
+.auth-button {
+  padding: 18px 26px;
+  border-radius: 999px;
+  border: none;
+  background: rgba(255, 214, 91, 0.28);
+  color: var(--neon-primary-strong);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.08rem;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: inset 0 0 22px rgba(255, 214, 91, 0.24);
+}
+
+.auth-button:hover {
+  background: rgba(255, 214, 91, 0.4);
+  transform: translateY(-2px);
+  box-shadow: var(--neon-shadow);
+}
+
+.auth-error {
+  color: #ffb0b0;
+  background: rgba(255, 120, 120, 0.16);
+  border: 1px solid rgba(255, 120, 120, 0.4);
+  padding: 12px;
+  border-radius: 18px;
+  font-size: 0.9rem;
+}
+
+.auth-hint {
+  margin-top: 18px;
+  color: rgba(255, 248, 226, 0.55);
+  font-size: 0.85rem;
+  letter-spacing: 0.04rem;
+}
+
+@media (max-width: 600px) {
+  .auth-card {
+    padding: 28px;
+  }
+
+  .auth-title {
+    font-size: 1.8rem;
+  }
+
+  .auth-subtitle {
+    font-size: 0.95rem;
+  }
+}

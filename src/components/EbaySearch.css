@@ -75,6 +75,15 @@
   min-width: 200px;
 }
 
+.research-action-row {
+  justify-content: flex-start;
+}
+
+.research-action-row .ebay-search-button {
+  flex: 0 0 auto;
+  max-width: none;
+}
+
 .clear-button,
 .copy-button {
   padding: 18px 32px;
@@ -252,7 +261,7 @@
 }
 
 .dropdown-select {
-  padding: 14px 20px;
+  padding: 12px 22px;
   border-radius: 999px;
   border: 1px solid var(--neon-border);
   background: rgba(255, 214, 91, 0.08);
@@ -263,6 +272,7 @@
   appearance: none;
   cursor: pointer;
   box-shadow: inset 0 0 12px rgba(255, 214, 91, 0.16);
+  min-height: 54px;
 }
 
 .dropdown-select:focus {

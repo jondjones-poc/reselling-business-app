@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import './EbaySearch.css';
 
 interface ResearchResult {
@@ -27,6 +27,27 @@ const Research: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ResearchResult | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    try {
+      const stored = window.localStorage.getItem('saerch term');
+      const trimmed = stored ? stored.trim() : '';
+
+      if (!trimmed) {
+        return;
+      }
+
+      setQuery((current) =>
+        current.trim().length > 0 ? current : trimmed
+      );
+    } catch (storageError) {
+      console.warn('Unable to read stored search term for research:', storageError);
+    }
+  }, []);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -68,18 +89,20 @@ const Research: React.FC = () => {
   return (
     <div className="ebay-search-container">
       <form onSubmit={handleSubmit} className="ebay-search-form">
-        <div className="search-input-wrapper">
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Enter search term (e.g., stone island jacket)"
-            className="ebay-search-input"
-            autoComplete="off"
-          />
+        <div className="search-bar-group">
+          <div className="search-input-wrapper">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Enter search term (e.g., stone island jacket)"
+              className="ebay-search-input"
+              autoComplete="off"
+            />
+          </div>
         </div>
 
-        <div className="search-button-wrapper">
+        <div className="primary-action-row research-action-row">
           <button
             type="submit"
             className="ebay-search-button"

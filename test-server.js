@@ -3,6 +3,7 @@ const cors = require('cors');
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 const fs = require('fs');
 const path = require('path');
+const { Pool } = require('pg');
 require('dotenv').config(); // Ensure dotenv is loaded
 
 const app = express();
@@ -13,6 +14,60 @@ app.use(express.json());
 
 const settingsPath = path.join(__dirname, 'settings.json');
 let appSettings = { categories: [], material: [], colors: [], brands: [], patterns: [], gender: [] };
+let dbPool = null;
+
+const buildBadRequest = (message) => {
+  const error = new Error(message);
+  error.status = 400;
+  return error;
+};
+
+const normalizeTextInput = (value) => {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return null;
+  }
+  const trimmed = String(value).trim();
+  return trimmed.length ? trimmed : null;
+};
+
+const normalizeDecimalInput = (value, fieldName) => {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  const numeric = Number(value);
+  if (Number.isNaN(numeric)) {
+    throw buildBadRequest(`Invalid number for ${fieldName}. Please provide a numeric value.`);
+  }
+  return numeric;
+};
+
+const normalizeDateInputValue = (value, fieldName) => {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw buildBadRequest(`Invalid date for ${fieldName}. Please use the YYYY-MM-DD format.`);
+  }
+
+  return date.toISOString().slice(0, 10);
+};
+
+const ensureIsoDateString = (value) => {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date.toISOString().slice(0, 10);
+};
 
 const loadSettings = () => {
   try {
@@ -36,6 +91,44 @@ const loadSettings = () => {
     console.error('Failed to load settings.json:', settingsError);
     return appSettings;
   }
+};
+
+const getDatabasePool = () => {
+  if (dbPool) {
+    return dbPool;
+  }
+
+  let connectionString = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL;
+
+  if (!connectionString) {
+    const supabasePassword = process.env.SUPABASE_DB_PASSWORD;
+    if (!supabasePassword) {
+      console.warn('Supabase password not configured. Set SUPABASE_DB_PASSWORD.');
+      return null;
+    }
+
+    connectionString = `postgresql://postgres:${encodeURIComponent(
+      supabasePassword
+    )}@db.kahnqiidabxomhvmfmgp.supabase.co:5432/postgres`;
+  }
+
+  if (!connectionString) {
+    console.warn('Supabase connection string not configured. Set SUPABASE_DB_URL.');
+    return null;
+  }
+
+  dbPool = new Pool({
+    connectionString,
+    ssl: {
+      rejectUnauthorized: false
+    }
+  });
+
+  dbPool.on('error', (poolError) => {
+    console.error('Unexpected Postgres client error:', poolError);
+  });
+
+  return dbPool;
 };
 
 // Load once at startup
@@ -241,6 +334,214 @@ app.get('/api/ebay/research', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch research data', details: error.message });
   }
 });
+
+app.get('/api/stock', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const result = await pool.query(
+      'SELECT id, item_name, category, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit FROM stock ORDER BY purchase_date DESC NULLS LAST, item_name ASC'
+    );
+
+    res.json({
+      rows: result.rows ?? [],
+      count: result.rowCount ?? 0
+    });
+  } catch (error) {
+    console.error('Stock query failed:', error);
+    res.status(500).json({ error: 'Failed to load stock data', details: error.message });
+  }
+});
+
+app.post('/api/stock', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const {
+      item_name,
+      category,
+      purchase_price,
+      purchase_date,
+      sale_date,
+      sale_price,
+      sold_platform,
+      net_profit
+    } = req.body ?? {};
+
+    const normalizedItemName = normalizeTextInput(item_name) ?? null;
+    const normalizedCategory = normalizeTextInput(category) ?? null;
+    const normalizedSoldPlatform = normalizeTextInput(sold_platform) ?? null;
+    const normalizedPurchasePrice = normalizeDecimalInput(purchase_price, 'purchase_price');
+    const normalizedSalePrice = normalizeDecimalInput(sale_price, 'sale_price');
+    const normalizedPurchaseDate = normalizeDateInputValue(purchase_date, 'purchase_date');
+    const normalizedSaleDate = normalizeDateInputValue(sale_date, 'sale_date');
+    const computedNetProfit =
+      normalizedSalePrice !== null && normalizedPurchasePrice !== null
+        ? normalizedSalePrice - normalizedPurchasePrice
+        : null;
+
+    const insertQuery = `
+      INSERT INTO stock (
+        item_name,
+        category,
+        purchase_price,
+        purchase_date,
+        sale_date,
+        sale_price,
+        sold_platform,
+        net_profit
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING id, item_name, category, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit
+    `;
+
+    const result = await pool.query(insertQuery, [
+      normalizedItemName,
+      normalizedCategory,
+      normalizedPurchasePrice,
+      normalizedPurchaseDate,
+      normalizedSaleDate,
+      normalizedSalePrice,
+      normalizedSoldPlatform,
+      computedNetProfit
+    ]);
+
+    res.status(201).json({ row: result.rows[0] });
+  } catch (error) {
+    console.error('Stock insert failed:', error);
+    if (error.status === 400) {
+      return res.status(400).json({ error: 'Failed to create stock record', details: error.message });
+    }
+    res.status(500).json({ error: 'Failed to create stock record', details: error.message });
+  }
+});
+
+app.put('/api/stock/:id', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const stockId = Number(req.params.id);
+    if (!Number.isInteger(stockId)) {
+      return res.status(400).json({ error: 'Invalid stock id' });
+    }
+
+    const existingResult = await pool.query(
+      'SELECT id, item_name, category, purchase_price, purchase_date, sale_date, sale_price, sold_platform FROM stock WHERE id = $1',
+      [stockId]
+    );
+
+    if (existingResult.rowCount === 0) {
+      return res.status(404).json({ error: 'Stock record not found' });
+    }
+
+    const existing = existingResult.rows[0];
+
+    const hasProp = (prop) => Object.prototype.hasOwnProperty.call(req.body ?? {}, prop);
+
+    const finalItemName = hasProp('item_name')
+      ? normalizeTextInput(req.body.item_name) ?? null
+      : existing.item_name ?? null;
+
+    const finalCategory = hasProp('category')
+      ? normalizeTextInput(req.body.category) ?? null
+      : existing.category ?? null;
+
+    const existingPurchasePrice =
+      existing.purchase_price !== null && existing.purchase_price !== undefined
+        ? Number(existing.purchase_price)
+        : null;
+    const existingSalePrice =
+      existing.sale_price !== null && existing.sale_price !== undefined
+        ? Number(existing.sale_price)
+        : null;
+
+    const finalPurchasePrice = hasProp('purchase_price')
+      ? normalizeDecimalInput(req.body.purchase_price, 'purchase_price')
+      : existingPurchasePrice;
+
+    const finalSalePrice = hasProp('sale_price')
+      ? normalizeDecimalInput(req.body.sale_price, 'sale_price')
+      : existingSalePrice;
+
+    const finalPurchaseDate = hasProp('purchase_date')
+      ? normalizeDateInputValue(req.body.purchase_date, 'purchase_date')
+      : ensureIsoDateString(existing.purchase_date);
+
+    const finalSaleDate = hasProp('sale_date')
+      ? normalizeDateInputValue(req.body.sale_date, 'sale_date')
+      : ensureIsoDateString(existing.sale_date);
+
+    const finalSoldPlatform = hasProp('sold_platform')
+      ? normalizeTextInput(req.body.sold_platform) ?? null
+      : existing.sold_platform ?? null;
+
+    const computedNetProfit =
+      finalSalePrice !== null && finalPurchasePrice !== null
+        ? finalSalePrice - finalPurchasePrice
+        : null;
+
+    const updateResult = await pool.query(
+      `
+        UPDATE stock
+        SET
+          item_name = $1,
+          category = $2,
+          purchase_price = $3,
+          purchase_date = $4,
+          sale_date = $5,
+          sale_price = $6,
+          sold_platform = $7,
+          net_profit = $8
+        WHERE id = $9
+        RETURNING id, item_name, category, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit
+      `,
+      [
+        finalItemName,
+        finalCategory,
+        finalPurchasePrice,
+        finalPurchaseDate,
+        finalSaleDate,
+        finalSalePrice,
+        finalSoldPlatform,
+        computedNetProfit,
+        stockId
+      ]
+    );
+
+    res.json({ row: updateResult.rows[0] });
+  } catch (error) {
+    console.error('Stock update failed:', error);
+    if (error.status === 400) {
+      return res.status(400).json({ error: 'Failed to update stock record', details: error.message });
+    }
+    res.status(500).json({ error: 'Failed to update stock record', details: error.message });
+  }
+});
+
+const buildDirectory = path.join(__dirname, 'build');
+
+if (fs.existsSync(buildDirectory)) {
+  app.use(express.static(buildDirectory));
+
+  const clientRoutes = ['/', '/brand-research', '/research', '/stock'];
+  clientRoutes.forEach((routePath) => {
+    app.get(routePath, (_req, res) => {
+      res.sendFile(path.join(buildDirectory, 'index.html'));
+    });
+  });
+}
 
 app.listen(PORT, () => {
   console.log(`Test server running on port ${PORT}`);

@@ -1,75 +1,78 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { NavLink, Route, Routes, Navigate, useLocation } from 'react-router-dom';
 import BrandResearch from './components/BrandResearch';
 import EbaySearch from './components/EbaySearch';
 import Research from './components/Research';
+import Stock from './components/Stock';
+import AuthGate from './components/AuthGate';
 import './App.css';
 
+const navItems = [
+  { to: '/', label: 'Home', end: true },
+  { to: '/brand-research', label: 'Brand Research' },
+  { to: '/research', label: 'Research' },
+  { to: '/stock', label: 'Stock' }
+];
+
 function App() {
-  const [currentPage, setCurrentPage] = useState('ebay-search');
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const location = useLocation();
 
   useEffect(() => {
     setShowMobileMenu(false);
-  }, [currentPage]);
+  }, [location.pathname]);
 
   const handleNavTitleDoubleClick = () => {
     setShowMobileMenu((prev) => !prev);
   };
 
   return (
-    <div className="App">
-      <nav className="navigation">
-        <div className="nav-container">
-          <h1
-            className="nav-title"
-            onDoubleClick={handleNavTitleDoubleClick}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                handleNavTitleDoubleClick();
-              }
-            }}
-          >
-            Reseller App
-          </h1>
-          <div
-            className={`nav-menu${showMobileMenu ? ' show-mobile' : ''}`}
-          >
-            <button
-              className={`nav-button ${currentPage === 'ebay-search' ? 'active' : ''}`}
-              onClick={() => setCurrentPage('ebay-search')}
+    <AuthGate>
+      <div className="App">
+        <nav className="navigation">
+          <div className="nav-container">
+            <h1
+              className="nav-title"
+              onDoubleClick={handleNavTitleDoubleClick}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  handleNavTitleDoubleClick();
+                }
+              }}
             >
-              Home
-            </button>
-            <button
-              className={`nav-button ${currentPage === 'brand-research' ? 'active' : ''}`}
-              onClick={() => setCurrentPage('brand-research')}
+              Reseller App
+            </h1>
+            <div
+              className={`nav-menu${showMobileMenu ? ' show-mobile' : ''}`}
             >
-              Brand Research
-            </button>
-            <button
-              className={`nav-button ${currentPage === 'research' ? 'active' : ''}`}
-              onClick={() => setCurrentPage('research')}
-            >
-              Research
-            </button>
+              {navItems.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  className={({ isActive }) =>
+                    `nav-button${isActive ? ' active' : ''}`
+                  }
+                  onClick={() => setShowMobileMenu(false)}
+                >
+                  {item.label}
+                </NavLink>
+              ))}
+            </div>
           </div>
-        </div>
-      </nav>
+        </nav>
 
-      {currentPage === 'ebay-search' && (
-        <EbaySearch />
-      )}
-
-      {currentPage === 'brand-research' && (
-        <BrandResearch />
-      )}
-
-      {currentPage === 'research' && (
-        <Research />
-      )}
-    </div>
+        <Routes>
+          <Route path="/" element={<EbaySearch />} />
+          <Route path="/brand-research" element={<BrandResearch />} />
+          <Route path="/research" element={<Research />} />
+          <Route path="/stock" element={<Stock />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </div>
+    </AuthGate>
   );
 }
 
