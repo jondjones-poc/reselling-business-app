@@ -3,6 +3,7 @@ const cors = require('cors');
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 const fs = require('fs');
 const path = require('path');
+const dns = require('dns');
 const { Pool } = require('pg');
 require('dotenv').config();
 
@@ -15,6 +16,14 @@ app.use(express.json());
 const settingsPath = path.join(__dirname, 'settings.json');
 let appSettings = { categories: [], material: [], colors: [], brands: [], patterns: [], gender: [] }; // Added gender
 let dbPool = null;
+
+try {
+  if (typeof dns.setDefaultResultOrder === 'function') {
+    dns.setDefaultResultOrder('ipv4first');
+  }
+} catch (dnsError) {
+  console.warn('Unable to set default DNS result order:', dnsError.message);
+}
 
 const buildBadRequest = (message) => {
   const error = new Error(message);
