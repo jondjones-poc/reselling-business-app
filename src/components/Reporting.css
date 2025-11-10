@@ -1,5 +1,6 @@
 .reporting-container {
-  max-width: 1200px;
+  max-width: 95%;
+  width: 100%;
   margin: 0 auto;
   padding: 40px;
   margin-top: 120px;
@@ -11,7 +12,7 @@
 
 .reporting-header {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   gap: 18px;
   margin-bottom: 26px;
@@ -83,6 +84,76 @@
   border: 1px solid rgba(255, 214, 91, 0.24);
 }
 
+.reporting-summary {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 24px;
+  flex-wrap: nowrap;
+}
+
+.total-profit-card {
+  width: calc(25% - 18px);
+  flex: 0 0 calc(25% - 18px);
+  background: rgba(5, 4, 3, 0.94);
+  border: 1px solid rgba(255, 214, 91, 0.28);
+  border-radius: 24px;
+  padding: 28px;
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.55), var(--neon-shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+@media (max-width: 1200px) {
+  .reporting-summary {
+    flex-wrap: wrap;
+  }
+  
+  .total-profit-card {
+    width: calc(50% - 12px);
+    min-width: 280px;
+  }
+}
+
+@media (max-width: 768px) {
+  .total-profit-card {
+    width: 100%;
+  }
+}
+
+.total-profit-label {
+  color: rgba(255, 248, 226, 0.75);
+  font-size: 0.9rem;
+  letter-spacing: 0.08rem;
+  text-transform: uppercase;
+}
+
+.total-profit-value {
+  font-size: 2.5rem;
+  font-weight: 700;
+  letter-spacing: 0.05rem;
+  margin: 8px 0;
+}
+
+.total-profit-value.positive {
+  color: #8cffc3;
+  text-shadow: 0 0 12px rgba(140, 255, 195, 0.5);
+}
+
+.total-profit-value.negative {
+  color: #ff9a9a;
+  text-shadow: 0 0 12px rgba(255, 154, 154, 0.5);
+}
+
+.total-profit-description {
+  color: rgba(255, 248, 226, 0.65);
+  font-size: 0.85rem;
+  letter-spacing: 0.04rem;
+}
+
 .reporting-grid {
   display: flex;
   flex-direction: column;
@@ -128,6 +199,18 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 12px;
+  }
+
+  .reporting-summary {
+    flex-direction: column;
+  }
+
+  .total-profit-card {
+    width: 100%;
+  }
+
+  .total-profit-value {
+    font-size: 2rem;
   }
 
   .chart-wrapper {

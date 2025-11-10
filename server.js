@@ -725,12 +725,209 @@ app.get('/api/analytics/reporting', async (req, res) => {
       };
     });
 
+    const salesByCategoryResult = await pool.query(
+      `
+        SELECT
+          COALESCE(category, 'Uncategorized') AS category,
+          SUM(COALESCE(sale_price, 0))::numeric AS total_sales
+        FROM stock
+        WHERE sale_date IS NOT NULL
+          AND EXTRACT(YEAR FROM sale_date)::int = $1
+        GROUP BY COALESCE(category, 'Uncategorized')
+        HAVING SUM(COALESCE(sale_price, 0)) > 0
+        ORDER BY total_sales DESC
+      `,
+      [effectiveYear]
+    );
+
+    const salesByCategory = salesByCategoryResult.rows.map((row) => ({
+      category: row.category || 'Uncategorized',
+      totalSales: Number(row.total_sales)
+    }));
+
+    const unsoldStockByCategoryResult = await pool.query(
+      `
+        SELECT
+          COALESCE(category, 'Uncategorized') AS category,
+          SUM(COALESCE(purchase_price, 0))::numeric AS total_value,
+          COUNT(*)::int AS item_count
+        FROM stock
+        WHERE purchase_date IS NOT NULL
+          AND sale_date IS NULL
+          AND EXTRACT(YEAR FROM purchase_date)::int = $1
+        GROUP BY COALESCE(category, 'Uncategorized')
+        HAVING SUM(COALESCE(purchase_price, 0)) > 0
+        ORDER BY total_value DESC
+      `,
+      [effectiveYear]
+    );
+
+    const unsoldStockByCategory = unsoldStockByCategoryResult.rows.map((row) => ({
+      category: row.category || 'Uncategorized',
+      totalValue: Number(row.total_value),
+      itemCount: Number(row.item_count)
+    }));
+
+    const sellThroughRateResult = await pool.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE purchase_date IS NOT NULL) AS total_listed,
+        COUNT(*) FILTER (WHERE sale_date IS NOT NULL) AS total_sold
+      FROM stock
+    `);
+
+    const totalListed = Number(sellThroughRateResult.rows[0]?.total_listed || 0);
+    const totalSold = Number(sellThroughRateResult.rows[0]?.total_sold || 0);
+    const sellThroughRate = totalListed > 0 ? (totalSold / totalListed) * 100 : 0;
+
+    const averageSellingPriceResult = await pool.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE sale_date IS NOT NULL AND sale_price IS NOT NULL) AS sold_count,
+        SUM(COALESCE(sale_price, 0))::numeric AS total_sales
+      FROM stock
+      WHERE sale_date IS NOT NULL
+    `);
+
+    const soldCount = Number(averageSellingPriceResult.rows[0]?.sold_count || 0);
+    const totalSales = Number(averageSellingPriceResult.rows[0]?.total_sales || 0);
+    const averageSellingPrice = soldCount > 0 ? totalSales / soldCount : 0;
+
+    const averageProfitResult = await pool.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE sale_date IS NOT NULL) AS sold_count,
+        SUM(COALESCE(sale_price, 0))::numeric AS total_sales,
+        SUM(COALESCE(purchase_price, 0))::numeric AS total_purchases
+      FROM stock
+      WHERE sale_date IS NOT NULL
+    `);
+
+    const profitSoldCount = Number(averageProfitResult.rows[0]?.sold_count || 0);
+    const profitTotalSales = Number(averageProfitResult.rows[0]?.total_sales || 0);
+    const profitTotalPurchases = Number(averageProfitResult.rows[0]?.total_purchases || 0);
+    const netProfit = profitTotalSales - profitTotalPurchases;
+    const averageProfitPerItem = profitSoldCount > 0 ? netProfit / profitSoldCount : 0;
+
+    const roiResult = await pool.query(`
+      SELECT
+        SUM(COALESCE(sale_price, 0))::numeric AS total_sales,
+        SUM(COALESCE(purchase_price, 0))::numeric AS total_spend
+      FROM stock
+    `);
+
+    const roiTotalSales = Number(roiResult.rows[0]?.total_sales || 0);
+    const roiTotalSpend = Number(roiResult.rows[0]?.total_spend || 0);
+    const roiProfit = roiTotalSales - roiTotalSpend;
+    const roi = roiTotalSpend > 0 ? (roiProfit / roiTotalSpend) * 100 : 0;
+
+    const averageDaysToSellResult = await pool.query(`
+      SELECT
+        AVG(sale_date - purchase_date) AS average_days
+      FROM stock
+      WHERE purchase_date IS NOT NULL AND sale_date IS NOT NULL
+    `);
+
+    const averageDaysToSell = averageDaysToSellResult.rows[0]?.average_days 
+      ? Number(averageDaysToSellResult.rows[0].average_days) 
+      : 0;
+
+    const activeListingsResult = await pool.query(`
+      SELECT COUNT(*) AS active_count
+      FROM stock
+      WHERE purchase_date IS NOT NULL AND sale_date IS NULL
+    `);
+
+    const activeListingsCount = Number(activeListingsResult.rows[0]?.active_count || 0);
+
+    const unsoldInventoryValueResult = await pool.query(`
+      SELECT SUM(COALESCE(purchase_price, 0))::numeric AS total_value
+      FROM stock
+      WHERE purchase_date IS NOT NULL AND sale_date IS NULL
+    `);
+
+    const unsoldInventoryValue = Number(unsoldInventoryValueResult.rows[0]?.total_value || 0);
+
+    const monthlyAverageSellingPriceResult = await pool.query(
+      `
+        SELECT
+          EXTRACT(MONTH FROM sale_date)::int AS month,
+          AVG(COALESCE(sale_price, 0))::numeric AS average_price,
+          COUNT(*) AS item_count
+        FROM stock
+        WHERE sale_date IS NOT NULL
+          AND sale_price IS NOT NULL
+          AND EXTRACT(YEAR FROM sale_date)::int = $1
+        GROUP BY month
+        ORDER BY month ASC
+      `,
+      [effectiveYear]
+    );
+
+    const monthlyAverageSellingPrice = monthlyAverageSellingPriceResult.rows.map((row) => ({
+      month: Number(row.month),
+      average: Number(row.average_price),
+      itemCount: Number(row.item_count)
+    }));
+
+    const monthlyAverageProfitPerItemResult = await pool.query(
+      `
+        SELECT
+          EXTRACT(MONTH FROM sale_date)::int AS month,
+          AVG((COALESCE(sale_price, 0) - COALESCE(purchase_price, 0)))::numeric AS average_profit,
+          COUNT(*) AS item_count
+        FROM stock
+        WHERE sale_date IS NOT NULL
+          AND sale_price IS NOT NULL
+          AND EXTRACT(YEAR FROM sale_date)::int = $1
+        GROUP BY month
+        ORDER BY month ASC
+      `,
+      [effectiveYear]
+    );
+
+    const monthlyAverageProfitPerItem = monthlyAverageProfitPerItemResult.rows.map((row) => ({
+      month: Number(row.month),
+      average: Number(row.average_profit),
+      itemCount: Number(row.item_count)
+    }));
+
     res.json({
       availableYears,
       selectedYear: effectiveYear,
       profitTimeline,
       monthlyProfit,
-      monthlyExpenses
+      monthlyExpenses,
+      salesByCategory,
+      unsoldStockByCategory,
+      sellThroughRate: {
+        totalListed,
+        totalSold,
+        percentage: Number(sellThroughRate.toFixed(2))
+      },
+      averageSellingPrice: {
+        totalSales,
+        soldCount,
+        average: Number(averageSellingPrice.toFixed(2))
+      },
+      averageProfitPerItem: {
+        netProfit,
+        soldCount: profitSoldCount,
+        average: Number(averageProfitPerItem.toFixed(2))
+      },
+      roi: {
+        profit: roiProfit,
+        totalSpend: roiTotalSpend,
+        percentage: Number(roi.toFixed(2))
+      },
+      averageDaysToSell: {
+        days: Number(averageDaysToSell.toFixed(1))
+      },
+      activeListingsCount: {
+        count: activeListingsCount
+      },
+      unsoldInventoryValue: {
+        value: unsoldInventoryValue
+      },
+      monthlyAverageSellingPrice,
+      monthlyAverageProfitPerItem
     });
   } catch (error) {
     console.error('Reporting analytics error:', error);

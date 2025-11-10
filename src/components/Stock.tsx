@@ -39,6 +39,35 @@ const MONTHS = [
   { value: '12', label: 'December' }
 ];
 
+const CATEGORIES = [
+  'Accessories',
+  'Advertising',
+  'Bag',
+  'Book',
+  'Bottoms',
+  'CD',
+  'Clothes',
+  'Coat',
+  'DVD',
+  'Electronics',
+  'Game',
+  'Jacket',
+  'Jumper',
+  'Kids',
+  'Kitchenware',
+  'Plush',
+  'Polo',
+  'Shirt',
+  'Shoes',
+  'Tie',
+  'Toy',
+  'Trousers',
+  'Top',
+  'VHS'
+];
+
+const PLATFORMS = ['Not Listed', 'Vinted', 'eBay'];
+
 const formatCurrency = (value: Nullable<string | number>) => {
   if (value === null || value === undefined || value === '') {
     return '—';
@@ -131,6 +160,9 @@ const Stock: React.FC = () => {
     sale_price: '',
     sold_platform: ''
   });
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showTypeahead, setShowTypeahead] = useState(false);
+  const [typeaheadSuggestions, setTypeaheadSuggestions] = useState<string[]>([]);
 
   const loadStock = async () => {
     try {
@@ -223,6 +255,32 @@ const Stock: React.FC = () => {
     );
   };
 
+  const uniqueItemNames = useMemo(() => {
+    const items = new Set<string>();
+    rows.forEach((row) => {
+      if (row.item_name && row.item_name.trim()) {
+        items.add(row.item_name.trim());
+      }
+    });
+    return Array.from(items).sort();
+  }, [rows]);
+
+  useEffect(() => {
+    if (!searchTerm.trim()) {
+      setTypeaheadSuggestions([]);
+      setShowTypeahead(false);
+      return;
+    }
+
+    const term = searchTerm.toLowerCase().trim();
+    const matches = uniqueItemNames
+      .filter((name) => name.toLowerCase().includes(term))
+      .slice(0, 10);
+
+    setTypeaheadSuggestions(matches);
+    setShowTypeahead(matches.length > 0);
+  }, [searchTerm, uniqueItemNames]);
+
   const filteredRows = useMemo(() => {
     if (!rows.length) {
       return [];
@@ -234,17 +292,27 @@ const Stock: React.FC = () => {
       const saleDateYear =
         row.sale_date && new Date(row.sale_date).getFullYear().toString();
 
+      let dateMatches = false;
       if (showAllYear) {
-        return purchaseDateYear === selectedYear || saleDateYear === selectedYear;
+        dateMatches = purchaseDateYear === selectedYear || saleDateYear === selectedYear;
+      } else if (viewMode === 'listing') {
+        dateMatches = matchesMonthYear(row.purchase_date, selectedMonth, selectedYear);
+      } else {
+        dateMatches = matchesMonthYear(row.sale_date, selectedMonth, selectedYear);
       }
 
-      if (viewMode === 'listing') {
-        return matchesMonthYear(row.purchase_date, selectedMonth, selectedYear);
+      if (!dateMatches) {
+        return false;
       }
 
-      return matchesMonthYear(row.sale_date, selectedMonth, selectedYear);
+      if (!searchTerm.trim()) {
+        return true;
+      }
+
+      const itemName = row.item_name ? row.item_name.toLowerCase() : '';
+      return itemName.includes(searchTerm.toLowerCase().trim());
     });
-  }, [rows, selectedMonth, selectedYear, viewMode, showAllYear]);
+  }, [rows, selectedMonth, selectedYear, viewMode, showAllYear, searchTerm]);
 
   const totals = useMemo(() => {
     if (!filteredRows.length) {
@@ -572,6 +640,40 @@ const Stock: React.FC = () => {
       );
     }
 
+    if (key === 'category') {
+      return (
+        <select
+          className="edit-input edit-select"
+          value={String(editValue)}
+          onChange={(event) => handleEditChange(key, event.target.value)}
+        >
+          <option value="">Select category...</option>
+          {CATEGORIES.map((category) => (
+            <option key={category} value={category}>
+              {category}
+            </option>
+          ))}
+        </select>
+      );
+    }
+
+    if (key === 'sold_platform') {
+      return (
+        <select
+          className="edit-input edit-select"
+          value={String(editValue)}
+          onChange={(event) => handleEditChange(key, event.target.value)}
+        >
+          <option value="">Select platform...</option>
+          {PLATFORMS.map((platform) => (
+            <option key={platform} value={platform}>
+              {platform}
+            </option>
+          ))}
+        </select>
+      );
+    }
+
     if (key === 'purchase_price' || key === 'sale_price') {
       return (
         <input
@@ -636,12 +738,18 @@ const Stock: React.FC = () => {
             </label>
             <label className="new-entry-field">
               <span>Category</span>
-              <input
-                type="text"
+              <select
+                className="new-entry-select"
                 value={createForm.category}
                 onChange={(event) => handleCreateChange('category', event.target.value)}
-                placeholder="e.g. Coats"
-              />
+              >
+                <option value="">Select category...</option>
+                {CATEGORIES.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="new-entry-field">
               <span>Purchase Price (£)</span>
@@ -693,12 +801,18 @@ const Stock: React.FC = () => {
             </label>
             <label className="new-entry-field">
               <span>Sold Platform</span>
-              <input
-                type="text"
+              <select
+                className="new-entry-select"
                 value={createForm.sold_platform}
                 onChange={(event) => handleCreateChange('sold_platform', event.target.value)}
-                placeholder="e.g. eBay"
-              />
+              >
+                <option value="">Select platform...</option>
+                {PLATFORMS.map((platform) => (
+                  <option key={platform} value={platform}>
+                    {platform}
+                  </option>
+                ))}
+              </select>
             </label>
           </div>
           <div className="profit-preview-wrapper">
@@ -799,6 +913,43 @@ const Stock: React.FC = () => {
             >
               Sales
             </button>
+          </div>
+        </div>
+
+        <div className="filter-group search-group">
+          <div className="search-input-wrapper">
+            <input
+              type="text"
+              className="search-input"
+              placeholder="Search items..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              onFocus={() => {
+                if (typeaheadSuggestions.length > 0) {
+                  setShowTypeahead(true);
+                }
+              }}
+              onBlur={() => {
+                setTimeout(() => setShowTypeahead(false), 200);
+              }}
+            />
+            {showTypeahead && typeaheadSuggestions.length > 0 && (
+              <div className="typeahead-dropdown">
+                {typeaheadSuggestions.map((suggestion, index) => (
+                  <div
+                    key={index}
+                    className="typeahead-item"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setSearchTerm(suggestion);
+                      setShowTypeahead(false);
+                    }}
+                  >
+                    {suggestion}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

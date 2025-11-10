@@ -1,5 +1,6 @@
 .stock-container {
-  max-width: 1200px;
+  width: 100%;
+  max-width: 100%;
   margin: 0 auto;
   padding: 40px;
   margin-top: 120px;
@@ -7,6 +8,7 @@
   border-radius: 28px;
   border: 1px solid var(--neon-border);
   box-shadow: 0 22px 48px rgba(0, 0, 0, 0.6), var(--neon-shadow);
+  box-sizing: border-box;
 }
 
 .stock-header {
@@ -95,6 +97,7 @@
 }
 
 .new-entry-field input,
+.new-entry-field select,
 .new-entry-field .react-datepicker-wrapper,
 .new-entry-field .react-datepicker__input-container {
   width: 100%;
@@ -102,6 +105,7 @@
 }
 
 .new-entry-field input,
+.new-entry-field select,
 .new-entry-field .react-datepicker__input-container input {
   width: 100%;
   padding: 14px 18px;
@@ -116,6 +120,7 @@
 }
 
 .new-entry-field input:focus,
+.new-entry-field select:focus,
 .new-entry-field .react-datepicker__input-container input:focus {
   border-color: var(--neon-border-strong);
   box-shadow: var(--neon-shadow);
@@ -245,6 +250,85 @@
   align-items: center;
 }
 
+.search-group {
+  display: flex;
+  align-items: center;
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.search-input-wrapper {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+.search-input {
+  width: 100%;
+  padding: 12px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 214, 91, 0.32);
+  background: rgba(255, 214, 91, 0.1);
+  color: var(--text-strong);
+  font-size: 0.95rem;
+  outline: none;
+  transition: all 0.3s ease;
+  box-shadow: inset 0 0 14px rgba(255, 214, 91, 0.12);
+}
+
+.search-input:focus {
+  border-color: var(--neon-border-strong);
+  box-shadow: var(--neon-shadow);
+  background: rgba(255, 214, 91, 0.2);
+}
+
+.search-input::placeholder {
+  color: rgba(255, 248, 226, 0.5);
+}
+
+.typeahead-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  background: rgba(5, 4, 3, 0.98);
+  border: 1px solid rgba(255, 214, 91, 0.35);
+  border-radius: 18px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6), var(--neon-shadow);
+  z-index: 1000;
+  max-height: 300px;
+  overflow-y: auto;
+  margin-top: 4px;
+}
+
+.typeahead-item {
+  padding: 12px 18px;
+  color: rgba(255, 248, 226, 0.85);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border-bottom: 1px solid rgba(255, 214, 91, 0.1);
+}
+
+.typeahead-item:last-child {
+  border-bottom: none;
+}
+
+.typeahead-item:hover {
+  background: rgba(255, 214, 91, 0.18);
+  color: var(--text-strong);
+}
+
+.typeahead-item:first-child {
+  border-top-left-radius: 18px;
+  border-top-right-radius: 18px;
+}
+
+.typeahead-item:last-child {
+  border-bottom-left-radius: 18px;
+  border-bottom-right-radius: 18px;
+}
+
 .all-year-group {
   display: flex;
   align-items: center;
@@ -365,6 +449,10 @@
   display: flex;
   gap: 12px;
   align-items: center;
+  justify-content: center;
+  flex-wrap: nowrap;
+  min-width: fit-content;
+  white-space: nowrap;
 }
 
 .row-hint-button {
@@ -494,15 +582,18 @@
 
 .table-wrapper {
   overflow-x: auto;
+  overflow-y: visible;
   border-radius: 24px;
   border: 1px solid rgba(255, 214, 91, 0.28);
   box-shadow: inset 0 0 18px rgba(255, 214, 91, 0.1);
+  width: 100%;
 }
 
 .stock-table {
   width: 100%;
   border-collapse: collapse;
   min-width: 720px;
+  table-layout: auto;
 }
 
 .stock-table thead {
@@ -515,6 +606,16 @@
   text-align: left;
   color: rgba(255, 248, 226, 0.85);
   border-bottom: 1px solid rgba(255, 214, 91, 0.12);
+}
+
+.stock-table th:not(:first-child),
+.stock-table td:not(:first-child) {
+  text-align: center;
+}
+
+.stock-table td:last-child {
+  min-width: 180px;
+  white-space: nowrap;
 }
 
 .stock-table th {
@@ -537,6 +638,11 @@
   letter-spacing: inherit;
   cursor: pointer;
   padding: 0;
+  justify-content: center;
+}
+
+.stock-table th:first-child .sortable-header {
+  justify-content: flex-start;
 }
 
 .sortable-header:hover {
@@ -578,9 +684,90 @@
   font-size: 0.95rem;
   outline: none;
   transition: all 0.3s ease;
+  box-sizing: border-box;
 }
 
 .edit-input:focus {
+  border-color: var(--neon-border-strong);
+  box-shadow: var(--neon-shadow);
+  background: rgba(5, 4, 3, 0.94);
+}
+
+.edit-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23FFD65B' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 16px center;
+  background-size: 12px;
+  padding-right: 40px;
+  cursor: pointer;
+}
+
+.edit-select:focus {
+  border-color: var(--neon-border-strong);
+  box-shadow: var(--neon-shadow);
+  background-color: rgba(5, 4, 3, 0.94);
+}
+
+.new-entry-field select,
+.new-entry-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23FFD65B' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 18px center;
+  background-size: 12px;
+  padding-right: 40px;
+  cursor: pointer;
+}
+
+.date-picker-wrapper {
+  width: 100%;
+  display: inline-block;
+}
+
+.date-picker-input {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 214, 91, 0.35);
+  background: rgba(5, 4, 3, 0.88);
+  color: var(--text-strong);
+  font-size: 0.95rem;
+  outline: none;
+  transition: all 0.3s ease;
+  box-sizing: border-box;
+}
+
+.date-picker-input:focus {
+  border-color: var(--neon-border-strong);
+  box-shadow: var(--neon-shadow);
+  background: rgba(5, 4, 3, 0.94);
+}
+
+.stock-table .date-picker-wrapper {
+  width: 100%;
+  display: block;
+}
+
+.stock-table .date-picker-wrapper .react-datepicker__input-container {
+  width: 100%;
+  display: block;
+}
+
+.stock-table .date-picker-wrapper .react-datepicker__input-container input {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 214, 91, 0.35);
+  background: rgba(5, 4, 3, 0.88);
+  color: var(--text-strong);
+  font-size: 0.95rem;
+  outline: none;
+  transition: all 0.3s ease;
+  box-sizing: border-box;
+}
+
+.stock-table .date-picker-wrapper .react-datepicker__input-container input:focus {
   border-color: var(--neon-border-strong);
   box-shadow: var(--neon-shadow);
   background: rgba(5, 4, 3, 0.94);
@@ -622,6 +809,16 @@
   border: 1px solid rgba(255, 214, 91, 0.14);
 }
 
+@media (min-width: 1400px) {
+  .stock-container {
+    padding: 40px 60px;
+  }
+  
+  .stock-table {
+    min-width: 100%;
+  }
+}
+
 @media (max-width: 768px) {
   .stock-container {
     margin: 16px;
@@ -654,6 +851,15 @@
 
   .view-toggle-button {
     flex: 1;
+  }
+
+  .search-input-wrapper {
+    width: 100%;
+    min-width: 100%;
+  }
+
+  .search-input {
+    width: 100%;
   }
 
   .header-actions {
