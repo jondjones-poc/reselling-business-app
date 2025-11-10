@@ -385,6 +385,61 @@ const Stock: React.FC = () => {
     });
   }, [filteredRows, sortConfig]);
 
+  const exportToCSV = () => {
+    if (sortedRows.length === 0) {
+      return;
+    }
+
+    const headers = [
+      'Item Name',
+      'Category',
+      'Purchase Price',
+      'Purchase Date',
+      'Sale Date',
+      'Sale Price',
+      'Sold Platform',
+      'Profit'
+    ];
+
+    const csvRows = [
+      headers.join(','),
+      ...sortedRows.map((row) => {
+        const purchasePrice = row.purchase_price
+          ? (typeof row.purchase_price === 'number' ? row.purchase_price : parseFloat(String(row.purchase_price)) || 0)
+          : '';
+        const salePrice = row.sale_price
+          ? (typeof row.sale_price === 'number' ? row.sale_price : parseFloat(String(row.sale_price)) || 0)
+          : '';
+        const profit = row.purchase_price && row.sale_price
+          ? (typeof salePrice === 'number' && typeof purchasePrice === 'number' ? salePrice - purchasePrice : '')
+          : '';
+
+        return [
+          `"${(row.item_name || '').replace(/"/g, '""')}"`,
+          `"${(row.category || '').replace(/"/g, '""')}"`,
+          purchasePrice,
+          row.purchase_date ? formatDate(row.purchase_date) : '',
+          row.sale_date ? formatDate(row.sale_date) : '',
+          salePrice,
+          `"${(row.sold_platform || '').replace(/"/g, '""')}"`,
+          profit
+        ].join(',');
+      })
+    ];
+
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    
+    link.setAttribute('href', url);
+    link.setAttribute('download', `stock-export-${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const computeDifference = (
     purchase: Nullable<string | number>,
     sale: Nullable<string | number>
@@ -1172,6 +1227,17 @@ const Stock: React.FC = () => {
             })}
           </tbody>
         </table>
+      </div>
+
+      <div className="export-section">
+        <button
+          type="button"
+          className="export-button"
+          onClick={exportToCSV}
+          disabled={sortedRows.length === 0}
+        >
+          Export to CSV
+        </button>
       </div>
     </div>
   );

@@ -881,4 +881,44 @@
   .table-wrapper {
     border-radius: 20px;
   }
+
+  .export-section {
+    width: 100%;
+  }
+
+  .export-button {
+    width: 100%;
+  }
+}
+
+.export-section {
+  margin-top: 32px;
+  display: flex;
+  justify-content: center;
+  padding: 20px 0;
+}
+
+.export-button {
+  padding: 16px 32px;
+  border-radius: 999px;
+  border: 1px solid rgba(140, 255, 195, 0.35);
+  background: rgba(140, 255, 195, 0.18);
+  color: #8cffc3;
+  font-weight: 600;
+  letter-spacing: 0.08rem;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 0.9rem;
+}
+
+.export-button:hover:not(:disabled) {
+  background: rgba(140, 255, 195, 0.32);
+  transform: translateY(-1px);
+  box-shadow: var(--neon-shadow);
+}
+
+.export-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
