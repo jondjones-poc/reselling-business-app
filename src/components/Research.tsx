@@ -1,6 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import brandsToBuy from '../data/brands-to-buy.json';
-import brandsToAvoid from '../data/brands-to-avoid.json';
+import React, { useEffect, useState, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
 import './BrandResearch.css';
 import './EbaySearch.css';
 
@@ -16,13 +15,6 @@ interface ResearchResult {
   };
 }
 
-interface BrandResult {
-  name: string;
-  category: string;
-  minimumPrice: number;
-  status: 'good' | 'bad' | 'unknown';
-}
-
 const formatRatio = (ratio: number | null) => {
   if (ratio === null || Number.isNaN(ratio)) {
     return 'N/A';
@@ -32,21 +24,306 @@ const formatRatio = (ratio: number | null) => {
 
 const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5003';
 
-const allBrands = [...brandsToBuy, ...brandsToAvoid];
-const brandCategories = Array.from(new Set(allBrands.map((brand) => brand.category))).sort();
-
 const Research: React.FC = () => {
   const [ebayQuery, setEbayQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ResearchResult | null>(null);
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isSubmittingRef = useRef<boolean>(false);
 
-  const [brandSearchTerm, setBrandSearchTerm] = useState('');
-  const [selectedBrandCategory, setSelectedBrandCategory] = useState('');
-  const [brandResults, setBrandResults] = useState<BrandResult[]>([]);
-  const [showBrandResults, setShowBrandResults] = useState(false);
-  const [settingsBrands, setSettingsBrands] = useState<string[]>([]);
-  const [selectedSettingsBrand, setSelectedSettingsBrand] = useState('');
+
+  const [researchText, setResearchText] = useState('');
+  const [researchImages, setResearchImages] = useState<string[]>([]);
+  const [researchLoading, setResearchLoading] = useState(false);
+  const [researchError, setResearchError] = useState<string | null>(null);
+  const [researchResult, setResearchResult] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'ai' | 'ebay'>('ai');
+
+  const compressImage = (file: File, maxWidth: number = 1920, maxHeight: number = 1920, quality: number = 0.8): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+
+          // Calculate new dimensions
+          if (width > height) {
+            if (width > maxWidth) {
+              height = (height * maxWidth) / width;
+              width = maxWidth;
+            }
+          } else {
+            if (height > maxHeight) {
+              width = (width * maxHeight) / height;
+              height = maxHeight;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error('Failed to get canvas context'));
+            return;
+          }
+
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          // Convert to base64 with compression
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+          resolve(compressedDataUrl);
+        };
+        img.onerror = () => reject(new Error('Failed to load image'));
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) {
+      return;
+    }
+
+    const remainingSlots = 4 - researchImages.length;
+    if (remainingSlots <= 0) {
+      setResearchError('Maximum 4 images allowed');
+      return;
+    }
+
+    const filesToProcess = Array.from(files).slice(0, remainingSlots);
+    
+    // Validate all files
+    for (const file of filesToProcess) {
+      if (!file.type.startsWith('image/')) {
+        setResearchError('Please upload only image files');
+        return;
+      }
+    }
+
+    setResearchError(null);
+    setResearchLoading(true);
+
+    try {
+      const compressedImages: string[] = [];
+      
+      for (const file of filesToProcess) {
+        // Check file size (warn if over 10MB before compression)
+        if (file.size > 10 * 1024 * 1024) {
+          console.warn('Image is very large, compressing...', file.name);
+        }
+        
+        const compressedImage = await compressImage(file);
+        compressedImages.push(compressedImage);
+      }
+
+      setResearchImages((prev) => [...prev, ...compressedImages]);
+      setResearchError(null);
+    } catch (err: any) {
+      setResearchError(err.message || 'Failed to process image file');
+    } finally {
+      setResearchLoading(false);
+      // Reset the input so the same file can be selected again
+      event.target.value = '';
+    }
+  };
+
+  const removeImage = (index: number) => {
+    setResearchImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleCameraCapture = async () => {
+    if (researchImages.length >= 4) {
+      setResearchError('Maximum 4 images allowed');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'environment' } // Prefer back camera on mobile
+      });
+      
+      // Create a video element to show the camera feed
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      video.autoplay = true;
+      video.playsInline = true;
+      
+      // Create a modal/overlay for camera preview
+      const modal = document.createElement('div');
+      modal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.9);
+        z-index: 10000;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+      `;
+      
+      const videoContainer = document.createElement('div');
+      videoContainer.style.cssText = `
+        width: 90%;
+        max-width: 640px;
+        position: relative;
+      `;
+      
+      video.style.cssText = `
+        width: 100%;
+        height: auto;
+        border-radius: 12px;
+      `;
+      
+      const buttonContainer = document.createElement('div');
+      buttonContainer.style.cssText = `
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+      `;
+      
+      const captureButton = document.createElement('button');
+      captureButton.textContent = '📷 Capture';
+      captureButton.style.cssText = `
+        padding: 16px 32px;
+        font-size: 18px;
+        border-radius: 999px;
+        border: 2px solid #8cffc3;
+        background: rgba(140, 255, 195, 0.2);
+        color: #8cffc3;
+        cursor: pointer;
+        font-weight: 600;
+      `;
+      
+      const cancelButton = document.createElement('button');
+      cancelButton.textContent = 'Cancel';
+      cancelButton.style.cssText = `
+        padding: 16px 32px;
+        font-size: 18px;
+        border-radius: 999px;
+        border: 2px solid rgba(255, 120, 120, 0.5);
+        background: rgba(255, 120, 120, 0.2);
+        color: #ff9a9a;
+        cursor: pointer;
+        font-weight: 600;
+      `;
+      
+      const capturePhoto = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(video, 0, 0);
+          canvas.toBlob(async (blob) => {
+            if (blob) {
+              const file = new File([blob], 'camera-photo.jpg', { type: 'image/jpeg' });
+              try {
+                const compressedImage = await compressImage(file);
+                setResearchImages((prev) => [...prev, compressedImage]);
+                setResearchError(null);
+              } catch (err: any) {
+                setResearchError(err.message || 'Failed to process photo');
+              }
+            }
+            // Cleanup
+            stream.getTracks().forEach(track => track.stop());
+            document.body.removeChild(modal);
+          }, 'image/jpeg', 0.9);
+        }
+      };
+      
+      const cancelCapture = () => {
+        stream.getTracks().forEach(track => track.stop());
+        document.body.removeChild(modal);
+      };
+      
+      captureButton.onclick = capturePhoto;
+      cancelButton.onclick = cancelCapture;
+      
+      videoContainer.appendChild(video);
+      buttonContainer.appendChild(captureButton);
+      buttonContainer.appendChild(cancelButton);
+      modal.appendChild(videoContainer);
+      modal.appendChild(buttonContainer);
+      document.body.appendChild(modal);
+      
+      // Wait for video to be ready
+      video.onloadedmetadata = () => {
+        video.play();
+      };
+      
+    } catch (err: any) {
+      console.error('Camera access error:', err);
+      setResearchError('Unable to access camera. Please check permissions or use file upload instead.');
+    }
+  };
+
+  const handleResearchSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    
+    if (!researchText.trim() && researchImages.length === 0) {
+      setResearchError('Please enter text or upload at least one image');
+      return;
+    }
+
+    setResearchLoading(true);
+    setResearchError(null);
+    setResearchResult(null);
+
+    try {
+      const requestBody = {
+        text: researchText.trim() || undefined,
+        images: researchImages.length > 0 ? researchImages : []
+      };
+      
+      console.log('Sending research request:', {
+        hasText: !!requestBody.text,
+        textLength: requestBody.text?.length || 0,
+        imagesCount: requestBody.images.length,
+        imagesAreArray: Array.isArray(requestBody.images)
+      });
+
+      const response = await fetch(`${API_BASE}/api/gemini/research`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Failed to process research request' }));
+        throw new Error(errorData.error || 'Failed to process research request');
+      }
+
+      const data = await response.json();
+      setResearchResult(data.result);
+    } catch (err: any) {
+      console.error('Gemini research error:', err);
+      setResearchError(err.message || 'Unable to process research request. Please try again later.');
+    } finally {
+      setResearchLoading(false);
+    }
+  };
+
+  const clearResearch = () => {
+    setResearchText('');
+    setResearchImages([]);
+    setResearchResult(null);
+    setResearchError(null);
+  };
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -62,292 +339,201 @@ const Research: React.FC = () => {
       }
 
       setEbayQuery((current) => (current.trim().length > 0 ? current : trimmed));
-      setBrandSearchTerm((current) => (current.trim().length > 0 ? current : trimmed));
+      setResearchText((current) => (current.trim().length > 0 ? current : trimmed));
     } catch (storageError) {
       console.warn('Unable to read stored search term for research:', storageError);
     }
   }, []);
 
-  useEffect(() => {
-    let isMounted = true;
-
-    const applyBrands = (rawBrands: unknown) => {
-      if (!Array.isArray(rawBrands)) {
-        return false;
-      }
-
-      const sanitized = Array.from(
-        new Set(
-          rawBrands
-            .filter((brand): brand is string => typeof brand === 'string')
-            .map((brand) => brand.trim())
-            .filter((brand) => brand.length > 0)
-        )
-      ).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-
-      if (isMounted && sanitized.length > 0) {
-        setSettingsBrands(sanitized);
-      }
-
-      return sanitized.length > 0;
-    };
-
-    const loadBrands = async () => {
-      try {
-        const response = await fetch(`${API_BASE}/api/settings`);
-        if (response.ok) {
-          const data = await response.json();
-          const applied = applyBrands(data?.brands);
-          if (applied) {
-            return;
-          }
-        }
-      } catch (error) {
-        console.warn('Falling back to static settings for brands:', error);
-      }
-
-      try {
-        const fallbackResponse = await fetch('/app-settings.json');
-        if (!fallbackResponse.ok) {
-          throw new Error(`Fallback settings not available: ${fallbackResponse.status}`);
-        }
-
-        const fallbackData = await fallbackResponse.json();
-        applyBrands(fallbackData?.brands);
-      } catch (fallbackError) {
-        console.error('Unable to load brands from settings:', fallbackError);
-      }
-    };
-
-    loadBrands();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!selectedSettingsBrand) {
-      return;
-    }
-
-    if (brandSearchTerm.trim().toLowerCase() !== selectedSettingsBrand.toLowerCase()) {
-      setSelectedSettingsBrand('');
-    }
-  }, [brandSearchTerm, selectedSettingsBrand]);
-
-  useEffect(() => {
-    if (brandSearchTerm.trim().length > 0) {
-      const filteredResults: BrandResult[] = [];
-
-      brandsToBuy.forEach((brand) => {
-        const matchesSearch = brand.name.toLowerCase().includes(brandSearchTerm.toLowerCase());
-        const matchesCategory = !selectedBrandCategory || brand.category === selectedBrandCategory;
-
-        if (matchesSearch && matchesCategory) {
-          filteredResults.push({
-            name: brand.name,
-            category: brand.category,
-            minimumPrice: brand.minimumPrice,
-            status: 'good',
-          });
-        }
-      });
-
-      brandsToAvoid.forEach((brand) => {
-        const matchesSearch = brand.name.toLowerCase().includes(brandSearchTerm.toLowerCase());
-        const matchesCategory = !selectedBrandCategory || brand.category === selectedBrandCategory;
-
-        if (matchesSearch && matchesCategory) {
-          filteredResults.push({
-            name: brand.name,
-            category: brand.category,
-            minimumPrice: brand.minimumPrice,
-            status: 'bad',
-          });
-        }
-      });
-
-      setBrandResults(filteredResults);
-      setShowBrandResults(true);
-    } else {
-      setBrandResults([]);
-      setShowBrandResults(false);
-    }
-  }, [brandSearchTerm, selectedBrandCategory]);
-
-  const handleBrandInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setBrandSearchTerm(value);
-  };
-
-  const handleBrandResultClick = (brandName: string) => {
-    setBrandSearchTerm(brandName);
-    setShowBrandResults(false);
-    setEbayQuery((current) => (current.trim().length > 0 ? current : brandName));
-  };
-
-  const handleBrandCategoryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setSelectedBrandCategory(e.target.value);
-  };
-
-  const handleSettingsBrandChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const value = e.target.value;
-    setSelectedSettingsBrand(value);
-    if (!value) {
-      setBrandSearchTerm('');
-      setShowBrandResults(false);
-      return;
-    }
-
-    setBrandSearchTerm(value);
-    setShowBrandResults(true);
-    setEbayQuery((current) => (current.trim().length > 0 ? current : value));
-  };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    
+    // Prevent duplicate submissions while a request is in progress
+    if (isSubmittingRef.current) {
+      return;
+    }
+
     const trimmedQuery = ebayQuery.trim();
     if (!trimmedQuery) {
       setError('Please enter a search term');
       return;
     }
 
-    setLoading(true);
-    setError(null);
-    setResult(null);
-
-    try {
-      const params = new URLSearchParams({ q: trimmedQuery });
-      const response = await fetch(`${API_BASE}/api/ebay/research?${params.toString()}`);
-
-      if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || 'Failed to fetch research data.');
-      }
-
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const message = await response.text();
-        throw new Error(message || 'Unexpected response format from server.');
-      }
-
-      const data: ResearchResult = await response.json();
-      setResult(data);
-    } catch (err: any) {
-      console.error('Research fetch error:', err);
-      setError(err.message || 'Unable to load research data. Please try again later.');
-    } finally {
-      setLoading(false);
+    // Clear any existing debounce timer
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
     }
+
+    // Debounce the API call to prevent rapid successive requests
+    debounceTimerRef.current = setTimeout(async () => {
+      // Double-check we're not already submitting
+      if (isSubmittingRef.current) {
+        return;
+      }
+
+      isSubmittingRef.current = true;
+      setLoading(true);
+      setError(null);
+      setResult(null);
+
+      console.log(`[${new Date().toISOString()}] Making eBay research API call for: "${trimmedQuery}"`);
+      try {
+        const params = new URLSearchParams({ q: trimmedQuery });
+        const response = await fetch(`${API_BASE}/api/ebay/research?${params.toString()}`);
+
+        if (!response.ok) {
+          const message = await response.text();
+          throw new Error(message || 'Failed to fetch research data.');
+        }
+
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          const message = await response.text();
+          throw new Error(message || 'Unexpected response format from server.');
+        }
+
+        const data: ResearchResult = await response.json();
+        setResult(data);
+      } catch (err: any) {
+        console.error('Research fetch error:', err);
+        setError(err.message || 'Unable to load research data. Please try again later.');
+      } finally {
+        setLoading(false);
+        isSubmittingRef.current = false;
+        debounceTimerRef.current = null;
+      }
+    }, 300); // 300ms debounce delay
   };
 
-  const brandResultsContent = useMemo(() => {
-    if (!showBrandResults || brandResults.length === 0) {
-      return null;
-    }
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, []);
 
-    return (
-      <div className="search-results">
-        {brandResults.map((result, index) => (
-          <div
-            key={`${result.name}-${index}`}
-            className={`search-result ${result.status}`}
-            onClick={() => handleBrandResultClick(result.name)}
-          >
-            <span className="status-icon">{result.status === 'good' ? '✓' : '✗'}</span>
-            <div className="brand-info">
-              <span className="brand-name">{result.name}</span>
-              <span className="brand-category">{result.category}</span>
-              <span className="brand-price">Min: £{result.minimumPrice}</span>
-            </div>
-            <span className="status-text">
-              {result.status === 'good' ? 'Good to buy' : 'Avoid'}
-            </span>
-          </div>
-        ))}
-      </div>
-    );
-  }, [brandResults, showBrandResults]);
 
   return (
     <div className="research-page-container">
-      <div className="brand-research-container">
-        <div className="brand-research-header">
-          <h1>Brand Research</h1>
-          <p>Search for brands to see if they're worth buying or should be avoided</p>
-        </div>
-
-        <div className="search-section">
-          <div className="search-input-container">
-            <input
-              type="text"
-              value={brandSearchTerm}
-              onChange={handleBrandInputChange}
-              placeholder="Type a brand name..."
-              className="brand-search-input"
-              autoComplete="off"
-            />
-            <select
-              value={selectedBrandCategory}
-              onChange={handleBrandCategoryChange}
-              className="category-filter"
-            >
-              <option value="">All Categories</option>
-              {brandCategories.map((category) => (
-                <option key={category} value={category}>
-                  {category}
-                </option>
-              ))}
-            </select>
-            {settingsBrands.length > 0 && (
-              <select
-                value={selectedSettingsBrand}
-                onChange={handleSettingsBrandChange}
-                className="settings-brand-filter"
-              >
-                <option value="">Brands from settings…</option>
-                {settingsBrands.map((brand) => (
-                  <option key={brand} value={brand}>
-                    {brand}
-                  </option>
-                ))}
-              </select>
-            )}
-            {brandResultsContent}
-          </div>
-        </div>
-
-        {brandSearchTerm && brandResults.length === 0 && (
-          <div className="no-results">
-            <p>No brands found matching "{brandSearchTerm}"</p>
-            <p>This brand is not in our database - research manually</p>
-          </div>
-        )}
-
-        {brandSearchTerm && brandResults.length > 0 && (
-          <div className="search-summary">
-            <h3>Search Results for "{brandSearchTerm}"</h3>
-            <div className="results-list">
-              {brandResults.map((result, index) => (
-                <div key={`${result.name}-${index}`} className={`result-item ${result.status}`}>
-                  <span className="result-icon">{result.status === 'good' ? '✓' : '✗'}</span>
-                  <div className="result-brand-info">
-                    <span className="result-brand">{result.name}</span>
-                    <span className="result-category">{result.category}</span>
-                    <span className="result-price">Min: £{result.minimumPrice}</span>
-                  </div>
-                  <span className="result-status">
-                    {result.status === 'good' ? 'Good to buy' : 'Avoid'}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+      <div className="research-tabs">
+        <button
+          type="button"
+          className={`research-tab ${activeTab === 'ai' ? 'active' : ''}`}
+          onClick={() => setActiveTab('ai')}
+        >
+          AI
+        </button>
+        <button
+          type="button"
+          className={`research-tab ${activeTab === 'ebay' ? 'active' : ''}`}
+          onClick={() => setActiveTab('ebay')}
+        >
+          eBay
+        </button>
       </div>
 
-      <div className="ebay-search-container research-ebay-section">
+      {activeTab === 'ai' && (
+      <div className="research-tool-container">
+        <form onSubmit={handleResearchSubmit} className="research-tool-form">
+          <div className="research-input-group">
+            <textarea
+              value={researchText}
+              onChange={(e) => setResearchText(e.target.value)}
+              placeholder="Enter item description or search query..."
+              className="research-text-input"
+              rows={1}
+            />
+            <div className="research-image-upload">
+              <div className="image-upload-buttons">
+                <button
+                  type="button"
+                  onClick={handleCameraCapture}
+                  className="image-upload-label camera-label"
+                  disabled={researchImages.length >= 4}
+                >
+                  📷 Take Photo
+                </button>
+                <label htmlFor="research-image-file" className="image-upload-label file-label">
+                  📁 Choose Files
+                </label>
+                <input
+                  id="research-image-file"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleImageUpload}
+                  className="image-upload-input"
+                  disabled={researchImages.length >= 4}
+                />
+              </div>
+              {researchImages.length > 0 && (
+                <div className="images-count-indicator">
+                  {researchImages.length}/4 images selected
+                </div>
+              )}
+              {researchImages.length > 0 && (
+                <div className="images-preview-container">
+                  {researchImages.map((image, index) => (
+                    <div key={index} className="image-preview">
+                      <img src={image} alt={`Preview ${index + 1}`} />
+                      <button
+                        type="button"
+                        onClick={() => removeImage(index)}
+                        className="remove-image-button"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="research-actions">
+            <button
+              type="submit"
+              className="research-submit-button"
+              disabled={researchLoading || (!researchText.trim() && researchImages.length === 0)}
+            >
+              {researchLoading ? 'Researching...' : 'Research Item'}
+            </button>
+            {(researchText || researchImages.length > 0 || researchResult) && (
+              <button
+                type="button"
+                onClick={clearResearch}
+                className="research-clear-button"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          {researchError && (
+            <div className="research-error">{researchError}</div>
+          )}
+
+          {researchResult && (
+            <div className="research-result">
+              <div className="research-result-header">
+                <div className="research-result-avatar">AI</div>
+                <h3>Research Analysis</h3>
+              </div>
+              <div className="research-result-content">
+                <ReactMarkdown>{researchResult}</ReactMarkdown>
+              </div>
+            </div>
+          )}
+        </form>
+      </div>
+      )}
+
+      {activeTab === 'ebay' && (
+      <div className="research-tool-container">
         <form onSubmit={handleSubmit} className="ebay-search-form">
           <div className="search-bar-group">
             <div className="search-input-wrapper">
@@ -391,20 +577,21 @@ const Research: React.FC = () => {
                   <span className="value">{formatRatio(result.sellThroughRatio)}</span>
                 </div>
               </div>
-              {result.diagnostics?.completedError && (
-                <div className="settings-error" style={{ marginTop: '16px' }}>
-                  Sold data is temporarily unavailable: {result.diagnostics.completedError}
-                </div>
-              )}
               {result.diagnostics && (
                 <div className="settings-status" style={{ marginTop: '16px' }}>
                   Active total: {result.diagnostics.browseTotal ?? 'n/a'} · Sold entries: {result.diagnostics.completedTotalEntries ?? 'n/a'}
+                </div>
+              )}
+              {result.diagnostics?.completedError && (
+                <div className="settings-error" style={{ marginTop: '16px', marginBottom: '0' }}>
+                  Sold data is temporarily unavailable: {result.diagnostics.completedError}
                 </div>
               )}
             </div>
           )}
         </form>
       </div>
+      )}
     </div>
   );
 };

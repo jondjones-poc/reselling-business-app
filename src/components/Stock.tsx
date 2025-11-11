@@ -1044,7 +1044,7 @@ const Stock: React.FC = () => {
         </div>
         <div className="summary-card">
           <span className="summary-label">Records</span>
-          <span className="summary-value">{rows.length.toLocaleString()}</span>
+          <span className="summary-value">{sortedRows.length.toLocaleString()}</span>
         </div>
       </section>
 
