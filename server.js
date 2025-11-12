@@ -15,7 +15,475 @@ app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
 const settingsPath = path.join(__dirname, 'settings.json');
-let appSettings = { categories: [], material: [], colors: [], brands: [], patterns: [], gender: [] }; // Added gender
+const mensResaleReferencePath = path.join(__dirname, 'mensResaleReference.json');
+
+let mensResaleReference = [];
+try {
+  if (fs.existsSync(mensResaleReferencePath)) {
+    const mensResaleContent = fs.readFileSync(mensResaleReferencePath, 'utf-8');
+    mensResaleReference = JSON.parse(mensResaleContent);
+    console.log(`Loaded ${mensResaleReference.length} brands from mensResaleReference.json`);
+  } else {
+    console.warn('mensResaleReference.json not found. Using empty array.');
+  }
+} catch (error) {
+  console.error('Failed to load mensResaleReference.json:', error);
+  mensResaleReference = [];
+}
+
+// Fallback array (kept for reference, but should not be used if JSON loads successfully)
+const mensResaleReferenceFallback = [
+  {
+    brand: "AllSaints",
+    status: "✅",
+    note: "Premium menswear — leather, knits, denim move fast.",
+    categories: [
+      { item: "Outerwear", resaleRange: "£60–£120" },
+      { item: "Knitwear", resaleRange: "£40–£70" },
+      { item: "Denim", resaleRange: "£40–£70" }
+    ]
+  },
+  {
+    brand: "Aligne",
+    status: "❌",
+    note: "Womenswear focused; no mens resale market.",
+    categories: [{ item: "All", resaleRange: "£0.00" }]
+  },
+  {
+    brand: "AMI Paris",
+    status: "✅",
+    note: "Modern French designer with loyal buyers.",
+    categories: [
+      { item: "Sweatshirts", resaleRange: "£60–£100" },
+      { item: "Outerwear", resaleRange: "£80–£150" },
+      { item: "Knitwear", resaleRange: "£50–£90" }
+    ]
+  },
+  {
+    brand: "A.P.C.",
+    status: "✅",
+    note: "French minimalist; premium selvedge denim holds strong value.",
+    categories: [
+      { item: "Denim", resaleRange: "£60–£100" },
+      { item: "Jackets", resaleRange: "£70–£120" }
+    ]
+  },
+  {
+    brand: "Aquascutum",
+    status: "✅",
+    note: "British heritage tailoring and trench coats.",
+    categories: [
+      { item: "Outerwear", resaleRange: "£80–£150" },
+      { item: "Suits", resaleRange: "£100–£180" }
+    ]
+  },
+  {
+    brand: "Arket",
+    status: "✅",
+    note: "High-quality minimalist menswear from H&M Group's premium line.",
+    categories: [
+      { item: "Coats", resaleRange: "£60–£100" },
+      { item: "Knitwear", resaleRange: "£40–£70" },
+      { item: "Shirts", resaleRange: "£30–£50" }
+    ]
+  },
+  {
+    brand: "Arc'teryx",
+    status: "✅",
+    note: "Technical outdoor wear with cult resale base.",
+    categories: [{ item: "Outerwear", resaleRange: "£100–£200" }]
+  },
+  {
+    brand: "Atmosphere",
+    status: "❌",
+    note: "Primark sub-brand; zero resale interest.",
+    categories: [{ item: "All", resaleRange: "£0.00" }]
+  },
+  {
+    brand: "Banana Republic",
+    status: "⚠️",
+    note: "Buy only tailored wool coats or chinos; most slow sellers.",
+    categories: [{ item: "Outerwear", resaleRange: "£30–£60" }]
+  },
+  {
+    brand: "Baracuta",
+    status: "✅",
+    note: "Iconic G9 Harrington jacket; UK classic resale hit.",
+    categories: [{ item: "Outerwear", resaleRange: "£70–£120" }]
+  },
+  {
+    brand: "Barbour",
+    status: "✅",
+    note: "UK heritage label; wax and quilted jackets resell fast.",
+    categories: [{ item: "Outerwear", resaleRange: "£80–£150" }]
+  },
+  {
+    brand: "Barbour Beacon",
+    status: "⚠️",
+    note: "Cheaper Barbour range; slower sales, lower quality.",
+    categories: [{ item: "Outerwear", resaleRange: "£25–£50" }]
+  },
+  {
+    brand: "Barbour International",
+    status: "✅",
+    note: "Popular biker sub-line; solid resale for jackets/gilets.",
+    categories: [{ item: "Outerwear", resaleRange: "£60–£100" }]
+  },
+  {
+    brand: "Barbour Gold Standard",
+    status: "✅",
+    note: "Collector range; high demand and resale prices.",
+    categories: [{ item: "Outerwear", resaleRange: "£120–£200" }]
+  },
+  {
+    brand: "Belstaff",
+    status: "✅",
+    note: "Luxury moto outerwear; jackets flip quickly £100+.",
+    categories: [{ item: "Outerwear", resaleRange: "£100–£250" }]
+  },
+  {
+    brand: "Ben Sherman",
+    status: "⚠️",
+    note: "Retro Mod appeal; vintage shirts worth it only.",
+    categories: [{ item: "Shirts", resaleRange: "£20–£35" }]
+  },
+  {
+    brand: "Bershka",
+    status: "❌",
+    note: "Youth fast fashion; poor quality, low resale.",
+    categories: [{ item: "All", resaleRange: "£0.00" }]
+  },
+  {
+    brand: "Blue Harbour",
+    status: "❌",
+    note: "M&S sub-line, dated and low demand.",
+    categories: [{ item: "All", resaleRange: "£0.00" }]
+  },
+  {
+    brand: "BoohooMAN",
+    status: "❌",
+    note: "Ultra-fast fashion; flooded market.",
+    categories: [{ item: "All", resaleRange: "£0.00" }]
+  },
+  {
+    brand: "Brakeburn",
+    status: "⚠️",
+    note: "Casual coastal wear; only if mint condition.",
+    categories: [
+      { item: "Shirts", resaleRange: "£15–£25" },
+      { item: "Knitwear", resaleRange: "£20–£30" }
+    ]
+  },
+  {
+    brand: "Burton",
+    status: "❌",
+    note: "Defunct high street label; weak resale.",
+    categories: [{ item: "All", resaleRange: "£0.00" }]
+  },
+  {
+    brand: "Calvin Klein Jeans",
+    status: "⚠️",
+    note: "Only premium denim or heavy-logo sweats sell.",
+    categories: [
+      { item: "Denim", resaleRange: "£25–£40" },
+      { item: "Sweatshirts", resaleRange: "£25–£35" }
+    ]
+  },
+  {
+    brand: "Carhartt WIP",
+    status: "✅",
+    note: "Workwear/streetwear crossover; reliable resale base.",
+    categories: [
+      { item: "Jackets", resaleRange: "£60–£100" },
+      { item: "Workwear", resaleRange: "£40–£80" },
+      { item: "Cargo", resaleRange: "£35–£60" }
+    ]
+  },
+  {
+    brand: "Charles Tyrwhitt",
+    status: "⚠️",
+    note: "Common businesswear; only limited or luxury cotton shirts move.",
+    categories: [{ item: "Shirts", resaleRange: "£25–£40" }]
+  },
+  {
+    brand: "Cheaney",
+    status: "✅",
+    note: "Heritage Northampton shoemaker; handmade leather boots.",
+    categories: [
+      { item: "Shoes", resaleRange: "£90–£150" },
+      { item: "Boots", resaleRange: "£100–£160" }
+    ]
+  },
+  {
+    brand: "Church's",
+    status: "✅",
+    note: "Top-end English dress shoes with collector appeal.",
+    categories: [{ item: "Shoes", resaleRange: "£120–£200" }]
+  },
+  {
+    brand: "CP Company",
+    status: "✅",
+    note: "Italian technical streetwear; strong resale market.",
+    categories: [
+      { item: "Outerwear", resaleRange: "£80–£150" },
+      { item: "Sweatshirts", resaleRange: "£50–£100" }
+    ]
+  },
+  {
+    brand: "Crockett & Jones",
+    status: "✅",
+    note: "Luxury UK-made footwear; elite resale value.",
+    categories: [{ item: "Shoes", resaleRange: "£120–£250" }]
+  },
+  {
+    brand: "Cotton On",
+    status: "❌",
+    note: "Low-cost fast fashion; poor resale.",
+    categories: [{ item: "All", resaleRange: "£0.00" }]
+  },
+  {
+    brand: "Crew Clothing",
+    status: "❌",
+    note: "Too common on resale platforms.",
+    categories: [{ item: "All", resaleRange: "£0.00" }]
+  },
+  {
+    brand: "Diesel",
+    status: "✅",
+    note: "Premium Italian denim; made-in-Italy lines resell well.",
+    categories: [
+      { item: "Denim", resaleRange: "£40–£80" },
+      { item: "Jackets", resaleRange: "£50–£100" }
+    ]
+  },
+  {
+    brand: "Dr. Martens Made in England",
+    status: "✅",
+    note: "Strong resale, collector appeal. Avoid Asia-made lines.",
+    categories: [{ item: "Boots", resaleRange: "£60–£120" }]
+  },
+  {
+    brand: "Dune Mens",
+    status: "✅",
+    note: "Real leather shoes £25–£50 resale; skip synthetic pairs.",
+    categories: [{ item: "Shoes", resaleRange: "£25–£50" }]
+  },
+  {
+    brand: "Eton Shirts",
+    status: "✅",
+    note: "Swedish premium shirtmaker; fast resale £40–£80.",
+    categories: [{ item: "Shirts", resaleRange: "£40–£80" }]
+  },
+  {
+    brand: "Filson",
+    status: "✅",
+    note: "US heritage outdoor gear; jackets sell £80–£150.",
+    categories: [
+      { item: "Outerwear", resaleRange: "£80–£150" },
+      { item: "Bags", resaleRange: "£60–£100" }
+    ]
+  },
+  {
+    brand: "French Connection",
+    status: "❌",
+    note: "Overproduced; little resale interest.",
+    categories: [{ item: "All", resaleRange: "£0.00" }]
+  },
+  {
+    brand: "GANT",
+    status: "✅",
+    note: "Premium preppy; polos and knits have steady resale.",
+    categories: [
+      { item: "Knitwear", resaleRange: "£30–£60" },
+      { item: "Shirts", resaleRange: "£25–£45" }
+    ]
+  },
+  {
+    brand: "Grenson",
+    status: "✅",
+    note: "Premium British shoe brand; good market base.",
+    categories: [
+      { item: "Shoes", resaleRange: "£80–£150" },
+      { item: "Boots", resaleRange: "£90–£160" }
+    ]
+  },
+  {
+    brand: "Hackett",
+    status: "✅",
+    note: "Upper-tier British casualwear, steady resale.",
+    categories: [
+      { item: "Shirts", resaleRange: "£30–£50" },
+      { item: "Jackets", resaleRange: "£60–£100" }
+    ]
+  },
+  {
+    brand: "H&M",
+    status: "❌",
+    note: "Mass-market, oversaturated.",
+    categories: [{ item: "All", resaleRange: "£0.00" }]
+  },
+  {
+    brand: "Jaeger",
+    status: "✅",
+    note: "British tailoring, wool coats and suits resell well.",
+    categories: [
+      { item: "Suits", resaleRange: "£60–£120" },
+      { item: "Outerwear", resaleRange: "£70–£130" }
+    ]
+  },
+  {
+    brand: "John Smedley",
+    status: "✅",
+    note: "Luxury knitwear brand; Merino & Sea Island cotton strong.",
+    categories: [{ item: "Knitwear", resaleRange: "£50–£90" }]
+  },
+  {
+    brand: "Lacoste",
+    status: "✅",
+    note: "Polos and knitwear resell quickly.",
+    categories: [
+      { item: "Polos", resaleRange: "£25–£50" },
+      { item: "Knitwear", resaleRange: "£30–£60" }
+    ]
+  },
+  {
+    brand: "Levi's",
+    status: "✅",
+    note: "Heritage denim. Vintage or 501s sell fast.",
+    categories: [
+      { item: "Denim", resaleRange: "£30–£70" },
+      { item: "Jackets", resaleRange: "£50–£80" }
+    ]
+  },
+  {
+    brand: "Loake",
+    status: "✅",
+    note: "Northampton heritage shoemaker; solid resale.",
+    categories: [{ item: "Shoes", resaleRange: "£60–£120" }]
+  },
+  {
+    brand: "Patagonia",
+    status: "✅",
+    note: "Outdoor brand with high resale £50–£100.",
+    categories: [
+      { item: "Outerwear", resaleRange: "£70–£120" },
+      { item: "Fleeces", resaleRange: "£50–£90" }
+    ]
+  },
+  {
+    brand: "Paul Smith",
+    status: "✅",
+    note: "British designer, shirts & shoes strong resale.",
+    categories: [
+      { item: "Shirts", resaleRange: "£50–£90" },
+      { item: "Shoes", resaleRange: "£70–£130" }
+    ]
+  },
+  {
+    brand: "Ralph Lauren (Standard)",
+    status: "✅",
+    note: "Core polos & knits steady resale.",
+    categories: [
+      { item: "Polos", resaleRange: "£25–£40" },
+      { item: "Knitwear", resaleRange: "£30–£50" }
+    ]
+  },
+  {
+    brand: "Reiss",
+    status: "✅",
+    note: "Premium high-street tailoring.",
+    categories: [
+      { item: "Suits", resaleRange: "£70–£120" },
+      { item: "Shirts", resaleRange: "£30–£60" }
+    ]
+  },
+  {
+    brand: "RM Williams",
+    status: "✅",
+    note: "Australian Chelsea boots; cult following.",
+    categories: [{ item: "Shoes", resaleRange: "£100–£180" }]
+  },
+  {
+    brand: "Stone Island",
+    status: "✅",
+    note: "Cult label, fast resale turnover.",
+    categories: [
+      { item: "Outerwear", resaleRange: "£100–£200" },
+      { item: "Sweatshirts", resaleRange: "£60–£120" }
+    ]
+  },
+  {
+    brand: "Ted Baker",
+    status: "✅",
+    note: "Premium tailoring & footwear resale well.",
+    categories: [
+      { item: "Suits", resaleRange: "£60–£120" },
+      { item: "Shoes", resaleRange: "£50–£90" }
+    ]
+  },
+  {
+    brand: "Timberland",
+    status: "✅",
+    note: "Boots & jackets move fast £40–£100.",
+    categories: [
+      { item: "Shoes", resaleRange: "£50–£100" },
+      { item: "Outerwear", resaleRange: "£50–£90" }
+    ]
+  },
+  {
+    brand: "Tommy Hilfiger",
+    status: "✅",
+    note: "Classic brand; polos & jackets £25–£60.",
+    categories: [
+      { item: "Polos", resaleRange: "£25–£50" },
+      { item: "Outerwear", resaleRange: "£50–£90" }
+    ]
+  },
+  {
+    brand: "Tricker's",
+    status: "✅",
+    note: "Heritage British shoemaker; high-end resale.",
+    categories: [{ item: "Shoes", resaleRange: "£90–£150" }]
+  },
+  {
+    brand: "Turnbull & Asser",
+    status: "✅",
+    note: "Savile Row shirtmaker; luxury resale.",
+    categories: [{ item: "Shirts", resaleRange: "£80–£150" }]
+  },
+  {
+    brand: "Whistles Mens",
+    status: "✅",
+    note: "Premium menswear; wool coats & knits resell.",
+    categories: [
+      { item: "Outerwear", resaleRange: "£60–£100" },
+      { item: "Knitwear", resaleRange: "£40–£70" }
+    ]
+  },
+  {
+    brand: "Wrangler",
+    status: "✅",
+    note: "Western/workwear denim, steady demand.",
+    categories: [
+      { item: "Denim", resaleRange: "£25–£45" },
+      { item: "Jackets", resaleRange: "£30–£60" }
+    ]
+  },
+  {
+    brand: "Zara",
+    status: "❌",
+    note: "Fast fashion, oversaturated resale.",
+    categories: [{ item: "All", resaleRange: "£0.00" }]
+  }
+];
+
+// Extract brands marked as avoid (❌) for settings
+// (Only used if JSON file fails to load)
+const avoidBrandsList = mensResaleReference
+  .filter(item => item.status === "❌")
+  .map(item => item.brand);
+
+let appSettings = { categories: [], material: [], colors: [], brands: [], patterns: [], gender: [], avoidBrands: avoidBrandsList };
 let dbPool = null;
 
 try {
@@ -98,7 +566,8 @@ const loadSettings = () => {
         colors: parsed.colors ?? [],
         brands: parsed.brands ?? [],
         patterns: parsed.patterns ?? [],
-        gender: parsed.gender ?? [] // Load gender
+        gender: parsed.gender ?? [], // Load gender
+        avoidBrands: parsed.avoidBrands ?? avoidBrandsList
       };
       return appSettings;
     }
@@ -198,6 +667,15 @@ app.get('/api/settings', (req, res) => {
   res.json(currentSettings);
 });
 
+app.get('/api/mens-resale-reference', (req, res) => {
+  try {
+    res.json(mensResaleReference);
+  } catch (error) {
+    console.error('Error serving mensResaleReference:', error);
+    res.status(500).json({ error: 'Failed to load mens resale reference' });
+  }
+});
+
 const getAccessToken = async (appId, certId) => {
   const oauthUrl = 'https://api.ebay.com/identity/v1/oauth2/token';
   const clientCredentials = Buffer.from(`${appId}:${certId}`).toString('base64');
@@ -235,8 +713,8 @@ const getBrowseSearch = async ({ query, accessToken, limit = '5', sort = '-price
   // Add delivery country filter (UK only) - applies to both active and sold
   filterParts.push('deliveryCountry:GB');
   
-  // Note: We don't add conditionIds for active listings to get all conditions
-  // The itemStartDate filter will ensure we only get recent active listings
+  // Add condition filter for Used items - applies to both active and sold
+  filterParts.push('conditionIds:{3000}'); // 3000 = Used condition
   
   // Add date filter for last month if requested
   if (lastMonthOnly) {
@@ -386,11 +864,12 @@ app.get('/api/ebay/research', async (req, res) => {
   try {
     const accessToken = await getAccessToken(appId, certId);
     // Get active listings from last month
+    // For research, always filter to last 30 days
     const browseData = await getBrowseSearch({ 
       query: q, 
       accessToken, 
       limit: '50',
-      lastMonthOnly: true 
+      lastMonthOnly: true // Always filter to last 30 days for research
     });
     const activeCount = typeof browseData.total === 'number'
       ? browseData.total
@@ -406,13 +885,14 @@ app.get('/api/ebay/research', async (req, res) => {
     console.log(`[${new Date().toISOString()}] eBay Research API called for query: "${q}"`);
     try {
       console.log(`[${new Date().toISOString()}] Calling Browse API for sold items (last 30 days)...`);
+      // For research, always filter to last 30 days
       const soldBrowseData = await getBrowseSearch({ 
         query: q, 
         accessToken, 
         limit: '50',
         sort: '-price',
         soldOnly: true,
-        lastMonthOnly: true 
+        lastMonthOnly: true // Always filter to last 30 days for research
       });
       
       // Extract sold count from Browse API response

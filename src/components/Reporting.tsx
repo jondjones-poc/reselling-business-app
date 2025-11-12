@@ -312,6 +312,15 @@ const Reporting: React.FC = () => {
     }, 0);
   }, [profitTimeline]);
 
+  const totalSalesAllTime = useMemo(() => {
+    if (profitTimeline.length === 0) {
+      return 0;
+    }
+    return profitTimeline.reduce((sum, point) => {
+      return sum + (point.totalSales ?? 0);
+    }, 0);
+  }, [profitTimeline]);
+
   const salesByCategoryData = useMemo(() => {
     if (salesByCategory.length === 0) {
       return null;
@@ -443,6 +452,10 @@ const Reporting: React.FC = () => {
   return (
     <div className="reporting-container">
       <div className="reporting-header">
+        <div className="total-sales-all-time">
+          <span className="total-sales-label">Total Sales:</span>
+          <span className="total-sales-value">{formatCurrency(totalSalesAllTime)}</span>
+        </div>
         <div className="year-filter">
           <label htmlFor="reporting-year">Year</label>
           <select

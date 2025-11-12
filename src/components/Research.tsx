@@ -346,6 +346,12 @@ const Research: React.FC = () => {
   }, []);
 
 
+  const handleClearEbay = () => {
+    setEbayQuery('');
+    setResult(null);
+    setError(null);
+  };
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     
@@ -548,13 +554,20 @@ const Research: React.FC = () => {
             </div>
           </div>
 
-          <div className="primary-action-row research-action-row">
+          <div className="primary-action-row research-action-row" style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
             <button
               type="submit"
               className="ebay-search-button"
               disabled={loading || !ebayQuery.trim()}
             >
-              {loading ? 'Researching...' : 'Research eBay'}
+              {loading ? 'Searching...' : 'Search'}
+            </button>
+            <button
+              type="button"
+              onClick={handleClearEbay}
+              className="research-clear-button clear-red"
+            >
+              Clear
             </button>
           </div>
 
@@ -562,7 +575,7 @@ const Research: React.FC = () => {
 
           {result && !error && (
             <div className="listings-container">
-              <h3>Market Snapshot for "{result.query}"</h3>
+              <h3>Research for "{result.query}"</h3>
               <div className="price-stats">
                 <div className="price-stat">
                   <span className="label">Active Listings</span>

@@ -79,7 +79,8 @@
   justify-content: flex-start;
 }
 
-.research-action-row .ebay-search-button {
+.research-action-row .ebay-search-button,
+.research-action-row .research-clear-button {
   flex: 0 0 auto;
   max-width: none;
 }

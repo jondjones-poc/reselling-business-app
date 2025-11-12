@@ -163,6 +163,7 @@ const Stock: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showTypeahead, setShowTypeahead] = useState(false);
   const [typeaheadSuggestions, setTypeaheadSuggestions] = useState<string[]>([]);
+  const [unsoldFilter, setUnsoldFilter] = useState<'off' | '30' | '60' | '90'>('off');
 
   const loadStock = async () => {
     try {
@@ -286,7 +287,46 @@ const Stock: React.FC = () => {
       return [];
     }
 
-    return rows.filter((row) => {
+    let filtered = rows;
+
+    // Apply unsold filter if active (overrides other filters)
+    if (unsoldFilter !== 'off') {
+      const today = new Date();
+      
+      filtered = filtered.filter((row) => {
+        // Must not be sold (no sale_date)
+        if (row.sale_date) {
+          return false;
+        }
+
+        // Must have a purchase_date
+        if (!row.purchase_date) {
+          return false;
+        }
+
+        const purchaseDate = new Date(row.purchase_date);
+        if (Number.isNaN(purchaseDate.getTime())) {
+          return false;
+        }
+
+        const daysSincePurchase = Math.floor((today.getTime() - purchaseDate.getTime()) / (1000 * 60 * 60 * 24));
+        
+        if (unsoldFilter === '30') {
+          return daysSincePurchase >= 30;
+        } else if (unsoldFilter === '60') {
+          return daysSincePurchase >= 60;
+        } else if (unsoldFilter === '90') {
+          return daysSincePurchase >= 90;
+        }
+
+        return false;
+      });
+
+      return filtered;
+    }
+
+    // Apply normal filters when unsold filter is off
+    return filtered.filter((row) => {
       const purchaseDateYear =
         row.purchase_date && new Date(row.purchase_date).getFullYear().toString();
       const saleDateYear =
@@ -312,7 +352,7 @@ const Stock: React.FC = () => {
       const itemName = row.item_name ? row.item_name.toLowerCase() : '';
       return itemName.includes(searchTerm.toLowerCase().trim());
     });
-  }, [rows, selectedMonth, selectedYear, viewMode, showAllYear, searchTerm]);
+  }, [rows, selectedMonth, selectedYear, viewMode, showAllYear, searchTerm, unsoldFilter]);
 
   const totals = useMemo(() => {
     if (!filteredRows.length) {
@@ -916,6 +956,7 @@ const Stock: React.FC = () => {
             type="button"
             className={`all-year-button${showAllYear ? ' active' : ''}`}
             onClick={() => setShowAllYear((prev) => !prev)}
+            disabled={unsoldFilter !== 'off'}
           >
             All Year
           </button>
@@ -926,7 +967,7 @@ const Stock: React.FC = () => {
             value={selectedMonth}
             onChange={(event) => setSelectedMonth(event.target.value)}
             className="filter-select"
-            disabled={showAllYear}
+            disabled={showAllYear || unsoldFilter !== 'off'}
           >
             {MONTHS.map((month) => (
               <option key={month.value} value={month.value}>
@@ -941,6 +982,7 @@ const Stock: React.FC = () => {
             value={selectedYear}
             onChange={(event) => setSelectedYear(event.target.value)}
             className="filter-select"
+            disabled={unsoldFilter !== 'off'}
           >
             {availableYears.map((year) => (
               <option key={year} value={year}>
@@ -956,7 +998,7 @@ const Stock: React.FC = () => {
               type="button"
               className={`view-toggle-button${viewMode === 'listing' ? ' active' : ''}`}
               onClick={() => setViewMode('listing')}
-              disabled={showAllYear}
+              disabled={showAllYear || unsoldFilter !== 'off'}
             >
               Listings
             </button>
@@ -964,11 +1006,36 @@ const Stock: React.FC = () => {
               type="button"
               className={`view-toggle-button${viewMode === 'sales' ? ' active' : ''}`}
               onClick={() => setViewMode('sales')}
-              disabled={showAllYear}
+              disabled={showAllYear || unsoldFilter !== 'off'}
             >
               Sales
             </button>
           </div>
+        </div>
+
+        <div className="filter-group unsold-filter-group">
+          <select
+            value={unsoldFilter}
+            onChange={(event) => {
+              const value = event.target.value as 'off' | '30' | '60' | '90';
+              setUnsoldFilter(value);
+              
+              // Clear other filters when a non-"Off" option is selected
+              if (value !== 'off') {
+                setSearchTerm('');
+                setSelectedMonth(String(now.getMonth() + 1));
+                setSelectedYear(String(now.getFullYear()));
+                setShowAllYear(false);
+                setViewMode('listing');
+              }
+            }}
+            className="filter-select unsold-filter-select"
+          >
+            <option value="off">Unsold Filter</option>
+            <option value="30">30 Days</option>
+            <option value="60">60 Days</option>
+            <option value="90">90 Days</option>
+          </select>
         </div>
 
         <div className="filter-group search-group">
@@ -979,6 +1046,7 @@ const Stock: React.FC = () => {
               placeholder="Search items..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              disabled={unsoldFilter !== 'off'}
               onFocus={() => {
                 if (typeaheadSuggestions.length > 0) {
                   setShowTypeahead(true);

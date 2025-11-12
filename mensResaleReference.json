@@ -1,0 +1,1782 @@
+[
+  {
+    "brand": "AllSaints",
+    "status": "✅",
+    "note": "Premium menswear — leather, knits, denim move fast.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£60–£120"
+      },
+      {
+        "item": "Knitwear",
+        "resaleRange": "£40–£70"
+      },
+      {
+        "item": "Denim",
+        "resaleRange": "£40–£70"
+      }
+    ]
+  },
+  {
+    "brand": "Aligne",
+    "status": "❌",
+    "note": "Womenswear focused; no mens resale market.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "AMI Paris",
+    "status": "✅",
+    "note": "Modern French designer with loyal buyers.",
+    "categories": [
+      {
+        "item": "Sweatshirts",
+        "resaleRange": "£60–£100"
+      },
+      {
+        "item": "Outerwear",
+        "resaleRange": "£80–£150"
+      },
+      {
+        "item": "Knitwear",
+        "resaleRange": "£50–£90"
+      }
+    ]
+  },
+  {
+    "brand": "A.P.C.",
+    "status": "✅",
+    "note": "French minimalist; premium selvedge denim holds strong value.",
+    "categories": [
+      {
+        "item": "Denim",
+        "resaleRange": "£60–£100"
+      },
+      {
+        "item": "Jackets",
+        "resaleRange": "£70–£120"
+      }
+    ]
+  },
+  {
+    "brand": "Aquascutum",
+    "status": "✅",
+    "note": "British heritage tailoring and trench coats.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£80–£150"
+      },
+      {
+        "item": "Suits",
+        "resaleRange": "£100–£180"
+      }
+    ]
+  },
+  {
+    "brand": "Arket",
+    "status": "✅",
+    "note": "High-quality minimalist menswear from H&M Group's premium line.",
+    "categories": [
+      {
+        "item": "Coats",
+        "resaleRange": "£60–£100"
+      },
+      {
+        "item": "Knitwear",
+        "resaleRange": "£40–£70"
+      },
+      {
+        "item": "Shirts",
+        "resaleRange": "£30–£50"
+      }
+    ]
+  },
+  {
+    "brand": "Arc'teryx",
+    "status": "✅",
+    "note": "Technical outdoor wear with cult resale base.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£100–£200"
+      }
+    ]
+  },
+  {
+    "brand": "Atmosphere",
+    "status": "❌",
+    "note": "Primark sub-brand; zero resale interest.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Banana Republic",
+    "status": "⚠️",
+    "note": "Buy only tailored wool coats or chinos; most slow sellers.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£30–£60"
+      }
+    ]
+  },
+  {
+    "brand": "Baracuta",
+    "status": "✅",
+    "note": "Iconic G9 Harrington jacket; UK classic resale hit.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£70–£120"
+      }
+    ]
+  },
+  {
+    "brand": "Barbour",
+    "status": "✅",
+    "note": "UK heritage label; wax and quilted jackets resell fast.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£80–£150"
+      }
+    ]
+  },
+  {
+    "brand": "Barbour Beacon",
+    "status": "⚠️",
+    "note": "Cheaper Barbour range; slower sales, lower quality.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£25–£50"
+      }
+    ]
+  },
+  {
+    "brand": "Barbour International",
+    "status": "✅",
+    "note": "Popular biker sub-line; solid resale for jackets/gilets.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£60–£100"
+      }
+    ]
+  },
+  {
+    "brand": "Barbour Gold Standard",
+    "status": "✅",
+    "note": "Collector range; high demand and resale prices.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£120–£200"
+      }
+    ]
+  },
+  {
+    "brand": "Belstaff",
+    "status": "✅",
+    "note": "Luxury moto outerwear; jackets flip quickly £100+.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£100–£250"
+      }
+    ]
+  },
+  {
+    "brand": "Ben Sherman",
+    "status": "⚠️",
+    "note": "Retro Mod appeal; vintage shirts worth it only.",
+    "categories": [
+      {
+        "item": "Shirts",
+        "resaleRange": "£20–£35"
+      }
+    ]
+  },
+  {
+    "brand": "Bershka",
+    "status": "❌",
+    "note": "Youth fast fashion; poor quality, low resale.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Blue Harbour",
+    "status": "❌",
+    "note": "M&S sub-line, dated and low demand.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "BoohooMAN",
+    "status": "❌",
+    "note": "Ultra-fast fashion; flooded market.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Brakeburn",
+    "status": "⚠️",
+    "note": "Casual coastal wear; only if mint condition.",
+    "categories": [
+      {
+        "item": "Shirts",
+        "resaleRange": "£15–£25"
+      },
+      {
+        "item": "Knitwear",
+        "resaleRange": "£20–£30"
+      }
+    ]
+  },
+  {
+    "brand": "Burton",
+    "status": "❌",
+    "note": "Defunct high street label; weak resale.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Calvin Klein Jeans",
+    "status": "⚠️",
+    "note": "Only premium denim or heavy-logo sweats sell.",
+    "categories": [
+      {
+        "item": "Denim",
+        "resaleRange": "£25–£40"
+      },
+      {
+        "item": "Sweatshirts",
+        "resaleRange": "£25–£35"
+      }
+    ]
+  },
+  {
+    "brand": "Carhartt WIP",
+    "status": "✅",
+    "note": "Workwear/streetwear crossover; reliable resale base.",
+    "categories": [
+      {
+        "item": "Jackets",
+        "resaleRange": "£60–£100"
+      },
+      {
+        "item": "Workwear",
+        "resaleRange": "£40–£80"
+      },
+      {
+        "item": "Cargo",
+        "resaleRange": "£35–£60"
+      }
+    ]
+  },
+  {
+    "brand": "Charles Tyrwhitt",
+    "status": "⚠️",
+    "note": "Common businesswear; only limited or luxury cotton shirts move.",
+    "categories": [
+      {
+        "item": "Shirts",
+        "resaleRange": "£25–£40"
+      }
+    ]
+  },
+  {
+    "brand": "Cheaney",
+    "status": "✅",
+    "note": "Heritage Northampton shoemaker; handmade leather boots.",
+    "categories": [
+      {
+        "item": "Shoes",
+        "resaleRange": "£90–£150"
+      },
+      {
+        "item": "Boots",
+        "resaleRange": "£100–£160"
+      }
+    ]
+  },
+  {
+    "brand": "Church's",
+    "status": "✅",
+    "note": "Top-end English dress shoes with collector appeal.",
+    "categories": [
+      {
+        "item": "Shoes",
+        "resaleRange": "£120–£200"
+      }
+    ]
+  },
+  {
+    "brand": "CP Company",
+    "status": "✅",
+    "note": "Italian technical streetwear; strong resale market.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£80–£150"
+      },
+      {
+        "item": "Sweatshirts",
+        "resaleRange": "£50–£100"
+      }
+    ]
+  },
+  {
+    "brand": "Crockett & Jones",
+    "status": "✅",
+    "note": "Luxury UK-made footwear; elite resale value.",
+    "categories": [
+      {
+        "item": "Shoes",
+        "resaleRange": "£120–£250"
+      }
+    ]
+  },
+  {
+    "brand": "Cotton On",
+    "status": "❌",
+    "note": "Low-cost fast fashion; poor resale.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Crew Clothing",
+    "status": "❌",
+    "note": "Too common on resale platforms.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Damson Madder",
+    "status": "❌",
+    "note": "Womenswear, no mens resale audience.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Diesel",
+    "status": "✅",
+    "note": "Premium Italian denim; made-in-Italy lines resell well.",
+    "categories": [
+      {
+        "item": "Denim",
+        "resaleRange": "£40–£80"
+      },
+      {
+        "item": "Jackets",
+        "resaleRange": "£50–£100"
+      }
+    ]
+  },
+  {
+    "brand": "Dorothy Perkins",
+    "status": "❌",
+    "note": "Womenswear only.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Dr. Martens Made in England",
+    "status": "✅",
+    "note": "Strong resale, collector appeal. Avoid Asia-made lines.",
+    "categories": [
+      {
+        "item": "Boots",
+        "resaleRange": "£60–£120"
+      }
+    ]
+  },
+  {
+    "brand": "Dune Mens",
+    "status": "✅",
+    "note": "Real leather shoes £25–£50 resale; skip synthetic pairs.",
+    "categories": [
+      {
+        "item": "Shoes",
+        "resaleRange": "£25–£50"
+      }
+    ]
+  },
+  {
+    "brand": "Emma Willis",
+    "status": "✅",
+    "note": "Handmade shirts from Jermyn St; luxury resale.",
+    "categories": [
+      {
+        "item": "Shirts",
+        "resaleRange": "£70–£130"
+      }
+    ]
+  },
+  {
+    "brand": "Drake's",
+    "status": "✅",
+    "note": "Luxury shirts and ties; very strong resale.",
+    "categories": [
+      {
+        "item": "Shirts",
+        "resaleRange": "£80–£150"
+      },
+      {
+        "item": "Knitwear",
+        "resaleRange": "£60–£100"
+      }
+    ]
+  },
+  {
+    "brand": "G.H. Bass",
+    "status": "✅",
+    "note": "Heritage footwear, strong resale for Weejuns.",
+    "categories": [
+      {
+        "item": "Shoes",
+        "resaleRange": "£40–£80"
+      }
+    ]
+  },
+  {
+    "brand": "Lee",
+    "status": "✅",
+    "note": "Classic denim brand; vintage jeans move well.",
+    "categories": [
+      {
+        "item": "Denim",
+        "resaleRange": "£25–£45"
+      }
+    ]
+  },
+  {
+    "brand": "Ralph Lauren (RRL)",
+    "status": "✅",
+    "note": "Collector sub-line, high resale.",
+    "categories": [
+      {
+        "item": "Denim",
+        "resaleRange": "£80–£150"
+      },
+      {
+        "item": "Jackets",
+        "resaleRange": "£100–£180"
+      }
+    ]
+  },
+  {
+    "brand": "Tommy Jeans",
+    "status": "✅",
+    "note": "Vintage & core denim line; quick resale.",
+    "categories": [
+      {
+        "item": "Denim",
+        "resaleRange": "£30–£60"
+      },
+      {
+        "item": "Jackets",
+        "resaleRange": "£40–£80"
+      }
+    ]
+  },
+  {
+    "brand": "Uniqlo",
+    "status": "⚠️",
+    "note": "Only +J or collabs have resale value.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£40–£70"
+      },
+      {
+        "item": "Shirts",
+        "resaleRange": "£30–£50"
+      }
+    ]
+  },
+  {
+    "brand": "Shein",
+    "status": "❌",
+    "note": "Ultra-fast fashion, zero resale.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Primark",
+    "status": "❌",
+    "note": "No resale unless rare collab.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Engineered Garments",
+    "status": "✅",
+    "note": "Niche Japanese workwear; premium resale market.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£100–£200"
+      },
+      {
+        "item": "Workwear Jackets",
+        "resaleRange": "£90–£160"
+      }
+    ]
+  },
+  {
+    "brand": "Eton Shirts",
+    "status": "✅",
+    "note": "Swedish premium shirtmaker; fast resale £40–£80.",
+    "categories": [
+      {
+        "item": "Shirts",
+        "resaleRange": "£40–£80"
+      }
+    ]
+  },
+  {
+    "brand": "F&F",
+    "status": "❌",
+    "note": "Tesco clothing, no resale value.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "FatFace",
+    "status": "❌",
+    "note": "Common high street, no margin.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Filson",
+    "status": "✅",
+    "note": "US heritage outdoor gear; jackets sell £80–£150.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£80–£150"
+      },
+      {
+        "item": "Bags",
+        "resaleRange": "£60–£100"
+      }
+    ]
+  },
+  {
+    "brand": "French Connection",
+    "status": "❌",
+    "note": "Overproduced; little resale interest.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "GANT",
+    "status": "✅",
+    "note": "Premium preppy; polos and knits have steady resale.",
+    "categories": [
+      {
+        "item": "Knitwear",
+        "resaleRange": "£30–£60"
+      },
+      {
+        "item": "Shirts",
+        "resaleRange": "£25–£45"
+      }
+    ]
+  },
+  {
+    "brand": "Gap",
+    "status": "⚠️",
+    "note": "Only 90s or vintage USA logo pieces move.",
+    "categories": [
+      {
+        "item": "Sweatshirts",
+        "resaleRange": "£20–£30"
+      }
+    ]
+  },
+  {
+    "brand": "George",
+    "status": "❌",
+    "note": "Supermarket line, no resale.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Grenson",
+    "status": "✅",
+    "note": "Premium British shoe brand; good market base.",
+    "categories": [
+      {
+        "item": "Shoes",
+        "resaleRange": "£80–£150"
+      },
+      {
+        "item": "Boots",
+        "resaleRange": "£90–£160"
+      }
+    ]
+  },
+  {
+    "brand": "Hackett",
+    "status": "✅",
+    "note": "Upper-tier British casualwear, steady resale.",
+    "categories": [
+      {
+        "item": "Shirts",
+        "resaleRange": "£30–£50"
+      },
+      {
+        "item": "Jackets",
+        "resaleRange": "£60–£100"
+      }
+    ]
+  },
+  {
+    "brand": "H&M",
+    "status": "❌",
+    "note": "Mass-market, oversaturated.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "H&M Basics",
+    "status": "❌",
+    "note": "Low-quality essentials, no resale.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Hobbs",
+    "status": "❌",
+    "note": "Womenswear brand.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Hugo Boss",
+    "status": "⚠️",
+    "note": "Only Boss Black / Selection lines hold value.",
+    "categories": [
+      {
+        "item": "Suits",
+        "resaleRange": "£80–£150"
+      },
+      {
+        "item": "Shirts",
+        "resaleRange": "£40–£70"
+      }
+    ]
+  },
+  {
+    "brand": "In The Style",
+    "status": "❌",
+    "note": "Influencer fast fashion, no value.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "ISawItFirst",
+    "status": "❌",
+    "note": "Fast fashion; flooded market.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Jack & Jones",
+    "status": "❌",
+    "note": "Basic high street denim, no margin.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Jack Wills",
+    "status": "❌",
+    "note": "Dated youth brand, poor resale.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Jaeger",
+    "status": "✅",
+    "note": "British tailoring, wool coats and suits resell well.",
+    "categories": [
+      {
+        "item": "Suits",
+        "resaleRange": "£60–£120"
+      },
+      {
+        "item": "Outerwear",
+        "resaleRange": "£70–£130"
+      }
+    ]
+  },
+  {
+    "brand": "Jigsaw",
+    "status": "⚠️",
+    "note": "Slow seller; only high-end wool coats worth it.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£60–£100"
+      }
+    ]
+  },
+  {
+    "brand": "John Smedley",
+    "status": "✅",
+    "note": "Luxury knitwear brand; Merino & Sea Island cotton strong.",
+    "categories": [
+      {
+        "item": "Knitwear",
+        "resaleRange": "£50–£90"
+      }
+    ]
+  },
+  {
+    "brand": "Joules",
+    "status": "❌",
+    "note": "Family brand, weak mens resale.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Karen Millen",
+    "status": "❌",
+    "note": "Womenswear only.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Lacoste",
+    "status": "✅",
+    "note": "Polos and knitwear resell quickly.",
+    "categories": [
+      {
+        "item": "Polos",
+        "resaleRange": "£25–£50"
+      },
+      {
+        "item": "Knitwear",
+        "resaleRange": "£30–£60"
+      }
+    ]
+  },
+  {
+    "brand": "Levi's",
+    "status": "✅",
+    "note": "Heritage denim. Vintage or 501s sell fast.",
+    "categories": [
+      {
+        "item": "Denim",
+        "resaleRange": "£30–£70"
+      },
+      {
+        "item": "Jackets",
+        "resaleRange": "£50–£80"
+      }
+    ]
+  },
+  {
+    "brand": "Loake",
+    "status": "✅",
+    "note": "Northampton heritage shoemaker; solid resale.",
+    "categories": [
+      {
+        "item": "Shoes",
+        "resaleRange": "£60–£120"
+      }
+    ]
+  },
+  {
+    "brand": "Lyle & Scott",
+    "status": "⚠️",
+    "note": "Only vintage knits or golfwear resell.",
+    "categories": [
+      {
+        "item": "Knitwear",
+        "resaleRange": "£25–£40"
+      }
+    ]
+  },
+  {
+    "brand": "M&S",
+    "status": "❌",
+    "note": "High street staple; poor resale.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Mango Man",
+    "status": "⚠️",
+    "note": "Quality okay but slow resale. Buy if stylish & cheap.",
+    "categories": [
+      {
+        "item": "Coats",
+        "resaleRange": "£35–£60"
+      },
+      {
+        "item": "Shirts",
+        "resaleRange": "£25–£40"
+      }
+    ]
+  },
+  {
+    "brand": "Matalan",
+    "status": "❌",
+    "note": "Budget store label.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Mint Velvet",
+    "status": "❌",
+    "note": "Womenswear brand.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Monki",
+    "status": "❌",
+    "note": "Womenswear only.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Monsoon",
+    "status": "❌",
+    "note": "Womenswear brand.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Nigel Cabourn",
+    "status": "✅",
+    "note": "High-end British workwear; collector demand.",
+    "categories": [
+      {
+        "item": "Workwear Jackets",
+        "resaleRange": "£100–£180"
+      },
+      {
+        "item": "Outerwear",
+        "resaleRange": "£120–£200"
+      }
+    ]
+  },
+  {
+    "brand": "Norse Projects",
+    "status": "✅",
+    "note": "Scandinavian minimalist; steady resale.",
+    "categories": [
+      {
+        "item": "Knitwear",
+        "resaleRange": "£40–£80"
+      },
+      {
+        "item": "Outerwear",
+        "resaleRange": "£70–£130"
+      }
+    ]
+  },
+  {
+    "brand": "Next",
+    "status": "❌",
+    "note": "Common chain, low resale margins.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Oliver Sweeney",
+    "status": "✅",
+    "note": "Premium leather shoes & boots.",
+    "categories": [
+      {
+        "item": "Shoes",
+        "resaleRange": "£70–£130"
+      }
+    ]
+  },
+  {
+    "brand": "Only & Sons",
+    "status": "❌",
+    "note": "Low-end casualwear.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Original Penguin",
+    "status": "⚠️",
+    "note": "Retro polos okay. Avoid newer low-end lines.",
+    "categories": [
+      {
+        "item": "Polos",
+        "resaleRange": "£20–£35"
+      }
+    ]
+  },
+  {
+    "brand": "Patagonia",
+    "status": "✅",
+    "note": "Outdoor brand with high resale £50–£100.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£70–£120"
+      },
+      {
+        "item": "Fleeces",
+        "resaleRange": "£50–£90"
+      }
+    ]
+  },
+  {
+    "brand": "Peacocks",
+    "status": "❌",
+    "note": "Low-value, fast fashion.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Pepe Jeans",
+    "status": "⚠️",
+    "note": "Good denim heritage; vintage jeans only.",
+    "categories": [
+      {
+        "item": "Denim",
+        "resaleRange": "£25–£45"
+      }
+    ]
+  },
+  {
+    "brand": "Phase Eight",
+    "status": "❌",
+    "note": "Womenswear only.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Paul Smith",
+    "status": "✅",
+    "note": "British designer, shirts & shoes strong resale.",
+    "categories": [
+      {
+        "item": "Shirts",
+        "resaleRange": "£50–£90"
+      },
+      {
+        "item": "Shoes",
+        "resaleRange": "£70–£130"
+      }
+    ]
+  },
+  {
+    "brand": "Private White V.C.",
+    "status": "✅",
+    "note": "Luxury handmade British outerwear.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£120–£200"
+      }
+    ]
+  },
+  {
+    "brand": "Pull & Bear",
+    "status": "❌",
+    "note": "Youth brand, oversaturated.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Ralph Lauren (Standard)",
+    "status": "✅",
+    "note": "Core polos & knits steady resale.",
+    "categories": [
+      {
+        "item": "Polos",
+        "resaleRange": "£25–£40"
+      },
+      {
+        "item": "Knitwear",
+        "resaleRange": "£30–£50"
+      }
+    ]
+  },
+  {
+    "brand": "Reiss",
+    "status": "✅",
+    "note": "Premium high-street tailoring.",
+    "categories": [
+      {
+        "item": "Suits",
+        "resaleRange": "£70–£120"
+      },
+      {
+        "item": "Shirts",
+        "resaleRange": "£30–£60"
+      }
+    ]
+  },
+  {
+    "brand": "Reserved",
+    "status": "❌",
+    "note": "Basic high street; poor resale.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "River Island",
+    "status": "❌",
+    "note": "Common chain, no profit margin.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "RM Williams",
+    "status": "✅",
+    "note": "Australian Chelsea boots; cult following.",
+    "categories": [
+      {
+        "item": "Shoes",
+        "resaleRange": "£100–£180"
+      }
+    ]
+  },
+  {
+    "brand": "Sfera",
+    "status": "❌",
+    "note": "Low awareness UK market.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Selected Homme",
+    "status": "⚠️",
+    "note": "Only wool coats or blazers resell.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£40–£70"
+      }
+    ]
+  },
+  {
+    "brand": "Springfield",
+    "status": "❌",
+    "note": "Low-value European label.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Stone Island",
+    "status": "✅",
+    "note": "Cult label, fast resale turnover.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£100–£200"
+      },
+      {
+        "item": "Sweatshirts",
+        "resaleRange": "£60–£120"
+      }
+    ]
+  },
+  {
+    "brand": "Stradivarius",
+    "status": "❌",
+    "note": "Womenswear.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Superdry",
+    "status": "⚠️",
+    "note": "Only leather or technical jackets move.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£35–£70"
+      }
+    ]
+  },
+  {
+    "brand": "Ted Baker",
+    "status": "✅",
+    "note": "Premium tailoring & footwear resale well.",
+    "categories": [
+      {
+        "item": "Suits",
+        "resaleRange": "£60–£120"
+      },
+      {
+        "item": "Shoes",
+        "resaleRange": "£50–£90"
+      }
+    ]
+  },
+  {
+    "brand": "Timberland",
+    "status": "✅",
+    "note": "Boots & jackets move fast £40–£100.",
+    "categories": [
+      {
+        "item": "Shoes",
+        "resaleRange": "£50–£100"
+      },
+      {
+        "item": "Outerwear",
+        "resaleRange": "£50–£90"
+      }
+    ]
+  },
+  {
+    "brand": "Tommy Hilfiger",
+    "status": "✅",
+    "note": "Classic brand; polos & jackets £25–£60.",
+    "categories": [
+      {
+        "item": "Polos",
+        "resaleRange": "£25–£50"
+      },
+      {
+        "item": "Outerwear",
+        "resaleRange": "£50–£90"
+      }
+    ]
+  },
+  {
+    "brand": "Tricker's",
+    "status": "✅",
+    "note": "Heritage British shoemaker; high-end resale.",
+    "categories": [
+      {
+        "item": "Shoes",
+        "resaleRange": "£90–£150"
+      }
+    ]
+  },
+  {
+    "brand": "Tu",
+    "status": "❌",
+    "note": "Sainsbury's clothing; no resale.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Turnbull & Asser",
+    "status": "✅",
+    "note": "Savile Row shirtmaker; luxury resale.",
+    "categories": [
+      {
+        "item": "Shirts",
+        "resaleRange": "£80–£150"
+      }
+    ]
+  },
+  {
+    "brand": "Visvim",
+    "status": "✅",
+    "note": "Japanese luxury workwear; collector item.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£200–£350"
+      },
+      {
+        "item": "Boots",
+        "resaleRange": "£150–£300"
+      }
+    ]
+  },
+  {
+    "brand": "Wallis",
+    "status": "❌",
+    "note": "Womenswear.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Weekday",
+    "status": "⚠️",
+    "note": "Selvedge denim line only; skip basics.",
+    "categories": [
+      {
+        "item": "Denim",
+        "resaleRange": "£30–£60"
+      }
+    ]
+  },
+  {
+    "brand": "White Stuff",
+    "status": "❌",
+    "note": "Common UK brand; low resale.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Whistles Mens",
+    "status": "✅",
+    "note": "Premium menswear; wool coats & knits resell.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£60–£100"
+      },
+      {
+        "item": "Knitwear",
+        "resaleRange": "£40–£70"
+      }
+    ]
+  },
+  {
+    "brand": "Wrangler",
+    "status": "✅",
+    "note": "Western/workwear denim, steady demand.",
+    "categories": [
+      {
+        "item": "Denim",
+        "resaleRange": "£25–£45"
+      },
+      {
+        "item": "Jackets",
+        "resaleRange": "£30–£60"
+      }
+    ]
+  },
+  {
+    "brand": "Zara",
+    "status": "❌",
+    "note": "Fast fashion, oversaturated resale.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0.00"
+      }
+    ]
+  },
+  {
+    "brand": "Acai Outdoorwear",
+    "status": "✅✅",
+    "note": "Technical women's-focused outdoor brand; men's pieces rare but jackets resell well.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£60–£120"
+      }
+    ]
+  },
+  {
+    "brand": "Acne Studios",
+    "status": "✅✅",
+    "note": "Scandi designer label; minimalist denim and outerwear in strong demand.",
+    "categories": [
+      {
+        "item": "Denim",
+        "resaleRange": "£70–£150"
+      },
+      {
+        "item": "Outerwear",
+        "resaleRange": "£100–£250"
+      }
+    ]
+  },
+  {
+    "brand": "Alexander McQueen",
+    "status": "✅✅",
+    "note": "British luxury fashion house; shoes and tailoring dominate resale market.",
+    "categories": [
+      {
+        "item": "Shoes",
+        "resaleRange": "£120–£250"
+      },
+      {
+        "item": "Suits",
+        "resaleRange": "£150–£300"
+      }
+    ]
+  },
+  {
+    "brand": "Anatomic",
+    "status": "✅✅",
+    "note": "Brazilian leather shoemaker; handmade comfort shoes sell reliably.",
+    "categories": [
+      {
+        "item": "Shoes",
+        "resaleRange": "£50–£100"
+      }
+    ]
+  },
+  {
+    "brand": "Aztech Mountain",
+    "status": "✅✅",
+    "note": "High-end alpine outerwear; niche but strong resale in ski circles.",
+    "categories": [
+      {
+        "item": "Technical Outerwear",
+        "resaleRange": "£120–£250"
+      }
+    ]
+  },
+  {
+    "brand": "Balenciaga",
+    "status": "✅✅",
+    "note": "High-fashion street-luxury brand; trainers and hoodies lead resale.",
+    "categories": [
+      {
+        "item": "Trainers",
+        "resaleRange": "£150–£300"
+      },
+      {
+        "item": "Sweatshirts",
+        "resaleRange": "£120–£250"
+      }
+    ]
+  },
+  {
+    "brand": "Balmain",
+    "status": "✅✅",
+    "note": "Parisian luxury with rock aesthetic; jeans and jackets fetch strong prices.",
+    "categories": [
+      {
+        "item": "Denim",
+        "resaleRange": "£100–£250"
+      },
+      {
+        "item": "Outerwear",
+        "resaleRange": "£150–£300"
+      }
+    ]
+  },
+  {
+    "brand": "Berluti",
+    "status": "✅✅",
+    "note": "Ultra-luxury French menswear; leather shoes and tailoring dominate resale.",
+    "categories": [
+      {
+        "item": "Shoes",
+        "resaleRange": "£200–£400"
+      },
+      {
+        "item": "Suits",
+        "resaleRange": "£250–£500"
+      }
+    ]
+  },
+  {
+    "brand": "Boss X Perfect Moment",
+    "status": "✅✅",
+    "note": "Limited-edition collab with strong collector value; ski jackets move fast.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£120–£250"
+      }
+    ]
+  },
+  {
+    "brand": "Brunello Cucinelli",
+    "status": "✅✅",
+    "note": "Italian luxury; knitwear, outerwear, and cashmere pieces sell premium.",
+    "categories": [
+      {
+        "item": "Knitwear",
+        "resaleRange": "£150–£350"
+      },
+      {
+        "item": "Outerwear",
+        "resaleRange": "£250–£500"
+      }
+    ]
+  },
+  {
+    "brand": "Burberry",
+    "status": "✅✅",
+    "note": "British luxury staple; trench coats, scarves, and sneakers are top sellers.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£200–£400"
+      },
+      {
+        "item": "Accessories",
+        "resaleRange": "£80–£150"
+      }
+    ]
+  },
+  {
+    "brand": "Canali",
+    "status": "✅✅",
+    "note": "Italian luxury tailoring house; suits and blazers have steady resale.",
+    "categories": [
+      {
+        "item": "Suits",
+        "resaleRange": "£150–£300"
+      },
+      {
+        "item": "Blazers",
+        "resaleRange": "£100–£200"
+      }
+    ]
+  },
+  {
+    "brand": "Celine",
+    "status": "✅✅",
+    "note": "Luxury French fashion house; coats and sneakers have strong demand.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£250–£500"
+      },
+      {
+        "item": "Shoes",
+        "resaleRange": "£150–£300"
+      }
+    ]
+  },
+  {
+    "brand": "Churchs",
+    "status": "✅✅",
+    "note": "Prestige English shoemaker; high resale on handmade pairs.",
+    "categories": [
+      {
+        "item": "Shoes",
+        "resaleRange": "£100–£200"
+      }
+    ]
+  },
+  {
+    "brand": "Comme des Garçons",
+    "status": "✅✅",
+    "note": "Avant-garde Japanese brand; mainline pieces and collabs resell well.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£150–£300"
+      },
+      {
+        "item": "Shirts",
+        "resaleRange": "£70–£130"
+      }
+    ]
+  },
+  {
+    "brand": "Comme des Garçons Homme Deux",
+    "status": "✅✅",
+    "note": "Tailored subline; suits and shirts have niche but loyal resale buyers.",
+    "categories": [
+      {
+        "item": "Suits",
+        "resaleRange": "£150–£300"
+      },
+      {
+        "item": "Shirts",
+        "resaleRange": "£60–£100"
+      }
+    ]
+  },
+  {
+    "brand": "Cortez",
+    "status": "✅✅",
+    "note": "Streetwear label with growing hype; graphic pieces move quickly.",
+    "categories": [
+      {
+        "item": "Sweatshirts",
+        "resaleRange": "£70–£150"
+      }
+    ]
+  },
+  {
+    "brand": "Derek Rose",
+    "status": "✅✅",
+    "note": "Luxury loungewear and pyjamas; robes and knitwear flip fast.",
+    "categories": [
+      {
+        "item": "Loungewear",
+        "resaleRange": "£70–£120"
+      }
+    ]
+  },
+  {
+    "brand": "Dior Homme",
+    "status": "✅✅",
+    "note": "Top-tier luxury menswear; tailoring and sneakers dominate resale.",
+    "categories": [
+      {
+        "item": "Suits",
+        "resaleRange": "£250–£500"
+      },
+      {
+        "item": "Shoes",
+        "resaleRange": "£150–£300"
+      }
+    ]
+  },
+  {
+    "brand": "Dolce & Gabbana",
+    "status": "✅✅",
+    "note": "Italian luxury; statement shirts and jackets command high resale.",
+    "categories": [
+      {
+        "item": "Shirts",
+        "resaleRange": "£100–£200"
+      },
+      {
+        "item": "Outerwear",
+        "resaleRange": "£150–£300"
+      }
+    ]
+  },
+  {
+    "brand": "Dries Van Noten",
+    "status": "✅✅",
+    "note": "Belgian designer; patterned outerwear and knitwear hold strong resale.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£120–£250"
+      },
+      {
+        "item": "Knitwear",
+        "resaleRange": "£80–£150"
+      }
+    ]
+  },
+  {
+    "brand": "Dunhill",
+    "status": "✅✅",
+    "note": "Classic British luxury; suits, leather goods, and outerwear retain value.",
+    "categories": [
+      {
+        "item": "Suits",
+        "resaleRange": "£150–£300"
+      },
+      {
+        "item": "Outerwear",
+        "resaleRange": "£120–£250"
+      }
+    ]
+  },
+  {
+    "brand": "Fendi",
+    "status": "✅✅",
+    "note": "High-fashion Italian house; logo pieces and outerwear resell fastest.",
+    "categories": [
+      {
+        "item": "Outerwear",
+        "resaleRange": "£200–£400"
+      },
+      {
+        "item": "Accessories",
+        "resaleRange": "£100–£200"
+      }
+    ]
+  },
+  {
+    "brand": "Mephisto",
+    "status": "✅✅",
+    "note": "High-end comfort footwear brand; handmade leather shoes and sandals have loyal buyers and consistent resale, especially older models made in France.",
+    "categories": [
+      {
+        "item": "Shoes",
+        "resaleRange": "£60–£120"
+      },
+      {
+        "item": "Sandals",
+        "resaleRange": "£40–£90"
+      }
+    ]
+  },
+  {
+    "brand": "Hilditch & Key",
+    "status": "✅✅",
+    "note": "Luxury Jermyn Street shirtmaker; premium cotton and formal shirts hold value, especially Made in UK or Italy models.",
+    "categories": [
+      {
+        "item": "Shirts",
+        "resaleRange": "£40–£80"
+      },
+      {
+        "item": "Formalwear Accessories",
+        "resaleRange": "£25–£50"
+      }
+    ]
+  }
+]

@@ -12,10 +12,30 @@
 
 .reporting-header {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   align-items: center;
   gap: 18px;
   margin-bottom: 26px;
+}
+
+.total-sales-all-time {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.total-sales-label {
+  color: rgba(255, 248, 226, 0.75);
+  font-size: 0.95rem;
+  letter-spacing: 0.06rem;
+  text-transform: uppercase;
+}
+
+.total-sales-value {
+  color: var(--neon-primary-strong);
+  font-size: 1.4rem;
+  font-weight: 600;
+  letter-spacing: 0.04rem;
 }
 
 .reporting-header h1 {
