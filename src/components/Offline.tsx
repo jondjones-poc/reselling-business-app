@@ -2,13 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import './BrandResearch.css';
 
-interface BrandResult {
-  name: string;
-  category: string;
-  minimumPrice: number;
-  status: 'good' | 'bad' | 'unknown';
-}
-
 const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5003';
 
 // Load mensResaleReference from JSON file
@@ -579,16 +572,6 @@ const Offline: React.FC = () => {
 
     loadMensResaleReference();
   }, []);
-
-  // Update lookup brands when mensResaleReference changes
-  useEffect(() => {
-    if (mensResaleReference.length > 0) {
-      const allBrandsList = mensResaleReference
-        .map(item => item.brand)
-        .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-      setLookupBrands(allBrandsList);
-    }
-  }, [mensResaleReference.length]);
 
   // Clear text box when navigating away or menu is clicked
   useEffect(() => {
