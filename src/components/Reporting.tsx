@@ -46,6 +46,12 @@ interface MonthlyAverageProfitPerItemDatum {
   itemCount: number;
 }
 
+interface MonthlyAverageProfitMultipleDatum {
+  month: number;
+  average: number;
+  itemCount: number;
+}
+
 interface SalesByCategoryDatum {
   category: string;
   totalSales: number;
@@ -101,7 +107,18 @@ interface ReportingResponse {
   monthlyExpenses: MonthlyExpenseDatum[];
   monthlyAverageSellingPrice: MonthlyAverageSellingPriceDatum[];
   monthlyAverageProfitPerItem: MonthlyAverageProfitPerItemDatum[];
+  monthlyAverageProfitMultiple: MonthlyAverageProfitMultipleDatum[];
   salesByCategory: SalesByCategoryDatum[];
+  yearSpecificTotals?: {
+    totalPurchase: number;
+    totalSales: number;
+    profit: number;
+  };
+  allTimeAverageProfitMultiple?: number;
+  yearItemsStats?: {
+    listed: number;
+    sold: number;
+  };
   unsoldStockByCategory: UnsoldStockByCategoryDatum[];
   sellThroughRate: SellThroughRate;
   averageSellingPrice: AverageSellingPrice;
@@ -167,8 +184,12 @@ const Reporting: React.FC = () => {
   const [monthlyExpenses, setMonthlyExpenses] = useState<MonthlyExpenseDatum[]>([]);
   const [monthlyAverageSellingPrice, setMonthlyAverageSellingPrice] = useState<MonthlyAverageSellingPriceDatum[]>([]);
   const [monthlyAverageProfitPerItem, setMonthlyAverageProfitPerItem] = useState<MonthlyAverageProfitPerItemDatum[]>([]);
+  const [monthlyAverageProfitMultiple, setMonthlyAverageProfitMultiple] = useState<MonthlyAverageProfitMultipleDatum[]>([]);
   const [salesByCategory, setSalesByCategory] = useState<SalesByCategoryDatum[]>([]);
   const [unsoldStockByCategory, setUnsoldStockByCategory] = useState<UnsoldStockByCategoryDatum[]>([]);
+  const [yearSpecificTotals, setYearSpecificTotals] = useState<{ totalPurchase: number; totalSales: number; profit: number } | null>(null);
+  const [allTimeAverageProfitMultiple, setAllTimeAverageProfitMultiple] = useState<number | null>(null);
+  const [yearItemsStats, setYearItemsStats] = useState<{ listed: number; sold: number } | null>(null);
   const [sellThroughRate, setSellThroughRate] = useState<SellThroughRate | null>(null);
   const [averageSellingPrice, setAverageSellingPrice] = useState<AverageSellingPrice | null>(null);
   const [averageProfitPerItem, setAverageProfitPerItem] = useState<AverageProfitPerItem | null>(null);
@@ -196,8 +217,12 @@ const Reporting: React.FC = () => {
         setMonthlyExpenses(data.monthlyExpenses);
         setMonthlyAverageSellingPrice(data.monthlyAverageSellingPrice || []);
         setMonthlyAverageProfitPerItem(data.monthlyAverageProfitPerItem || []);
+        setMonthlyAverageProfitMultiple(data.monthlyAverageProfitMultiple || []);
         setSalesByCategory(data.salesByCategory || []);
         setUnsoldStockByCategory(data.unsoldStockByCategory || []);
+        setYearSpecificTotals(data.yearSpecificTotals || null);
+        setAllTimeAverageProfitMultiple(data.allTimeAverageProfitMultiple ?? null);
+        setYearItemsStats(data.yearItemsStats || null);
         setSellThroughRate(data.sellThroughRate || null);
         setAverageSellingPrice(data.averageSellingPrice || null);
         setAverageProfitPerItem(data.averageProfitPerItem || null);
@@ -302,15 +327,20 @@ const Reporting: React.FC = () => {
   }, [monthlyExpenses]);
 
   const totalProfit = useMemo(() => {
-    if (profitTimeline.length === 0) {
+    // Use year-specific totals if available (matches Stock page calculation)
+    if (yearSpecificTotals) {
+      return yearSpecificTotals.profit;
+    }
+    // Fallback to monthly calculation
+    if (monthlyProfit.length === 0) {
       return 0;
     }
-    return profitTimeline.reduce((sum, point) => {
+    return monthlyProfit.reduce((sum, point) => {
       const totalSales = point.totalSales ?? 0;
       const totalPurchase = point.totalPurchase ?? 0;
       return sum + (totalSales - totalPurchase);
     }, 0);
-  }, [profitTimeline]);
+  }, [monthlyProfit, yearSpecificTotals]);
 
   const totalSalesAllTime = useMemo(() => {
     if (profitTimeline.length === 0) {
@@ -410,6 +440,28 @@ const Reporting: React.FC = () => {
     };
   }, [monthlyAverageProfitPerItem]);
 
+  const monthlyAverageProfitMultipleData = useMemo(() => {
+    const labels = monthLabels;
+    const values = labels.map((_label, index) => {
+      const found = monthlyAverageProfitMultiple.find((item) => item.month === index + 1);
+      return found ? found.average ?? 0 : 0;
+    });
+
+    return {
+      labels,
+      datasets: [
+        {
+          label: 'Average Profit Multiple',
+          data: values,
+          backgroundColor: 'rgba(255, 214, 91, 0.45)',
+          borderColor: 'rgba(255, 214, 91, 0.8)',
+          borderWidth: 1,
+          borderRadius: 6,
+        },
+      ],
+    };
+  }, [monthlyAverageProfitMultiple]);
+
   const unsoldStockByCategoryData = useMemo(() => {
     if (unsoldStockByCategory.length === 0) {
       return null;
@@ -451,27 +503,6 @@ const Reporting: React.FC = () => {
 
   return (
     <div className="reporting-container">
-      <div className="reporting-header">
-        <div className="total-sales-all-time">
-          <span className="total-sales-label">Total Sales:</span>
-          <span className="total-sales-value">{formatCurrency(totalSalesAllTime)}</span>
-        </div>
-        <div className="year-filter">
-          <label htmlFor="reporting-year">Year</label>
-          <select
-            id="reporting-year"
-            value={selectedYear}
-            onChange={(event) => setSelectedYear(Number(event.target.value))}
-          >
-            {availableYears.length === 0 && <option value={selectedYear}>{selectedYear}</option>}
-            {availableYears.map((year) => (
-              <option key={year} value={year}>
-                {year}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
 
       {error && <div className="reporting-error">{error}</div>}
       {loading && <div className="reporting-status">Loading analytics...</div>}
@@ -480,11 +511,11 @@ const Reporting: React.FC = () => {
         <>
           <div className="reporting-summary">
             <div className="total-profit-card">
-              <div className="total-profit-label">Total Company Profit</div>
+              <div className="total-profit-label">Total Company Profit ({selectedYear})</div>
               <div className={`total-profit-value ${totalProfit >= 0 ? 'positive' : 'negative'}`}>
                 {formatCurrency(totalProfit)}
               </div>
-              <div className="total-profit-description">All Sales - All Expenses</div>
+              <div className="total-profit-description">All Sales - All Expenses for {selectedYear}</div>
             </div>
             {sellThroughRate && (
               <div className="total-profit-card">
@@ -566,6 +597,65 @@ const Reporting: React.FC = () => {
                 </div>
               </div>
             )}
+          </div>
+
+          <div className="reporting-summary">
+            {allTimeAverageProfitMultiple !== null && (
+              <div className="total-profit-card">
+                <div className="total-profit-label">Average Profit Multiple (All Time)</div>
+                <div className="total-profit-value positive">
+                  {allTimeAverageProfitMultiple.toFixed(2)}x
+                </div>
+                <div className="total-profit-description">Average return multiple across all sales</div>
+              </div>
+            )}
+            {yearItemsStats && (
+              <div className="total-profit-card">
+                <div className="total-profit-label">Items ({selectedYear})</div>
+                <div className="total-profit-value positive">
+                  {yearItemsStats.sold.toLocaleString()} / {yearItemsStats.listed.toLocaleString()}
+                </div>
+                <div className="total-profit-description">Sold / Listed</div>
+              </div>
+            )}
+            {yearSpecificTotals && (
+              <div className="total-profit-card">
+                <div className="total-profit-label">Total Sales ({selectedYear})</div>
+                <div className="total-profit-value positive">
+                  {formatCurrency(yearSpecificTotals.totalSales)}
+                </div>
+                <div className="total-profit-description">All sales for {selectedYear}</div>
+              </div>
+            )}
+            <div className="total-profit-card">
+              <div className="total-profit-label">Year</div>
+              <div className="total-profit-value" style={{ fontSize: '1.2rem', marginBottom: '8px' }}>
+                <select
+                  id="reporting-year"
+                  value={selectedYear}
+                  onChange={(event) => setSelectedYear(Number(event.target.value))}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--neon-primary-strong)',
+                    fontSize: '1.2rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    outline: 'none',
+                    textAlign: 'center',
+                    width: '100%'
+                  }}
+                >
+                  {availableYears.length === 0 && <option value={selectedYear}>{selectedYear}</option>}
+                  {availableYears.map((year) => (
+                    <option key={year} value={year}>
+                      {year}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="total-profit-description">Select reporting year</div>
+            </div>
           </div>
 
           <div className="reporting-grid">
@@ -686,6 +776,44 @@ const Reporting: React.FC = () => {
             ) : (
               <div className="reporting-empty">No sales data available for {selectedYear}.</div>
             )}
+          </section>
+
+          <section className="reporting-card">
+            <div className="card-header">
+              <h2>Average Profit Multiple by Month</h2>
+            </div>
+            <div className="chart-wrapper">
+              <Bar 
+                data={monthlyAverageProfitMultipleData} 
+                options={{
+                  ...chartOptions,
+                  plugins: {
+                    ...chartOptions.plugins,
+                    tooltip: {
+                      callbacks: {
+                        label(context) {
+                          const value = context.raw as number;
+                          return `${Number(value).toFixed(2)}x`;
+                        },
+                      },
+                    },
+                  },
+                  scales: {
+                    ...chartOptions.scales,
+                    y: {
+                      ...chartOptions.scales?.y,
+                      min: 0,
+                      ticks: {
+                        ...chartOptions.scales?.y?.ticks,
+                        callback: function(value) {
+                          return Number(value).toFixed(2) + 'x';
+                        }
+                      }
+                    }
+                  }
+                }} 
+              />
+            </div>
           </section>
           </div>
         </>

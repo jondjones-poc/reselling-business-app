@@ -163,7 +163,9 @@ const Stock: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showTypeahead, setShowTypeahead] = useState(false);
   const [typeaheadSuggestions, setTypeaheadSuggestions] = useState<string[]>([]);
-  const [unsoldFilter, setUnsoldFilter] = useState<'off' | '30' | '60' | '90'>('off');
+  const [unsoldFilter, setUnsoldFilter] = useState<'off' | '3' | '6' | '12'>('off');
+  const [selectedDataRow, setSelectedDataRow] = useState<StockRow | null>(null);
+  const [isDataPanelClosing, setIsDataPanelClosing] = useState(false);
 
   const loadStock = async () => {
     try {
@@ -311,12 +313,12 @@ const Stock: React.FC = () => {
 
         const daysSincePurchase = Math.floor((today.getTime() - purchaseDate.getTime()) / (1000 * 60 * 60 * 24));
         
-        if (unsoldFilter === '30') {
-          return daysSincePurchase >= 30;
-        } else if (unsoldFilter === '60') {
-          return daysSincePurchase >= 60;
-        } else if (unsoldFilter === '90') {
-          return daysSincePurchase >= 90;
+        if (unsoldFilter === '3') {
+          return daysSincePurchase >= 90; // 3 months = ~90 days
+        } else if (unsoldFilter === '6') {
+          return daysSincePurchase >= 180; // 6 months = ~180 days
+        } else if (unsoldFilter === '12') {
+          return daysSincePurchase >= 365; // 12 months = ~365 days
         }
 
         return false;
@@ -353,6 +355,46 @@ const Stock: React.FC = () => {
       return itemName.includes(searchTerm.toLowerCase().trim());
     });
   }, [rows, selectedMonth, selectedYear, viewMode, showAllYear, searchTerm, unsoldFilter]);
+
+  const computeDataPanelMetrics = (row: StockRow) => {
+    const purchase = row.purchase_price !== null && row.purchase_price !== undefined
+      ? Number(row.purchase_price)
+      : NaN;
+    const sale = row.sale_price !== null && row.sale_price !== undefined
+      ? Number(row.sale_price)
+      : NaN;
+
+    const profit =
+      row.net_profit !== null && row.net_profit !== undefined
+        ? Number(row.net_profit)
+        : !Number.isNaN(purchase) && !Number.isNaN(sale)
+          ? sale - purchase
+          : NaN;
+
+    let profitMultiple: string | null = null;
+    if (!Number.isNaN(purchase) && purchase > 0 && !Number.isNaN(sale)) {
+      const multiple = sale / purchase;
+      profitMultiple = `${multiple.toFixed(2)}x`;
+    }
+
+    let daysForSale: number | null = null;
+    if (row.purchase_date && row.sale_date) {
+      const purchaseDate = new Date(row.purchase_date);
+      const saleDate = new Date(row.sale_date);
+      if (!Number.isNaN(purchaseDate.getTime()) && !Number.isNaN(saleDate.getTime())) {
+        const diffMs = saleDate.getTime() - purchaseDate.getTime();
+        daysForSale = Math.max(0, Math.round(diffMs / (1000 * 60 * 60 * 24)));
+      }
+    }
+
+    return {
+      purchase,
+      sale,
+      profit,
+      profitMultiple,
+      daysForSale
+    };
+  };
 
   const totals = useMemo(() => {
     if (!filteredRows.length) {
@@ -813,6 +855,14 @@ const Stock: React.FC = () => {
     return sortConfig.direction === 'asc' ? '↑' : '↓';
   };
 
+  const handleCloseDataPanel = () => {
+    setIsDataPanelClosing(true);
+    window.setTimeout(() => {
+      setSelectedDataRow(null);
+      setIsDataPanelClosing(false);
+    }, 220);
+  };
+
   return (
     <div className="stock-container">
       {error && <div className="stock-error">{error}</div>}
@@ -1017,7 +1067,7 @@ const Stock: React.FC = () => {
           <select
             value={unsoldFilter}
             onChange={(event) => {
-              const value = event.target.value as 'off' | '30' | '60' | '90';
+              const value = event.target.value as 'off' | '3' | '6' | '12';
               setUnsoldFilter(value);
               
               // Clear other filters when a non-"Off" option is selected
@@ -1032,9 +1082,9 @@ const Stock: React.FC = () => {
             className="filter-select unsold-filter-select"
           >
             <option value="off">Unsold Filter</option>
-            <option value="30">30 Days</option>
-            <option value="60">60 Days</option>
-            <option value="90">90 Days</option>
+            <option value="3">3 months</option>
+            <option value="6">6 months</option>
+            <option value="12">12 months</option>
           </select>
         </div>
 
@@ -1116,6 +1166,70 @@ const Stock: React.FC = () => {
         </div>
       </section>
 
+      {selectedDataRow && (
+        <div className={`stock-data-panel${isDataPanelClosing ? ' closing' : ''}`}>
+          <div className="stock-data-panel-header">
+            <button
+              type="button"
+              className="stock-data-close-button"
+              onClick={handleCloseDataPanel}
+              aria-label="Close insights panel"
+            >
+              ×
+            </button>
+          </div>
+          {(() => {
+            const metrics = computeDataPanelMetrics(selectedDataRow);
+            return (
+              <div className="stock-data-panel-grid">
+                <div className="stock-data-item">
+                  <div className="stock-data-label">Item</div>
+                  <div className="stock-data-value">
+                    {selectedDataRow.item_name || '—'}
+                  </div>
+                </div>
+                <div className="stock-data-item">
+                  <div className="stock-data-label">Buy Price</div>
+                  <div className="stock-data-value">
+                    {!Number.isNaN(metrics.purchase)
+                      ? formatCurrency(metrics.purchase)
+                      : '—'}
+                  </div>
+                </div>
+                <div className="stock-data-item">
+                  <div className="stock-data-label">Sold Price</div>
+                  <div className="stock-data-value">
+                    {!Number.isNaN(metrics.sale)
+                      ? formatCurrency(metrics.sale)
+                      : '—'}
+                  </div>
+                </div>
+                <div className="stock-data-item">
+                  <div className="stock-data-label">Profit</div>
+                  <div className={`stock-data-value ${!Number.isNaN(metrics.profit) && metrics.profit < 0 ? 'negative' : 'positive'}`}>
+                    {!Number.isNaN(metrics.profit)
+                      ? formatCurrency(metrics.profit)
+                      : '—'}
+                  </div>
+                </div>
+                <div className="stock-data-item">
+                  <div className="stock-data-label">Profit Multiple</div>
+                  <div className="stock-data-value">
+                    {metrics.profitMultiple || '—'}
+                  </div>
+                </div>
+                <div className="stock-data-item">
+                  <div className="stock-data-label">Days For Sale</div>
+                  <div className="stock-data-value">
+                    {metrics.daysForSale !== null ? `${metrics.daysForSale} days` : '—'}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
       <div className="table-wrapper">
         <table className="stock-table">
           <thead>
@@ -1192,13 +1306,14 @@ const Stock: React.FC = () => {
                   Net Profit <span className="sort-indicator">{resolveSortIndicator('net_profit')}</span>
                 </button>
               </th>
-              <th>Actions</th>
+              <th className="stock-table-actions-header">Edit</th>
+              <th className="stock-table-actions-header">Insights</th>
             </tr>
           </thead>
           <tbody>
             {!loading && sortedRows.length === 0 && (
               <tr>
-                <td colSpan={9} className="empty-state">
+                <td colSpan={10} className="empty-state">
                   No stock records found.
                 </td>
               </tr>
@@ -1251,7 +1366,7 @@ const Stock: React.FC = () => {
                   <td>
                     <span className={profitClass}>{profitDisplay}</span>
                   </td>
-                  <td>
+                  <td className="stock-table-actions-cell">
                     {isEditing ? (
                       <div className="row-actions">
                         <button
@@ -1278,17 +1393,34 @@ const Stock: React.FC = () => {
                         </button>
                       </div>
                     ) : (
-                      <button
-                        type="button"
-                        className="row-hint-button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          startEditingRow(row);
-                        }}
-                      >
-                        Edit
-                      </button>
+                      <div className="row-actions">
+                        <button
+                          type="button"
+                          className="row-hint-button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            startEditingRow(row);
+                          }}
+                        >
+                          Edit
+                        </button>
+                      </div>
                     )}
+                  </td>
+                  <td className="stock-table-actions-cell">
+                    <button
+                      type="button"
+                      className={`row-data-button${row.sale_date ? '' : ' disabled'}`}
+                      disabled={!row.sale_date}
+                      onClick={(event) => {
+                        if (!row.sale_date) return;
+                        event.stopPropagation();
+                        setIsDataPanelClosing(false);
+                        setSelectedDataRow(row);
+                      }}
+                    >
+                      Data
+                    </button>
                   </td>
                 </tr>
               );

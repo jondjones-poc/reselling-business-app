@@ -1342,12 +1342,21 @@ app.get('/api/analytics/reporting', async (req, res) => {
     const netProfit = profitTotalSales - profitTotalPurchases;
     const averageProfitPerItem = profitSoldCount > 0 ? netProfit / profitSoldCount : 0;
 
-    const roiResult = await pool.query(`
-      SELECT
-        SUM(COALESCE(sale_price, 0))::numeric AS total_sales,
-        SUM(COALESCE(purchase_price, 0))::numeric AS total_spend
-      FROM stock
-    `);
+    // Calculate ROI for the selected year to match year-specific profit
+    const roiResult = await pool.query(
+      `
+        SELECT
+          SUM(COALESCE(sale_price, 0))::numeric AS total_sales,
+          SUM(COALESCE(purchase_price, 0))::numeric AS total_spend
+        FROM stock
+        WHERE (
+          (purchase_date IS NOT NULL AND EXTRACT(YEAR FROM purchase_date)::int = $1)
+          OR
+          (sale_date IS NOT NULL AND EXTRACT(YEAR FROM sale_date)::int = $1)
+        )
+      `,
+      [effectiveYear]
+    );
 
     const roiTotalSales = Number(roiResult.rows[0]?.total_sales || 0);
     const roiTotalSpend = Number(roiResult.rows[0]?.total_spend || 0);
@@ -1425,6 +1434,91 @@ app.get('/api/analytics/reporting', async (req, res) => {
       itemCount: Number(row.item_count)
     }));
 
+    const monthlyAverageProfitMultipleResult = await pool.query(
+      `
+        SELECT
+          EXTRACT(MONTH FROM sale_date)::int AS month,
+          AVG(
+            CASE 
+              WHEN COALESCE(purchase_price, 0) > 0 
+              THEN COALESCE(sale_price, 0) / COALESCE(purchase_price, 0)
+              ELSE NULL
+            END
+          )::numeric AS average_multiple,
+          COUNT(*) AS item_count
+        FROM stock
+        WHERE sale_date IS NOT NULL
+          AND sale_price IS NOT NULL
+          AND purchase_price IS NOT NULL
+          AND COALESCE(purchase_price, 0) > 0
+          AND EXTRACT(YEAR FROM sale_date)::int = $1
+        GROUP BY month
+        ORDER BY month ASC
+      `,
+      [effectiveYear]
+    );
+
+    const monthlyAverageProfitMultiple = monthlyAverageProfitMultipleResult.rows.map((row) => ({
+      month: Number(row.month),
+      average: row.average_multiple ? Number(row.average_multiple) : 0,
+      itemCount: Number(row.item_count)
+    }));
+
+    // Calculate year-specific totals to match Stock page calculation
+    const yearSpecificTotalsResult = await pool.query(
+      `
+        SELECT
+          SUM(COALESCE(purchase_price, 0))::numeric AS total_purchase,
+          SUM(COALESCE(sale_price, 0))::numeric AS total_sales
+        FROM stock
+        WHERE (
+          (purchase_date IS NOT NULL AND EXTRACT(YEAR FROM purchase_date)::int = $1)
+          OR
+          (sale_date IS NOT NULL AND EXTRACT(YEAR FROM sale_date)::int = $1)
+        )
+      `,
+      [effectiveYear]
+    );
+
+    const yearTotalPurchase = Number(yearSpecificTotalsResult.rows[0]?.total_purchase || 0);
+    const yearTotalSales = Number(yearSpecificTotalsResult.rows[0]?.total_sales || 0);
+    const yearTotalProfit = yearTotalSales - yearTotalPurchase;
+
+    // Calculate average profit multiple for all time
+    const allTimeProfitMultipleResult = await pool.query(`
+      SELECT
+        AVG(
+          CASE 
+            WHEN COALESCE(purchase_price, 0) > 0 
+            THEN COALESCE(sale_price, 0) / COALESCE(purchase_price, 0)
+            ELSE NULL
+          END
+        )::numeric AS average_multiple
+      FROM stock
+      WHERE sale_date IS NOT NULL
+        AND sale_price IS NOT NULL
+        AND purchase_price IS NOT NULL
+        AND COALESCE(purchase_price, 0) > 0
+    `);
+
+    const allTimeAverageProfitMultiple = allTimeProfitMultipleResult.rows[0]?.average_multiple 
+      ? Number(allTimeProfitMultipleResult.rows[0].average_multiple) 
+      : 0;
+
+    // Calculate items listed and sold for current year
+    const yearItemsResult = await pool.query(
+      `
+        SELECT
+          COUNT(*) FILTER (WHERE purchase_date IS NOT NULL AND EXTRACT(YEAR FROM purchase_date)::int = $1) AS items_listed,
+          COUNT(*) FILTER (WHERE sale_date IS NOT NULL AND EXTRACT(YEAR FROM sale_date)::int = $1) AS items_sold
+        FROM stock
+      `,
+      [effectiveYear]
+    );
+
+    const yearItemsListed = Number(yearItemsResult.rows[0]?.items_listed || 0);
+    const yearItemsSold = Number(yearItemsResult.rows[0]?.items_sold || 0);
+
     res.json({
       availableYears,
       selectedYear: effectiveYear,
@@ -1463,7 +1557,18 @@ app.get('/api/analytics/reporting', async (req, res) => {
         value: unsoldInventoryValue
       },
       monthlyAverageSellingPrice,
-      monthlyAverageProfitPerItem
+      monthlyAverageProfitPerItem,
+      monthlyAverageProfitMultiple,
+      yearSpecificTotals: {
+        totalPurchase: yearTotalPurchase,
+        totalSales: yearTotalSales,
+        profit: yearTotalProfit
+      },
+      allTimeAverageProfitMultiple: Number(allTimeAverageProfitMultiple.toFixed(2)),
+      yearItemsStats: {
+        listed: yearItemsListed,
+        sold: yearItemsSold
+      }
     });
   } catch (error) {
     console.error('Reporting analytics error:', error);
@@ -1595,11 +1700,15 @@ const buildDirectory = path.join(__dirname, 'build');
 if (fs.existsSync(buildDirectory)) {
   app.use(express.static(buildDirectory));
 
-  const clientRoutes = ['/', '/research', '/offline', '/stock', '/reporting'];
-  clientRoutes.forEach((routePath) => {
-    app.get(routePath, (_req, res) => {
-      res.sendFile(path.join(buildDirectory, 'index.html'));
-    });
+  // Serve the React app for any non-API route so that client-side routing works.
+  // Use a regular expression here to avoid path-to-regexp wildcard issues in Express 5.
+  app.get(/.*/, (req, res, next) => {
+    // Let API routes fall through to their handlers
+    if (req.path.startsWith('/api')) {
+      return next();
+    }
+
+    return res.sendFile(path.join(buildDirectory, 'index.html'));
   });
 }
 
