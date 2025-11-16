@@ -342,15 +342,6 @@ const Reporting: React.FC = () => {
     }, 0);
   }, [monthlyProfit, yearSpecificTotals]);
 
-  const totalSalesAllTime = useMemo(() => {
-    if (profitTimeline.length === 0) {
-      return 0;
-    }
-    return profitTimeline.reduce((sum, point) => {
-      return sum + (point.totalSales ?? 0);
-    }, 0);
-  }, [profitTimeline]);
-
   const salesByCategoryData = useMemo(() => {
     if (salesByCategory.length === 0) {
       return null;
