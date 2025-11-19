@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import './Stock.css';
@@ -17,6 +17,8 @@ interface StockRow {
   sale_price: Nullable<string | number>;
   sold_platform: Nullable<string>;
   net_profit: Nullable<string | number>;
+  vinted: Nullable<boolean>;
+  ebay: Nullable<boolean>;
 }
 
 interface StockApiResponse {
@@ -147,7 +149,7 @@ const Stock: React.FC = () => {
   const now = useMemo(() => new Date(), []);
   const [selectedMonth, setSelectedMonth] = useState<string>(String(now.getMonth() + 1));
   const [selectedYear, setSelectedYear] = useState<string>(String(now.getFullYear()));
-  const [viewMode, setViewMode] = useState<'listing' | 'sales'>('listing');
+  const [viewMode, setViewMode] = useState<'listing' | 'sales' | 'list-on-vinted' | 'list-on-ebay'>('listing');
   const [showAllYear, setShowAllYear] = useState(false);
   const [showNewEntry, setShowNewEntry] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -158,7 +160,8 @@ const Stock: React.FC = () => {
     purchase_date: '',
     sale_date: '',
     sale_price: '',
-    sold_platform: ''
+    sold_platform: '',
+    listingOptions: ['Vinted'] as string[]
   });
   const [searchTerm, setSearchTerm] = useState('');
   const [showTypeahead, setShowTypeahead] = useState(false);
@@ -166,6 +169,8 @@ const Stock: React.FC = () => {
   const [unsoldFilter, setUnsoldFilter] = useState<'off' | '3' | '6' | '12'>('off');
   const [selectedDataRow, setSelectedDataRow] = useState<StockRow | null>(null);
   const [isDataPanelClosing, setIsDataPanelClosing] = useState(false);
+  const [showListedDropdown, setShowListedDropdown] = useState(false);
+  const listedDropdownRef = useRef<HTMLDivElement>(null);
 
   const loadStock = async () => {
     try {
@@ -200,6 +205,19 @@ const Stock: React.FC = () => {
   useEffect(() => {
     loadStock();
   }, []);
+
+  // Close listed dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showListedDropdown && listedDropdownRef.current && !listedDropdownRef.current.contains(event.target as Node)) {
+        setShowListedDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showListedDropdown]);
 
   useEffect(() => {
     if (!successMessage) {
@@ -329,6 +347,19 @@ const Stock: React.FC = () => {
 
     // Apply normal filters when unsold filter is off
     return filtered.filter((row) => {
+      // Handle special view modes for listing filters
+      if (viewMode === 'list-on-vinted') {
+        // Show items where vinted is false or null (not true)
+        if (row.vinted === true) {
+          return false;
+        }
+      } else if (viewMode === 'list-on-ebay') {
+        // Show items where ebay is false or null (not true)
+        if (row.ebay === true) {
+          return false;
+        }
+      }
+
       const purchaseDateYear =
         row.purchase_date && new Date(row.purchase_date).getFullYear().toString();
       const saleDateYear =
@@ -337,7 +368,7 @@ const Stock: React.FC = () => {
       let dateMatches = false;
       if (showAllYear) {
         dateMatches = purchaseDateYear === selectedYear || saleDateYear === selectedYear;
-      } else if (viewMode === 'listing') {
+      } else if (viewMode === 'listing' || viewMode === 'list-on-vinted' || viewMode === 'list-on-ebay') {
         dateMatches = matchesMonthYear(row.purchase_date, selectedMonth, selectedYear);
       } else {
         dateMatches = matchesMonthYear(row.sale_date, selectedMonth, selectedYear);
@@ -554,11 +585,6 @@ const Stock: React.FC = () => {
     return saleValue - purchaseValue;
   };
 
-  const createFormProfit = useMemo(
-    () => computeDifference(createForm.purchase_price, createForm.sale_price),
-    [createForm.purchase_price, createForm.sale_price]
-  );
-
   const startEditingRow = (row: StockRow) => {
     if (saving) {
       return;
@@ -610,7 +636,8 @@ const Stock: React.FC = () => {
       purchase_date: '',
       sale_date: '',
       sale_price: '',
-      sold_platform: ''
+      sold_platform: '',
+      listingOptions: ['Vinted'] as string[]
     });
   };
 
@@ -621,17 +648,46 @@ const Stock: React.FC = () => {
     }));
   };
 
+  const handleListingOptionsChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const selectedOptions = Array.from(event.target.selectedOptions, option => option.value);
+    setCreateForm((prev) => ({
+      ...prev,
+      listingOptions: selectedOptions
+    }));
+  };
+
   const handleCreateSubmit = async () => {
     try {
       setCreating(true);
       setError(null);
+
+      // Convert listingOptions to vinted and ebay booleans
+      const hasVinted = createForm.listingOptions.includes('Vinted');
+      const hasEbay = createForm.listingOptions.includes('eBay');
+      const hasToList = createForm.listingOptions.includes('To List');
+
+      // If "To List" is selected, set both to null, otherwise set based on selections
+      const vinted = hasToList ? null : (hasVinted ? true : false);
+      const ebay = hasToList ? null : (hasEbay ? true : false);
+
+      const payload = {
+        item_name: createForm.item_name,
+        category: createForm.category,
+        purchase_price: createForm.purchase_price,
+        purchase_date: createForm.purchase_date,
+        sale_date: createForm.sale_date,
+        sale_price: createForm.sale_price,
+        sold_platform: createForm.sold_platform,
+        vinted,
+        ebay
+      };
 
       const response = await fetch(`${API_BASE}/api/stock`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(createForm)
+        body: JSON.stringify(payload)
       });
 
       if (!response.ok) {
@@ -870,7 +926,6 @@ const Stock: React.FC = () => {
 
       {showNewEntry && (
         <div className="new-entry-card">
-          <h2>Add Stock Entry</h2>
           <div className="new-entry-grid">
             <label className="new-entry-field">
               <span>Name</span>
@@ -959,43 +1014,169 @@ const Stock: React.FC = () => {
                 ))}
               </select>
             </label>
-          </div>
-          <div className="profit-preview-wrapper">
-            <span className="profit-preview-label">Profit Preview:</span>
-            <span
-              className={`profit-preview-value ${
-                createFormProfit !== null
-                  ? createFormProfit >= 0
-                    ? 'positive'
-                    : 'negative'
-                  : ''
-              }`}
-            >
-              {createFormProfit !== null ? formatCurrency(createFormProfit) : '—'}
-            </span>
-          </div>
-          <div className="new-entry-actions">
-            <button
-              type="button"
-              className="save-button"
-              onClick={handleCreateSubmit}
-              disabled={creating}
-            >
-              {creating ? 'Saving…' : 'Save'}
-            </button>
-            <button
-              type="button"
-              className="cancel-button"
-              onClick={() => {
-                if (!creating) {
-                  setShowNewEntry(false);
-                  resetCreateForm();
-                }
-              }}
-              disabled={creating}
-            >
-              Cancel
-            </button>
+            <div className="new-entry-field" style={{ position: 'relative' }} ref={listedDropdownRef}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '8px', color: 'rgba(255, 248, 226, 0.7)', letterSpacing: '0.05rem' }}>
+                <span>Listed</span>
+                <div
+                  className="new-entry-select"
+                  style={{
+                    position: 'relative',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '14px 18px',
+                    borderRadius: '16px',
+                    border: '1px solid rgba(255, 214, 91, 0.28)',
+                    background: 'rgba(255, 214, 91, 0.08)',
+                    color: 'var(--text-strong)',
+                    gap: '6px',
+                    flexWrap: 'nowrap',
+                    overflow: 'hidden',
+                    minHeight: 'auto',
+                    height: 'auto',
+                    lineHeight: '1.2'
+                  }}
+                  onClick={() => setShowListedDropdown(!showListedDropdown)}
+                >
+                  {createForm.listingOptions.length > 0 ? (
+                    createForm.listingOptions.map((option) => (
+                      <span
+                        key={option}
+                        style={{
+                          padding: '2px 6px',
+                          background: 'rgba(255, 214, 91, 0.2)',
+                          borderRadius: '6px',
+                          fontSize: '0.85rem',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          whiteSpace: 'nowrap',
+                          flexShrink: 0
+                        }}
+                      >
+                        {option}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCreateForm((prev) => ({
+                              ...prev,
+                              listingOptions: prev.listingOptions.filter((opt) => opt !== option)
+                            }));
+                          }}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'var(--text-strong)',
+                            cursor: 'pointer',
+                            padding: '0',
+                            fontSize: '12px',
+                            lineHeight: '1',
+                            marginLeft: '2px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: '14px',
+                            height: '14px'
+                          }}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))
+                  ) : (
+                    <span style={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: '0.95rem' }}>Select options...</span>
+                  )}
+                </div>
+                {showListedDropdown && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      marginTop: '4px',
+                      background: 'rgba(5, 4, 3, 0.98)',
+                      border: '1px solid rgba(255, 214, 91, 0.28)',
+                      borderRadius: '16px',
+                      padding: '8px',
+                      zIndex: 1000,
+                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)'
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {['Vinted', 'eBay', 'To List'].map((option) => (
+                      <label
+                        key={option}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          padding: '10px 12px',
+                          cursor: 'pointer',
+                          borderRadius: '8px',
+                          transition: 'background 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = 'rgba(255, 214, 91, 0.1)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'transparent';
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={createForm.listingOptions.includes(option)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setCreateForm((prev) => ({
+                                ...prev,
+                                listingOptions: [...prev.listingOptions, option]
+                              }));
+                            } else {
+                              setCreateForm((prev) => ({
+                                ...prev,
+                                listingOptions: prev.listingOptions.filter((opt) => opt !== option)
+                              }));
+                            }
+                          }}
+                          style={{
+                            width: '16px',
+                            height: '16px',
+                            cursor: 'pointer',
+                            accentColor: 'var(--neon-primary-strong)'
+                          }}
+                        />
+                        <span style={{ color: 'var(--text-strong)', fontSize: '0.95rem' }}>{option}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </label>
+            </div>
+            <div className="new-entry-actions" style={{ gridColumn: 'span 1', display: 'flex', gap: '12px', alignItems: 'center', justifyContent: 'flex-end', marginLeft: 'auto' }}>
+              <button
+                type="button"
+                className="save-button"
+                onClick={handleCreateSubmit}
+                disabled={creating}
+              >
+                {creating ? 'Saving…' : 'Save'}
+              </button>
+              <button
+                type="button"
+                className="cancel-button"
+                onClick={() => {
+                  if (!creating) {
+                    setShowNewEntry(false);
+                    resetCreateForm();
+                  }
+                }}
+                disabled={creating}
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1043,24 +1224,17 @@ const Stock: React.FC = () => {
         </div>
 
         <div className="filter-group view-group">
-          <div className="view-toggle">
-            <button
-              type="button"
-              className={`view-toggle-button${viewMode === 'listing' ? ' active' : ''}`}
-              onClick={() => setViewMode('listing')}
-              disabled={showAllYear || unsoldFilter !== 'off'}
-            >
-              Listings
-            </button>
-            <button
-              type="button"
-              className={`view-toggle-button${viewMode === 'sales' ? ' active' : ''}`}
-              onClick={() => setViewMode('sales')}
-              disabled={showAllYear || unsoldFilter !== 'off'}
-            >
-              Sales
-            </button>
-          </div>
+          <select
+            value={viewMode}
+            onChange={(event) => setViewMode(event.target.value as 'listing' | 'sales' | 'list-on-vinted' | 'list-on-ebay')}
+            className="filter-select"
+            disabled={showAllYear || unsoldFilter !== 'off'}
+          >
+            <option value="listing">Listings</option>
+            <option value="sales">Sales</option>
+            <option value="list-on-vinted">List on Vinted</option>
+            <option value="list-on-ebay">List on eBay</option>
+          </select>
         </div>
 
         <div className="filter-group unsold-filter-group">

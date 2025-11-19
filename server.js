@@ -941,7 +941,7 @@ app.get('/api/stock', async (req, res) => {
     }
 
     const result = await pool.query(
-      'SELECT id, item_name, category, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit FROM stock ORDER BY purchase_date DESC NULLS LAST, item_name ASC'
+      'SELECT id, item_name, category, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted, ebay FROM stock ORDER BY purchase_date DESC NULLS LAST, item_name ASC'
     );
 
     res.json({
@@ -970,7 +970,9 @@ app.post('/api/stock', async (req, res) => {
       sale_date,
       sale_price,
       sold_platform,
-      net_profit
+      net_profit,
+      vinted,
+      ebay
     } = req.body ?? {};
 
     const normalizedItemName = normalizeTextInput(item_name) ?? null;
@@ -984,6 +986,10 @@ app.post('/api/stock', async (req, res) => {
       normalizedSalePrice !== null && normalizedPurchasePrice !== null
         ? normalizedSalePrice - normalizedPurchasePrice
         : null;
+    
+    // Normalize vinted and ebay: convert to boolean or null
+    const normalizedVinted = vinted === null || vinted === undefined ? null : Boolean(vinted);
+    const normalizedEbay = ebay === null || ebay === undefined ? null : Boolean(ebay);
 
     const insertQuery = `
       INSERT INTO stock (
@@ -994,10 +1000,12 @@ app.post('/api/stock', async (req, res) => {
         sale_date,
         sale_price,
         sold_platform,
-        net_profit
+        net_profit,
+        vinted,
+        ebay
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      RETURNING id, item_name, category, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      RETURNING id, item_name, category, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted, ebay
     `;
 
     const result = await pool.query(insertQuery, [
@@ -1008,7 +1016,9 @@ app.post('/api/stock', async (req, res) => {
       normalizedSaleDate,
       normalizedSalePrice,
       normalizedSoldPlatform,
-      computedNetProfit
+      computedNetProfit,
+      normalizedVinted,
+      normalizedEbay
     ]);
 
     res.status(201).json({ row: result.rows[0] });
@@ -1035,7 +1045,7 @@ app.put('/api/stock/:id', async (req, res) => {
     }
 
     const existingResult = await pool.query(
-      'SELECT id, item_name, category, purchase_price, purchase_date, sale_date, sale_price, sold_platform FROM stock WHERE id = $1',
+      'SELECT id, item_name, category, purchase_price, purchase_date, sale_date, sale_price, sold_platform, vinted, ebay FROM stock WHERE id = $1',
       [stockId]
     );
 
@@ -1084,6 +1094,17 @@ app.put('/api/stock/:id', async (req, res) => {
       ? normalizeTextInput(req.body.sold_platform) ?? null
       : existing.sold_platform ?? null;
 
+    const existingVinted = existing.vinted === null || existing.vinted === undefined ? null : Boolean(existing.vinted);
+    const existingEbay = existing.ebay === null || existing.ebay === undefined ? null : Boolean(existing.ebay);
+
+    const finalVinted = hasProp('vinted')
+      ? (req.body.vinted === null || req.body.vinted === undefined ? null : Boolean(req.body.vinted))
+      : existingVinted;
+
+    const finalEbay = hasProp('ebay')
+      ? (req.body.ebay === null || req.body.ebay === undefined ? null : Boolean(req.body.ebay))
+      : existingEbay;
+
     const computedNetProfit =
       finalSalePrice !== null && finalPurchasePrice !== null
         ? finalSalePrice - finalPurchasePrice
@@ -1100,9 +1121,11 @@ app.put('/api/stock/:id', async (req, res) => {
           sale_date = $5,
           sale_price = $6,
           sold_platform = $7,
-          net_profit = $8
-        WHERE id = $9
-        RETURNING id, item_name, category, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit
+          net_profit = $8,
+          vinted = $9,
+          ebay = $10
+        WHERE id = $11
+        RETURNING id, item_name, category, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted, ebay
       `,
       [
         finalItemName,
@@ -1113,6 +1136,8 @@ app.put('/api/stock/:id', async (req, res) => {
         finalSalePrice,
         finalSoldPlatform,
         computedNetProfit,
+        finalVinted,
+        finalEbay,
         stockId
       ]
     );

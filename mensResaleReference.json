@@ -604,6 +604,10 @@
       {
         "item": "All",
         "resaleRange": "£0.00"
+      },
+      {
+        "item": "Fatface Airlie",
+        "resaleRange": "£20"
       }
     ]
   },
@@ -1776,6 +1780,36 @@
       {
         "item": "Formalwear Accessories",
         "resaleRange": "£25–£50"
+      }
+    ]
+  },
+  {
+    "brand": "Carlo Colucci",
+    "status": "✅",
+    "note": "Strong resale for bold graphic knit jumpers. Plain items are weak.",
+    "categories": [
+      {
+        "item": "All",
+        "resaleRange": "£0–£40"
+      },
+      {
+        "item": "Carlo Colucci Knit Jumper (Bold Pattern)",
+        "resaleRange": "£60–£120"
+      },
+      {
+        "item": "Carlo Colucci Plain Jumper",
+        "resaleRange": "£20–£35"
+      }
+    ]
+  },
+  {
+    "brand": "Madcap England",
+    "status": "❌",
+    "note": "Retro-mod brand with low resale. Only certain knitwear sells.  Buy knitwear if under £6. Slow to move but possible margin.",
+    "categories": [
+      {
+        "item": "Madcap Knit Jumper",
+        "resaleRange": "£15–£28"
       }
     ]
   }
