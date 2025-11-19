@@ -648,14 +648,6 @@ const Stock: React.FC = () => {
     }));
   };
 
-  const handleListingOptionsChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const selectedOptions = Array.from(event.target.selectedOptions, option => option.value);
-    setCreateForm((prev) => ({
-      ...prev,
-      listingOptions: selectedOptions
-    }));
-  };
-
   const handleCreateSubmit = async () => {
     try {
       setCreating(true);
