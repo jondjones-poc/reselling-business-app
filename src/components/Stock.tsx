@@ -139,7 +139,6 @@ const Stock: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingRowId, setEditingRowId] = useState<number | null>(null);
-  const [saving, setSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [sortConfig, setSortConfig] = useState<{
     key: keyof Omit<StockRow, 'id'>;
@@ -584,7 +583,7 @@ const Stock: React.FC = () => {
   };
 
   const startEditingRow = (row: StockRow) => {
-    if (saving || creating) {
+    if (creating) {
       return;
     }
 
@@ -1158,7 +1157,7 @@ const Stock: React.FC = () => {
         </div>
 
         <div className="filter-group filter-actions">
-          <button type="button" className="refresh-button" onClick={loadStock} disabled={loading || saving}>
+          <button type="button" className="refresh-button" onClick={loadStock} disabled={loading}>
             {loading ? 'Refreshing…' : 'Refresh'}
           </button>
           <button
