@@ -139,7 +139,6 @@ const Stock: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingRowId, setEditingRowId] = useState<number | null>(null);
-  const [editForm, setEditForm] = useState<Partial<StockRow>>({});
   const [saving, setSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [sortConfig, setSortConfig] = useState<{
@@ -192,7 +191,6 @@ const Stock: React.FC = () => {
       const data: StockApiResponse = await response.json();
       setRows(Array.isArray(data.rows) ? data.rows : []);
       setEditingRowId(null);
-      setEditForm({});
     } catch (err: any) {
       console.error('Stock load error:', err);
       setError(err.message || 'Unable to load stock data');
@@ -621,25 +619,6 @@ const Stock: React.FC = () => {
     setSuccessMessage(null);
   };
 
-  const cancelEditing = () => {
-    if (saving) {
-      return;
-    }
-
-    setEditingRowId(null);
-    setEditForm({});
-  };
-
-  const handleEditChange = (
-    key: keyof Omit<StockRow, 'id'>,
-    value: string
-  ) => {
-    setEditForm((prev) => ({
-      ...prev,
-      [key]: value
-    }));
-  };
-
   const resetCreateForm = () => {
     setCreateForm({
       item_name: '',
@@ -743,73 +722,6 @@ const Stock: React.FC = () => {
       setError(err.message || 'Unable to create stock record');
     } finally {
       setCreating(false);
-    }
-  };
-
-  const handleSave = async () => {
-    if (editingRowId === null) {
-      return;
-    }
-
-    try {
-      setSaving(true);
-      setError(null);
-
-      const payload = {
-        item_name: editForm.item_name ?? '',
-        category: editForm.category ?? '',
-        purchase_price: editForm.purchase_price ?? '',
-        purchase_date: editForm.purchase_date ?? '',
-        sale_date: editForm.sale_date ?? '',
-        sale_price: editForm.sale_price ?? '',
-        sold_platform: editForm.sold_platform ?? ''
-      };
-
-      const response = await fetch(`${API_BASE}/api/stock/${editingRowId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
-      });
-
-      if (!response.ok) {
-        let message = 'Failed to update stock record';
-        try {
-          const errorBody = await response.json();
-          message = errorBody?.details || errorBody?.error || message;
-        } catch {
-          const text = await response.text();
-          message = text || message;
-        }
-        throw new Error(message);
-      }
-
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const text = await response.text();
-        throw new Error(text || 'Unexpected response format');
-      }
-
-      const data = await response.json();
-      const updatedRow: StockRow | undefined = data?.row;
-
-      if (!updatedRow) {
-        throw new Error('Server did not return the updated row.');
-      }
-
-      setRows((prev) =>
-        prev.map((row) => (row.id === updatedRow.id ? updatedRow : row))
-      );
-
-      setSuccessMessage('Stock record updated successfully.');
-      setEditingRowId(null);
-      setEditForm({});
-    } catch (err: any) {
-      console.error('Stock update error:', err);
-      setError(err.message || 'Unable to update stock record');
-    } finally {
-      setSaving(false);
     }
   };
 
