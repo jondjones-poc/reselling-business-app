@@ -586,26 +586,38 @@ const Stock: React.FC = () => {
   };
 
   const startEditingRow = (row: StockRow) => {
-    if (saving) {
+    if (saving || creating) {
       return;
     }
 
-    if (editingRowId === row.id) {
-      return;
+    // Convert vinted/ebay to listingOptions
+    const listingOptions: string[] = [];
+    if (row.vinted === true) {
+      listingOptions.push('Vinted');
+    }
+    if (row.ebay === true) {
+      listingOptions.push('eBay');
+    }
+    if (row.vinted === null && row.ebay === null) {
+      listingOptions.push('To List');
+    }
+    // Default to Vinted if nothing is set
+    if (listingOptions.length === 0) {
+      listingOptions.push('Vinted');
     }
 
     setEditingRowId(row.id);
-    setEditForm({
-      id: row.id,
+    setCreateForm({
       item_name: row.item_name ?? '',
       category: row.category ?? '',
-      purchase_price: row.purchase_price ?? '',
+      purchase_price: row.purchase_price ? String(row.purchase_price) : '',
       purchase_date: normalizeDateInput(row.purchase_date ?? ''),
       sale_date: normalizeDateInput(row.sale_date ?? ''),
-      sale_price: row.sale_price ?? '',
+      sale_price: row.sale_price ? String(row.sale_price) : '',
       sold_platform: row.sold_platform ?? '',
-      net_profit: row.net_profit ?? ''
+      listingOptions
     });
+    setShowNewEntry(true);
     setSuccessMessage(null);
   };
 
@@ -674,8 +686,13 @@ const Stock: React.FC = () => {
         ebay
       };
 
-      const response = await fetch(`${API_BASE}/api/stock`, {
-        method: 'POST',
+      // Check if we're editing or creating
+      const isEditing = editingRowId !== null;
+      const url = isEditing ? `${API_BASE}/api/stock/${editingRowId}` : `${API_BASE}/api/stock`;
+      const method = isEditing ? 'PUT' : 'POST';
+
+      const response = await fetch(url, {
+        method,
         headers: {
           'Content-Type': 'application/json'
         },
@@ -701,15 +718,24 @@ const Stock: React.FC = () => {
       }
 
       const data = await response.json();
-      const newRow: StockRow | undefined = data?.row;
+      const updatedRow: StockRow | undefined = data?.row;
 
-      if (!newRow) {
-        throw new Error('Server did not return the new row.');
+      if (!updatedRow) {
+        throw new Error('Server did not return the updated row.');
       }
 
-      setRows((prev) => [newRow, ...prev]);
-      setSuccessMessage('Stock record created successfully.');
+      if (isEditing) {
+        setRows((prev) =>
+          prev.map((row) => (row.id === updatedRow.id ? updatedRow : row))
+        );
+        setSuccessMessage('Stock record updated successfully.');
+      } else {
+        setRows((prev) => [updatedRow, ...prev]);
+        setSuccessMessage('Stock record created successfully.');
+      }
+
       setShowNewEntry(false);
+      setEditingRowId(null);
       resetCreateForm();
       setSortConfig(null);
     } catch (err: any) {
@@ -793,92 +819,17 @@ const Stock: React.FC = () => {
     formatter?: (value: Nullable<string | number>) => string,
     isDate?: boolean
   ) => {
-    const isEditing = editingRowId === row.id;
     const value = row[key];
 
     if (key === 'net_profit') {
       return formatCurrency(value as Nullable<string | number>);
     }
 
-    if (!isEditing) {
-      if (formatter) {
-        return formatter(value as Nullable<string | number>);
-      }
-
-      return value ?? '—';
+    if (formatter) {
+      return formatter(value as Nullable<string | number>);
     }
 
-    const editValue = (editForm[key] as string | number | null | undefined) ?? '';
-
-    if (isDate) {
-      const selectedDate = stringToDate(String(editValue));
-      return (
-        <DatePicker
-          selected={selectedDate}
-          onChange={(date) => handleEditChange(key, dateToIsoString(date ?? null))}
-          dateFormat="yyyy-MM-dd"
-          placeholderText="Select date"
-          className="date-picker-input"
-          calendarClassName="date-picker-calendar"
-          wrapperClassName="date-picker-wrapper"
-        />
-      );
-    }
-
-    if (key === 'category') {
-      return (
-        <select
-          className="edit-input edit-select"
-          value={String(editValue)}
-          onChange={(event) => handleEditChange(key, event.target.value)}
-        >
-          <option value="">Select category...</option>
-          {CATEGORIES.map((category) => (
-            <option key={category} value={category}>
-              {category}
-            </option>
-          ))}
-        </select>
-      );
-    }
-
-    if (key === 'sold_platform') {
-      return (
-        <select
-          className="edit-input edit-select"
-          value={String(editValue)}
-          onChange={(event) => handleEditChange(key, event.target.value)}
-        >
-          <option value="">Select platform...</option>
-          {PLATFORMS.map((platform) => (
-            <option key={platform} value={platform}>
-              {platform}
-            </option>
-          ))}
-        </select>
-      );
-    }
-
-    if (key === 'purchase_price' || key === 'sale_price') {
-      return (
-        <input
-          type="number"
-          step="0.01"
-          className="edit-input"
-          value={String(editValue)}
-          onChange={(event) => handleEditChange(key, event.target.value)}
-        />
-      );
-    }
-
-    return (
-      <input
-        type="text"
-        className="edit-input"
-        value={String(editValue)}
-        onChange={(event) => handleEditChange(key, event.target.value)}
-      />
-    );
+    return value ?? '—';
   };
 
   const handleSort = (key: keyof Omit<StockRow, 'id'>) => {
@@ -918,6 +869,7 @@ const Stock: React.FC = () => {
 
       {showNewEntry && (
         <div className="new-entry-card">
+          <h2>{editingRowId ? 'Edit Stock Entry' : 'Add Stock Entry'}</h2>
           <div className="new-entry-grid">
             <label className="new-entry-field">
               <span>Name</span>
@@ -1153,17 +1105,18 @@ const Stock: React.FC = () => {
                 onClick={handleCreateSubmit}
                 disabled={creating}
               >
-                {creating ? 'Saving…' : 'Save'}
+                {creating ? 'Saving…' : editingRowId ? 'Update' : 'Save'}
               </button>
               <button
                 type="button"
                 className="cancel-button"
-                onClick={() => {
-                  if (!creating) {
-                    setShowNewEntry(false);
-                    resetCreateForm();
-                  }
-                }}
+              onClick={() => {
+                if (!creating) {
+                  setShowNewEntry(false);
+                  setEditingRowId(null);
+                  resetCreateForm();
+                }
+              }}
                 disabled={creating}
               >
                 Cancel
@@ -1303,6 +1256,7 @@ const Stock: React.FC = () => {
               setShowNewEntry(true);
               setEditingRowId(null);
               resetCreateForm();
+              setSuccessMessage(null);
             }}
             disabled={showNewEntry || creating}
           >
@@ -1485,15 +1439,11 @@ const Stock: React.FC = () => {
               </tr>
             )}
             {sortedRows.map((row) => {
-              const isEditing = editingRowId === row.id;
               const storedProfit =
                 row.net_profit !== null && row.net_profit !== undefined
                   ? Number(row.net_profit)
                   : computeDifference(row.purchase_price, row.sale_price);
-              const editingProfit = isEditing
-                ? computeDifference(editForm.purchase_price, editForm.sale_price)
-                : storedProfit;
-              const profitValue = editingProfit;
+              const profitValue = storedProfit;
               const profitClass =
                 profitValue !== null
                   ? profitValue >= 0
@@ -1503,11 +1453,7 @@ const Stock: React.FC = () => {
               const profitDisplay = profitValue !== null ? formatCurrency(profitValue) : '—';
 
               return (
-                <tr
-                  key={row.id}
-                  className={isEditing ? 'editing-row' : ''}
-                  onClick={() => startEditingRow(row)}
-                >
+                <tr key={row.id}>
                   <td>{renderCellContent(row, 'item_name')}</td>
                   <td>{renderCellContent(row, 'category')}</td>
                   <td>{renderCellContent(row, 'purchase_price', formatCurrency)}</td>
@@ -1533,45 +1479,18 @@ const Stock: React.FC = () => {
                     <span className={profitClass}>{profitDisplay}</span>
                   </td>
                   <td className="stock-table-actions-cell">
-                    {isEditing ? (
-                      <div className="row-actions">
-                        <button
-                          type="button"
-                          className="save-button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleSave();
-                          }}
-                          disabled={saving}
-                        >
-                          {saving ? 'Saving…' : 'Update'}
-                        </button>
-                        <button
-                          type="button"
-                          className="cancel-button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            cancelEditing();
-                          }}
-                          disabled={saving}
-                        >
-                          Close
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="row-actions">
-                        <button
-                          type="button"
-                          className="row-hint-button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            startEditingRow(row);
-                          }}
-                        >
-                          Edit
-                        </button>
-                      </div>
-                    )}
+                    <div className="row-actions">
+                      <button
+                        type="button"
+                        className="row-hint-button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          startEditingRow(row);
+                        }}
+                      >
+                        Edit
+                      </button>
+                    </div>
                   </td>
                   <td className="stock-table-actions-cell">
                     <button

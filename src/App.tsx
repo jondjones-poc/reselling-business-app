@@ -30,7 +30,7 @@ function App() {
 
   return (
     <AuthGate>
-      <div className="App">
+    <div className="App">
         <nav className="navigation">
           <div className="nav-container">
             <h1
@@ -74,7 +74,7 @@ function App() {
           <Route path="/reporting" element={<Reporting />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-      </div>
+    </div>
     </AuthGate>
   );
 }

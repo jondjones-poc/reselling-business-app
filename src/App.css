@@ -278,7 +278,7 @@ body {
   transition: all 0.3s ease;
   min-width: 200px;
   box-shadow: inset 0 0 18px rgba(255, 214, 91, 0.2);
-}
+  }
 
 .scanner-button:hover {
   box-shadow: var(--neon-shadow);
