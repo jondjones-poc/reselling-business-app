@@ -192,7 +192,6 @@ const Reporting: React.FC = () => {
   const [yearSpecificTotals, setYearSpecificTotals] = useState<{ totalPurchase: number; totalSales: number; profit: number } | null>(null);
   const [allTimeAverageProfitMultiple, setAllTimeAverageProfitMultiple] = useState<number | null>(null);
   const [yearItemsStats, setYearItemsStats] = useState<{ listed: number; sold: number } | null>(null);
-  const [sellThroughRate, setSellThroughRate] = useState<SellThroughRate | null>(null);
   const [averageSellingPrice, setAverageSellingPrice] = useState<AverageSellingPrice | null>(null);
   const [averageProfitPerItem, setAverageProfitPerItem] = useState<AverageProfitPerItem | null>(null);
   const [roi, setRoi] = useState<ROI | null>(null);
@@ -227,7 +226,6 @@ const Reporting: React.FC = () => {
         setYearSpecificTotals(data.yearSpecificTotals || null);
         setAllTimeAverageProfitMultiple(data.allTimeAverageProfitMultiple ?? null);
         setYearItemsStats(data.yearItemsStats || null);
-        setSellThroughRate(data.sellThroughRate || null);
         setAverageSellingPrice(data.averageSellingPrice || null);
         setAverageProfitPerItem(data.averageProfitPerItem || null);
         setRoi(data.roi || null);

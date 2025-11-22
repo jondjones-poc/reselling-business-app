@@ -545,11 +545,6 @@ const Stock: React.FC = () => {
         }
       }
 
-      const purchaseDateYear =
-        row.purchase_date && new Date(row.purchase_date).getFullYear().toString();
-      const saleDateYear =
-        row.sale_date && new Date(row.sale_date).getFullYear().toString();
-
       let dateMatches = false;
       
       // If week filter is active, use week-based filtering
