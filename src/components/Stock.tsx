@@ -641,31 +641,62 @@ const Stock: React.FC = () => {
   };
 
   const totals = useMemo(() => {
-    if (!filteredRows.length) {
-      return {
-        purchase: 0,
-        sale: 0,
-        profit: 0
-      };
-    }
+    // Calculate stats based on date filters, not filteredRows
+    // This ensures purchases and sales are calculated independently based on their respective dates
+    
+    let totalPurchase = 0;
+    let totalSales = 0;
 
-    return filteredRows.reduce(
-      (acc, row) => {
+    rows.forEach((row) => {
+      // Check if purchase_date matches the current filters
+      let purchaseDateMatches = false;
+      if (selectedYear === 'all-time') {
+        purchaseDateMatches = true; // Show all if "all-time" is selected
+      } else if (selectedWeek !== 'off') {
+        const selectedWeekData = availableWeeks.find(w => w.value === selectedWeek);
+        if (selectedWeekData) {
+          purchaseDateMatches = matchesWeek(row.purchase_date, selectedWeekData.startDate, selectedWeekData.endDate);
+        }
+      } else {
+        purchaseDateMatches = matchesMonthYear(row.purchase_date, selectedMonth, selectedYear);
+      }
+
+      // Check if sale_date matches the current filters
+      let saleDateMatches = false;
+      if (selectedYear === 'all-time') {
+        saleDateMatches = true; // Show all if "all-time" is selected
+      } else if (selectedWeek !== 'off') {
+        const selectedWeekData = availableWeeks.find(w => w.value === selectedWeek);
+        if (selectedWeekData) {
+          saleDateMatches = matchesWeek(row.sale_date, selectedWeekData.startDate, selectedWeekData.endDate);
+        }
+      } else {
+        saleDateMatches = matchesMonthYear(row.sale_date, selectedMonth, selectedYear);
+      }
+
+      // Sum purchases based on purchase_date matching filters
+      if (purchaseDateMatches && row.purchase_price) {
         const purchase = Number(row.purchase_price);
+        if (!Number.isNaN(purchase)) {
+          totalPurchase += purchase;
+        }
+      }
+
+      // Sum sales based on sale_date matching filters
+      if (saleDateMatches && row.sale_price) {
         const sale = Number(row.sale_price);
+        if (!Number.isNaN(sale)) {
+          totalSales += sale;
+        }
+      }
+    });
 
-        const nextPurchase = !Number.isNaN(purchase) ? acc.purchase + purchase : acc.purchase;
-        const nextSale = !Number.isNaN(sale) ? acc.sale + sale : acc.sale;
-
-        return {
-          purchase: nextPurchase,
-          sale: nextSale,
-          profit: nextSale - nextPurchase
-        };
-      },
-      { purchase: 0, sale: 0, profit: 0 }
-    );
-  }, [filteredRows]);
+    return {
+      purchase: totalPurchase,
+      sale: totalSales,
+      profit: totalSales - totalPurchase
+    };
+  }, [rows, selectedMonth, selectedYear, selectedWeek, availableWeeks]);
 
   const sortedRows = useMemo(() => {
     if (!sortConfig) {
@@ -1772,11 +1803,11 @@ const Stock: React.FC = () => {
 
       <section className="stock-summary">
         <div className="summary-card">
-          <span className="summary-label">Total Purchase</span>
+          <span className="summary-label">Stock Purchases</span>
           <span className="summary-value">{formatCurrency(totals.purchase)}</span>
         </div>
         <div className="summary-card">
-          <span className="summary-label">Total Sales</span>
+          <span className="summary-label">Sales</span>
           <span className="summary-value">{formatCurrency(totals.sale)}</span>
         </div>
         <div className="summary-card">

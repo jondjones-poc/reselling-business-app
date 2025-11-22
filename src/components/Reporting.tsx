@@ -525,24 +525,32 @@ const Reporting: React.FC = () => {
             {unsoldInventoryValue && (
               <div className="total-profit-card">
                 <div className="total-profit-label">Unsold Inventory Value</div>
-                <div className="total-profit-value negative">
-                  {formatCurrency(-unsoldInventoryValue.value)}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: 0 }}>
+                  <div className="total-profit-value negative">
+                    {formatCurrency(-unsoldInventoryValue.value)}
+                  </div>
                 </div>
               </div>
             )}
-            <div className="total-profit-card">
+            <div className="total-profit-card" style={{ paddingBottom: '12px' }}>
               <div className="total-profit-label">Current Sales</div>
-              <div className="total-profit-value positive" style={{ fontSize: '1.1rem', marginBottom: '4px' }}>
-                {formatCurrency(currentMonthSales)}
-              </div>
-              <div className="total-profit-description" style={{ fontSize: '0.85rem', marginBottom: '4px' }}>
-                This Month
-              </div>
-              <div className="total-profit-value positive" style={{ fontSize: '1.1rem', marginBottom: '4px' }}>
-                {formatCurrency(currentWeekSales)}
-              </div>
-              <div className="total-profit-description" style={{ fontSize: '0.85rem' }}>
-                This Week
+              <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: '16px', flexWrap: 'wrap', flex: 1, minHeight: 0 }}>
+                <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '4px' }}>
+                  <div className="total-profit-value positive" style={{ fontSize: '1.1rem', margin: 0 }}>
+                    {formatCurrency(currentWeekSales)}
+                  </div>
+                  <div className="total-profit-description" style={{ fontSize: '0.85rem', margin: 0 }}>
+                    /Week
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '4px' }}>
+                  <div className="total-profit-value positive" style={{ fontSize: '1.1rem', margin: 0 }}>
+                    {formatCurrency(currentMonthSales)}
+                  </div>
+                  <div className="total-profit-description" style={{ fontSize: '0.85rem', margin: 0 }}>
+                    /Month
+                  </div>
+                </div>
               </div>
             </div>
           </div>
