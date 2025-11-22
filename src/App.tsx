@@ -44,7 +44,7 @@ function App() {
                 }
               }}
             >
-              Reseller App
+              Gents Rail
             </h1>
             <div
               className={`nav-menu${showMobileMenu ? ' show-mobile' : ''}`}

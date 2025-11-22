@@ -53,6 +53,7 @@ body {
   letter-spacing: 0.2rem;
   color: var(--neon-primary);
   text-shadow: 0 0 18px rgba(255, 214, 91, 0.8);
+  padding-left: 24px;
 }
 
 .nav-menu {

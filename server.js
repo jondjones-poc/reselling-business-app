@@ -483,7 +483,7 @@ const avoidBrandsList = mensResaleReference
   .filter(item => item.status === "❌")
   .map(item => item.brand);
 
-let appSettings = { categories: [], material: [], colors: [], brands: [], patterns: [], gender: [], avoidBrands: avoidBrandsList };
+let appSettings = { categories: [], stockCategories: [], material: [], colors: [], brands: [], patterns: [], gender: [], avoidBrands: avoidBrandsList };
 let dbPool = null;
 
 try {
@@ -562,6 +562,7 @@ const loadSettings = () => {
       console.log('Loaded settings snapshot:', parsed);
       appSettings = {
         categories: parsed.categories ?? [],
+        stockCategories: parsed.stockCategories ?? [],
         material: parsed.material ?? [],
         colors: parsed.colors ?? [],
         brands: parsed.brands ?? [],
@@ -657,14 +658,118 @@ const getDatabasePool = () => {
 // Load settings at startup
 loadSettings();
 
+// Initialize database settings table on startup
+(async () => {
+  const pool = getDatabasePool();
+  if (pool) {
+    try {
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS app_settings (
+          key VARCHAR(255) PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`
+      );
+      console.log('App settings table initialized');
+    } catch (error) {
+      console.warn('Could not initialize app_settings table:', error.message);
+    }
+  }
+})();
+
 app.get('/api/test', (req, res) => {
   res.json({ message: 'Server is working!', timestamp: new Date().toISOString() });
 });
 
-app.get('/api/settings', (req, res) => {
-  const currentSettings = loadSettings();
-  console.log('Sending settings payload:', currentSettings);
-  res.json(currentSettings);
+app.get('/api/settings', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    const currentSettings = loadSettings(); // Load file-based settings as fallback
+    
+    if (pool) {
+      // Try to get categories from database
+      try {
+        const result = await pool.query(
+          `SELECT value FROM app_settings WHERE key = 'stockCategories'`
+        );
+        
+        if (result.rows.length > 0) {
+          currentSettings.stockCategories = JSON.parse(result.rows[0].value);
+        } else {
+          // Initialize with empty array if not in DB (will be populated when user adds categories)
+          currentSettings.stockCategories = [];
+        }
+      } catch (dbError) {
+        console.warn('Database settings table may not exist, using file-based settings:', dbError.message);
+        // Fall back to file-based if table doesn't exist
+      }
+    }
+    
+    console.log('Sending settings payload:', currentSettings);
+    res.json(currentSettings);
+  } catch (error) {
+    console.error('Error loading settings:', error);
+    const fallbackSettings = loadSettings();
+    res.json(fallbackSettings);
+  }
+});
+
+app.put('/api/settings/categories', async (req, res) => {
+  try {
+    const { categories } = req.body;
+    
+    if (!Array.isArray(categories)) {
+      return res.status(400).json({ error: 'Categories must be an array' });
+    }
+
+    const pool = getDatabasePool();
+    
+    if (pool) {
+      // Save to database (primary storage)
+      try {
+        await pool.query(
+          `CREATE TABLE IF NOT EXISTS app_settings (
+            key VARCHAR(255) PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          )`
+        );
+        
+        await pool.query(
+          `INSERT INTO app_settings (key, value) 
+           VALUES ('stockCategories', $1) 
+           ON CONFLICT (key) 
+           DO UPDATE SET value = $1, updated_at = CURRENT_TIMESTAMP`,
+          [JSON.stringify(categories)]
+        );
+        
+        console.log('Categories saved to database');
+      } catch (dbError) {
+        console.error('Database error saving categories:', dbError);
+        // Fall through to file-based save
+      }
+    }
+
+    // Also save to file as backup (works in dev, may not work in production)
+    try {
+      let existingSettings = {};
+      if (fs.existsSync(settingsPath)) {
+        const settingsContent = fs.readFileSync(settingsPath, 'utf-8');
+        existingSettings = JSON.parse(settingsContent);
+      }
+      existingSettings.stockCategories = categories;
+      fs.writeFileSync(settingsPath, JSON.stringify(existingSettings, null, 2), 'utf-8');
+      loadSettings();
+    } catch (fileError) {
+      console.warn('Could not save to file (may be read-only in production):', fileError.message);
+      // This is OK - database is primary storage
+    }
+    
+    res.json({ success: true, categories });
+  } catch (error) {
+    console.error('Error updating categories:', error);
+    res.status(500).json({ error: 'Failed to update categories' });
+  }
 });
 
 app.get('/api/mens-resale-reference', (req, res) => {
@@ -1544,6 +1649,39 @@ app.get('/api/analytics/reporting', async (req, res) => {
     const yearItemsListed = Number(yearItemsResult.rows[0]?.items_listed || 0);
     const yearItemsSold = Number(yearItemsResult.rows[0]?.items_sold || 0);
 
+    // Calculate current month sales (from start of current month to now)
+    const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const currentMonthSalesResult = await pool.query(
+      `
+        SELECT SUM(COALESCE(sale_price, 0))::numeric AS total_sales
+        FROM stock
+        WHERE sale_date IS NOT NULL
+          AND sale_date >= $1
+          AND sale_date <= $2
+      `,
+      [currentMonthStart, now]
+    );
+    const currentMonthSales = Number(currentMonthSalesResult.rows[0]?.total_sales || 0);
+
+    // Calculate current week sales (from start of current week - Monday - to now)
+    const currentWeekStart = new Date(now);
+    const dayOfWeek = currentWeekStart.getDay();
+    const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // If Sunday, go back 6 days, otherwise go back (dayOfWeek - 1) days
+    currentWeekStart.setDate(currentWeekStart.getDate() - daysToMonday);
+    currentWeekStart.setHours(0, 0, 0, 0);
+    
+    const currentWeekSalesResult = await pool.query(
+      `
+        SELECT SUM(COALESCE(sale_price, 0))::numeric AS total_sales
+        FROM stock
+        WHERE sale_date IS NOT NULL
+          AND sale_date >= $1
+          AND sale_date <= $2
+      `,
+      [currentWeekStart, now]
+    );
+    const currentWeekSales = Number(currentWeekSalesResult.rows[0]?.total_sales || 0);
+
     res.json({
       availableYears,
       selectedYear: effectiveYear,
@@ -1593,7 +1731,9 @@ app.get('/api/analytics/reporting', async (req, res) => {
       yearItemsStats: {
         listed: yearItemsListed,
         sold: yearItemsSold
-      }
+      },
+      currentMonthSales: currentMonthSales,
+      currentWeekSales: currentWeekSales
     });
   } catch (error) {
     console.error('Reporting analytics error:', error);

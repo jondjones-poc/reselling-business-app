@@ -127,6 +127,8 @@ interface ReportingResponse {
   averageDaysToSell: AverageDaysToSell;
   activeListingsCount: ActiveListingsCount;
   unsoldInventoryValue: UnsoldInventoryValue;
+  currentMonthSales?: number;
+  currentWeekSales?: number;
 }
 
 const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5003';
@@ -197,6 +199,8 @@ const Reporting: React.FC = () => {
   const [averageDaysToSell, setAverageDaysToSell] = useState<AverageDaysToSell | null>(null);
   const [activeListingsCount, setActiveListingsCount] = useState<ActiveListingsCount | null>(null);
   const [unsoldInventoryValue, setUnsoldInventoryValue] = useState<UnsoldInventoryValue | null>(null);
+  const [currentMonthSales, setCurrentMonthSales] = useState<number>(0);
+  const [currentWeekSales, setCurrentWeekSales] = useState<number>(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -230,6 +234,8 @@ const Reporting: React.FC = () => {
         setAverageDaysToSell(data.averageDaysToSell || null);
         setActiveListingsCount(data.activeListingsCount || null);
         setUnsoldInventoryValue(data.unsoldInventoryValue || null);
+        setCurrentMonthSales(data.currentMonthSales ?? 0);
+        setCurrentWeekSales(data.currentWeekSales ?? 0);
         if (data.selectedYear !== selectedYear) {
           setSelectedYear(data.selectedYear);
         }
@@ -500,6 +506,7 @@ const Reporting: React.FC = () => {
 
       {!loading && !error && (
         <>
+          {/* Row 1: Total Company Profit, Total Sales, Unsold Inventory Value, Current Sales */}
           <div className="reporting-summary">
             <div className="total-profit-card">
               <div className="total-profit-label">Total Company Profit ({selectedYear})</div>
@@ -508,14 +515,50 @@ const Reporting: React.FC = () => {
               </div>
               <div className="total-profit-description">All Sales - All Expenses for {selectedYear}</div>
             </div>
-            {sellThroughRate && (
+            {yearSpecificTotals && (
               <div className="total-profit-card">
-                <div className="total-profit-label">Sell-Through Rate</div>
+                <div className="total-profit-label">Total Sales ({selectedYear})</div>
                 <div className="total-profit-value positive">
-                  {sellThroughRate.percentage.toFixed(1)}%
+                  {formatCurrency(yearSpecificTotals.totalSales)}
+                </div>
+                <div className="total-profit-description">All sales for {selectedYear}</div>
+              </div>
+            )}
+            {unsoldInventoryValue && (
+              <div className="total-profit-card">
+                <div className="total-profit-label">Unsold Inventory Value</div>
+                <div className="total-profit-value negative">
+                  {formatCurrency(-unsoldInventoryValue.value)}
+                </div>
+              </div>
+            )}
+            <div className="total-profit-card">
+              <div className="total-profit-label">Current Sales</div>
+              <div className="total-profit-value positive" style={{ fontSize: '1.1rem', marginBottom: '4px' }}>
+                {formatCurrency(currentMonthSales)}
+              </div>
+              <div className="total-profit-description" style={{ fontSize: '0.85rem', marginBottom: '4px' }}>
+                This Month
+              </div>
+              <div className="total-profit-value positive" style={{ fontSize: '1.1rem', marginBottom: '4px' }}>
+                {formatCurrency(currentWeekSales)}
+              </div>
+              <div className="total-profit-description" style={{ fontSize: '0.85rem' }}>
+                This Week
+              </div>
+            </div>
+          </div>
+
+          {/* Row 2: Average Profit per Item, Average Selling Price, Average Profit Multiple (All Time), Average Days to Sell */}
+          <div className="reporting-summary">
+            {averageProfitPerItem && (
+              <div className="total-profit-card">
+                <div className="total-profit-label">Average Profit per Item</div>
+                <div className={`total-profit-value ${averageProfitPerItem.average >= 0 ? 'positive' : 'negative'}`}>
+                  {formatCurrency(averageProfitPerItem.average)}
                 </div>
                 <div className="total-profit-description">
-                  {sellThroughRate.totalSold.toLocaleString()} sold / {sellThroughRate.totalListed.toLocaleString()} listed
+                  {formatCurrency(averageProfitPerItem.netProfit)} ÷ {averageProfitPerItem.soldCount.toLocaleString()} items
                 </div>
               </div>
             )}
@@ -530,29 +573,13 @@ const Reporting: React.FC = () => {
                 </div>
               </div>
             )}
-            {averageProfitPerItem && (
+            {allTimeAverageProfitMultiple !== null && (
               <div className="total-profit-card">
-                <div className="total-profit-label">Average Profit per Item</div>
-                <div className={`total-profit-value ${averageProfitPerItem.average >= 0 ? 'positive' : 'negative'}`}>
-                  {formatCurrency(averageProfitPerItem.average)}
+                <div className="total-profit-label">Average Profit Multiple (All Time)</div>
+                <div className="total-profit-value positive">
+                  {allTimeAverageProfitMultiple.toFixed(2)}x
                 </div>
-                <div className="total-profit-description">
-                  {formatCurrency(averageProfitPerItem.netProfit)} ÷ {averageProfitPerItem.soldCount.toLocaleString()} items
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="reporting-summary">
-            {roi && (
-              <div className="total-profit-card">
-                <div className="total-profit-label">Return on Investment (ROI)</div>
-                <div className={`total-profit-value ${roi.percentage >= 0 ? 'positive' : 'negative'}`}>
-                  {roi.percentage.toFixed(1)}%
-                </div>
-                <div className="total-profit-description">
-                  {formatCurrency(roi.profit)} ÷ {formatCurrency(roi.totalSpend)} × 100
-                </div>
+                <div className="total-profit-description">Average return multiple across all sales</div>
               </div>
             )}
             {averageDaysToSell && (
@@ -566,6 +593,10 @@ const Reporting: React.FC = () => {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Row 3: Active Listings Count, Items (2025), ROI, Year dropdown */}
+          <div className="reporting-summary">
             {activeListingsCount && (
               <div className="total-profit-card">
                 <div className="total-profit-label">Active Listings Count</div>
@@ -577,29 +608,6 @@ const Reporting: React.FC = () => {
                 </div>
               </div>
             )}
-            {unsoldInventoryValue && (
-              <div className="total-profit-card">
-                <div className="total-profit-label">Unsold Inventory Value</div>
-                <div className="total-profit-value negative">
-                  {formatCurrency(-unsoldInventoryValue.value)}
-                </div>
-                <div className="total-profit-description">
-                  What your current listings cost you to buy
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="reporting-summary">
-            {allTimeAverageProfitMultiple !== null && (
-              <div className="total-profit-card">
-                <div className="total-profit-label">Average Profit Multiple (All Time)</div>
-                <div className="total-profit-value positive">
-                  {allTimeAverageProfitMultiple.toFixed(2)}x
-                </div>
-                <div className="total-profit-description">Average return multiple across all sales</div>
-              </div>
-            )}
             {yearItemsStats && (
               <div className="total-profit-card">
                 <div className="total-profit-label">Items ({selectedYear})</div>
@@ -609,13 +617,15 @@ const Reporting: React.FC = () => {
                 <div className="total-profit-description">Sold / Listed</div>
               </div>
             )}
-            {yearSpecificTotals && (
+            {roi && (
               <div className="total-profit-card">
-                <div className="total-profit-label">Total Sales ({selectedYear})</div>
-                <div className="total-profit-value positive">
-                  {formatCurrency(yearSpecificTotals.totalSales)}
+                <div className="total-profit-label">Return on Investment (ROI)</div>
+                <div className={`total-profit-value ${roi.percentage >= 0 ? 'positive' : 'negative'}`}>
+                  {roi.percentage.toFixed(1)}%
                 </div>
-                <div className="total-profit-description">All sales for {selectedYear}</div>
+                <div className="total-profit-description">
+                  {formatCurrency(roi.profit)} ÷ {formatCurrency(roi.totalSpend)} × 100
+                </div>
               </div>
             )}
             <div className="total-profit-card">
