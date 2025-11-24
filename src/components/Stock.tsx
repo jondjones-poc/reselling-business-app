@@ -841,16 +841,28 @@ const Stock: React.FC = () => {
     // Handle all possible combinations to ensure all selected options are shown
     const listingOptions: string[] = [];
     
-    // Check for Vinted (true means listed on Vinted)
+    // Debug: Log the actual values to see what we're getting
+    console.log('Editing row - vinted:', row.vinted, 'type:', typeof row.vinted, 'ebay:', row.ebay, 'type:', typeof row.ebay);
+    
+    // Check for Vinted - handle boolean true values
     // Both can be true independently, so check each separately
-    if (row.vinted === true) {
-      listingOptions.push('Vinted');
+    // Use Boolean() to ensure we're checking truthiness, but also check for strict true
+    const vintedValue = row.vinted;
+    if (vintedValue === true || (vintedValue !== null && vintedValue !== undefined && vintedValue !== false)) {
+      // Only add if it's explicitly true (not just truthy)
+      if (vintedValue === true) {
+        listingOptions.push('Vinted');
+      }
     }
     
-    // Check for eBay (true means listed on eBay)
+    // Check for eBay - handle boolean true values
     // Both can be true independently, so check each separately
-    if (row.ebay === true) {
-      listingOptions.push('eBay');
+    const ebayValue = row.ebay;
+    if (ebayValue === true || (ebayValue !== null && ebayValue !== undefined && ebayValue !== false)) {
+      // Only add if it's explicitly true (not just truthy)
+      if (ebayValue === true) {
+        listingOptions.push('eBay');
+      }
     }
     
     // If both are false or both are null, show "To List"
@@ -868,6 +880,8 @@ const Stock: React.FC = () => {
     if (listingOptions.length === 0) {
       listingOptions.push('Vinted');
     }
+    
+    console.log('Final listingOptions:', listingOptions);
 
     setEditingRowId(row.id);
     setCreateForm({
