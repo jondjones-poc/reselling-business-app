@@ -179,6 +179,7 @@ const Stock: React.FC = () => {
   const [savingCategory, setSavingCategory] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const editFormRef = useRef<HTMLDivElement>(null);
 
   const loadStock = async () => {
     try {
@@ -865,6 +866,13 @@ const Stock: React.FC = () => {
     });
     setShowNewEntry(true);
     setSuccessMessage(null);
+    
+    // Scroll to edit form after DOM updates
+    setTimeout(() => {
+      if (editFormRef.current) {
+        editFormRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 100);
   };
 
   const resetCreateForm = () => {
@@ -1079,7 +1087,7 @@ const Stock: React.FC = () => {
       {successMessage && <div className="stock-success">{successMessage}</div>}
 
       {showNewEntry && (
-        <div className="new-entry-card">
+        <div className="new-entry-card" ref={editFormRef}>
           <div className="new-entry-grid">
             {/* Row 1: Name, Category, Purchase Price (£), Purchase Date, Listed */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', width: '100%' }}>
