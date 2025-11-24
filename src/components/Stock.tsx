@@ -177,6 +177,8 @@ const Stock: React.FC = () => {
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [savingCategory, setSavingCategory] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const loadStock = async () => {
     try {
@@ -1020,6 +1022,57 @@ const Stock: React.FC = () => {
     }, 220);
   };
 
+  const handleDeleteClick = () => {
+    setShowDeleteConfirm(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!editingRowId) return;
+
+    try {
+      setDeleting(true);
+      setError(null);
+
+      const response = await fetch(`${API_BASE}/api/stock/${editingRowId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        let message = 'Failed to delete stock record';
+        try {
+          const errorBody = await response.json();
+          message = errorBody?.error || message;
+        } catch {
+          const text = await response.text();
+          message = text || message;
+        }
+        throw new Error(message);
+      }
+
+      // Remove the deleted row from state
+      setRows((prev) => prev.filter((row) => row.id !== editingRowId));
+      setSuccessMessage('Stock record deleted successfully.');
+      
+      // Close the form and reset
+      setShowNewEntry(false);
+      setEditingRowId(null);
+      resetCreateForm();
+      setShowDeleteConfirm(false);
+    } catch (err: any) {
+      console.error('Stock delete error:', err);
+      setError(err.message || 'Unable to delete stock record');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleDeleteCancel = () => {
+    setShowDeleteConfirm(false);
+  };
+
   return (
     <div className="stock-container">
       {error && <div className="stock-error">{error}</div>}
@@ -1550,7 +1603,7 @@ const Stock: React.FC = () => {
                 type="button"
                 className="save-button"
                 onClick={handleCreateSubmit}
-                disabled={creating}
+                disabled={creating || deleting}
               >
                 {creating ? 'Saving…' : editingRowId ? 'Update' : 'Save'}
               </button>
@@ -1558,17 +1611,84 @@ const Stock: React.FC = () => {
                 type="button"
                 className="cancel-button"
               onClick={() => {
-                if (!creating) {
+                if (!creating && !deleting) {
                   setShowNewEntry(false);
                   setEditingRowId(null);
                   resetCreateForm();
+                  setShowDeleteConfirm(false);
                 }
               }}
-                disabled={creating}
+                disabled={creating || deleting}
               >
                 Close
               </button>
             </div>
+            </div>
+            {editingRowId && (
+              <div style={{ width: '100%', marginTop: '20px' }}>
+                <button
+                  type="button"
+                  className="delete-button"
+                  onClick={handleDeleteClick}
+                  disabled={creating || deleting}
+                >
+                  Delete Item
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showDeleteConfirm && (
+        <div 
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000
+          }}
+          onClick={handleDeleteCancel}
+        >
+          <div 
+            className="new-entry-card"
+            style={{
+              maxWidth: '500px',
+              width: '90%',
+              margin: '0 auto',
+              position: 'relative'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={{ margin: '0 0 20px 0', color: 'var(--neon-primary-strong)', letterSpacing: '0.08rem' }}>
+              Confirm Delete
+            </h2>
+            <p style={{ color: 'rgba(255, 248, 226, 0.85)', marginBottom: '24px', fontSize: '1rem' }}>
+              Are you sure you want to delete this item? This action cannot be undone.
+            </p>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="cancel-button"
+                onClick={handleDeleteCancel}
+                disabled={deleting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="delete-button"
+                onClick={handleDeleteConfirm}
+                disabled={deleting}
+              >
+                {deleting ? 'Deleting…' : 'Delete'}
+              </button>
             </div>
           </div>
         </div>

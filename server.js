@@ -1257,6 +1257,37 @@ app.put('/api/stock/:id', async (req, res) => {
   }
 });
 
+app.delete('/api/stock/:id', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const stockId = Number(req.params.id);
+    if (!Number.isInteger(stockId)) {
+      return res.status(400).json({ error: 'Invalid stock id' });
+    }
+
+    const existingResult = await pool.query(
+      'SELECT id FROM stock WHERE id = $1',
+      [stockId]
+    );
+
+    if (existingResult.rowCount === 0) {
+      return res.status(404).json({ error: 'Stock record not found' });
+    }
+
+    await pool.query('DELETE FROM stock WHERE id = $1', [stockId]);
+
+    res.json({ success: true, message: 'Stock record deleted successfully' });
+  } catch (error) {
+    console.error('Stock delete failed:', error);
+    res.status(500).json({ error: 'Failed to delete stock record', details: error.message });
+  }
+});
+
 app.get('/api/analytics/reporting', async (req, res) => {
   try {
     const pool = getDatabasePool();
