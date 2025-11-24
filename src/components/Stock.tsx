@@ -845,10 +845,13 @@ const Stock: React.FC = () => {
     if (row.ebay === true) {
       listingOptions.push('eBay');
     }
-    if (row.vinted === null && row.ebay === null) {
+    // If both are false or both are null, show "To List"
+    const bothFalse = row.vinted === false && row.ebay === false;
+    const bothNull = row.vinted === null && row.ebay === null;
+    if (bothFalse || bothNull) {
       listingOptions.push('To List');
     }
-    // Default to Vinted if nothing is set
+    // Default to Vinted if nothing is set (shouldn't happen, but safety check)
     if (listingOptions.length === 0) {
       listingOptions.push('Vinted');
     }
