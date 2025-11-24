@@ -180,6 +180,7 @@ const Stock: React.FC = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const editFormRef = useRef<HTMLDivElement>(null);
+  const isInitializingForm = useRef(false);
 
   const loadStock = async () => {
     try {
@@ -286,6 +287,21 @@ const Stock: React.FC = () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [showListedDropdown, showSoldPlatformDropdown]);
+
+  // Memoize listingOptions to prevent accidental mutations
+  const memoizedListingOptions = useMemo(() => {
+    return Array.isArray(createForm.listingOptions) ? [...createForm.listingOptions] : [];
+  }, [createForm.listingOptions]);
+
+  // Debug: Log when listingOptions changes and track what caused it
+  useEffect(() => {
+    console.log('createForm.listingOptions changed:', createForm.listingOptions, 'length:', createForm.listingOptions.length);
+    // Log stack trace to see what's calling the state change
+    if (createForm.listingOptions.length === 1 && editingRowId !== null && createForm.listingOptions[0] !== 'Vinted') {
+      console.warn('WARNING: listingOptions reduced to 1 item during edit! Stack:', new Error().stack);
+      console.warn('Current editingRowId:', editingRowId, 'listingOptions:', createForm.listingOptions);
+    }
+  }, [createForm.listingOptions, editingRowId]);
 
   useEffect(() => {
     if (!successMessage) {
@@ -843,26 +859,18 @@ const Stock: React.FC = () => {
     
     // Debug: Log the actual values to see what we're getting
     console.log('Editing row - vinted:', row.vinted, 'type:', typeof row.vinted, 'ebay:', row.ebay, 'type:', typeof row.ebay);
+    console.log('Row ID:', row.id, 'Row item_name:', row.item_name);
     
-    // Check for Vinted - handle boolean true values
-    // Both can be true independently, so check each separately
-    // Use Boolean() to ensure we're checking truthiness, but also check for strict true
-    const vintedValue = row.vinted;
-    if (vintedValue === true || (vintedValue !== null && vintedValue !== undefined && vintedValue !== false)) {
-      // Only add if it's explicitly true (not just truthy)
-      if (vintedValue === true) {
-        listingOptions.push('Vinted');
-      }
+    // Check for Vinted - both can be true independently
+    if (row.vinted === true) {
+      listingOptions.push('Vinted');
+      console.log('Added Vinted to listingOptions');
     }
     
-    // Check for eBay - handle boolean true values
-    // Both can be true independently, so check each separately
-    const ebayValue = row.ebay;
-    if (ebayValue === true || (ebayValue !== null && ebayValue !== undefined && ebayValue !== false)) {
-      // Only add if it's explicitly true (not just truthy)
-      if (ebayValue === true) {
-        listingOptions.push('eBay');
-      }
+    // Check for eBay - both can be true independently
+    if (row.ebay === true) {
+      listingOptions.push('eBay');
+      console.log('Added eBay to listingOptions');
     }
     
     // If both are false or both are null, show "To List"
@@ -884,6 +892,7 @@ const Stock: React.FC = () => {
     console.log('Final listingOptions:', listingOptions);
 
     setEditingRowId(row.id);
+    isInitializingForm.current = true;
     setCreateForm({
       item_name: row.item_name ?? '',
       category: row.category ?? '',
@@ -896,6 +905,12 @@ const Stock: React.FC = () => {
     });
     setShowNewEntry(true);
     setSuccessMessage(null);
+    
+    // Allow form modifications after a brief delay to ensure state is set
+    setTimeout(() => {
+      isInitializingForm.current = false;
+      console.log('Form initialization complete, listingOptions should be:', listingOptions);
+    }, 200);
     
     // Scroll to edit form after DOM updates
     setTimeout(() => {
@@ -919,6 +934,11 @@ const Stock: React.FC = () => {
   };
 
   const handleCreateChange = (key: keyof typeof createForm, value: string) => {
+    // Prevent accidentally overwriting listingOptions array with a string
+    if (key === 'listingOptions') {
+      console.warn('handleCreateChange called with listingOptions - this should not happen! Value:', value);
+      return;
+    }
     setCreateForm((prev) => ({
       ...prev,
       [key]: value
@@ -1304,7 +1324,10 @@ const Stock: React.FC = () => {
                     height: 'auto',
                     lineHeight: '1.2'
                   }}
-                  onClick={() => setShowListedDropdown(!showListedDropdown)}
+                  onClick={() => {
+                    console.log('Opening Listed dropdown, current listingOptions:', createForm.listingOptions);
+                    setShowListedDropdown(!showListedDropdown);
+                  }}
                 >
                   {createForm.listingOptions.length > 0 ? (
                     createForm.listingOptions.map((option) => {
@@ -1394,14 +1417,23 @@ const Stock: React.FC = () => {
                     }}
                     onClick={(e) => e.stopPropagation()}
                   >
-                    {['Vinted', 'eBay', 'To List'].map((option) => {
-                      const getIconSrc = (opt: string) => {
-                        if (opt === 'Vinted') return '/images/vinted-icon.svg';
-                        if (opt === 'eBay') return '/images/ebay-icon.svg';
-                        if (opt === 'To List') return '/images/to-list-icon.svg';
-                        return null;
-                      };
-                      const iconSrc = getIconSrc(option);
+                    {(() => {
+                      // Use memoized listingOptions to prevent closure issues
+                      const currentListingOptions = memoizedListingOptions;
+                      console.log('Dropdown render - using memoized listingOptions:', currentListingOptions);
+                      
+                      return ['Vinted', 'eBay', 'To List'].map((option) => {
+                        const getIconSrc = (opt: string) => {
+                          if (opt === 'Vinted') return '/images/vinted-icon.svg';
+                          if (opt === 'eBay') return '/images/ebay-icon.svg';
+                          if (opt === 'To List') return '/images/to-list-icon.svg';
+                          return null;
+                        };
+                        const iconSrc = getIconSrc(option);
+                        // Use the captured value to avoid closure issues
+                        const isChecked = Array.isArray(currentListingOptions) && currentListingOptions.includes(option);
+                        // Debug: Log checkbox state every time dropdown is shown
+                        console.log(`Rendering checkbox for "${option}": isChecked=${isChecked}, using capturedOptions=`, currentListingOptions);
                       return (
                         <label
                           key={option}
@@ -1423,19 +1455,43 @@ const Stock: React.FC = () => {
                         >
                           <input
                             type="checkbox"
-                            checked={createForm.listingOptions.includes(option)}
+                            checked={isChecked}
                             onChange={(e) => {
-                              if (e.target.checked) {
-                                setCreateForm((prev) => ({
-                                  ...prev,
-                                  listingOptions: [...prev.listingOptions, option]
-                                }));
-                              } else {
-                                setCreateForm((prev) => ({
-                                  ...prev,
-                                  listingOptions: prev.listingOptions.filter((opt) => opt !== option)
-                                }));
+                              // Prevent modifications during form initialization
+                              if (isInitializingForm.current) {
+                                console.warn(`Prevented checkbox ${option} onChange during form initialization`);
+                                e.preventDefault();
+                                return;
                               }
+                              
+                              e.preventDefault(); // Prevent default behavior
+                              const newChecked = e.target.checked;
+                              console.log(`Checkbox ${option} onChange triggered: newChecked=${newChecked}, currentOptions=`, createForm.listingOptions);
+                              
+                              setCreateForm((prev) => {
+                                const currentOptions = prev.listingOptions || [];
+                                let newOptions: string[];
+                                
+                                if (newChecked) {
+                                  // Add option if not already present
+                                  if (!currentOptions.includes(option)) {
+                                    newOptions = [...currentOptions, option];
+                                    console.log(`Adding ${option}, newOptions:`, newOptions);
+                                  } else {
+                                    newOptions = currentOptions;
+                                    console.log(`${option} already in list, no change`);
+                                  }
+                                } else {
+                                  // Remove option
+                                  newOptions = currentOptions.filter((opt) => opt !== option);
+                                  console.log(`Removing ${option}, newOptions:`, newOptions);
+                                }
+                                
+                                return {
+                                  ...prev,
+                                  listingOptions: newOptions
+                                };
+                              });
                             }}
                             style={{
                               width: '16px',
@@ -1459,7 +1515,8 @@ const Stock: React.FC = () => {
                           <span style={{ color: 'var(--text-strong)', fontSize: '0.95rem' }}>{option}</span>
                         </label>
                       );
-                    })}
+                    });
+                    })()}
                   </div>
                 )}
               </label>
