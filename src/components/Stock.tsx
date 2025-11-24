@@ -181,6 +181,7 @@ const Stock: React.FC = () => {
   const [deleting, setDeleting] = useState(false);
   const editFormRef = useRef<HTMLDivElement>(null);
   const isInitializingForm = useRef(false);
+  const listingOptionsRef = useRef<string[]>([]);
 
   const loadStock = async () => {
     try {
@@ -289,8 +290,22 @@ const Stock: React.FC = () => {
   }, [showListedDropdown, showSoldPlatformDropdown]);
 
   // Memoize listingOptions to prevent accidental mutations
+  // Use ref value if available and matches, otherwise use form state
   const memoizedListingOptions = useMemo(() => {
-    return Array.isArray(createForm.listingOptions) ? [...createForm.listingOptions] : [];
+    const formOptions = Array.isArray(createForm.listingOptions) ? createForm.listingOptions : [];
+    const refOptions = listingOptionsRef.current;
+    
+    // If ref has values and form state doesn't match, log warning
+    if (refOptions.length > 0 && formOptions.length !== refOptions.length) {
+      console.warn('MISMATCH: ref has', refOptions, 'but form has', formOptions);
+      // Use ref value if it's more complete
+      if (refOptions.length > formOptions.length) {
+        console.warn('Using ref value instead of form value');
+        return [...refOptions];
+      }
+    }
+    
+    return formOptions.length > 0 ? [...formOptions] : (refOptions.length > 0 ? [...refOptions] : []);
   }, [createForm.listingOptions]);
 
   // Debug: Log when listingOptions changes and track what caused it
@@ -893,6 +908,10 @@ const Stock: React.FC = () => {
 
     setEditingRowId(row.id);
     isInitializingForm.current = true;
+    // Create a new array reference and store in ref
+    const listingOptionsCopy = [...listingOptions];
+    listingOptionsRef.current = listingOptionsCopy;
+    console.log('Setting form with listingOptions copy:', listingOptionsCopy, 'stored in ref');
     setCreateForm({
       item_name: row.item_name ?? '',
       category: row.category ?? '',
@@ -901,7 +920,7 @@ const Stock: React.FC = () => {
       sale_date: normalizeDateInput(row.sale_date ?? ''),
       sale_price: row.sale_price ? String(row.sale_price) : '',
       sold_platform: row.sold_platform ?? '',
-      listingOptions
+      listingOptions: listingOptionsCopy
     });
     setShowNewEntry(true);
     setSuccessMessage(null);
@@ -909,7 +928,7 @@ const Stock: React.FC = () => {
     // Allow form modifications after a brief delay to ensure state is set
     setTimeout(() => {
       isInitializingForm.current = false;
-      console.log('Form initialization complete, listingOptions should be:', listingOptions);
+      console.log('Form initialization complete, listingOptions should be:', listingOptions, 'ref has:', listingOptionsRef.current);
     }, 200);
     
     // Scroll to edit form after DOM updates
@@ -1486,6 +1505,9 @@ const Stock: React.FC = () => {
                                   newOptions = currentOptions.filter((opt) => opt !== option);
                                   console.log(`Removing ${option}, newOptions:`, newOptions);
                                 }
+                                
+                                // Update ref to match
+                                listingOptionsRef.current = newOptions;
                                 
                                 return {
                                   ...prev,
