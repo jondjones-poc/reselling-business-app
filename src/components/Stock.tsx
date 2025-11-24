@@ -838,19 +838,32 @@ const Stock: React.FC = () => {
     }
 
     // Convert vinted/ebay to listingOptions
+    // Handle all possible combinations to ensure all selected options are shown
     const listingOptions: string[] = [];
+    
+    // Check for Vinted (true means listed on Vinted)
+    // Both can be true independently, so check each separately
     if (row.vinted === true) {
       listingOptions.push('Vinted');
     }
+    
+    // Check for eBay (true means listed on eBay)
+    // Both can be true independently, so check each separately
     if (row.ebay === true) {
       listingOptions.push('eBay');
     }
+    
     // If both are false or both are null, show "To List"
+    // Only add "To List" if neither Vinted nor eBay is true
     const bothFalse = row.vinted === false && row.ebay === false;
     const bothNull = row.vinted === null && row.ebay === null;
-    if (bothFalse || bothNull) {
+    const oneFalseOneNull = (row.vinted === false && row.ebay === null) || (row.vinted === null && row.ebay === false);
+    
+    // Only show "To List" if no platform is selected (neither is true)
+    if ((bothFalse || bothNull || oneFalseOneNull) && listingOptions.length === 0) {
       listingOptions.push('To List');
     }
+    
     // Default to Vinted if nothing is set (shouldn't happen, but safety check)
     if (listingOptions.length === 0) {
       listingOptions.push('Vinted');
