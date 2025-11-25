@@ -1038,9 +1038,11 @@ const Stock: React.FC = () => {
         setSuccessMessage('Stock record created successfully.');
       }
 
+      // Hide the edit section after successful save
       setShowNewEntry(false);
       setEditingRowId(null);
       resetCreateForm();
+      listingOptionsRef.current = []; // Reset the ref
       setSortConfig(null);
     } catch (err: any) {
       console.error('Stock create error:', err);
