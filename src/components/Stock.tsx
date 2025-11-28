@@ -541,10 +541,40 @@ const Stock: React.FC = () => {
         return false;
       });
 
+      // Apply search globally even with unsold filter
+      if (searchTerm.trim()) {
+        const searchLower = searchTerm.toLowerCase().trim();
+        filtered = filtered.filter((row) => {
+          const itemName = row.item_name ? row.item_name.toLowerCase() : '';
+          return itemName.includes(searchLower);
+        });
+      }
+
       return filtered;
     }
 
-    // Apply normal filters when unsold filter is off
+    // If search term exists, search globally first (ignore date/viewMode filters)
+    // Then apply other filters (category) to narrow down
+    const hasSearchTerm = searchTerm.trim();
+    
+    if (hasSearchTerm) {
+      // First, apply global search across all rows
+      const searchLower = searchTerm.toLowerCase().trim();
+      filtered = filtered.filter((row) => {
+        const itemName = row.item_name ? row.item_name.toLowerCase() : '';
+        return itemName.includes(searchLower);
+      });
+
+      // Then apply category filter to narrow down search results
+      if (selectedCategoryFilter) {
+        filtered = filtered.filter((row) => row.category === selectedCategoryFilter);
+      }
+
+      // Search results are global - don't apply date/viewMode filters
+      return filtered;
+    }
+
+    // No search term - apply all filters normally
     return filtered.filter((row) => {
       // Handle special view modes for listing filters
       if (viewMode === 'all') {
@@ -625,12 +655,7 @@ const Stock: React.FC = () => {
         return false;
       }
 
-      if (!searchTerm.trim()) {
-        return true;
-      }
-
-      const itemName = row.item_name ? row.item_name.toLowerCase() : '';
-      return itemName.includes(searchTerm.toLowerCase().trim());
+      return true;
     });
   }, [rows, selectedMonth, selectedYear, selectedWeek, viewMode, searchTerm, unsoldFilter, selectedCategoryFilter, availableWeeks]);
 
