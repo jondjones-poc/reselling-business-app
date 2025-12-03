@@ -1009,10 +1009,7 @@ const Reporting: React.FC = () => {
                 </div>
               </div>
               <div className="platform-stat-cell">
-                <div className="platform-stat-label">Total Sales</div>
-                <div className="platform-stat-value" style={{ color: 'rgba(255, 248, 226, 0.5)' }}>
-                  —
-                </div>
+                {/* Empty column */}
               </div>
               <div className="platform-stat-cell">
                 <div className="platform-stat-label">Cash Flow Profit</div>

@@ -1915,8 +1915,8 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
     console.log(`[Monthly Platform] Unsold purchases result:`, unsoldPurchasesResult.rows[0]);
     console.log(`[Monthly Platform] Unsold purchases calculated: £${unsoldPurchases}`);
 
-    // Cash flow profit = Total purchases (unsold) - eBay profit - Vinted profit
-    const cashFlowProfit = unsoldPurchases - ebayProfit - vintedProfit;
+    // Cash flow profit = (Vinted Profit + eBay Profit) - Unsold Purchases
+    const cashFlowProfit = (vintedProfit + ebayProfit) - unsoldPurchases;
 
     // Items not tagged correctly: sold in this month but sold_platform is null/empty or not 'Vinted'/'eBay'
     const untaggedItemsResult = await pool.query(
