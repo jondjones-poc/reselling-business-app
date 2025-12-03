@@ -1917,10 +1917,14 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
 
     // Cash flow profit = (Vinted Profit + eBay Profit) - Unsold Purchases
     // Ensure profits are positive (they should be, but handle negative cases)
-    const totalProfit = Math.max(0, vintedProfit) + Math.max(0, ebayProfit);
-    const cashFlowProfit = totalProfit - Math.max(0, unsoldPurchases);
-    console.log(`[Monthly Platform] Cash flow calculation: (${vintedProfit} + ${ebayProfit}) - ${unsoldPurchases} = ${cashFlowProfit}`);
-    console.log(`[Monthly Platform] Using positive values: (${Math.max(0, vintedProfit)} + ${Math.max(0, ebayProfit)}) - ${Math.max(0, unsoldPurchases)} = ${cashFlowProfit}`);
+    const vintedProfitPositive = Math.max(0, vintedProfit);
+    const ebayProfitPositive = Math.max(0, ebayProfit);
+    const unsoldPurchasesPositive = Math.max(0, unsoldPurchases);
+    const totalProfit = vintedProfitPositive + ebayProfitPositive;
+    const cashFlowProfit = totalProfit - unsoldPurchasesPositive;
+    console.log(`[Monthly Platform] Raw values - vintedProfit: ${vintedProfit}, ebayProfit: ${ebayProfit}, unsoldPurchases: ${unsoldPurchases}`);
+    console.log(`[Monthly Platform] Positive values - vintedProfit: ${vintedProfitPositive}, ebayProfit: ${ebayProfitPositive}, unsoldPurchases: ${unsoldPurchasesPositive}`);
+    console.log(`[Monthly Platform] Cash flow calculation: (${vintedProfitPositive} + ${ebayProfitPositive}) - ${unsoldPurchasesPositive} = ${cashFlowProfit}`);
 
     // Items not tagged correctly: sold in this month but sold_platform is null/empty or not 'Vinted'/'eBay'
     const untaggedItemsResult = await pool.query(
