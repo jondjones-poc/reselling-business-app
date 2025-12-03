@@ -1859,11 +1859,7 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
         WHERE sale_date IS NOT NULL
           AND EXTRACT(YEAR FROM sale_date)::int = $1
           AND EXTRACT(MONTH FROM sale_date)::int = $2
-          AND (
-            sold_platform = 'eBay'
-            OR ebay = true
-          )
-          AND NOT (sold_platform = 'Vinted' AND vinted = true AND ebay = false)
+          AND sold_platform = 'eBay'
       `,
       [requestedYear, requestedMonth]
     );
