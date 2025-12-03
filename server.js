@@ -1873,9 +1873,7 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
     const ebayProfit = Number(ebayResult.rows[0]?.total_profit || 0);
     console.log(`[Monthly Platform] eBay result:`, ebayResult.rows[0]);
 
-    // Items not tagged correctly: sold in this month but either:
-    // - sold_platform is null/empty
-    // - OR (vinted is false/null AND ebay is false/null)
+    // Items not tagged correctly: sold in this month but sold_platform is null/empty or not 'Vinted'/'eBay'
     const untaggedItemsResult = await pool.query(
       `
         SELECT
@@ -1896,7 +1894,7 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
           AND (
             sold_platform IS NULL 
             OR sold_platform = ''
-            OR (COALESCE(vinted, false) = false AND COALESCE(ebay, false) = false)
+            OR (sold_platform != 'Vinted' AND sold_platform != 'eBay')
           )
         ORDER BY sale_date DESC, item_name ASC
       `,
