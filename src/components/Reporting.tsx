@@ -274,16 +274,25 @@ const Reporting: React.FC = () => {
       const fetchMonthlyData = async () => {
         try {
           setMonthlyLoading(true);
-          const response = await fetch(`${API_BASE}/api/analytics/monthly-platform?year=${monthlyViewYear}&month=${monthlyViewMonth}`);
+          const url = `${API_BASE}/api/analytics/monthly-platform?year=${monthlyViewYear}&month=${monthlyViewMonth}`;
+          console.log('[Monthly Platform] Fetching data from:', url);
+          const response = await fetch(url);
           if (!response.ok) {
             throw new Error('Failed to load monthly platform data');
           }
           const data = await response.json();
+          console.log('[Monthly Platform] Full API response:', data);
+          console.log('[Monthly Platform] Vinted data:', data.vinted);
+          console.log('[Monthly Platform] eBay data:', data.ebay);
+          console.log('[Monthly Platform] Untagged items count:', data.untaggedItems?.length || 0);
+          if (data.untaggedItems && data.untaggedItems.length > 0) {
+            console.log('[Monthly Platform] Sample untagged items:', data.untaggedItems.slice(0, 3));
+          }
           setVintedData(data.vinted || { purchases: 0, sales: 0, profit: 0 });
           setEbayData(data.ebay || { purchases: 0, sales: 0, profit: 0 });
           setUntaggedItems(data.untaggedItems || []);
         } catch (err: any) {
-          console.error('Monthly platform fetch error:', err);
+          console.error('[Monthly Platform] Fetch error:', err);
           setVintedData({ purchases: 0, sales: 0, profit: 0 });
           setEbayData({ purchases: 0, sales: 0, profit: 0 });
           setUntaggedItems([]);
