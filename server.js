@@ -1789,6 +1789,7 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
     }
 
     // Vinted: Calculate total purchases, sales, and profit for items sold on Vinted in this month
+    // Check sold_platform first, then fall back to vinted boolean column
     const vintedResult = await pool.query(
       `
         SELECT
@@ -1799,7 +1800,11 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
         WHERE sale_date IS NOT NULL
           AND EXTRACT(YEAR FROM sale_date)::int = $1
           AND EXTRACT(MONTH FROM sale_date)::int = $2
-          AND sold_platform = 'Vinted'
+          AND (
+            sold_platform = 'Vinted'
+            OR (sold_platform IS NULL AND vinted = true)
+            OR (sold_platform = '' AND vinted = true)
+          )
       `,
       [requestedYear, requestedMonth]
     );
@@ -1809,6 +1814,7 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
     const vintedProfit = Number(vintedResult.rows[0]?.total_profit || 0);
 
     // eBay: Calculate total purchases, sales, and profit for items sold on eBay in this month
+    // Check sold_platform first, then fall back to ebay boolean column
     const ebayResult = await pool.query(
       `
         SELECT
@@ -1819,7 +1825,11 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
         WHERE sale_date IS NOT NULL
           AND EXTRACT(YEAR FROM sale_date)::int = $1
           AND EXTRACT(MONTH FROM sale_date)::int = $2
-          AND sold_platform = 'eBay'
+          AND (
+            sold_platform = 'eBay'
+            OR (sold_platform IS NULL AND ebay = true)
+            OR (sold_platform = '' AND ebay = true)
+          )
       `,
       [requestedYear, requestedMonth]
     );
