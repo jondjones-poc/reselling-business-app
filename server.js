@@ -1870,6 +1870,35 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
     console.log(`[Monthly Platform] eBay result:`, ebayResult.rows[0]);
 
     // Unsold purchases: Items purchased this month but not sold (no sale_date)
+    // Debug: First check what items exist
+    const unsoldDebugResult = await pool.query(
+      `
+        SELECT
+          id,
+          item_name,
+          purchase_date,
+          purchase_price,
+          sale_date,
+          EXTRACT(YEAR FROM purchase_date)::int AS purchase_year,
+          EXTRACT(MONTH FROM purchase_date)::int AS purchase_month
+        FROM stock
+        WHERE purchase_date IS NOT NULL
+          AND sale_date IS NULL
+        ORDER BY purchase_date DESC
+      `
+    );
+    console.log(`[Monthly Platform] Debug: Found ${unsoldDebugResult.rows.length} total unsold items`);
+    const matchingUnsold = unsoldDebugResult.rows.filter(r => 
+      Number(r.purchase_year) === requestedYear && Number(r.purchase_month) === requestedMonth
+    );
+    console.log(`[Monthly Platform] Debug: ${matchingUnsold.length} unsold items match ${requestedMonth}/${requestedYear}`);
+    if (matchingUnsold.length > 0) {
+      console.log('[Monthly Platform] Debug: Matching unsold items:');
+      matchingUnsold.forEach(r => {
+        console.log(`  - ${r.item_name}: purchase_price=£${r.purchase_price}, purchase_date=${r.purchase_date}, year=${r.purchase_year}, month=${r.purchase_month}`);
+      });
+    }
+
     const unsoldPurchasesResult = await pool.query(
       `
         SELECT
@@ -1884,6 +1913,7 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
     );
     const unsoldPurchases = Number(unsoldPurchasesResult.rows[0]?.total_purchases || 0);
     console.log(`[Monthly Platform] Unsold purchases result:`, unsoldPurchasesResult.rows[0]);
+    console.log(`[Monthly Platform] Unsold purchases calculated: £${unsoldPurchases}`);
 
     // Cash flow profit = Total purchases (unsold) - eBay profit - Vinted profit
     const cashFlowProfit = unsoldPurchases - ebayProfit - vintedProfit;
