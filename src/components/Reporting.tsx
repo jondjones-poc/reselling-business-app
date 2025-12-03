@@ -288,6 +288,12 @@ const Reporting: React.FC = () => {
           console.log('[Monthly Platform] eBay data:', data.ebay);
           console.log('[Monthly Platform] Unsold purchases:', data.unsoldPurchases);
           console.log('[Monthly Platform] Cash flow profit:', data.cashFlowProfit);
+          console.log('[Monthly Platform] Cash flow calculation check:', {
+            vintedProfit: data.vinted?.profit,
+            ebayProfit: data.ebay?.profit,
+            unsoldPurchases: data.unsoldPurchases,
+            calculated: (data.vinted?.profit || 0) + (data.ebay?.profit || 0) - (data.unsoldPurchases || 0)
+          });
           console.log('[Monthly Platform] Untagged items count:', data.untaggedItems?.length || 0);
           if (data.untaggedItems && data.untaggedItems.length > 0) {
             console.log('[Monthly Platform] Sample untagged items:', data.untaggedItems.slice(0, 3));
