@@ -1788,8 +1788,41 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
       return res.status(400).json({ error: 'Invalid year or month parameter' });
     }
 
+    // Debug: Check all sales for this month to see what we're working with
+    const debugResult = await pool.query(
+      `
+        SELECT
+          id,
+          item_name,
+          sale_date,
+          sale_price,
+          sold_platform,
+          vinted,
+          ebay,
+          EXTRACT(YEAR FROM sale_date)::int AS sale_year,
+          EXTRACT(MONTH FROM sale_date)::int AS sale_month
+        FROM stock
+        WHERE sale_date IS NOT NULL
+          AND EXTRACT(YEAR FROM sale_date)::int = $1
+          AND EXTRACT(MONTH FROM sale_date)::int = $2
+        ORDER BY sale_date DESC
+      `,
+      [requestedYear, requestedMonth]
+    );
+    console.log(`[Monthly Platform] Debug: Found ${debugResult.rows.length} items sold in ${requestedMonth}/${requestedYear}`);
+    if (debugResult.rows.length > 0) {
+      console.log('[Monthly Platform] Sample items:', debugResult.rows.slice(0, 3).map(r => ({
+        name: r.item_name,
+        sale_price: r.sale_price,
+        sold_platform: r.sold_platform,
+        vinted: r.vinted,
+        ebay: r.ebay
+      })));
+    }
+
     // Vinted: Calculate total purchases, sales, and profit for items sold on Vinted in this month
-    // Check sold_platform first, then fall back to vinted boolean column
+    // Include items where sold_platform = 'Vinted' OR vinted = true
+    // Exclude items explicitly marked as eBay (sold_platform = 'eBay' AND ebay = true)
     const vintedResult = await pool.query(
       `
         SELECT
@@ -1802,12 +1835,13 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
           AND EXTRACT(MONTH FROM sale_date)::int = $2
           AND (
             sold_platform = 'Vinted'
-            OR (sold_platform IS NULL AND vinted = true)
-            OR (sold_platform = '' AND vinted = true)
+            OR vinted = true
           )
+          AND NOT (sold_platform = 'eBay' AND ebay = true AND vinted = false)
       `,
       [requestedYear, requestedMonth]
     );
+    console.log(`[Monthly Platform] Vinted result:`, vintedResult.rows[0]);
 
     const vintedPurchases = Number(vintedResult.rows[0]?.total_purchases || 0);
     const vintedSales = Number(vintedResult.rows[0]?.total_sales || 0);
@@ -1837,6 +1871,7 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
     const ebayPurchases = Number(ebayResult.rows[0]?.total_purchases || 0);
     const ebaySales = Number(ebayResult.rows[0]?.total_sales || 0);
     const ebayProfit = Number(ebayResult.rows[0]?.total_profit || 0);
+    console.log(`[Monthly Platform] eBay result:`, ebayResult.rows[0]);
 
     // Items not tagged correctly: sold in this month but either:
     // - sold_platform is null/empty
