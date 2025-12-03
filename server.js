@@ -1772,6 +1772,73 @@ app.get('/api/analytics/reporting', async (req, res) => {
   }
 });
 
+// Endpoint for monthly platform-specific analytics
+app.get('/api/analytics/monthly-platform', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const requestedYear = req.query.year ? Number(req.query.year) : new Date().getFullYear();
+    const requestedMonth = req.query.month ? Number(req.query.month) : new Date().getMonth() + 1;
+
+    if (Number.isNaN(requestedYear) || Number.isNaN(requestedMonth) || requestedMonth < 1 || requestedMonth > 12) {
+      return res.status(400).json({ error: 'Invalid year or month parameter' });
+    }
+
+    // Calculate total profit from Vinted sales for the specified month
+    // Profit = sale_price - purchase_price for items sold on Vinted
+    const vintedProfitResult = await pool.query(
+      `
+        SELECT
+          SUM(COALESCE(sale_price, 0) - COALESCE(purchase_price, 0))::numeric AS total_profit
+        FROM stock
+        WHERE sale_date IS NOT NULL
+          AND EXTRACT(YEAR FROM sale_date)::int = $1
+          AND EXTRACT(MONTH FROM sale_date)::int = $2
+          AND (
+            sold_platform = 'Vinted' 
+            OR (sold_platform IS NULL AND vinted = true)
+          )
+      `,
+      [requestedYear, requestedMonth]
+    );
+
+    const vintedProfit = Number(vintedProfitResult.rows[0]?.total_profit || 0);
+
+    // Calculate total sales on eBay for the specified month
+    const ebaySalesResult = await pool.query(
+      `
+        SELECT
+          SUM(COALESCE(sale_price, 0))::numeric AS total_sales
+        FROM stock
+        WHERE sale_date IS NOT NULL
+          AND EXTRACT(YEAR FROM sale_date)::int = $1
+          AND EXTRACT(MONTH FROM sale_date)::int = $2
+          AND (
+            sold_platform = 'eBay' 
+            OR (sold_platform IS NULL AND ebay = true)
+          )
+      `,
+      [requestedYear, requestedMonth]
+    );
+
+    const ebaySales = Number(ebaySalesResult.rows[0]?.total_sales || 0);
+
+    res.json({
+      year: requestedYear,
+      month: requestedMonth,
+      vintedProfit,
+      ebaySales
+    });
+  } catch (error) {
+    console.error('Monthly platform analytics error:', error);
+    res.status(500).json({ error: 'Failed to load monthly platform data' });
+  }
+});
+
 app.post('/api/gemini/research', async (req, res) => {
   try {
     // Debug: Log the raw request body first

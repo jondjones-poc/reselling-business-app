@@ -202,6 +202,14 @@ const Reporting: React.FC = () => {
   const [currentWeekSales, setCurrentWeekSales] = useState<number>(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Monthly view state
+  const [viewMode, setViewMode] = useState<'global' | 'monthly'>('global');
+  const [monthlyViewYear, setMonthlyViewYear] = useState<number>(new Date().getFullYear());
+  const [monthlyViewMonth, setMonthlyViewMonth] = useState<number>(new Date().getMonth() + 1);
+  const [vintedProfit, setVintedProfit] = useState<number>(0);
+  const [ebaySales, setEbaySales] = useState<number>(0);
+  const [monthlyLoading, setMonthlyLoading] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -247,6 +255,31 @@ const Reporting: React.FC = () => {
 
     fetchData();
   }, [selectedYear]);
+
+  // Fetch monthly platform data when in monthly view
+  useEffect(() => {
+    if (viewMode === 'monthly') {
+      const fetchMonthlyData = async () => {
+        try {
+          setMonthlyLoading(true);
+          const response = await fetch(`${API_BASE}/api/analytics/monthly-platform?year=${monthlyViewYear}&month=${monthlyViewMonth}`);
+          if (!response.ok) {
+            throw new Error('Failed to load monthly platform data');
+          }
+          const data = await response.json();
+          setVintedProfit(data.vintedProfit || 0);
+          setEbaySales(data.ebaySales || 0);
+        } catch (err: any) {
+          console.error('Monthly platform fetch error:', err);
+          setVintedProfit(0);
+          setEbaySales(0);
+        } finally {
+          setMonthlyLoading(false);
+        }
+      };
+      fetchMonthlyData();
+    }
+  }, [viewMode, monthlyViewYear, monthlyViewMonth]);
 
   const timelineChartData = useMemo(() => {
     if (profitTimeline.length === 0) {
@@ -502,8 +535,26 @@ const Reporting: React.FC = () => {
       {error && <div className="reporting-error">{error}</div>}
       {loading && <div className="reporting-status">Loading analytics...</div>}
 
-      {!loading && !error && (
-        <>
+      {/* Toggle for Global/Monthly view */}
+      <div className="view-toggle-container">
+        <button
+          className={`view-toggle-button ${viewMode === 'global' ? 'active' : ''}`}
+          onClick={() => setViewMode('global')}
+        >
+          Global
+        </button>
+        <button
+          className={`view-toggle-button ${viewMode === 'monthly' ? 'active' : ''}`}
+          onClick={() => setViewMode('monthly')}
+        >
+          Monthly
+        </button>
+      </div>
+
+      {/* Global View */}
+      <div className={`view-content ${viewMode === 'global' ? 'active' : ''}`}>
+        {!loading && !error && (
+          <>
           {/* Row 1: Total Company Profit, Total Sales, Unsold Inventory Value, Current Sales */}
           <div className="reporting-summary">
             <div className="total-profit-card">
@@ -823,8 +874,72 @@ const Reporting: React.FC = () => {
             </div>
           </section>
           </div>
-        </>
-      )}
+          </>
+        )}
+      </div>
+
+      {/* Monthly View */}
+      <div className={`view-content ${viewMode === 'monthly' ? 'active' : ''}`}>
+        {monthlyLoading && <div className="reporting-status">Loading monthly data...</div>}
+        {!monthlyLoading && (
+          <>
+            {/* Month and Year Filters */}
+            <div className="monthly-filters">
+              <div className="monthly-filter-group">
+                <label className="monthly-filter-label">Year</label>
+                <select
+                  value={monthlyViewYear}
+                  onChange={(e) => setMonthlyViewYear(Number(e.target.value))}
+                  className="monthly-filter-select"
+                >
+                  {availableYears.length === 0 && <option value={monthlyViewYear}>{monthlyViewYear}</option>}
+                  {availableYears.map((year) => (
+                    <option key={year} value={year}>
+                      {year}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="monthly-filter-group">
+                <label className="monthly-filter-label">Month</label>
+                <select
+                  value={monthlyViewMonth}
+                  onChange={(e) => setMonthlyViewMonth(Number(e.target.value))}
+                  className="monthly-filter-select"
+                >
+                  {monthLabels.map((label, index) => (
+                    <option key={index + 1} value={index + 1}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Monthly Stats Cards */}
+            <div className="reporting-summary">
+              <div className="total-profit-card">
+                <div className="total-profit-label">Total Profit from Vinted Sales</div>
+                <div className={`total-profit-value ${vintedProfit >= 0 ? 'positive' : 'negative'}`}>
+                  {formatCurrency(vintedProfit)}
+                </div>
+                <div className="total-profit-description">
+                  {monthLabels[monthlyViewMonth - 1]} {monthlyViewYear}
+                </div>
+              </div>
+              <div className="total-profit-card">
+                <div className="total-profit-label">Total Sales on eBay</div>
+                <div className="total-profit-value positive">
+                  {formatCurrency(ebaySales)}
+                </div>
+                <div className="total-profit-description">
+                  {monthLabels[monthlyViewMonth - 1]} {monthlyViewYear}
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 };
