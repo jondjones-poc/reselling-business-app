@@ -207,8 +207,20 @@ const Reporting: React.FC = () => {
   const [viewMode, setViewMode] = useState<'global' | 'monthly'>('global');
   const [monthlyViewYear, setMonthlyViewYear] = useState<number>(new Date().getFullYear());
   const [monthlyViewMonth, setMonthlyViewMonth] = useState<number>(new Date().getMonth() + 1);
-  const [vintedProfit, setVintedProfit] = useState<number>(0);
-  const [ebaySales, setEbaySales] = useState<number>(0);
+  const [vintedData, setVintedData] = useState<{ purchases: number; sales: number; profit: number }>({ purchases: 0, sales: 0, profit: 0 });
+  const [ebayData, setEbayData] = useState<{ purchases: number; sales: number; profit: number }>({ purchases: 0, sales: 0, profit: 0 });
+  const [untaggedItems, setUntaggedItems] = useState<Array<{
+    id: number;
+    item_name: string | null;
+    category: string | null;
+    purchase_price: number | null;
+    purchase_date: string | null;
+    sale_date: string | null;
+    sale_price: number | null;
+    sold_platform: string | null;
+    vinted: boolean | null;
+    ebay: boolean | null;
+  }>>([]);
   const [monthlyLoading, setMonthlyLoading] = useState(false);
 
   useEffect(() => {
@@ -267,12 +279,14 @@ const Reporting: React.FC = () => {
             throw new Error('Failed to load monthly platform data');
           }
           const data = await response.json();
-          setVintedProfit(data.vintedProfit || 0);
-          setEbaySales(data.ebaySales || 0);
+          setVintedData(data.vinted || { purchases: 0, sales: 0, profit: 0 });
+          setEbayData(data.ebay || { purchases: 0, sales: 0, profit: 0 });
+          setUntaggedItems(data.untaggedItems || []);
         } catch (err: any) {
           console.error('Monthly platform fetch error:', err);
-          setVintedProfit(0);
-          setEbaySales(0);
+          setVintedData({ purchases: 0, sales: 0, profit: 0 });
+          setEbayData({ purchases: 0, sales: 0, profit: 0 });
+          setUntaggedItems([]);
         } finally {
           setMonthlyLoading(false);
         }
@@ -916,27 +930,86 @@ const Reporting: React.FC = () => {
               </div>
             </div>
 
-            {/* Monthly Stats Cards */}
-            <div className="reporting-summary">
-              <div className="total-profit-card">
-                <div className="total-profit-label">Total Profit from Vinted Sales</div>
-                <div className={`total-profit-value ${vintedProfit >= 0 ? 'positive' : 'negative'}`}>
-                  {formatCurrency(vintedProfit)}
-                </div>
-                <div className="total-profit-description">
-                  {monthLabels[monthlyViewMonth - 1]} {monthlyViewYear}
+            {/* Vinted Row */}
+            <div className="monthly-platform-row">
+              <div className="platform-logo-cell">
+                <img src="/images/vinted-icon.svg" alt="Vinted" className="platform-logo" />
+              </div>
+              <div className="platform-stat-cell">
+                <div className="platform-stat-label">Total Spent</div>
+                <div className="platform-stat-value negative">
+                  {formatCurrency(vintedData.purchases)}
                 </div>
               </div>
-              <div className="total-profit-card">
-                <div className="total-profit-label">Total Sales on eBay</div>
-                <div className="total-profit-value positive">
-                  {formatCurrency(ebaySales)}
+              <div className="platform-stat-cell">
+                <div className="platform-stat-label">Total Sales</div>
+                <div className="platform-stat-value positive">
+                  {formatCurrency(vintedData.sales)}
                 </div>
-                <div className="total-profit-description">
-                  {monthLabels[monthlyViewMonth - 1]} {monthlyViewYear}
+              </div>
+              <div className="platform-stat-cell">
+                <div className="platform-stat-label">Profit</div>
+                <div className={`platform-stat-value ${vintedData.profit >= 0 ? 'positive' : 'negative'}`}>
+                  {formatCurrency(vintedData.profit)}
                 </div>
               </div>
             </div>
+
+            {/* eBay Row */}
+            <div className="monthly-platform-row">
+              <div className="platform-logo-cell">
+                <img src="/images/ebay-icon.svg" alt="eBay" className="platform-logo" />
+              </div>
+              <div className="platform-stat-cell">
+                <div className="platform-stat-label">Total Spent</div>
+                <div className="platform-stat-value negative">
+                  {formatCurrency(ebayData.purchases)}
+                </div>
+              </div>
+              <div className="platform-stat-cell">
+                <div className="platform-stat-label">Total Sales</div>
+                <div className="platform-stat-value positive">
+                  {formatCurrency(ebayData.sales)}
+                </div>
+              </div>
+              <div className="platform-stat-cell">
+                <div className="platform-stat-label">Profit</div>
+                <div className={`platform-stat-value ${ebayData.profit >= 0 ? 'positive' : 'negative'}`}>
+                  {formatCurrency(ebayData.profit)}
+                </div>
+              </div>
+            </div>
+
+            {/* Items Not Tagged Correctly */}
+            {untaggedItems.length > 0 && (
+              <div className="untagged-items-section">
+                <h3 className="untagged-items-heading">Items Not Tagged Correctly</h3>
+                <div className="untagged-items-list">
+                  {untaggedItems.map((item) => (
+                    <div key={item.id} className="untagged-item-card">
+                      <div className="untagged-item-name">{item.item_name || 'Unnamed Item'}</div>
+                      <div className="untagged-item-details">
+                        <span>Category: {item.category || 'Uncategorized'}</span>
+                        {item.sale_date && (
+                          <span>Sold: {new Date(item.sale_date).toLocaleDateString()}</span>
+                        )}
+                        {item.sale_price && (
+                          <span>Sale Price: {formatCurrency(item.sale_price)}</span>
+                        )}
+                        {item.sold_platform ? (
+                          <span>Platform: {item.sold_platform}</span>
+                        ) : (
+                          <span className="untagged-warning">No platform tagged</span>
+                        )}
+                        {(!item.vinted && !item.ebay) && (
+                          <span className="untagged-warning">Not listed on any platform</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>

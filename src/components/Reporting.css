@@ -303,6 +303,125 @@
   background: rgba(255, 214, 91, 0.22);
 }
 
+/* Monthly Platform Rows */
+.monthly-platform-row {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 24px;
+  background: rgba(5, 4, 3, 0.94);
+  border: 1px solid rgba(255, 214, 91, 0.28);
+  border-radius: 24px;
+  padding: 28px;
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.55), var(--neon-shadow);
+  align-items: center;
+}
+
+.platform-logo-cell {
+  flex: 0 0 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.platform-logo {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+}
+
+.platform-stat-cell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.platform-stat-label {
+  color: rgba(255, 248, 226, 0.75);
+  font-size: 0.9rem;
+  letter-spacing: 0.08rem;
+  text-transform: uppercase;
+}
+
+.platform-stat-value {
+  font-size: 1.8rem;
+  font-weight: 700;
+  letter-spacing: 0.05rem;
+}
+
+.platform-stat-value.positive {
+  color: #8cffc3;
+  text-shadow: 0 0 12px rgba(140, 255, 195, 0.5);
+}
+
+.platform-stat-value.negative {
+  color: #ff9a9a;
+  text-shadow: 0 0 12px rgba(255, 154, 154, 0.5);
+}
+
+/* Untagged Items Section */
+.untagged-items-section {
+  margin-top: 32px;
+  background: rgba(5, 4, 3, 0.94);
+  border: 1px solid rgba(255, 214, 91, 0.28);
+  border-radius: 24px;
+  padding: 28px;
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.55), var(--neon-shadow);
+}
+
+.untagged-items-heading {
+  margin: 0 0 24px 0;
+  color: var(--neon-primary-strong);
+  font-size: 1.5rem;
+  letter-spacing: 0.08rem;
+  text-transform: uppercase;
+}
+
+.untagged-items-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.untagged-item-card {
+  background: rgba(5, 4, 3, 0.6);
+  border: 1px solid rgba(255, 120, 120, 0.32);
+  border-radius: 12px;
+  padding: 16px;
+  transition: all 0.3s ease;
+}
+
+.untagged-item-card:hover {
+  background: rgba(5, 4, 3, 0.8);
+  border-color: rgba(255, 120, 120, 0.5);
+}
+
+.untagged-item-name {
+  color: var(--text-strong);
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.untagged-item-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: 0.85rem;
+  color: rgba(255, 248, 226, 0.65);
+}
+
+.untagged-item-details span {
+  display: inline-block;
+}
+
+.untagged-warning {
+  color: #ff9a9a;
+  font-weight: 600;
+}
+
 @media (max-width: 768px) {
   .reporting-container {
     margin: 16px;

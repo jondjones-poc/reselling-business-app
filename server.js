@@ -1788,50 +1788,103 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
       return res.status(400).json({ error: 'Invalid year or month parameter' });
     }
 
-    // Calculate total profit from Vinted sales for the specified month
-    // Profit = sale_price - purchase_price for items sold on Vinted
-    const vintedProfitResult = await pool.query(
+    // Vinted: Calculate total purchases, sales, and profit for items sold on Vinted in this month
+    const vintedResult = await pool.query(
       `
         SELECT
+          SUM(COALESCE(purchase_price, 0))::numeric AS total_purchases,
+          SUM(COALESCE(sale_price, 0))::numeric AS total_sales,
           SUM(COALESCE(sale_price, 0) - COALESCE(purchase_price, 0))::numeric AS total_profit
         FROM stock
         WHERE sale_date IS NOT NULL
           AND EXTRACT(YEAR FROM sale_date)::int = $1
           AND EXTRACT(MONTH FROM sale_date)::int = $2
-          AND (
-            sold_platform = 'Vinted' 
-            OR (sold_platform IS NULL AND vinted = true)
-          )
+          AND sold_platform = 'Vinted'
       `,
       [requestedYear, requestedMonth]
     );
 
-    const vintedProfit = Number(vintedProfitResult.rows[0]?.total_profit || 0);
+    const vintedPurchases = Number(vintedResult.rows[0]?.total_purchases || 0);
+    const vintedSales = Number(vintedResult.rows[0]?.total_sales || 0);
+    const vintedProfit = Number(vintedResult.rows[0]?.total_profit || 0);
 
-    // Calculate total sales on eBay for the specified month
-    const ebaySalesResult = await pool.query(
+    // eBay: Calculate total purchases, sales, and profit for items sold on eBay in this month
+    const ebayResult = await pool.query(
       `
         SELECT
-          SUM(COALESCE(sale_price, 0))::numeric AS total_sales
+          SUM(COALESCE(purchase_price, 0))::numeric AS total_purchases,
+          SUM(COALESCE(sale_price, 0))::numeric AS total_sales,
+          SUM(COALESCE(sale_price, 0) - COALESCE(purchase_price, 0))::numeric AS total_profit
+        FROM stock
+        WHERE sale_date IS NOT NULL
+          AND EXTRACT(YEAR FROM sale_date)::int = $1
+          AND EXTRACT(MONTH FROM sale_date)::int = $2
+          AND sold_platform = 'eBay'
+      `,
+      [requestedYear, requestedMonth]
+    );
+
+    const ebayPurchases = Number(ebayResult.rows[0]?.total_purchases || 0);
+    const ebaySales = Number(ebayResult.rows[0]?.total_sales || 0);
+    const ebayProfit = Number(ebayResult.rows[0]?.total_profit || 0);
+
+    // Items not tagged correctly: sold in this month but either:
+    // - sold_platform is null/empty
+    // - OR (vinted is false/null AND ebay is false/null)
+    const untaggedItemsResult = await pool.query(
+      `
+        SELECT
+          id,
+          item_name,
+          category,
+          purchase_price,
+          purchase_date,
+          sale_date,
+          sale_price,
+          sold_platform,
+          vinted,
+          ebay
         FROM stock
         WHERE sale_date IS NOT NULL
           AND EXTRACT(YEAR FROM sale_date)::int = $1
           AND EXTRACT(MONTH FROM sale_date)::int = $2
           AND (
-            sold_platform = 'eBay' 
-            OR (sold_platform IS NULL AND ebay = true)
+            sold_platform IS NULL 
+            OR sold_platform = ''
+            OR (COALESCE(vinted, false) = false AND COALESCE(ebay, false) = false)
           )
+        ORDER BY sale_date DESC, item_name ASC
       `,
       [requestedYear, requestedMonth]
     );
 
-    const ebaySales = Number(ebaySalesResult.rows[0]?.total_sales || 0);
+    const untaggedItems = untaggedItemsResult.rows.map((row) => ({
+      id: row.id,
+      item_name: row.item_name,
+      category: row.category,
+      purchase_price: row.purchase_price ? Number(row.purchase_price) : null,
+      purchase_date: row.purchase_date,
+      sale_date: row.sale_date,
+      sale_price: row.sale_price ? Number(row.sale_price) : null,
+      sold_platform: row.sold_platform,
+      vinted: row.vinted,
+      ebay: row.ebay
+    }));
 
     res.json({
       year: requestedYear,
       month: requestedMonth,
-      vintedProfit,
-      ebaySales
+      vinted: {
+        purchases: vintedPurchases,
+        sales: vintedSales,
+        profit: vintedProfit
+      },
+      ebay: {
+        purchases: ebayPurchases,
+        sales: ebaySales,
+        profit: ebayProfit
+      },
+      untaggedItems
     });
   } catch (error) {
     console.error('Monthly platform analytics error:', error);
