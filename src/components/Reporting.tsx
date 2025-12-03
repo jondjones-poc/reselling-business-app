@@ -960,7 +960,7 @@ const Reporting: React.FC = () => {
                 <img src="/images/vinted-icon.svg" alt="Vinted" className="platform-logo" />
               </div>
               <div className="platform-stat-cell">
-                <div className="platform-stat-label">Total Spent</div>
+                <div className="platform-stat-label">Stock Cost</div>
                 <div className="platform-stat-value negative">
                   {formatCurrency(vintedData.purchases)}
                 </div>
@@ -985,7 +985,7 @@ const Reporting: React.FC = () => {
                 <img src="/images/ebay-icon.svg" alt="eBay" className="platform-logo" />
               </div>
               <div className="platform-stat-cell">
-                <div className="platform-stat-label">Total Spent</div>
+                <div className="platform-stat-label">Stock Cost</div>
                 <div className="platform-stat-value negative">
                   {formatCurrency(ebayData.purchases)}
                 </div>
@@ -1010,7 +1010,7 @@ const Reporting: React.FC = () => {
                 <img src="/images/to-list-icon.svg" alt="To List" className="platform-logo" />
               </div>
               <div className="platform-stat-cell">
-                <div className="platform-stat-label">Total Spent</div>
+                <div className="platform-stat-label">Stock Cost</div>
                 <div className="platform-stat-value negative">
                   {formatCurrency(unsoldPurchases)}
                 </div>

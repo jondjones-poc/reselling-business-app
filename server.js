@@ -1916,11 +1916,11 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
     console.log(`[Monthly Platform] Unsold purchases calculated: £${unsoldPurchases}`);
 
     // Cash flow profit = (Vinted Profit + eBay Profit) - Unsold Purchases
-    // Ensure we use absolute values for profits (they should already be positive)
-    const totalProfit = Math.abs(vintedProfit) + Math.abs(ebayProfit);
-    const cashFlowProfit = totalProfit - unsoldPurchases;
+    // Ensure profits are positive (they should be, but handle negative cases)
+    const totalProfit = Math.max(0, vintedProfit) + Math.max(0, ebayProfit);
+    const cashFlowProfit = totalProfit - Math.max(0, unsoldPurchases);
     console.log(`[Monthly Platform] Cash flow calculation: (${vintedProfit} + ${ebayProfit}) - ${unsoldPurchases} = ${cashFlowProfit}`);
-    console.log(`[Monthly Platform] Using absolute values: (${Math.abs(vintedProfit)} + ${Math.abs(ebayProfit)}) - ${unsoldPurchases} = ${cashFlowProfit}`);
+    console.log(`[Monthly Platform] Using positive values: (${Math.max(0, vintedProfit)} + ${Math.max(0, ebayProfit)}) - ${Math.max(0, unsoldPurchases)} = ${cashFlowProfit}`);
 
     // Items not tagged correctly: sold in this month but sold_platform is null/empty or not 'Vinted'/'eBay'
     const untaggedItemsResult = await pool.query(
