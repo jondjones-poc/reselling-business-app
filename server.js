@@ -1869,6 +1869,25 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
     const ebayProfit = Number(ebayResult.rows[0]?.total_profit || 0);
     console.log(`[Monthly Platform] eBay result:`, ebayResult.rows[0]);
 
+    // Unsold purchases: Items purchased this month but not sold (no sale_date)
+    const unsoldPurchasesResult = await pool.query(
+      `
+        SELECT
+          SUM(COALESCE(purchase_price, 0))::numeric AS total_purchases
+        FROM stock
+        WHERE purchase_date IS NOT NULL
+          AND sale_date IS NULL
+          AND EXTRACT(YEAR FROM purchase_date)::int = $1
+          AND EXTRACT(MONTH FROM purchase_date)::int = $2
+      `,
+      [requestedYear, requestedMonth]
+    );
+    const unsoldPurchases = Number(unsoldPurchasesResult.rows[0]?.total_purchases || 0);
+    console.log(`[Monthly Platform] Unsold purchases result:`, unsoldPurchasesResult.rows[0]);
+
+    // Cash flow profit = Total purchases (unsold) - eBay profit - Vinted profit
+    const cashFlowProfit = unsoldPurchases - ebayProfit - vintedProfit;
+
     // Items not tagged correctly: sold in this month but sold_platform is null/empty or not 'Vinted'/'eBay'
     const untaggedItemsResult = await pool.query(
       `
@@ -1923,6 +1942,8 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
         sales: ebaySales,
         profit: ebayProfit
       },
+      unsoldPurchases,
+      cashFlowProfit,
       untaggedItems
     });
   } catch (error) {

@@ -209,6 +209,8 @@ const Reporting: React.FC = () => {
   const [monthlyViewMonth, setMonthlyViewMonth] = useState<number>(new Date().getMonth() + 1);
   const [vintedData, setVintedData] = useState<{ purchases: number; sales: number; profit: number }>({ purchases: 0, sales: 0, profit: 0 });
   const [ebayData, setEbayData] = useState<{ purchases: number; sales: number; profit: number }>({ purchases: 0, sales: 0, profit: 0 });
+  const [unsoldPurchases, setUnsoldPurchases] = useState<number>(0);
+  const [cashFlowProfit, setCashFlowProfit] = useState<number>(0);
   const [untaggedItems, setUntaggedItems] = useState<Array<{
     id: number;
     item_name: string | null;
@@ -284,17 +286,23 @@ const Reporting: React.FC = () => {
           console.log('[Monthly Platform] Full API response:', data);
           console.log('[Monthly Platform] Vinted data:', data.vinted);
           console.log('[Monthly Platform] eBay data:', data.ebay);
+          console.log('[Monthly Platform] Unsold purchases:', data.unsoldPurchases);
+          console.log('[Monthly Platform] Cash flow profit:', data.cashFlowProfit);
           console.log('[Monthly Platform] Untagged items count:', data.untaggedItems?.length || 0);
           if (data.untaggedItems && data.untaggedItems.length > 0) {
             console.log('[Monthly Platform] Sample untagged items:', data.untaggedItems.slice(0, 3));
           }
           setVintedData(data.vinted || { purchases: 0, sales: 0, profit: 0 });
           setEbayData(data.ebay || { purchases: 0, sales: 0, profit: 0 });
+          setUnsoldPurchases(data.unsoldPurchases || 0);
+          setCashFlowProfit(data.cashFlowProfit || 0);
           setUntaggedItems(data.untaggedItems || []);
         } catch (err: any) {
           console.error('[Monthly Platform] Fetch error:', err);
           setVintedData({ purchases: 0, sales: 0, profit: 0 });
           setEbayData({ purchases: 0, sales: 0, profit: 0 });
+          setUnsoldPurchases(0);
+          setCashFlowProfit(0);
           setUntaggedItems([]);
         } finally {
           setMonthlyLoading(false);
@@ -985,6 +993,31 @@ const Reporting: React.FC = () => {
                 <div className="platform-stat-label">Profit</div>
                 <div className={`platform-stat-value ${ebayData.profit >= 0 ? 'positive' : 'negative'}`}>
                   {formatCurrency(ebayData.profit)}
+                </div>
+              </div>
+            </div>
+
+            {/* Unsold Purchases Row */}
+            <div className="monthly-platform-row">
+              <div className="platform-logo-cell">
+                <img src="/images/to-list-icon.svg" alt="To List" className="platform-logo" />
+              </div>
+              <div className="platform-stat-cell">
+                <div className="platform-stat-label">Total Spent</div>
+                <div className="platform-stat-value negative">
+                  {formatCurrency(unsoldPurchases)}
+                </div>
+              </div>
+              <div className="platform-stat-cell">
+                <div className="platform-stat-label">Total Sales</div>
+                <div className="platform-stat-value" style={{ color: 'rgba(255, 248, 226, 0.5)' }}>
+                  —
+                </div>
+              </div>
+              <div className="platform-stat-cell">
+                <div className="platform-stat-label">Cash Flow Profit</div>
+                <div className={`platform-stat-value ${cashFlowProfit >= 0 ? 'positive' : 'negative'}`}>
+                  {formatCurrency(cashFlowProfit)}
                 </div>
               </div>
             </div>
