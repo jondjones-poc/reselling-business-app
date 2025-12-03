@@ -138,7 +138,8 @@ const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
 const currencyFormatter = new Intl.NumberFormat('en-GB', {
   style: 'currency',
   currency: 'GBP',
-  minimumFractionDigits: 0,
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
 });
 
 const formatCurrency = (value: number) => currencyFormatter.format(value ?? 0);
