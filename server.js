@@ -1811,13 +1811,13 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
     );
     console.log(`[Monthly Platform] Debug: Found ${debugResult.rows.length} items sold in ${requestedMonth}/${requestedYear}`);
     if (debugResult.rows.length > 0) {
-      console.log('[Monthly Platform] Sample items:', debugResult.rows.slice(0, 3).map(r => ({
-        name: r.item_name,
-        sale_price: r.sale_price,
-        sold_platform: r.sold_platform,
-        vinted: r.vinted,
-        ebay: r.ebay
-      })));
+      const totalSales = debugResult.rows.reduce((sum, r) => sum + (Number(r.sale_price) || 0), 0);
+      console.log(`[Monthly Platform] Total sales amount: £${totalSales.toFixed(2)}`);
+      console.log('[Monthly Platform] All items with sold_platform values:');
+      debugResult.rows.forEach(r => {
+        console.log(`  - ${r.item_name}: sold_platform="${r.sold_platform}" (type: ${typeof r.sold_platform}), vinted=${r.vinted}, ebay=${r.ebay}, sale_price=£${r.sale_price}`);
+      });
+      console.log('[Monthly Platform] Unique sold_platform values:', [...new Set(debugResult.rows.map(r => r.sold_platform))]);
     }
 
     // Vinted: Calculate total purchases, sales, and profit for items sold on Vinted in this month
