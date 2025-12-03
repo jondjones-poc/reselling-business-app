@@ -1921,7 +1921,12 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
     const ebayProfitPositive = Math.max(0, ebayProfit);
     const unsoldPurchasesPositive = Math.max(0, unsoldPurchases);
     const totalProfit = vintedProfitPositive + ebayProfitPositive;
+    // Cash flow profit = Total profits from sales - Money tied up in unsold inventory
     const cashFlowProfit = totalProfit - unsoldPurchasesPositive;
+    // Debug: Verify the calculation
+    if (cashFlowProfit < 0 && totalProfit > unsoldPurchasesPositive) {
+      console.warn(`[Monthly Platform] WARNING: Cash flow is negative but should be positive! totalProfit=${totalProfit}, unsoldPurchases=${unsoldPurchasesPositive}, result=${cashFlowProfit}`);
+    }
     console.log(`[Monthly Platform] Raw values - vintedProfit: ${vintedProfit}, ebayProfit: ${ebayProfit}, unsoldPurchases: ${unsoldPurchases}`);
     console.log(`[Monthly Platform] Positive values - vintedProfit: ${vintedProfitPositive}, ebayProfit: ${ebayProfitPositive}, unsoldPurchases: ${unsoldPurchasesPositive}`);
     console.log(`[Monthly Platform] Cash flow calculation: (${vintedProfitPositive} + ${ebayProfitPositive}) - ${unsoldPurchasesPositive} = ${cashFlowProfit}`);
