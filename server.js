@@ -1848,7 +1848,7 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
     const vintedProfit = Number(vintedResult.rows[0]?.total_profit || 0);
 
     // eBay: Calculate total purchases, sales, and profit for items sold on eBay in this month
-    // Check sold_platform first, then fall back to ebay boolean column
+    // Filter by sale_date matching the month AND sold_platform = 'eBay'
     const ebayResult = await pool.query(
       `
         SELECT
