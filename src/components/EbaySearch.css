@@ -9,6 +9,10 @@
   margin-top: 120px;
 }
 
+.ebay-search-container + .ebay-search-container {
+  margin-top: 20px;
+}
+
 .ebay-search-header {
   text-align: center;
   margin-bottom: 30px;
@@ -39,11 +43,13 @@
 .search-input-wrapper {
   flex: 1 1 340px;
   display: flex;
+  position: relative;
+  align-items: center;
 }
 
 .ebay-search-input {
   width: 100%;
-  padding: 22px 32px;
+  padding: 22px 50px 22px 32px;
   border: 1px solid var(--neon-border);
   border-radius: 999px;
   font-size: 18px;
@@ -52,6 +58,38 @@
   outline: none;
   transition: all 0.3s ease;
   box-shadow: inset 0 0 18px rgba(255, 214, 91, 0.16);
+}
+
+.reset-icon-button {
+  position: absolute;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 120, 120, 0.5);
+  background: rgba(255, 120, 120, 0.15);
+  color: #ffb0b0;
+  font-size: 18px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+}
+
+.reset-icon-button:hover:not(:disabled) {
+  background: rgba(255, 120, 120, 0.3);
+  border-color: rgba(255, 120, 120, 0.7);
+  box-shadow: 0 0 12px rgba(255, 120, 120, 0.6);
+  transform: scale(1.1);
+}
+
+.reset-icon-button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
 .primary-action-row {
@@ -323,6 +361,204 @@
   max-width: 320px;
 }
 
+.str-calculator-section {
+  margin-top: 0;
+}
+
+.str-calculator-title {
+  color: var(--neon-primary-strong);
+  font-size: 1.4rem;
+  margin-bottom: 20px;
+  margin-top: 0;
+  text-align: center;
+  letter-spacing: 0.08rem;
+  text-transform: uppercase;
+}
+
+.str-calculator-inputs {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.str-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 200px;
+  min-width: 180px;
+}
+
+.str-input-label {
+  color: var(--text-strong);
+  font-size: 0.9rem;
+  letter-spacing: 0.05rem;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.str-input {
+  padding: 14px 20px;
+  border-radius: 999px;
+  border: 1px solid var(--neon-border);
+  background: rgba(255, 214, 91, 0.12);
+  color: var(--text-strong);
+  font-size: 16px;
+  outline: none;
+  transition: all 0.3s ease;
+  box-shadow: inset 0 0 12px rgba(255, 214, 91, 0.16);
+}
+
+.str-input:focus {
+  border-color: var(--neon-border-strong);
+  box-shadow: var(--neon-shadow);
+  background: rgba(255, 214, 91, 0.18);
+}
+
+.str-calculate-button {
+  padding: 14px 32px;
+  border-radius: 999px;
+  border: 1px solid var(--neon-border);
+  background: rgba(255, 214, 91, 0.18);
+  color: var(--neon-primary-strong);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.08rem;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: inset 0 0 14px rgba(255, 214, 91, 0.22);
+  min-width: 140px;
+  height: fit-content;
+}
+
+.str-calculate-button:hover:not(:disabled) {
+  background: rgba(255, 214, 91, 0.32);
+  box-shadow: var(--neon-shadow);
+  transform: translateY(-1px);
+}
+
+.str-calculate-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.str-result {
+  margin-top: 24px;
+  padding: 24px;
+  border-radius: 16px;
+  text-align: center;
+  border: 2px solid;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
+}
+
+.str-result.str-strong {
+  background: rgba(0, 200, 100, 0.15);
+  border-color: rgba(0, 200, 100, 0.5);
+  color: #00ff88;
+  box-shadow: 0 0 20px rgba(0, 200, 100, 0.4);
+}
+
+.str-result.str-safe {
+  background: rgba(100, 200, 0, 0.15);
+  border-color: rgba(100, 200, 0, 0.5);
+  color: #88ff44;
+  box-shadow: 0 0 20px rgba(100, 200, 0, 0.4);
+}
+
+.str-result.str-risky {
+  background: rgba(255, 200, 0, 0.15);
+  border-color: rgba(255, 200, 0, 0.5);
+  color: #ffcc00;
+  box-shadow: 0 0 20px rgba(255, 200, 0, 0.4);
+}
+
+.str-result.str-skip {
+  background: rgba(255, 120, 120, 0.15);
+  border-color: rgba(255, 120, 120, 0.5);
+  color: #ff7878;
+  box-shadow: 0 0 20px rgba(255, 120, 120, 0.4);
+}
+
+.str-rate-value {
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+  text-shadow: 0 0 10px currentColor;
+}
+
+.str-rate-label {
+  font-size: 1rem;
+  letter-spacing: 0.05rem;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+
+.str-rate-formula {
+  font-size: 0.9rem;
+  letter-spacing: 0.03rem;
+  opacity: 0.85;
+  margin-top: 12px;
+  font-family: 'Courier New', monospace;
+}
+
+.ebay-research-section {
+  margin-top: 0;
+}
+
+.listings-container {
+  margin-top: 24px;
+  padding: 24px;
+  background: rgba(255, 214, 91, 0.08);
+  border-radius: 20px;
+  border: 1px solid var(--neon-border);
+  box-shadow: inset 0 0 18px rgba(255, 214, 91, 0.12);
+}
+
+.listings-container h3 {
+  color: var(--neon-primary-strong);
+  font-size: 1.3rem;
+  margin-bottom: 20px;
+  text-align: center;
+  letter-spacing: 0.06rem;
+}
+
+.price-stats {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.price-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 24px;
+  background: rgba(255, 214, 91, 0.12);
+  border-radius: 16px;
+  border: 1px solid var(--neon-border);
+  min-width: 140px;
+}
+
+.price-stat .label {
+  color: var(--text-strong);
+  font-size: 0.9rem;
+  letter-spacing: 0.05rem;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+
+.price-stat .value {
+  color: var(--neon-primary-strong);
+  font-size: 1.8rem;
+  font-weight: 700;
+  text-shadow: 0 0 10px rgba(255, 214, 91, 0.5);
+}
+
 @media (max-width: 768px) {
   .ebay-search-container {
     margin: 12px;
@@ -377,6 +613,28 @@
 
   .gender-section .category-control {
     max-width: none;
+  }
+
+  .str-calculator-section {
+    padding: 20px;
+  }
+
+  .str-calculator-inputs {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .str-input-group {
+    min-width: 100%;
+  }
+
+  .str-calculate-button {
+    width: 100%;
+    min-width: unset;
+  }
+
+  .str-rate-value {
+    font-size: 2rem;
   }
   
   .example-buttons {

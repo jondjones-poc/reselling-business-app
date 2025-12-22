@@ -188,7 +188,12 @@ const Stock: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      const response = await fetch(`${API_BASE}/api/stock`);
+      const response = await fetch(`${API_BASE}/api/stock`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
       if (!response.ok) {
         const message = await response.text();
         throw new Error(message || 'Failed to load stock data');
@@ -205,7 +210,12 @@ const Stock: React.FC = () => {
       setEditingRowId(null);
     } catch (err: any) {
       console.error('Stock load error:', err);
-      setError(err.message || 'Unable to load stock data');
+      // Provide more helpful error message for network errors
+      if (err.message === 'Failed to fetch' || err.name === 'TypeError') {
+        setError('Unable to connect to server. Please ensure the backend server is running on port 5003.');
+      } else {
+        setError(err.message || 'Unable to load stock data');
+      }
       setRows([]);
     } finally {
       setLoading(false);

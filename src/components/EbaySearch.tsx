@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import BarcodeScanner from 'react-qr-barcode-scanner';
 import './EbaySearch.css';
+import './BrandResearch.css';
 
 interface CategorySetting {
   name: string;
@@ -14,6 +15,18 @@ interface AppSettings {
   patterns: string[];
   brands: string[];
   gender: string[];
+}
+
+interface ResearchResult {
+  query: string;
+  activeCount: number;
+  soldCount: number;
+  sellThroughRatio: number | null;
+  diagnostics?: {
+    browseTotal: number | null;
+    completedTotalEntries: number | null;
+    completedError?: string | null;
+  };
 }
 
 const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5003';
@@ -38,6 +51,12 @@ const EbaySearch: React.FC = () => {
   const [selectedPattern, setSelectedPattern] = useState('');
   const [selectedBrand, setSelectedBrand] = useState('');
   const [selectedGender, setSelectedGender] = useState(DEFAULT_GENDER);
+  const [itemsSold, setItemsSold] = useState('');
+  const [activeListings, setActiveListings] = useState('');
+  const [strRate, setStrRate] = useState<number | null>(null);
+  const [ebayResearchLoading, setEbayResearchLoading] = useState(false);
+  const [ebayResearchError, setEbayResearchError] = useState<string | null>(null);
+  const [ebayResearchResult, setEbayResearchResult] = useState<ResearchResult | null>(null);
 
   const genderOptions = genders.length > 0 ? genders : [DEFAULT_GENDER];
 
@@ -142,6 +161,18 @@ const EbaySearch: React.FC = () => {
       console.warn('Clipboard write failed:', err);
     }
   };
+
+  // Restore search term from localStorage on mount
+  useEffect(() => {
+    try {
+      const savedSearchTerm = window.localStorage.getItem('searchTerm');
+      if (savedSearchTerm) {
+        setSearchTerm(savedSearchTerm);
+      }
+    } catch (storageError) {
+      console.warn('Unable to restore search term from localStorage:', storageError);
+    }
+  }, []);
 
   useEffect(() => {
     const sanitizeCategories = (rawCategories: unknown): CategorySetting[] => {
@@ -315,6 +346,41 @@ const EbaySearch: React.FC = () => {
     setSelectedGender(value);
   };
 
+  const handleCalculateSTR = () => {
+    const sold = Number(itemsSold);
+    const active = Number(activeListings);
+
+    if (isNaN(sold) || isNaN(active) || sold < 0 || active < 0) {
+      setStrRate(null);
+      return;
+    }
+
+    const totalInventory = sold + active;
+    if (totalInventory === 0) {
+      setStrRate(null);
+      return;
+    }
+
+    const rate = (sold / totalInventory) * 100;
+    setStrRate(rate);
+  };
+
+  const getSTRColor = (rate: number | null): string => {
+    if (rate === null) return '';
+    if (rate >= 70) return 'str-strong';
+    if (rate >= 50) return 'str-safe';
+    if (rate >= 30) return 'str-risky';
+    return 'str-skip';
+  };
+
+  const getSTRLabel = (rate: number | null): string => {
+    if (rate === null) return '';
+    if (rate >= 70) return 'Strong buy. Sells fast.';
+    if (rate >= 50) return 'Safe buy. Good demand.';
+    if (rate >= 30) return 'Risky. Price must be cheap.';
+    return 'Usually skip.';
+  };
+
   const handleBarcodeScan = (err: any, result: any) => {
     if (result) {
       setScannedData(result.text);
@@ -323,6 +389,50 @@ const EbaySearch: React.FC = () => {
     } else if (err) {
       console.error('Barcode scan error:', err);
     }
+  };
+
+  const handleEbayResearchSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Use the main search form tokens
+    const queryToUse = buildSearchTokens().join(' ');
+    if (!queryToUse) {
+      setEbayResearchError('Please enter a search term in the main search form');
+      return;
+    }
+
+    setEbayResearchLoading(true);
+    setEbayResearchError(null);
+    setEbayResearchResult(null);
+
+    try {
+      const params = new URLSearchParams({ q: queryToUse });
+      const response = await fetch(`${API_BASE}/api/ebay/research?${params.toString()}`);
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || 'Failed to fetch research data.');
+      }
+
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const message = await response.text();
+        throw new Error(message || 'Unexpected response format from server.');
+      }
+
+      const data: ResearchResult = await response.json();
+      setEbayResearchResult(data);
+    } catch (err: any) {
+      console.error('Research fetch error:', err);
+      setEbayResearchError(err.message || 'Unable to load research data. Please try again later.');
+    } finally {
+      setEbayResearchLoading(false);
+    }
+  };
+
+  const handleClearEbayResearch = () => {
+    setEbayResearchResult(null);
+    setEbayResearchError(null);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -347,19 +457,54 @@ const EbaySearch: React.FC = () => {
     
     const combinedSearchTerm = searchTokens.join(' ');
 
+    // Store only the actual searchTerm value, not the combined tokens
+    try {
+      window.localStorage.setItem('searchTerm', searchTerm);
+    } catch (storageError) {
+      console.warn('Unable to persist search term to localStorage:', storageError);
+    }
+    const encodedSearch = encodeURIComponent(combinedSearchTerm);
+    const soldUrl = `https://www.ebay.co.uk/sch/260012/i.html?_nkw=${encodedSearch}&_from=R40&rt=nc&LH_Sold=1&LH_Complete=1&LH_PrefLoc=1`;
+    
+    // Open sold URL directly in new tab
+    window.open(soldUrl, '_blank');
+  };
+
+  const handleSearchActives = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    const searchTokens = [
+      ...buildSearchTokens()
+    ];
+
+    if (searchTokens.length === 0) {
+      return;
+    }
+
+    // Build eBay UK search URL for active listings (no sold/completed filters)
+    // 260012 is Men's Clothing category
+    // _from=R40 - Search from category
+    // rt=nc - Return type
+    // Using .ebay.co.uk domain ensures UK marketplace
+    // Adding LH_PrefLoc=1 for UK preferred location
+    
+    const combinedSearchTerm = searchTokens.join(' ');
+
     try {
       window.localStorage.setItem('saerch term', combinedSearchTerm);
     } catch (storageError) {
       console.warn('Unable to persist search term to localStorage:', storageError);
     }
     const encodedSearch = encodeURIComponent(combinedSearchTerm);
-    const ebayUrl = `https://www.ebay.co.uk/sch/260012/i.html?_nkw=${encodedSearch}&_from=R40&rt=nc&LH_Sold=1&LH_Complete=1&LH_PrefLoc=1`;
+    // Only build active URL - no sold/completed filters
+    const activeUrl = `https://www.ebay.co.uk/sch/260012/i.html?_nkw=${encodedSearch}&_from=R40&rt=nc&LH_PrefLoc=1`;
     
-    // Open in new tab
-    window.open(ebayUrl, '_blank');
+    // Open active URL directly in new tab
+    window.open(activeUrl, '_blank');
   };
 
   return (
+    <>
     <div className="ebay-search-container">
       <form onSubmit={handleSubmit} className="ebay-search-form">
         {!showScanner ? (
@@ -374,6 +519,15 @@ const EbaySearch: React.FC = () => {
                   className="ebay-search-input"
                   autoComplete="off"
                 />
+                <button
+                  type="button"
+                  onClick={clearAll}
+                  className="reset-icon-button"
+                  disabled={!hasSearchableInput}
+                  title="Reset all fields"
+                >
+                  ✕
+                </button>
               </div>
             </div>
             <div className="primary-action-row">
@@ -382,7 +536,15 @@ const EbaySearch: React.FC = () => {
                 className="ebay-search-button"
                 disabled={!hasSearchableInput}
               >
-                Search eBay
+                Search Solds
+              </button>
+              <button
+                type="button"
+                onClick={handleSearchActives}
+                className="ebay-search-button"
+                disabled={!hasSearchableInput}
+              >
+                Search Actives
               </button>
               <button
                 type="button"
@@ -391,14 +553,6 @@ const EbaySearch: React.FC = () => {
                 disabled={!hasSearchableInput}
               >
                 📋 Copy
-              </button>
-              <button
-                type="button"
-                onClick={clearAll}
-                className="clear-button"
-                disabled={!hasSearchableInput}
-              >
-                Reset
               </button>
             </div>
             {scannedData && (
@@ -547,17 +701,6 @@ const EbaySearch: React.FC = () => {
           </div>
         </div>
 
-        <div className="bottom-action-row">
-          {!showScanner && (
-            <button
-              type="button"
-              onClick={() => setShowScanner(true)}
-              className="scanner-button"
-            >
-              📷 Scan Barcode
-            </button>
-          )}
-        </div>
 
         {settingsLoading && (
           <div className="settings-status">Loading settings...</div>
@@ -568,6 +711,120 @@ const EbaySearch: React.FC = () => {
         )}
       </form>
     </div>
+
+    <div className="ebay-search-container">
+      <div className="ebay-research-section">
+        <form onSubmit={handleEbayResearchSubmit} className="ebay-search-form">
+          <div className="primary-action-row research-action-row" style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+            <button
+              type="submit"
+              className="ebay-search-button"
+              disabled={ebayResearchLoading || !hasSearchableInput}
+            >
+              {ebayResearchLoading ? 'Searching...' : 'Search Click-Through Rate'}
+            </button>
+            {ebayResearchResult && (
+              <button
+                type="button"
+                onClick={handleClearEbayResearch}
+                className="research-clear-button clear-red"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          {ebayResearchError && <div className="settings-error">{ebayResearchError}</div>}
+
+          {ebayResearchResult && !ebayResearchError && (() => {
+            // Swap the values - API returns them backwards
+            const active = ebayResearchResult.soldCount; // API's soldCount is actually active
+            const sold = ebayResearchResult.activeCount; // API's activeCount is actually sold
+            const totalInventory = sold + active;
+            const strRate = totalInventory > 0 ? (sold / totalInventory) * 100 : null;
+            
+            return (
+              <div className="listings-container">
+                <h3>Research for "{ebayResearchResult.query}"</h3>
+                <div className="price-stats">
+                  <div className="price-stat">
+                    <span className="label">Active Listings</span>
+                    <span className="value">{active.toLocaleString()}</span>
+                  </div>
+                  <div className="price-stat">
+                    <span className="label">Sold Listings</span>
+                    <span className="value">{sold.toLocaleString()}</span>
+                  </div>
+                </div>
+                {strRate !== null && (
+                  <div className={`str-result ${getSTRColor(strRate)}`} style={{ marginTop: '24px' }}>
+                    <div className="str-rate-value">{strRate.toFixed(1)}%</div>
+                    <div className="str-rate-label">{getSTRLabel(strRate)}</div>
+                    <div className="str-rate-formula">
+                      ({sold} / ({sold} + {active})) × 100 = {strRate.toFixed(1)}%
+                    </div>
+                  </div>
+                )}
+                {ebayResearchResult.diagnostics?.completedError && (
+                  <div className="settings-error" style={{ marginTop: '16px', marginBottom: '0' }}>
+                    Sold data is temporarily unavailable: {ebayResearchResult.diagnostics.completedError}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </form>
+      </div>
+    </div>
+
+    <div className="ebay-search-container">
+      <div className="str-calculator-section">
+        <div className="str-calculator-inputs">
+          <div className="str-input-group">
+            <label htmlFor="items-sold" className="str-input-label">Sold Rate</label>
+            <input
+              id="items-sold"
+              type="number"
+              value={itemsSold}
+              onChange={(e) => setItemsSold(e.target.value)}
+              placeholder="0"
+              className="str-input"
+              min="0"
+            />
+          </div>
+          <div className="str-input-group">
+            <label htmlFor="active-listings" className="str-input-label">Active Listings</label>
+            <input
+              id="active-listings"
+              type="number"
+              value={activeListings}
+              onChange={(e) => setActiveListings(e.target.value)}
+              placeholder="0"
+              className="str-input"
+              min="0"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={handleCalculateSTR}
+            className="str-calculate-button"
+            disabled={!itemsSold || !activeListings}
+          >
+            Item Sell Through Rate
+          </button>
+        </div>
+        {strRate !== null && (
+          <div className={`str-result ${getSTRColor(strRate)}`}>
+            <div className="str-rate-value">{strRate.toFixed(1)}%</div>
+            <div className="str-rate-label">{getSTRLabel(strRate)}</div>
+            <div className="str-rate-formula">
+              ({itemsSold} / ({itemsSold} + {activeListings})) × 100 = {strRate.toFixed(1)}%
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+    </>
   );
 };
 

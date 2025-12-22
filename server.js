@@ -1288,6 +1288,171 @@ app.delete('/api/stock/:id', async (req, res) => {
   }
 });
 
+// Expenses API endpoints
+app.get('/api/expenses', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const result = await pool.query(
+      'SELECT id, item, cost, purchase_date FROM expenses ORDER BY purchase_date DESC NULLS LAST, item ASC'
+    );
+
+    res.json({
+      rows: result.rows ?? [],
+      count: result.rowCount ?? 0
+    });
+  } catch (error) {
+    console.error('Expenses query failed:', error);
+    res.status(500).json({ error: 'Failed to load expenses data', details: error.message });
+  }
+});
+
+app.post('/api/expenses', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const {
+      item,
+      cost,
+      purchase_date
+    } = req.body ?? {};
+
+    const normalizedItem = normalizeTextInput(item) ?? null;
+    const normalizedCost = normalizeDecimalInput(cost, 'cost');
+    const normalizedPurchaseDate = normalizeDateInputValue(purchase_date, 'purchase_date');
+
+    const insertQuery = `
+      INSERT INTO expenses (item, cost, purchase_date)
+      VALUES ($1, $2, $3)
+      RETURNING id, item, cost, purchase_date
+    `;
+
+    const result = await pool.query(insertQuery, [
+      normalizedItem,
+      normalizedCost,
+      normalizedPurchaseDate
+    ]);
+
+    res.status(201).json({ row: result.rows[0] });
+  } catch (error) {
+    console.error('Expenses insert failed:', error);
+    if (error.status === 400) {
+      return res.status(400).json({ error: 'Failed to create expense record', details: error.message });
+    }
+    res.status(500).json({ error: 'Failed to create expense record', details: error.message });
+  }
+});
+
+app.put('/api/expenses/:id', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const expenseId = Number(req.params.id);
+    if (!Number.isInteger(expenseId)) {
+      return res.status(400).json({ error: 'Invalid expense id' });
+    }
+
+    const existingResult = await pool.query(
+      'SELECT id, item, cost, purchase_date FROM expenses WHERE id = $1',
+      [expenseId]
+    );
+
+    if (existingResult.rowCount === 0) {
+      return res.status(404).json({ error: 'Expense record not found' });
+    }
+
+    const existing = existingResult.rows[0];
+
+    const hasProp = (prop) => Object.prototype.hasOwnProperty.call(req.body ?? {}, prop);
+
+    const finalItem = hasProp('item')
+      ? normalizeTextInput(req.body.item) ?? null
+      : existing.item ?? null;
+
+    const existingCost =
+      existing.cost !== null && existing.cost !== undefined
+        ? Number(existing.cost)
+        : null;
+
+    const finalCost = hasProp('cost')
+      ? normalizeDecimalInput(req.body.cost, 'cost')
+      : existingCost;
+
+    const finalPurchaseDate = hasProp('purchase_date')
+      ? normalizeDateInputValue(req.body.purchase_date, 'purchase_date')
+      : ensureIsoDateString(existing.purchase_date);
+
+    const updateResult = await pool.query(
+      `
+        UPDATE expenses
+        SET
+          item = $1,
+          cost = $2,
+          purchase_date = $3
+        WHERE id = $4
+        RETURNING id, item, cost, purchase_date
+      `,
+      [
+        finalItem,
+        finalCost,
+        finalPurchaseDate,
+        expenseId
+      ]
+    );
+
+    res.json({ row: updateResult.rows[0] });
+  } catch (error) {
+    console.error('Expenses update failed:', error);
+    if (error.status === 400) {
+      return res.status(400).json({ error: 'Failed to update expense record', details: error.message });
+    }
+    res.status(500).json({ error: 'Failed to update expense record', details: error.message });
+  }
+});
+
+app.delete('/api/expenses/:id', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const expenseId = Number(req.params.id);
+    if (!Number.isInteger(expenseId)) {
+      return res.status(400).json({ error: 'Invalid expense id' });
+    }
+
+    const existingResult = await pool.query(
+      'SELECT id FROM expenses WHERE id = $1',
+      [expenseId]
+    );
+
+    if (existingResult.rowCount === 0) {
+      return res.status(404).json({ error: 'Expense record not found' });
+    }
+
+    await pool.query('DELETE FROM expenses WHERE id = $1', [expenseId]);
+
+    res.json({ success: true, message: 'Expense record deleted successfully' });
+  } catch (error) {
+    console.error('Expenses delete failed:', error);
+    res.status(500).json({ error: 'Failed to delete expense record', details: error.message });
+  }
+});
+
 app.get('/api/analytics/reporting', async (req, res) => {
   try {
     const pool = getDatabasePool();

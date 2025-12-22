@@ -1,36 +1,10 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import './BrandResearch.css';
-import './EbaySearch.css';
-
-interface ResearchResult {
-  query: string;
-  activeCount: number;
-  soldCount: number;
-  sellThroughRatio: number | null;
-  diagnostics?: {
-    browseTotal: number | null;
-    completedTotalEntries: number | null;
-    completedError?: string | null;
-  };
-}
-
-const formatRatio = (ratio: number | null) => {
-  if (ratio === null || Number.isNaN(ratio)) {
-    return 'N/A';
-  }
-  return `${(ratio * 100).toFixed(1)}%`;
-};
 
 const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5003';
 
 const Research: React.FC = () => {
-  const [ebayQuery, setEbayQuery] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<ResearchResult | null>(null);
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const isSubmittingRef = useRef<boolean>(false);
 
 
   const [researchText, setResearchText] = useState('');
@@ -38,7 +12,6 @@ const Research: React.FC = () => {
   const [researchLoading, setResearchLoading] = useState(false);
   const [researchError, setResearchError] = useState<string | null>(null);
   const [researchResult, setResearchResult] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'ai' | 'ebay'>('ai');
 
   const compressImage = (file: File, maxWidth: number = 1920, maxHeight: number = 1920, quality: number = 0.8): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -338,7 +311,6 @@ const Research: React.FC = () => {
         return;
       }
 
-      setEbayQuery((current) => (current.trim().length > 0 ? current : trimmed));
       setResearchText((current) => (current.trim().length > 0 ? current : trimmed));
     } catch (storageError) {
       console.warn('Unable to read stored search term for research:', storageError);
@@ -346,103 +318,8 @@ const Research: React.FC = () => {
   }, []);
 
 
-  const handleClearEbay = () => {
-    setEbayQuery('');
-    setResult(null);
-    setError(null);
-  };
-
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    
-    // Prevent duplicate submissions while a request is in progress
-    if (isSubmittingRef.current) {
-      return;
-    }
-
-    const trimmedQuery = ebayQuery.trim();
-    if (!trimmedQuery) {
-      setError('Please enter a search term');
-      return;
-    }
-
-    // Clear any existing debounce timer
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
-      debounceTimerRef.current = null;
-    }
-
-    // Debounce the API call to prevent rapid successive requests
-    debounceTimerRef.current = setTimeout(async () => {
-      // Double-check we're not already submitting
-      if (isSubmittingRef.current) {
-        return;
-      }
-
-      isSubmittingRef.current = true;
-      setLoading(true);
-      setError(null);
-      setResult(null);
-
-      console.log(`[${new Date().toISOString()}] Making eBay research API call for: "${trimmedQuery}"`);
-      try {
-        const params = new URLSearchParams({ q: trimmedQuery });
-        const response = await fetch(`${API_BASE}/api/ebay/research?${params.toString()}`);
-
-        if (!response.ok) {
-          const message = await response.text();
-          throw new Error(message || 'Failed to fetch research data.');
-        }
-
-        const contentType = response.headers.get('content-type');
-        if (!contentType || !contentType.includes('application/json')) {
-          const message = await response.text();
-          throw new Error(message || 'Unexpected response format from server.');
-        }
-
-        const data: ResearchResult = await response.json();
-        setResult(data);
-      } catch (err: any) {
-        console.error('Research fetch error:', err);
-        setError(err.message || 'Unable to load research data. Please try again later.');
-      } finally {
-        setLoading(false);
-        isSubmittingRef.current = false;
-        debounceTimerRef.current = null;
-      }
-    }, 300); // 300ms debounce delay
-  };
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-      }
-    };
-  }, []);
-
-
   return (
     <div className="research-page-container">
-      <div className="research-tabs">
-        <button
-          type="button"
-          className={`research-tab ${activeTab === 'ai' ? 'active' : ''}`}
-          onClick={() => setActiveTab('ai')}
-        >
-          AI
-        </button>
-        <button
-          type="button"
-          className={`research-tab ${activeTab === 'ebay' ? 'active' : ''}`}
-          onClick={() => setActiveTab('ebay')}
-        >
-          eBay
-        </button>
-      </div>
-
-      {activeTab === 'ai' && (
       <div className="research-tool-container">
         <form onSubmit={handleResearchSubmit} className="research-tool-form">
           <div className="research-input-group">
@@ -536,75 +413,6 @@ const Research: React.FC = () => {
           )}
         </form>
       </div>
-      )}
-
-      {activeTab === 'ebay' && (
-      <div className="research-tool-container">
-        <form onSubmit={handleSubmit} className="ebay-search-form">
-          <div className="search-bar-group">
-            <div className="search-input-wrapper">
-              <input
-                type="text"
-                value={ebayQuery}
-                onChange={(e) => setEbayQuery(e.target.value)}
-                placeholder="Enter search term (e.g., stone island jacket)"
-                className="ebay-search-input"
-                autoComplete="off"
-              />
-            </div>
-          </div>
-
-          <div className="primary-action-row research-action-row" style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
-            <button
-              type="submit"
-              className="ebay-search-button"
-              disabled={loading || !ebayQuery.trim()}
-            >
-              {loading ? 'Searching...' : 'Search'}
-            </button>
-            <button
-              type="button"
-              onClick={handleClearEbay}
-              className="research-clear-button clear-red"
-            >
-              Clear
-            </button>
-          </div>
-
-          {error && <div className="settings-error">{error}</div>}
-
-          {result && !error && (
-            <div className="listings-container">
-              <h3>Research for "{result.query}"</h3>
-              <div className="price-stats">
-                <div className="price-stat">
-                  <span className="label">Active Listings</span>
-                  <span className="value">{result.activeCount.toLocaleString()}</span>
-                </div>
-                <div className="price-stat">
-                  <span className="label">Sold Listings</span>
-                  <span className="value">{result.soldCount.toLocaleString()}</span>
-                </div>
-                <div className="price-stat">
-                  <span className="label">Sell-Through</span>
-                  <span className="value">{formatRatio(result.sellThroughRatio)}</span>
-                </div>
-              </div>
-              {result.diagnostics && (
-                <div className="settings-status" style={{ marginTop: '16px' }}>
-                  Active total: {result.diagnostics.browseTotal ?? 'n/a'} · Sold entries: {result.diagnostics.completedTotalEntries ?? 'n/a'}
-                </div>
-              )}
-              {result.diagnostics?.completedError && (
-                <div className="settings-error" style={{ marginTop: '16px', marginBottom: '0' }}>
-                  Sold data is temporarily unavailable: {result.diagnostics.completedError}
-                </div>
-              )}
-            </div>
-          )}
-        </form>
-      </div>
-      )}
     </div>
   );
 };

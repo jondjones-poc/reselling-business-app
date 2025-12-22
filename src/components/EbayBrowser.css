@@ -1,0 +1,62 @@
+.ebay-browser-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  width: 100%;
+  background: #0a0a0a;
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+}
+
+.ebay-browser-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  max-width: 600px;
+  text-align: center;
+}
+
+.loading-content h2 {
+  color: #ffffff;
+  font-size: 1.8rem;
+  margin-bottom: 20px;
+  font-weight: 600;
+}
+
+.loading-content p {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 1rem;
+  margin-bottom: 15px;
+  line-height: 1.6;
+}
+
+.loading-content ul {
+  color: rgba(255, 255, 255, 0.9);
+  text-align: left;
+  display: inline-block;
+  margin: 20px 0;
+  padding-left: 20px;
+}
+
+.loading-content li {
+  margin-bottom: 10px;
+  font-size: 1rem;
+}
+
+.loading-note {
+  color: rgba(255, 200, 100, 0.9);
+  font-size: 0.9rem;
+  font-style: italic;
+  margin-top: 30px;
+  padding: 15px;
+  background: rgba(255, 200, 100, 0.1);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 200, 100, 0.3);
+}
+
