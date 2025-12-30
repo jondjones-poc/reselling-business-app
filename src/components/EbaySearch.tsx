@@ -3,13 +3,8 @@ import BarcodeScanner from 'react-qr-barcode-scanner';
 import './EbaySearch.css';
 import './BrandResearch.css';
 
-interface CategorySetting {
-  name: string;
-  subCategories: string[];
-}
-
 interface AppSettings {
-  categories: CategorySetting[];
+  categories: string[];
   material: string[];
   colors: string[];
   patterns: string[];
@@ -36,7 +31,7 @@ const EbaySearch: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showScanner, setShowScanner] = useState(false);
   const [scannedData, setScannedData] = useState<string | null>(null);
-  const [categorySettings, setCategorySettings] = useState<CategorySetting[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
   const [materials, setMaterials] = useState<string[]>([]);
   const [colors, setColors] = useState<string[]>([]);
   const [patterns, setPatterns] = useState<string[]>([]);
@@ -44,8 +39,7 @@ const EbaySearch: React.FC = () => {
   const [genders, setGenders] = useState<string[]>([]);
   const [settingsLoading, setSettingsLoading] = useState(true);
   const [settingsError, setSettingsError] = useState<string | null>(null);
-  const [selectedCategoryName, setSelectedCategoryName] = useState('');
-  const [selectedSubCategory, setSelectedSubCategory] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedMaterial, setSelectedMaterial] = useState('');
   const [selectedColor, setSelectedColor] = useState('');
   const [selectedPattern, setSelectedPattern] = useState('');
@@ -62,8 +56,7 @@ const EbaySearch: React.FC = () => {
 
   const hasSearchableInput = [
     searchTerm,
-    selectedCategoryName,
-    selectedSubCategory,
+    selectedCategory,
     selectedMaterial,
     selectedColor,
     selectedPattern,
@@ -88,8 +81,7 @@ const EbaySearch: React.FC = () => {
 
     const trimmedSearch = searchTerm.trim();
     const trimmedGender = selectedGender.trim();
-    const trimmedCategory = selectedCategoryName.trim();
-    const trimmedDetail = selectedSubCategory.trim();
+    const trimmedCategory = selectedCategory.trim();
     const trimmedMaterial = selectedMaterial.trim();
     const trimmedColor = selectedColor.trim();
     const trimmedPattern = selectedPattern.trim();
@@ -103,9 +95,7 @@ const EbaySearch: React.FC = () => {
       tokens.push(trimmedGender);
     }
 
-    if (trimmedDetail) {
-      tokens.push(trimmedDetail);
-    } else if (trimmedCategory) {
+    if (trimmedCategory) {
       tokens.push(trimmedCategory);
     }
 
@@ -127,17 +117,12 @@ const EbaySearch: React.FC = () => {
 
     const uniqueTokens = tokens.filter((token, index) => tokens.indexOf(token) === index);
 
-    if (trimmedDetail && trimmedCategory) {
-      return uniqueTokens.filter((token) => token !== trimmedCategory);
-    }
-
     return uniqueTokens;
   };
 
   const clearAll = () => {
     setSearchTerm('');
-    setSelectedCategoryName('');
-    setSelectedSubCategory('');
+    setSelectedCategory('');
     setSelectedMaterial('');
     setSelectedColor('');
     setSelectedPattern('');
@@ -175,42 +160,18 @@ const EbaySearch: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const sanitizeCategories = (rawCategories: unknown): CategorySetting[] => {
+    const sanitizeCategories = (rawCategories: unknown): string[] => {
       if (!Array.isArray(rawCategories)) {
         return [];
       }
 
       const sanitized = rawCategories
-        .map((item) => {
-          if (!item || typeof item !== 'object') {
-            return null;
-          }
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0);
 
-          const name = typeof (item as CategorySetting).name === 'string'
-            ? (item as CategorySetting).name.trim()
-            : '';
-          if (!name) {
-            return null;
-          }
-
-          const rawSubCategories = (item as CategorySetting).subCategories;
-          const subCategories = Array.isArray(rawSubCategories)
-            ? Array.from(
-                new Set(
-                  rawSubCategories
-                    .filter((sub) => typeof sub === 'string')
-                    .map((sub) => sub.trim())
-                    .filter((sub) => sub.length > 0)
-                )
-              ).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
-            : [];
-
-          return { name, subCategories };
-        })
-        .filter((item): item is CategorySetting => item !== null);
-
-      return sanitized.sort((a, b) =>
-        a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+      return Array.from(new Set(sanitized)).sort((a, b) =>
+        a.localeCompare(b, undefined, { sensitivity: 'base' })
       );
     };
 
@@ -248,7 +209,7 @@ const EbaySearch: React.FC = () => {
 
         const defaultGenderValue = resolveDefaultGender(sanitizedGenders);
 
-        setCategorySettings(sanitizedCategories);
+        setCategories(sanitizedCategories);
         setMaterials(sortedMaterials);
         setColors(sortedColors);
         setPatterns(sortedPatterns);
@@ -306,19 +267,8 @@ const EbaySearch: React.FC = () => {
     fetchSettings();
   }, []);
 
-  const selectedCategory = categorySettings.find(
-    (category) => category.name === selectedCategoryName
-  );
-
-  const subCategories = selectedCategory?.subCategories ?? [];
-
   const handleCategorySelect = (value: string) => {
-    setSelectedCategoryName(value);
-    setSelectedSubCategory('');
-  };
-
-  const handleSubCategorySelect = (value: string) => {
-    setSelectedSubCategory(value);
+    setSelectedCategory(value);
   };
 
   const handleMaterialSelect = (value: string) => {
@@ -632,34 +582,15 @@ const EbaySearch: React.FC = () => {
           <div className="category-control">
             <select
               id="category-select"
-              value={selectedCategoryName}
+              value={selectedCategory}
               onChange={(e) => handleCategorySelect(e.target.value)}
               className="dropdown-select"
-              disabled={settingsLoading || categorySettings.length === 0}
+              disabled={settingsLoading || categories.length === 0}
             >
               <option value="">Categories</option>
-              {categorySettings.map((category) => (
-                <option key={category.name} value={category.name}>
-                  {category.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="category-control">
-            <select
-              id="subcategory-select"
-              value={selectedSubCategory}
-              onChange={(e) => handleSubCategorySelect(e.target.value)}
-              className="dropdown-select"
-              disabled={!selectedCategoryName || subCategories.length === 0}
-            >
-              <option value="" disabled={subCategories.length > 0}>
-                {subCategories.length > 0 ? 'Details (select...)' : 'Details unavailable'}
-              </option>
-              {subCategories.map((subCategory) => (
-                <option key={subCategory} value={subCategory}>
-                  {subCategory}
+              {categories.map((category) => (
+                <option key={category} value={category}>
+                  {category}
                 </option>
               ))}
             </select>

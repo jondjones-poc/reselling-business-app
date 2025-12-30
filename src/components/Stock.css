@@ -296,8 +296,8 @@
   display: flex;
   align-items: center;
   position: relative;
-  flex: 1;
-  min-width: 0;
+  flex: 2;
+  min-width: 400px;
 }
 
 .search-input-wrapper {
@@ -789,6 +789,11 @@
   border-bottom: 1px solid rgba(255, 214, 91, 0.12);
 }
 
+.stock-table th:first-child,
+.stock-table td:first-child {
+  text-align: center;
+}
+
 .stock-table th:not(:first-child),
 .stock-table td:not(:first-child) {
   text-align: center;
@@ -829,8 +834,13 @@
   justify-content: center;
 }
 
+.stock-table th:first-child,
+.stock-table td:first-child {
+  text-align: center;
+}
+
 .stock-table th:first-child .sortable-header {
-  justify-content: flex-start;
+  justify-content: center;
 }
 
 .sortable-header:hover {

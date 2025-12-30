@@ -141,7 +141,7 @@ const Stock: React.FC = () => {
   const [editingRowId, setEditingRowId] = useState<number | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [sortConfig, setSortConfig] = useState<{
-    key: keyof Omit<StockRow, 'id'>;
+    key: keyof StockRow;
     direction: 'asc' | 'desc';
   } | null>(null);
   const now = useMemo(() => new Date(), []);
@@ -709,6 +709,14 @@ const Stock: React.FC = () => {
     };
   };
 
+  const nextSku = useMemo(() => {
+    if (rows.length === 0) {
+      return 1;
+    }
+    const maxId = Math.max(...rows.map(row => row.id));
+    return maxId + 1;
+  }, [rows]);
+
   const totals = useMemo(() => {
     // Calculate stats based on date filters, not filteredRows
     // This ensures purchases and sales are calculated independently based on their respective dates
@@ -1106,7 +1114,7 @@ const Stock: React.FC = () => {
     return value ?? '—';
   };
 
-  const handleSort = (key: keyof Omit<StockRow, 'id'>) => {
+  const handleSort = (key: keyof StockRow) => {
     setSortConfig((current) => {
       if (!current || current.key !== key) {
         return { key, direction: 'asc' };
@@ -1120,7 +1128,7 @@ const Stock: React.FC = () => {
     });
   };
 
-  const resolveSortIndicator = (key: keyof Omit<StockRow, 'id'>) => {
+  const resolveSortIndicator = (key: keyof StockRow) => {
     if (!sortConfig || sortConfig.key !== key) {
       return '⇅';
     }
@@ -1849,104 +1857,20 @@ const Stock: React.FC = () => {
       )}
 
       <div className="stock-filters">
-        <div className="filter-group">
-          <select
-            value={selectedWeek}
-            onChange={(event) => setSelectedWeek(event.target.value)}
-            className="filter-select"
-            disabled={selectedYear === 'all-time' || unsoldFilter !== 'off'}
-            title="Filter By Week"
-          >
-            <option value="off">Filter By Week</option>
-            {availableWeeks.map((week) => (
-              <option key={week.value} value={week.value}>
-                {week.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="filter-group">
-          <select
-            value={selectedMonth}
-            onChange={(event) => {
-              setSelectedMonth(event.target.value);
-              setSelectedWeek('off'); // Reset week when month changes
+        <div className="filter-group filter-actions">
+          <button
+            type="button"
+            className="new-entry-button"
+            onClick={() => {
+              setShowNewEntry(true);
+              setEditingRowId(null);
+              resetCreateForm();
+              setSuccessMessage(null);
             }}
-            className="filter-select"
-            disabled={selectedYear === 'all-time' || unsoldFilter !== 'off'}
+            disabled={showNewEntry || creating}
           >
-            {MONTHS.map((month) => (
-              <option key={month.value} value={month.value}>
-                {month.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="filter-group">
-          <select
-            value={selectedYear}
-            onChange={(event) => {
-              setSelectedYear(event.target.value);
-              setSelectedWeek('off'); // Reset week when year changes
-            }}
-            className="filter-select"
-            disabled={unsoldFilter !== 'off'}
-          >
-            <option value={currentYear}>{currentYear}</option>
-            <option value="all-time">All Time</option>
-            {availableYears
-              .filter((year) => year !== currentYear)
-              .map((year) => (
-                <option key={year} value={year}>
-                  {year}
-                </option>
-              ))}
-          </select>
-        </div>
-
-        <div className="filter-group view-group">
-          <select
-            value={viewMode}
-            onChange={(event) => setViewMode(event.target.value as 'all' | 'active-listing' | 'sales' | 'listing' | 'to-list' | 'list-on-vinted' | 'list-on-ebay')}
-            className="filter-select"
-            disabled={selectedYear === 'all-time' || unsoldFilter !== 'off'}
-          >
-            <option value="all">All</option>
-            <option value="active-listing">Active</option>
-            <option value="sales">Sold Items</option>
-            <option value="listing">Add This Month</option>
-            <option value="to-list">To List</option>
-            <option value="list-on-vinted">To List On Vinted</option>
-            <option value="list-on-ebay">To List On eBay</option>
-          </select>
-        </div>
-
-        <div className="filter-group unsold-filter-group">
-          <select
-            value={unsoldFilter}
-            onChange={(event) => {
-              const value = event.target.value as 'off' | '3' | '6' | '12';
-              setUnsoldFilter(value);
-              
-              // Clear other filters when a non-"Off" option is selected
-              if (value !== 'off') {
-                setSearchTerm('');
-                setSelectedMonth(String(now.getMonth() + 1));
-                setSelectedYear(String(now.getFullYear()));
-                setSelectedWeek('off');
-                setViewMode('all');
-                setSelectedCategoryFilter('');
-              }
-            }}
-            className="filter-select unsold-filter-select"
-          >
-            <option value="off">Unsold Filter</option>
-            <option value="3">3 months</option>
-            <option value="6">6 months</option>
-            <option value="12">12 months</option>
-          </select>
+            + Add
+          </button>
         </div>
 
         <div className="filter-group search-group">
@@ -2058,24 +1982,112 @@ const Stock: React.FC = () => {
           </div>
         </div>
 
-        <div className="filter-group filter-actions">
-          <button
-            type="button"
-            className="new-entry-button"
-            onClick={() => {
-              setShowNewEntry(true);
-              setEditingRowId(null);
-              resetCreateForm();
-              setSuccessMessage(null);
-            }}
-            disabled={showNewEntry || creating}
+        <div className="filter-group">
+          <select
+            value={selectedWeek}
+            onChange={(event) => setSelectedWeek(event.target.value)}
+            className="filter-select"
+            disabled={selectedYear === 'all-time' || unsoldFilter !== 'off'}
+            title="Filter By Week"
           >
-            + Add
-          </button>
+            <option value="off">Filter By Week</option>
+            {availableWeeks.map((week) => (
+              <option key={week.value} value={week.value}>
+                {week.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="filter-group">
+          <select
+            value={selectedMonth}
+            onChange={(event) => {
+              setSelectedMonth(event.target.value);
+              setSelectedWeek('off'); // Reset week when month changes
+            }}
+            className="filter-select"
+            disabled={selectedYear === 'all-time' || unsoldFilter !== 'off'}
+          >
+            {MONTHS.map((month) => (
+              <option key={month.value} value={month.value}>
+                {month.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="filter-group">
+          <select
+            value={selectedYear}
+            onChange={(event) => {
+              setSelectedYear(event.target.value);
+              setSelectedWeek('off'); // Reset week when year changes
+            }}
+            className="filter-select"
+            disabled={unsoldFilter !== 'off'}
+          >
+            <option value={currentYear}>{currentYear}</option>
+            <option value="all-time">All Time</option>
+            {availableYears
+              .filter((year) => year !== currentYear)
+              .map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+          </select>
+        </div>
+
+        <div className="filter-group view-group">
+          <select
+            value={viewMode}
+            onChange={(event) => setViewMode(event.target.value as 'all' | 'active-listing' | 'sales' | 'listing' | 'to-list' | 'list-on-vinted' | 'list-on-ebay')}
+            className="filter-select"
+            disabled={selectedYear === 'all-time' || unsoldFilter !== 'off'}
+          >
+            <option value="all">All</option>
+            <option value="active-listing">Active</option>
+            <option value="sales">Sold Items</option>
+            <option value="listing">Add This Month</option>
+            <option value="to-list">To List</option>
+            <option value="list-on-vinted">To List On Vinted</option>
+            <option value="list-on-ebay">To List On eBay</option>
+          </select>
+        </div>
+
+        <div className="filter-group unsold-filter-group">
+          <select
+            value={unsoldFilter}
+            onChange={(event) => {
+              const value = event.target.value as 'off' | '3' | '6' | '12';
+              setUnsoldFilter(value);
+              
+              // Clear other filters when a non-"Off" option is selected
+              if (value !== 'off') {
+                setSearchTerm('');
+                setSelectedMonth(String(now.getMonth() + 1));
+                setSelectedYear(String(now.getFullYear()));
+                setSelectedWeek('off');
+                setViewMode('all');
+                setSelectedCategoryFilter('');
+              }
+            }}
+            className="filter-select unsold-filter-select"
+          >
+            <option value="off">Unsold Filter</option>
+            <option value="3">3 months</option>
+            <option value="6">6 months</option>
+            <option value="12">12 months</option>
+          </select>
         </div>
       </div>
 
       <section className="stock-summary">
+        <div className="summary-card">
+          <span className="summary-label">Next SKU</span>
+          <span className="summary-value">{nextSku}</span>
+        </div>
         <div className="summary-card">
           <span className="summary-label">Stock Purchases</span>
           <span className="summary-value">{formatCurrency(totals.purchase)}</span>
@@ -2167,6 +2179,15 @@ const Stock: React.FC = () => {
               <th>
                 <button
                   type="button"
+                  className={`sortable-header${sortConfig?.key === 'id' ? ` sorted-${sortConfig.direction}` : ''}`}
+                  onClick={() => handleSort('id')}
+                >
+                  SKU <span className="sort-indicator">{resolveSortIndicator('id')}</span>
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
                   className={`sortable-header${sortConfig?.key === 'item_name' ? ` sorted-${sortConfig.direction}` : ''}`}
                   onClick={() => handleSort('item_name')}
                 >
@@ -2243,7 +2264,7 @@ const Stock: React.FC = () => {
           <tbody>
             {!loading && sortedRows.length === 0 && (
               <tr>
-                <td colSpan={10} className="empty-state">
+                <td colSpan={11} className="empty-state">
                   No stock records found.
                 </td>
               </tr>
@@ -2264,6 +2285,7 @@ const Stock: React.FC = () => {
 
               return (
                 <tr key={row.id}>
+                  <td>{row.id}</td>
                   <td>{renderCellContent(row, 'item_name')}</td>
                   <td>{renderCellContent(row, 'category')}</td>
                   <td>{renderCellContent(row, 'purchase_price', formatCurrency)}</td>
