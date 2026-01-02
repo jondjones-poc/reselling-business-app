@@ -113,6 +113,10 @@ interface ReportingResponse {
     totalPurchase: number;
     totalSales: number;
     profit: number;
+    costOfSoldItems?: number;
+    totalProfitFromSoldItems?: number;
+    vintedSales?: number;
+    ebaySales?: number;
   };
   allTimeAverageProfitMultiple?: number;
   yearItemsStats?: {
@@ -181,7 +185,7 @@ const chartOptions: ChartOptions<'bar'> = {
 
 const Reporting: React.FC = () => {
   const [availableYears, setAvailableYears] = useState<number[]>([]);
-  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [selectedYear, setSelectedYear] = useState<number | 'all'>(new Date().getFullYear());
   const [profitTimeline, setProfitTimeline] = useState<ProfitTimelinePoint[]>([]);
   const [monthlyProfit, setMonthlyProfit] = useState<MonthlyProfitDatum[]>([]);
   const [monthlyExpenses, setMonthlyExpenses] = useState<MonthlyExpenseDatum[]>([]);
@@ -190,7 +194,7 @@ const Reporting: React.FC = () => {
   const [monthlyAverageProfitMultiple, setMonthlyAverageProfitMultiple] = useState<MonthlyAverageProfitMultipleDatum[]>([]);
   const [salesByCategory, setSalesByCategory] = useState<SalesByCategoryDatum[]>([]);
   const [unsoldStockByCategory, setUnsoldStockByCategory] = useState<UnsoldStockByCategoryDatum[]>([]);
-  const [yearSpecificTotals, setYearSpecificTotals] = useState<{ totalPurchase: number; totalSales: number; profit: number } | null>(null);
+  const [yearSpecificTotals, setYearSpecificTotals] = useState<{ totalPurchase: number; totalSales: number; profit: number; costOfSoldItems?: number; totalProfitFromSoldItems?: number; vintedSales?: number; ebaySales?: number } | null>(null);
   const [allTimeAverageProfitMultiple, setAllTimeAverageProfitMultiple] = useState<number | null>(null);
   const [yearItemsStats, setYearItemsStats] = useState<{ listed: number; sold: number } | null>(null);
   const [averageSellingPrice, setAverageSellingPrice] = useState<AverageSellingPrice | null>(null);
@@ -231,7 +235,8 @@ const Reporting: React.FC = () => {
       try {
         setLoading(true);
         setError(null);
-      const response = await fetch(`${API_BASE}/api/analytics/reporting?year=${selectedYear}`);
+      const yearParam = selectedYear === 'all' ? 'all' : selectedYear;
+      const response = await fetch(`${API_BASE}/api/analytics/reporting?year=${yearParam}`);
         if (!response.ok) {
           const text = await response.text();
           throw new Error(text || 'Failed to load analytics data');
@@ -257,7 +262,7 @@ const Reporting: React.FC = () => {
         setUnsoldInventoryValue(data.unsoldInventoryValue || null);
         setCurrentMonthSales(data.currentMonthSales ?? 0);
         setCurrentWeekSales(data.currentWeekSales ?? 0);
-        if (data.selectedYear !== selectedYear) {
+        if (data.selectedYear !== selectedYear && selectedYear !== 'all') {
           setSelectedYear(data.selectedYear);
         }
       } catch (err: any) {
@@ -602,19 +607,19 @@ const Reporting: React.FC = () => {
           {/* Row 1: Total Company Profit, Total Sales, Unsold Inventory Value, Current Sales */}
           <div className="reporting-summary">
             <div className="total-profit-card">
-              <div className="total-profit-label">Total Company Profit ({selectedYear})</div>
+              <div className="total-profit-label">Total Company Profit {selectedYear === 'all' ? '(All Time)' : `(${selectedYear})`}</div>
               <div className={`total-profit-value ${totalProfit >= 0 ? 'positive' : 'negative'}`}>
                 {formatCurrency(totalProfit)}
               </div>
-              <div className="total-profit-description">All Sales - All Expenses for {selectedYear}</div>
+              <div className="total-profit-description">All Sales - All Expenses {selectedYear === 'all' ? 'for All Time' : `for ${selectedYear}`}</div>
             </div>
             {yearSpecificTotals && (
               <div className="total-profit-card">
-                <div className="total-profit-label">Total Sales ({selectedYear})</div>
+                <div className="total-profit-label">Total Sales {selectedYear === 'all' ? '(All Time)' : `(${selectedYear})`}</div>
                 <div className="total-profit-value positive">
                   {formatCurrency(yearSpecificTotals.totalSales)}
                 </div>
-                <div className="total-profit-description">All sales for {selectedYear}</div>
+                <div className="total-profit-description">All sales {selectedYear === 'all' ? 'for All Time' : `for ${selectedYear}`}</div>
               </div>
             )}
             {unsoldInventoryValue && (
@@ -650,7 +655,57 @@ const Reporting: React.FC = () => {
             </div>
           </div>
 
-          {/* Row 2: Average Profit per Item, Average Selling Price, Average Profit Multiple (All Time), Average Days to Sell */}
+          {/* Row 2: Total Purchases, Cost of Sold Items */}
+          {yearSpecificTotals && (
+            <div className="reporting-summary">
+              <div className="total-profit-card">
+                <div className="total-profit-label">Total Purchases {selectedYear === 'all' ? '(All Time)' : `(${selectedYear})`}</div>
+                <div className="total-profit-value negative">
+                  {formatCurrency(yearSpecificTotals.totalPurchase)}
+                </div>
+                <div className="total-profit-description">All items purchased {selectedYear === 'all' ? 'across all years' : `in ${selectedYear}`}</div>
+              </div>
+              {yearSpecificTotals.costOfSoldItems !== undefined && (
+                <div className="total-profit-card">
+                  <div className="total-profit-label">Cost of Sold Items {selectedYear === 'all' ? '(All Time)' : `(${selectedYear})`}</div>
+                  <div className="total-profit-value negative">
+                    {formatCurrency(yearSpecificTotals.costOfSoldItems)}
+                  </div>
+                  <div className="total-profit-description">Purchase cost of items that have been sold {selectedYear === 'all' ? 'across all years' : `in ${selectedYear}`}</div>
+                </div>
+              )}
+              {yearSpecificTotals.totalProfitFromSoldItems !== undefined && (
+                <div className="total-profit-card">
+                  <div className="total-profit-label">Total Profit from Sold Items {selectedYear === 'all' ? '(All Time)' : `(${selectedYear})`}</div>
+                  <div className={`total-profit-value ${yearSpecificTotals.totalProfitFromSoldItems >= 0 ? 'positive' : 'negative'}`}>
+                    {formatCurrency(yearSpecificTotals.totalProfitFromSoldItems)}
+                  </div>
+                  <div className="total-profit-description">Sale price - Purchase price for sold items {selectedYear === 'all' ? 'across all years' : `in ${selectedYear}`}</div>
+                </div>
+              )}
+              {yearSpecificTotals.vintedSales !== undefined && yearSpecificTotals.ebaySales !== undefined && (
+                <div className="total-profit-card">
+                  <div className="total-profit-label">Platform Sales {selectedYear === 'all' ? '(All Time)' : `(${selectedYear})`}</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: 0 }}>
+                    <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ fontSize: '0.9rem', color: 'rgba(255, 248, 226, 0.7)', letterSpacing: '0.05rem', fontWeight: 600 }}>Vinted =</div>
+                      <div className="total-profit-value positive" style={{ fontSize: '1.1rem', margin: 0 }}>
+                        {formatCurrency(yearSpecificTotals.vintedSales)}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ fontSize: '0.9rem', color: 'rgba(255, 248, 226, 0.7)', letterSpacing: '0.05rem', fontWeight: 600 }}>eBay =</div>
+                      <div className="total-profit-value positive" style={{ fontSize: '1.1rem', margin: 0 }}>
+                        {formatCurrency(yearSpecificTotals.ebaySales)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Row 3: Average Profit per Item, Average Selling Price, Average Profit Multiple (All Time), Average Days to Sell */}
           <div className="reporting-summary">
             {averageProfitPerItem && (
               <div className="total-profit-card">
@@ -711,7 +766,7 @@ const Reporting: React.FC = () => {
             )}
             {yearItemsStats && (
               <div className="total-profit-card">
-                <div className="total-profit-label">Items ({selectedYear})</div>
+                <div className="total-profit-label">Items {selectedYear === 'all' ? '(All Time)' : `(${selectedYear})`}</div>
                 <div className="total-profit-value positive">
                   {yearItemsStats.sold.toLocaleString()} / {yearItemsStats.listed.toLocaleString()}
                 </div>
@@ -735,7 +790,10 @@ const Reporting: React.FC = () => {
                 <select
                   id="reporting-year"
                   value={selectedYear}
-                  onChange={(event) => setSelectedYear(Number(event.target.value))}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setSelectedYear(value === 'all' ? 'all' : Number(value));
+                  }}
                   style={{
                     background: 'transparent',
                     border: 'none',
@@ -748,7 +806,8 @@ const Reporting: React.FC = () => {
                     width: '100%'
                   }}
                 >
-                  {availableYears.length === 0 && <option value={selectedYear}>{selectedYear}</option>}
+                  <option value="all">All</option>
+                  {availableYears.length === 0 && selectedYear !== 'all' && <option value={selectedYear}>{selectedYear}</option>}
                   {availableYears.map((year) => (
                     <option key={year} value={year}>
                       {year}
@@ -783,7 +842,7 @@ const Reporting: React.FC = () => {
                 <Bar data={monthlySalesData.data} options={chartOptions} />
               </div>
             ) : (
-              <div className="reporting-empty">No recorded sales for {selectedYear}.</div>
+              <div className="reporting-empty">No recorded sales {selectedYear === 'all' ? 'available.' : `for ${selectedYear}.`}</div>
             )}
           </section>
 
@@ -818,7 +877,7 @@ const Reporting: React.FC = () => {
                 <Bar data={unsoldStockByCategoryData} options={chartOptions} />
               </div>
             ) : (
-              <div className="reporting-empty">No unsold stock data available for {selectedYear}.</div>
+              <div className="reporting-empty">No unsold stock data available {selectedYear === 'all' ? '.' : `for ${selectedYear}.`}</div>
             )}
           </section>
 
@@ -847,7 +906,7 @@ const Reporting: React.FC = () => {
                 />
               </div>
             ) : (
-              <div className="reporting-empty">No sales data available for {selectedYear}.</div>
+              <div className="reporting-empty">No sales data available {selectedYear === 'all' ? '.' : `for ${selectedYear}.`}</div>
             )}
           </section>
 
@@ -876,7 +935,7 @@ const Reporting: React.FC = () => {
                 />
               </div>
             ) : (
-              <div className="reporting-empty">No sales data available for {selectedYear}.</div>
+              <div className="reporting-empty">No sales data available {selectedYear === 'all' ? '.' : `for ${selectedYear}.`}</div>
             )}
           </section>
 

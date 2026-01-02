@@ -8,6 +8,8 @@
   border-radius: 28px;
   border: 1px solid var(--neon-border);
   box-shadow: 0 22px 48px rgba(0, 0, 0, 0.6), var(--neon-shadow);
+  box-sizing: border-box;
+  overflow-x: hidden;
 }
 
 .reporting-header {
@@ -108,7 +110,7 @@
   display: flex;
   gap: 24px;
   margin-bottom: 24px;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 
 .total-profit-card {
@@ -134,7 +136,8 @@
   
   .total-profit-card {
     width: calc(50% - 12px);
-    min-width: 280px;
+    min-width: 0;
+    flex: 1 1 calc(50% - 12px);
   }
 }
 
@@ -425,7 +428,9 @@
 @media (max-width: 768px) {
   .reporting-container {
     margin: 16px;
-    padding: 28px;
+    padding: 20px;
+    max-width: calc(100% - 32px);
+    width: calc(100% - 32px);
   }
 
   .reporting-header {
@@ -436,10 +441,14 @@
 
   .reporting-summary {
     flex-direction: column;
+    gap: 16px;
   }
 
   .total-profit-card {
     width: 100%;
+    min-width: 0;
+    flex: 1 1 100%;
+    padding: 20px;
   }
 
   .total-profit-value {
@@ -452,9 +461,26 @@
 
   .monthly-filters {
     flex-direction: column;
+    gap: 16px;
   }
 
   .monthly-filter-group {
     width: 100%;
+    min-width: 0;
+  }
+
+  .monthly-platform-row {
+    flex-wrap: wrap;
+    gap: 16px;
+    padding: 20px;
+  }
+
+  .platform-logo-cell {
+    flex: 0 0 60px;
+  }
+
+  .platform-stat-cell {
+    flex: 1 1 calc(50% - 8px);
+    min-width: 0;
   }
 }

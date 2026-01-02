@@ -1,9 +1,9 @@
 .brand-research-container {
   width: 100%;
   max-width: 100%;
-  margin: 120px 0 40px 0;
-  padding: 36px;
-  background: var(--neon-surface);
+  margin: 0 0 40px 0;
+  padding: 0;
+  background: transparent;
   border-radius: 0;
   border: none;
   border-bottom: 1px solid var(--neon-border);
@@ -522,16 +522,22 @@
 }
 
 .research-tool-container {
-  width: 100%;
-  max-width: 100%;
-  margin: 0;
+  max-width: 1000px;
+  margin: 40px auto 0 auto;
   padding: 40px;
   background: var(--neon-surface);
-  border-radius: 0;
-  border: none;
-  border-bottom: 1px solid var(--neon-border);
-  box-shadow: none;
+  border-radius: 28px;
+  border: 1px solid var(--neon-border);
+  box-shadow: 0 22px 48px rgba(0, 0, 0, 0.6), var(--neon-shadow);
   box-sizing: border-box;
+}
+
+.research-section-heading {
+  color: var(--neon-primary-strong);
+  font-size: 2.2rem;
+  letter-spacing: 0.1rem;
+  margin: 0 0 32px 0;
+  text-transform: uppercase;
 }
 
 .research-tool-container .ebay-search-form {

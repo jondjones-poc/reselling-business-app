@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import './Stock.css';
@@ -147,7 +147,7 @@ const Stock: React.FC = () => {
   const now = useMemo(() => new Date(), []);
   const currentYear = String(now.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState<string>(String(now.getMonth() + 1));
-  const [selectedYear, setSelectedYear] = useState<string>(currentYear);
+  const [selectedYear, setSelectedYear] = useState<string>('last-30-days');
   const [selectedWeek, setSelectedWeek] = useState<string>('off');
   const [viewMode, setViewMode] = useState<'all' | 'active-listing' | 'sales' | 'listing' | 'to-list' | 'list-on-vinted' | 'list-on-ebay'>('all');
   const [showNewEntry, setShowNewEntry] = useState(false);
@@ -168,6 +168,7 @@ const Stock: React.FC = () => {
   const [unsoldFilter, setUnsoldFilter] = useState<'off' | '3' | '6' | '12'>('off');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('');
   const [selectedDataRow, setSelectedDataRow] = useState<StockRow | null>(null);
+  const [selectedRowElement, setSelectedRowElement] = useState<HTMLElement | null>(null);
   const [isDataPanelClosing, setIsDataPanelClosing] = useState(false);
   const [showListedDropdown, setShowListedDropdown] = useState(false);
   const listedDropdownRef = useRef<HTMLDivElement>(null);
@@ -206,6 +207,11 @@ const Stock: React.FC = () => {
       }
 
       const data: StockApiResponse = await response.json();
+      // Verify we're using the actual database id values
+      if (data.rows && data.rows.length > 0) {
+        console.log('Stock data loaded from API:', data.rows.length, 'rows');
+        console.log('Sample row with database id:', data.rows[0]?.id, data.rows[0]);
+      }
       setRows(Array.isArray(data.rows) ? data.rows : []);
       setEditingRowId(null);
     } catch (err: any) {
@@ -364,15 +370,15 @@ const Stock: React.FC = () => {
       return;
     }
 
-    // If selectedYear is not "all-time" and not in available years, reset to current year
-    if (selectedYear !== 'all-time' && !availableYears.includes(selectedYear) && selectedYear !== currentYear) {
-      setSelectedYear(currentYear);
+    // If selectedYear is not "all-time", "last-30-days", and not in available years, reset to last-30-days
+    if (selectedYear !== 'all-time' && selectedYear !== 'last-30-days' && !availableYears.includes(selectedYear) && selectedYear !== currentYear) {
+      setSelectedYear('last-30-days');
     }
   }, [availableYears, selectedYear, currentYear]);
 
   // Generate weeks for the selected month and year
   const availableWeeks = useMemo(() => {
-    if (selectedYear === 'all-time') {
+    if (selectedYear === 'all-time' || selectedYear === 'last-30-days') {
       return [];
     }
 
@@ -454,6 +460,26 @@ const Stock: React.FC = () => {
       String(date.getMonth() + 1) === month &&
       String(date.getFullYear()) === year
     );
+  };
+
+  // Check if a date falls within the last 30 days
+  const matchesLast30Days = (dateValue: Nullable<string>) => {
+    if (!dateValue) {
+      return false;
+    }
+
+    const date = new Date(dateValue);
+    if (Number.isNaN(date.getTime())) {
+      return false;
+    }
+
+    const today = new Date();
+    today.setHours(23, 59, 59, 999); // End of today
+    const thirtyDaysAgo = new Date(today);
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    thirtyDaysAgo.setHours(0, 0, 0, 0); // Start of 30 days ago
+
+    return date >= thirtyDaysAgo && date <= today;
   };
 
   // Check if a date falls within the selected week
@@ -646,6 +672,16 @@ const Stock: React.FC = () => {
         if (selectedYear === 'all-time') {
           // Show all items regardless of year
           dateMatches = true;
+        } else if (selectedYear === 'last-30-days') {
+          // Show items from last 30 days
+          if (viewMode === 'all') {
+            // For "all" view, check both purchase_date and sale_date
+            dateMatches = matchesLast30Days(row.purchase_date) || matchesLast30Days(row.sale_date);
+          } else if (viewMode === 'listing' || viewMode === 'list-on-vinted' || viewMode === 'list-on-ebay' || viewMode === 'to-list' || viewMode === 'active-listing') {
+            dateMatches = matchesLast30Days(row.purchase_date);
+          } else {
+            dateMatches = matchesLast30Days(row.sale_date);
+          }
         } else if (viewMode === 'all') {
           // For "all" view, check both purchase_date and sale_date
           dateMatches = matchesMonthYear(row.purchase_date, selectedMonth, selectedYear) || matchesMonthYear(row.sale_date, selectedMonth, selectedYear);
@@ -673,30 +709,52 @@ const Stock: React.FC = () => {
     const purchase = row.purchase_price !== null && row.purchase_price !== undefined
       ? Number(row.purchase_price)
       : NaN;
+    
+    // For unsold items, show 0 for sale price
     const sale = row.sale_price !== null && row.sale_price !== undefined
       ? Number(row.sale_price)
-      : NaN;
+      : row.sale_date === null || row.sale_date === undefined
+        ? 0
+        : NaN;
 
+    // For unsold items, profit is negative of purchase price (or 0 if no purchase price)
     const profit =
       row.net_profit !== null && row.net_profit !== undefined
         ? Number(row.net_profit)
         : !Number.isNaN(purchase) && !Number.isNaN(sale)
           ? sale - purchase
-          : NaN;
+          : !Number.isNaN(purchase) && (row.sale_date === null || row.sale_date === undefined)
+            ? -purchase
+            : NaN;
 
     let profitMultiple: string | null = null;
-    if (!Number.isNaN(purchase) && purchase > 0 && !Number.isNaN(sale)) {
-      const multiple = sale / purchase;
-      profitMultiple = `${multiple.toFixed(2)}x`;
+    if (!Number.isNaN(purchase) && purchase > 0) {
+      if (!Number.isNaN(sale) && sale > 0) {
+        const multiple = sale / purchase;
+        profitMultiple = `${multiple.toFixed(2)}x`;
+      } else if (row.sale_date === null || row.sale_date === undefined) {
+        // Unsold item - show 0x
+        profitMultiple = '0.00x';
+      }
     }
 
     let daysForSale: number | null = null;
-    if (row.purchase_date && row.sale_date) {
-      const purchaseDate = new Date(row.purchase_date);
-      const saleDate = new Date(row.sale_date);
-      if (!Number.isNaN(purchaseDate.getTime()) && !Number.isNaN(saleDate.getTime())) {
-        const diffMs = saleDate.getTime() - purchaseDate.getTime();
-        daysForSale = Math.max(0, Math.round(diffMs / (1000 * 60 * 60 * 24)));
+    if (row.purchase_date) {
+      if (row.sale_date) {
+        // Sold item - calculate days between purchase and sale
+        const purchaseDate = new Date(row.purchase_date);
+        const saleDate = new Date(row.sale_date);
+        if (!Number.isNaN(purchaseDate.getTime()) && !Number.isNaN(saleDate.getTime())) {
+          const diffMs = saleDate.getTime() - purchaseDate.getTime();
+          daysForSale = Math.max(0, Math.round(diffMs / (1000 * 60 * 60 * 24)));
+        }
+      } else {
+        // Unsold item - calculate days from purchase to now
+        const purchaseDate = new Date(row.purchase_date);
+        if (!Number.isNaN(purchaseDate.getTime())) {
+          const diffMs = Date.now() - purchaseDate.getTime();
+          daysForSale = Math.max(0, Math.round(diffMs / (1000 * 60 * 60 * 24)));
+        }
       }
     }
 
@@ -729,6 +787,8 @@ const Stock: React.FC = () => {
       let purchaseDateMatches = false;
       if (selectedYear === 'all-time') {
         purchaseDateMatches = true; // Show all if "all-time" is selected
+      } else if (selectedYear === 'last-30-days') {
+        purchaseDateMatches = matchesLast30Days(row.purchase_date);
       } else if (selectedWeek !== 'off') {
         const selectedWeekData = availableWeeks.find(w => w.value === selectedWeek);
         if (selectedWeekData) {
@@ -742,6 +802,8 @@ const Stock: React.FC = () => {
       let saleDateMatches = false;
       if (selectedYear === 'all-time') {
         saleDateMatches = true; // Show all if "all-time" is selected
+      } else if (selectedYear === 'last-30-days') {
+        saleDateMatches = matchesLast30Days(row.sale_date);
       } else if (selectedWeek !== 'off') {
         const selectedWeekData = availableWeeks.find(w => w.value === selectedWeek);
         if (selectedWeekData) {
@@ -776,18 +838,16 @@ const Stock: React.FC = () => {
   }, [rows, selectedMonth, selectedYear, selectedWeek, availableWeeks]);
 
   const sortedRows = useMemo(() => {
-    if (!sortConfig) {
-      return filteredRows;
-    }
-
-    const { key, direction } = sortConfig;
-    const multiplier = direction === 'asc' ? 1 : -1;
-
-    const getComparableValue = (row: StockRow) => {
+    const getComparableValue = (row: StockRow, key: keyof StockRow) => {
       const value = row[key];
 
       if (value === null || value === undefined) {
         return '';
+      }
+
+      if (key === 'id') {
+        const numeric = Number(value);
+        return Number.isNaN(numeric) ? Number.NEGATIVE_INFINITY : numeric;
       }
 
       if (key === 'purchase_price' || key === 'sale_price' || key === 'net_profit') {
@@ -803,9 +863,26 @@ const Stock: React.FC = () => {
       return String(value).toLowerCase();
     };
 
+    if (!sortConfig) {
+      // Default sort: by ID descending (highest/newest first)
+      return [...filteredRows].sort((a, b) => {
+        const aValue = getComparableValue(a, 'id');
+        const bValue = getComparableValue(b, 'id');
+        
+        if (aValue === bValue) {
+          return 0;
+        }
+        
+        return aValue > bValue ? -1 : 1; // Descending order
+      });
+    }
+
+    const { key, direction } = sortConfig;
+    const multiplier = direction === 'asc' ? 1 : -1;
+
     return [...filteredRows].sort((a, b) => {
-      const aValue = getComparableValue(a);
-      const bValue = getComparableValue(b);
+      const aValue = getComparableValue(a, key);
+      const bValue = getComparableValue(b, key);
 
       if (aValue === bValue) {
         return 0;
@@ -1136,13 +1213,30 @@ const Stock: React.FC = () => {
     return sortConfig.direction === 'asc' ? '↑' : '↓';
   };
 
-  const handleCloseDataPanel = () => {
+  const handleCloseDataPanel = useCallback(() => {
     setIsDataPanelClosing(true);
     window.setTimeout(() => {
       setSelectedDataRow(null);
+      setSelectedRowElement(null);
       setIsDataPanelClosing(false);
     }, 220);
-  };
+  }, []);
+
+  // Close modal on ESC key
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && selectedDataRow) {
+        handleCloseDataPanel();
+      }
+    };
+
+    if (selectedDataRow) {
+      document.addEventListener('keydown', handleEscape);
+      return () => {
+        document.removeEventListener('keydown', handleEscape);
+      };
+    }
+  }, [selectedDataRow, handleCloseDataPanel]);
 
   const handleDeleteClick = () => {
     setShowDeleteConfirm(true);
@@ -1898,7 +1992,7 @@ const Stock: React.FC = () => {
                 onClick={() => {
                   setSearchTerm('');
                   setSelectedMonth(String(now.getMonth() + 1));
-                  setSelectedYear(String(now.getFullYear()));
+                  setSelectedYear('last-30-days');
                   setSelectedWeek('off');
                   setViewMode('all');
                   setSelectedCategoryFilter('');
@@ -1987,7 +2081,7 @@ const Stock: React.FC = () => {
             value={selectedWeek}
             onChange={(event) => setSelectedWeek(event.target.value)}
             className="filter-select"
-            disabled={selectedYear === 'all-time' || unsoldFilter !== 'off'}
+            disabled={selectedYear === 'all-time' || selectedYear === 'last-30-days' || unsoldFilter !== 'off'}
             title="Filter By Week"
           >
             <option value="off">Filter By Week</option>
@@ -2007,7 +2101,7 @@ const Stock: React.FC = () => {
               setSelectedWeek('off'); // Reset week when month changes
             }}
             className="filter-select"
-            disabled={selectedYear === 'all-time' || unsoldFilter !== 'off'}
+            disabled={selectedYear === 'all-time' || selectedYear === 'last-30-days' || unsoldFilter !== 'off'}
           >
             {MONTHS.map((month) => (
               <option key={month.value} value={month.value}>
@@ -2027,15 +2121,13 @@ const Stock: React.FC = () => {
             className="filter-select"
             disabled={unsoldFilter !== 'off'}
           >
-            <option value={currentYear}>{currentYear}</option>
+            <option value="last-30-days">Last 30 Days</option>
             <option value="all-time">All Time</option>
-            {availableYears
-              .filter((year) => year !== currentYear)
-              .map((year) => (
-                <option key={year} value={year}>
-                  {year}
-                </option>
-              ))}
+            {availableYears.map((year) => (
+              <option key={year} value={year}>
+                {year}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -2084,7 +2176,7 @@ const Stock: React.FC = () => {
       </div>
 
       <section className="stock-summary">
-        <div className="summary-card">
+        <div className="summary-card summary-card-next-sku">
           <span className="summary-label">Next SKU</span>
           <span className="summary-value">{nextSku}</span>
         </div>
@@ -2108,27 +2200,57 @@ const Stock: React.FC = () => {
         </div>
       </section>
 
-      {selectedDataRow && (
-        <div className={`stock-data-panel${isDataPanelClosing ? ' closing' : ''}`}>
-          <div className="stock-data-panel-header">
-            <button
-              type="button"
-              className="stock-data-close-button"
-              onClick={handleCloseDataPanel}
-              aria-label="Close insights panel"
-            >
-              ×
-            </button>
-          </div>
-          {(() => {
-            const metrics = computeDataPanelMetrics(selectedDataRow);
-            return (
+      {selectedDataRow && selectedRowElement && (() => {
+        const metrics = computeDataPanelMetrics(selectedDataRow);
+        const rect = selectedRowElement.getBoundingClientRect();
+        const container = selectedRowElement.closest('.stock-container') as HTMLElement;
+        const containerRect = container?.getBoundingClientRect();
+        
+        if (!container || !containerRect) return null;
+        
+        // Calculate position relative to container
+        const top = rect.top - containerRect.top - 10;
+        const left = 0;
+        const width = containerRect.width;
+        
+        return (
+          <div 
+            className={`stock-data-overlay${isDataPanelClosing ? ' closing' : ''}`}
+            style={{
+              position: 'absolute',
+              top: `${top}px`,
+              left: `${left}px`,
+              width: `${width}px`,
+              zIndex: 1000
+            }}
+          >
+              <div 
+                className="stock-data-panel"
+                onClick={handleCloseDataPanel}
+              >
               <div className="stock-data-panel-grid">
-                <div className="stock-data-item">
-                  <div className="stock-data-label">Item</div>
-                  <div className="stock-data-value">
+                <div className="stock-data-item stock-data-item-title">
+                  <div className="stock-data-value stock-data-title">
                     {selectedDataRow.item_name || '—'}
                   </div>
+                  <button
+                    type="button"
+                    className="stock-data-copy-button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const title = selectedDataRow.item_name || '';
+                      if (title) {
+                        navigator.clipboard.writeText(title).then(() => {
+                          // Optional: Show a brief success message
+                        }).catch(err => {
+                          console.error('Failed to copy:', err);
+                        });
+                      }
+                    }}
+                    aria-label="Copy item title to clipboard"
+                  >
+                    📋
+                  </button>
                 </div>
                 <div className="stock-data-item">
                   <div className="stock-data-label">Buy Price</div>
@@ -2143,7 +2265,9 @@ const Stock: React.FC = () => {
                   <div className="stock-data-value">
                     {!Number.isNaN(metrics.sale)
                       ? formatCurrency(metrics.sale)
-                      : '—'}
+                      : selectedDataRow.sale_date === null || selectedDataRow.sale_date === undefined
+                        ? formatCurrency(0)
+                        : '—'}
                   </div>
                 </div>
                 <div className="stock-data-item">
@@ -2157,20 +2281,27 @@ const Stock: React.FC = () => {
                 <div className="stock-data-item">
                   <div className="stock-data-label">Profit Multiple</div>
                   <div className="stock-data-value">
-                    {metrics.profitMultiple || '—'}
+                    {metrics.profitMultiple || 
+                      ((selectedDataRow.sale_date === null || selectedDataRow.sale_date === undefined) && !Number.isNaN(metrics.purchase) && metrics.purchase > 0
+                        ? '0.00x'
+                        : '—')}
                   </div>
                 </div>
                 <div className="stock-data-item">
                   <div className="stock-data-label">Days For Sale</div>
                   <div className="stock-data-value">
-                    {metrics.daysForSale !== null ? `${metrics.daysForSale} days` : '—'}
+                    {metrics.daysForSale !== null 
+                      ? `${metrics.daysForSale} days` 
+                      : (selectedDataRow.purchase_date && (selectedDataRow.sale_date === null || selectedDataRow.sale_date === undefined))
+                        ? '0 days'
+                        : '—'}
                   </div>
                 </div>
               </div>
-            );
-          })()}
-        </div>
-      )}
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="table-wrapper">
         <table className="stock-table">
@@ -2258,13 +2389,12 @@ const Stock: React.FC = () => {
                 </button>
               </th>
               <th className="stock-table-actions-header">Edit</th>
-              <th className="stock-table-actions-header">Insights</th>
             </tr>
           </thead>
           <tbody>
             {!loading && sortedRows.length === 0 && (
               <tr>
-                <td colSpan={11} className="empty-state">
+                <td colSpan={10} className="empty-state">
                   No stock records found.
                 </td>
               </tr>
@@ -2286,7 +2416,40 @@ const Stock: React.FC = () => {
               return (
                 <tr key={row.id}>
                   <td>{row.id}</td>
-                  <td>{renderCellContent(row, 'item_name')}</td>
+                  <td>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setIsDataPanelClosing(false);
+                        setSelectedDataRow(row);
+                        setSelectedRowElement(event.currentTarget.closest('tr') as HTMLElement);
+                      }}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'inherit',
+                        cursor: 'pointer',
+                        textDecoration: 'underline',
+                        textDecorationColor: 'rgba(255, 214, 91, 0.5)',
+                        textUnderlineOffset: '2px',
+                        padding: 0,
+                        font: 'inherit',
+                        textAlign: 'left',
+                        width: '100%'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.textDecorationColor = 'rgba(255, 214, 91, 0.8)';
+                        e.currentTarget.style.color = 'var(--neon-primary-strong)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.textDecorationColor = 'rgba(255, 214, 91, 0.5)';
+                        e.currentTarget.style.color = 'inherit';
+                      }}
+                    >
+                      {renderCellContent(row, 'item_name')}
+                    </button>
+                  </td>
                   <td>{renderCellContent(row, 'category')}</td>
                   <td>{renderCellContent(row, 'purchase_price', formatCurrency)}</td>
                   <td>
@@ -2323,21 +2486,6 @@ const Stock: React.FC = () => {
                         Edit
                       </button>
                     </div>
-                  </td>
-                  <td className="stock-table-actions-cell">
-                    <button
-                      type="button"
-                      className={`row-data-button${row.sale_date ? '' : ' disabled'}`}
-                      disabled={!row.sale_date}
-                      onClick={(event) => {
-                        if (!row.sale_date) return;
-                        event.stopPropagation();
-                        setIsDataPanelClosing(false);
-                        setSelectedDataRow(row);
-                      }}
-                    >
-                      Data
-                    </button>
                   </td>
                 </tr>
               );

@@ -612,9 +612,7 @@ const EbaySearch: React.FC = () => {
               ))}
             </select>
           </div>
-        </div>
 
-        <div className="gender-section">
           <div className="category-control">
             <select
               id="gender-select"

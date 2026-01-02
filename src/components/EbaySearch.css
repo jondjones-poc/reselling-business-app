@@ -7,6 +7,8 @@
   border: 1px solid var(--neon-border);
   box-shadow: 0 22px 48px rgba(0, 0, 0, 0.6), var(--neon-shadow);
   margin-top: 120px;
+  box-sizing: border-box;
+  width: 100%;
 }
 
 .ebay-search-container + .ebay-search-container {
@@ -34,6 +36,8 @@
   display: flex;
   flex-direction: column;
   gap: 28px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .search-bar-group {
@@ -45,6 +49,8 @@
   display: flex;
   position: relative;
   align-items: center;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .ebay-search-input {
@@ -58,11 +64,15 @@
   outline: none;
   transition: all 0.3s ease;
   box-shadow: inset 0 0 18px rgba(255, 214, 91, 0.16);
+  box-sizing: border-box;
+  min-width: 0;
 }
 
 .reset-icon-button {
   position: absolute;
   right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
   width: 32px;
   height: 32px;
   border-radius: 50%;
@@ -84,7 +94,7 @@
   background: rgba(255, 120, 120, 0.3);
   border-color: rgba(255, 120, 120, 0.7);
   box-shadow: 0 0 12px rgba(255, 120, 120, 0.6);
-  transform: scale(1.1);
+  transform: translateY(-50%) scale(1.1);
 }
 
 .reset-icon-button:disabled {
@@ -377,18 +387,16 @@
 
 .str-calculator-inputs {
   display: flex;
+  flex-direction: column;
   gap: 16px;
-  align-items: flex-end;
-  flex-wrap: wrap;
-  justify-content: center;
+  align-items: stretch;
 }
 
 .str-input-group {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  flex: 1 1 200px;
-  min-width: 180px;
+  width: 100%;
 }
 
 .str-input-label {
@@ -430,7 +438,7 @@
   cursor: pointer;
   transition: all 0.3s ease;
   box-shadow: inset 0 0 14px rgba(255, 214, 91, 0.22);
-  min-width: 140px;
+  width: 100%;
   height: fit-content;
 }
 
@@ -446,8 +454,8 @@
 }
 
 .str-result {
-  margin-top: 24px;
-  padding: 24px;
+  margin-top: 16px;
+  padding: 20px;
   border-radius: 16px;
   text-align: center;
   border: 2px solid;
@@ -562,8 +570,10 @@
 @media (max-width: 768px) {
   .ebay-search-container {
     margin: 12px;
-    padding: 26px;
+    padding: 20px;
     margin-top: 140px;
+    width: calc(100% - 24px);
+    max-width: calc(100% - 24px);
   }
   
   .ebay-search-header h1 {
@@ -571,13 +581,22 @@
   }
   
   .ebay-search-input {
-    padding: 18px 25px;
+    padding: 18px 45px 18px 20px;
     font-size: 16px;
   }
 
   .search-bar-group {
     flex-direction: column;
     align-items: stretch;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .search-input-wrapper {
+    width: 100%;
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
   }
 
   .primary-action-row {

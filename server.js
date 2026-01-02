@@ -1463,8 +1463,9 @@ app.get('/api/analytics/reporting', async (req, res) => {
 
     const now = new Date();
     const requestedYearRaw = req.query.year;
-    const requestedYear = requestedYearRaw ? Number(requestedYearRaw) : now.getFullYear();
-    const targetYear = Number.isNaN(requestedYear) ? now.getFullYear() : requestedYear;
+    const isAllTime = requestedYearRaw === 'all';
+    const requestedYear = isAllTime ? null : (requestedYearRaw ? Number(requestedYearRaw) : now.getFullYear());
+    const targetYear = isAllTime ? null : (Number.isNaN(requestedYear) ? now.getFullYear() : requestedYear);
 
     const yearsResult = await pool.query(`
       SELECT DISTINCT year FROM (
@@ -1477,9 +1478,9 @@ app.get('/api/analytics/reporting', async (req, res) => {
     `);
 
     const availableYears = yearsResult.rows.map((row) => row.year);
-    const effectiveYear = availableYears.length > 0
+    const effectiveYear = isAllTime ? null : (availableYears.length > 0
       ? (availableYears.includes(targetYear) ? targetYear : availableYears[0])
-      : targetYear;
+      : targetYear);
 
     const profitTimelineResult = await pool.query(
       `
@@ -1513,8 +1514,33 @@ app.get('/api/analytics/reporting', async (req, res) => {
       `
     );
 
-    const profitByMonthResult = await pool.query(
-      `
+    const profitByMonthQuery = effectiveYear === null ? `
+        WITH purchase_totals AS (
+          SELECT
+            EXTRACT(MONTH FROM purchase_date)::int AS month,
+            SUM(COALESCE(purchase_price, 0))::numeric AS total_purchase
+          FROM stock
+          WHERE purchase_date IS NOT NULL
+          GROUP BY month
+        ),
+        sale_totals AS (
+          SELECT
+            EXTRACT(MONTH FROM sale_date)::int AS month,
+            SUM(COALESCE(sale_price, 0))::numeric AS total_sales
+          FROM stock
+          WHERE sale_date IS NOT NULL
+          GROUP BY month
+        )
+        SELECT
+          COALESCE(sale_totals.month, purchase_totals.month) AS month,
+          COALESCE(sale_totals.total_sales, 0) AS total_sales,
+          COALESCE(purchase_totals.total_purchase, 0) AS total_purchase,
+          COALESCE(sale_totals.total_sales, 0) - COALESCE(purchase_totals.total_purchase, 0) AS profit
+        FROM sale_totals
+        FULL OUTER JOIN purchase_totals
+          ON sale_totals.month = purchase_totals.month
+        ORDER BY month ASC
+      ` : `
         WITH purchase_totals AS (
           SELECT
             EXTRACT(MONTH FROM purchase_date)::int AS month,
@@ -1542,12 +1568,21 @@ app.get('/api/analytics/reporting', async (req, res) => {
         FULL OUTER JOIN purchase_totals
           ON sale_totals.month = purchase_totals.month
         ORDER BY month ASC
-      `,
-      [effectiveYear]
+      `;
+    const profitByMonthResult = await pool.query(
+      profitByMonthQuery,
+      effectiveYear === null ? [] : [effectiveYear]
     );
 
-    const expensesByMonthResult = await pool.query(
-      `
+    const expensesByMonthQuery = effectiveYear === null ? `
+        SELECT
+          EXTRACT(MONTH FROM purchase_date)::int AS month,
+          SUM(COALESCE(purchase_price, 0))::numeric AS expense
+        FROM stock
+        WHERE purchase_date IS NOT NULL
+        GROUP BY month
+        ORDER BY month ASC
+      ` : `
         SELECT
           EXTRACT(MONTH FROM purchase_date)::int AS month,
           SUM(COALESCE(purchase_price, 0))::numeric AS expense
@@ -1556,8 +1591,10 @@ app.get('/api/analytics/reporting', async (req, res) => {
           AND EXTRACT(YEAR FROM purchase_date)::int = $1
         GROUP BY month
         ORDER BY month ASC
-      `,
-      [effectiveYear]
+      `;
+    const expensesByMonthResult = await pool.query(
+      expensesByMonthQuery,
+      effectiveYear === null ? [] : [effectiveYear]
     );
 
     const profitTimeline = profitTimelineResult.rows.map((row) => ({
@@ -1587,8 +1624,16 @@ app.get('/api/analytics/reporting', async (req, res) => {
       };
     });
 
-    const salesByCategoryResult = await pool.query(
-      `
+    const salesByCategoryQuery = effectiveYear === null ? `
+        SELECT
+          COALESCE(category, 'Uncategorized') AS category,
+          SUM(COALESCE(sale_price, 0))::numeric AS total_sales
+        FROM stock
+        WHERE sale_date IS NOT NULL
+        GROUP BY COALESCE(category, 'Uncategorized')
+        HAVING SUM(COALESCE(sale_price, 0)) > 0
+        ORDER BY total_sales DESC
+      ` : `
         SELECT
           COALESCE(category, 'Uncategorized') AS category,
           SUM(COALESCE(sale_price, 0))::numeric AS total_sales
@@ -1598,8 +1643,10 @@ app.get('/api/analytics/reporting', async (req, res) => {
         GROUP BY COALESCE(category, 'Uncategorized')
         HAVING SUM(COALESCE(sale_price, 0)) > 0
         ORDER BY total_sales DESC
-      `,
-      [effectiveYear]
+      `;
+    const salesByCategoryResult = await pool.query(
+      salesByCategoryQuery,
+      effectiveYear === null ? [] : [effectiveYear]
     );
 
     const salesByCategory = salesByCategoryResult.rows.map((row) => ({
@@ -1607,8 +1654,18 @@ app.get('/api/analytics/reporting', async (req, res) => {
       totalSales: Number(row.total_sales)
     }));
 
-    const unsoldStockByCategoryResult = await pool.query(
-      `
+    const unsoldStockByCategoryQuery = effectiveYear === null ? `
+        SELECT
+          COALESCE(category, 'Uncategorized') AS category,
+          SUM(COALESCE(purchase_price, 0))::numeric AS total_value,
+          COUNT(*)::int AS item_count
+        FROM stock
+        WHERE purchase_date IS NOT NULL
+          AND sale_date IS NULL
+        GROUP BY COALESCE(category, 'Uncategorized')
+        HAVING SUM(COALESCE(purchase_price, 0)) > 0
+        ORDER BY total_value DESC
+      ` : `
         SELECT
           COALESCE(category, 'Uncategorized') AS category,
           SUM(COALESCE(purchase_price, 0))::numeric AS total_value,
@@ -1620,8 +1677,10 @@ app.get('/api/analytics/reporting', async (req, res) => {
         GROUP BY COALESCE(category, 'Uncategorized')
         HAVING SUM(COALESCE(purchase_price, 0)) > 0
         ORDER BY total_value DESC
-      `,
-      [effectiveYear]
+      `;
+    const unsoldStockByCategoryResult = await pool.query(
+      unsoldStockByCategoryQuery,
+      effectiveYear === null ? [] : [effectiveYear]
     );
 
     const unsoldStockByCategory = unsoldStockByCategoryResult.rows.map((row) => ({
@@ -1669,19 +1728,20 @@ app.get('/api/analytics/reporting', async (req, res) => {
     const averageProfitPerItem = profitSoldCount > 0 ? netProfit / profitSoldCount : 0;
 
     // Calculate ROI for the selected year to match year-specific profit
-    const roiResult = await pool.query(
-      `
+    const roiQuery = effectiveYear === null ? `
         SELECT
-          SUM(COALESCE(sale_price, 0))::numeric AS total_sales,
-          SUM(COALESCE(purchase_price, 0))::numeric AS total_spend
+          COALESCE(SUM(CASE WHEN sale_date IS NOT NULL THEN sale_price ELSE 0 END), 0)::numeric AS total_sales,
+          COALESCE(SUM(CASE WHEN purchase_date IS NOT NULL THEN purchase_price ELSE 0 END), 0)::numeric AS total_spend
         FROM stock
-        WHERE (
-          (purchase_date IS NOT NULL AND EXTRACT(YEAR FROM purchase_date)::int = $1)
-          OR
-          (sale_date IS NOT NULL AND EXTRACT(YEAR FROM sale_date)::int = $1)
-        )
-      `,
-      [effectiveYear]
+      ` : `
+        SELECT
+          COALESCE(SUM(CASE WHEN sale_date IS NOT NULL AND EXTRACT(YEAR FROM sale_date)::int = $1 THEN sale_price ELSE 0 END), 0)::numeric AS total_sales,
+          COALESCE(SUM(CASE WHEN purchase_date IS NOT NULL AND EXTRACT(YEAR FROM purchase_date)::int = $1 THEN purchase_price ELSE 0 END), 0)::numeric AS total_spend
+        FROM stock
+      `;
+    const roiResult = await pool.query(
+      roiQuery,
+      effectiveYear === null ? [] : [effectiveYear]
     );
 
     const roiTotalSales = Number(roiResult.rows[0]?.total_sales || 0);
@@ -1708,16 +1768,35 @@ app.get('/api/analytics/reporting', async (req, res) => {
 
     const activeListingsCount = Number(activeListingsResult.rows[0]?.active_count || 0);
 
-    const unsoldInventoryValueResult = await pool.query(`
+    // Calculate unsold inventory value - filter by year if not "all"
+    const unsoldInventoryQuery = effectiveYear === null ? `
       SELECT SUM(COALESCE(purchase_price, 0))::numeric AS total_value
       FROM stock
       WHERE purchase_date IS NOT NULL AND sale_date IS NULL
-    `);
-
+    ` : `
+      SELECT SUM(COALESCE(purchase_price, 0))::numeric AS total_value
+      FROM stock
+      WHERE purchase_date IS NOT NULL 
+        AND sale_date IS NULL
+        AND EXTRACT(YEAR FROM purchase_date)::int = $1
+    `;
+    const unsoldInventoryValueResult = await pool.query(
+      unsoldInventoryQuery,
+      effectiveYear === null ? [] : [effectiveYear]
+    );
     const unsoldInventoryValue = Number(unsoldInventoryValueResult.rows[0]?.total_value || 0);
 
-    const monthlyAverageSellingPriceResult = await pool.query(
-      `
+    const monthlyAverageSellingPriceQuery = effectiveYear === null ? `
+        SELECT
+          EXTRACT(MONTH FROM sale_date)::int AS month,
+          AVG(COALESCE(sale_price, 0))::numeric AS average_price,
+          COUNT(*) AS item_count
+        FROM stock
+        WHERE sale_date IS NOT NULL
+          AND sale_price IS NOT NULL
+        GROUP BY month
+        ORDER BY month ASC
+      ` : `
         SELECT
           EXTRACT(MONTH FROM sale_date)::int AS month,
           AVG(COALESCE(sale_price, 0))::numeric AS average_price,
@@ -1728,8 +1807,10 @@ app.get('/api/analytics/reporting', async (req, res) => {
           AND EXTRACT(YEAR FROM sale_date)::int = $1
         GROUP BY month
         ORDER BY month ASC
-      `,
-      [effectiveYear]
+      `;
+    const monthlyAverageSellingPriceResult = await pool.query(
+      monthlyAverageSellingPriceQuery,
+      effectiveYear === null ? [] : [effectiveYear]
     );
 
     const monthlyAverageSellingPrice = monthlyAverageSellingPriceResult.rows.map((row) => ({
@@ -1738,8 +1819,17 @@ app.get('/api/analytics/reporting', async (req, res) => {
       itemCount: Number(row.item_count)
     }));
 
-    const monthlyAverageProfitPerItemResult = await pool.query(
-      `
+    const monthlyAverageProfitPerItemQuery = effectiveYear === null ? `
+        SELECT
+          EXTRACT(MONTH FROM sale_date)::int AS month,
+          AVG((COALESCE(sale_price, 0) - COALESCE(purchase_price, 0)))::numeric AS average_profit,
+          COUNT(*) AS item_count
+        FROM stock
+        WHERE sale_date IS NOT NULL
+          AND sale_price IS NOT NULL
+        GROUP BY month
+        ORDER BY month ASC
+      ` : `
         SELECT
           EXTRACT(MONTH FROM sale_date)::int AS month,
           AVG((COALESCE(sale_price, 0) - COALESCE(purchase_price, 0)))::numeric AS average_profit,
@@ -1750,8 +1840,10 @@ app.get('/api/analytics/reporting', async (req, res) => {
           AND EXTRACT(YEAR FROM sale_date)::int = $1
         GROUP BY month
         ORDER BY month ASC
-      `,
-      [effectiveYear]
+      `;
+    const monthlyAverageProfitPerItemResult = await pool.query(
+      monthlyAverageProfitPerItemQuery,
+      effectiveYear === null ? [] : [effectiveYear]
     );
 
     const monthlyAverageProfitPerItem = monthlyAverageProfitPerItemResult.rows.map((row) => ({
@@ -1760,8 +1852,25 @@ app.get('/api/analytics/reporting', async (req, res) => {
       itemCount: Number(row.item_count)
     }));
 
-    const monthlyAverageProfitMultipleResult = await pool.query(
-      `
+    const monthlyAverageProfitMultipleQuery = effectiveYear === null ? `
+        SELECT
+          EXTRACT(MONTH FROM sale_date)::int AS month,
+          AVG(
+            CASE 
+              WHEN COALESCE(purchase_price, 0) > 0 
+              THEN COALESCE(sale_price, 0) / COALESCE(purchase_price, 0)
+              ELSE NULL
+            END
+          )::numeric AS average_multiple,
+          COUNT(*) AS item_count
+        FROM stock
+        WHERE sale_date IS NOT NULL
+          AND sale_price IS NOT NULL
+          AND purchase_price IS NOT NULL
+          AND COALESCE(purchase_price, 0) > 0
+        GROUP BY month
+        ORDER BY month ASC
+      ` : `
         SELECT
           EXTRACT(MONTH FROM sale_date)::int AS month,
           AVG(
@@ -1780,8 +1889,10 @@ app.get('/api/analytics/reporting', async (req, res) => {
           AND EXTRACT(YEAR FROM sale_date)::int = $1
         GROUP BY month
         ORDER BY month ASC
-      `,
-      [effectiveYear]
+      `;
+    const monthlyAverageProfitMultipleResult = await pool.query(
+      monthlyAverageProfitMultipleQuery,
+      effectiveYear === null ? [] : [effectiveYear]
     );
 
     const monthlyAverageProfitMultiple = monthlyAverageProfitMultipleResult.rows.map((row) => ({
@@ -1791,24 +1902,50 @@ app.get('/api/analytics/reporting', async (req, res) => {
     }));
 
     // Calculate year-specific totals to match Stock page calculation
-    const yearSpecificTotalsResult = await pool.query(
-      `
+    const yearSpecificTotalsQuery = effectiveYear === null ? `
         SELECT
-          SUM(COALESCE(purchase_price, 0))::numeric AS total_purchase,
-          SUM(COALESCE(sale_price, 0))::numeric AS total_sales
+          COALESCE(SUM(CASE WHEN purchase_date IS NOT NULL AND purchase_price IS NOT NULL THEN purchase_price ELSE 0 END), 0)::numeric AS total_purchase,
+          COALESCE(SUM(CASE WHEN sale_date IS NOT NULL AND sale_price IS NOT NULL THEN sale_price ELSE 0 END), 0)::numeric AS total_sales
         FROM stock
-        WHERE (
-          (purchase_date IS NOT NULL AND EXTRACT(YEAR FROM purchase_date)::int = $1)
-          OR
-          (sale_date IS NOT NULL AND EXTRACT(YEAR FROM sale_date)::int = $1)
-        )
-      `,
-      [effectiveYear]
+      ` : `
+        SELECT
+          COALESCE(SUM(CASE WHEN purchase_date IS NOT NULL AND purchase_price IS NOT NULL AND EXTRACT(YEAR FROM purchase_date)::int = $1 THEN purchase_price ELSE 0 END), 0)::numeric AS total_purchase,
+          COALESCE(SUM(CASE WHEN sale_date IS NOT NULL AND sale_price IS NOT NULL AND EXTRACT(YEAR FROM sale_date)::int = $1 THEN sale_price ELSE 0 END), 0)::numeric AS total_sales
+        FROM stock
+      `;
+    const yearSpecificTotalsResult = await pool.query(
+      yearSpecificTotalsQuery,
+      effectiveYear === null ? [] : [effectiveYear]
     );
 
     const yearTotalPurchase = Number(yearSpecificTotalsResult.rows[0]?.total_purchase || 0);
     const yearTotalSales = Number(yearSpecificTotalsResult.rows[0]?.total_sales || 0);
     const yearTotalProfit = yearTotalSales - yearTotalPurchase;
+    
+    // Calculate cost of sold items (total purchases - unsold inventory)
+    const costOfSoldItems = yearTotalPurchase - unsoldInventoryValue;
+    
+    // Calculate total profit from sold items (sale price - purchase price for sold items only)
+    const totalProfitFromSoldItems = yearTotalSales - costOfSoldItems;
+    
+    // Calculate Vinted and eBay sales
+    const platformSalesQuery = effectiveYear === null ? `
+        SELECT
+          COALESCE(SUM(CASE WHEN sale_date IS NOT NULL AND sale_price IS NOT NULL AND sold_platform = 'Vinted' THEN sale_price ELSE 0 END), 0)::numeric AS vinted_sales,
+          COALESCE(SUM(CASE WHEN sale_date IS NOT NULL AND sale_price IS NOT NULL AND sold_platform = 'eBay' THEN sale_price ELSE 0 END), 0)::numeric AS ebay_sales
+        FROM stock
+      ` : `
+        SELECT
+          COALESCE(SUM(CASE WHEN sale_date IS NOT NULL AND sale_price IS NOT NULL AND sold_platform = 'Vinted' AND EXTRACT(YEAR FROM sale_date)::int = $1 THEN sale_price ELSE 0 END), 0)::numeric AS vinted_sales,
+          COALESCE(SUM(CASE WHEN sale_date IS NOT NULL AND sale_price IS NOT NULL AND sold_platform = 'eBay' AND EXTRACT(YEAR FROM sale_date)::int = $1 THEN sale_price ELSE 0 END), 0)::numeric AS ebay_sales
+        FROM stock
+      `;
+    const platformSalesResult = await pool.query(
+      platformSalesQuery,
+      effectiveYear === null ? [] : [effectiveYear]
+    );
+    const vintedSales = Number(platformSalesResult.rows[0]?.vinted_sales || 0);
+    const ebaySales = Number(platformSalesResult.rows[0]?.ebay_sales || 0);
 
     // Calculate average profit multiple for all time
     const allTimeProfitMultipleResult = await pool.query(`
@@ -1832,14 +1969,20 @@ app.get('/api/analytics/reporting', async (req, res) => {
       : 0;
 
     // Calculate items listed and sold for current year
-    const yearItemsResult = await pool.query(
-      `
+    const yearItemsQuery = effectiveYear === null ? `
+        SELECT
+          COUNT(*) FILTER (WHERE purchase_date IS NOT NULL) AS items_listed,
+          COUNT(*) FILTER (WHERE sale_date IS NOT NULL) AS items_sold
+        FROM stock
+      ` : `
         SELECT
           COUNT(*) FILTER (WHERE purchase_date IS NOT NULL AND EXTRACT(YEAR FROM purchase_date)::int = $1) AS items_listed,
           COUNT(*) FILTER (WHERE sale_date IS NOT NULL AND EXTRACT(YEAR FROM sale_date)::int = $1) AS items_sold
         FROM stock
-      `,
-      [effectiveYear]
+      `;
+    const yearItemsResult = await pool.query(
+      yearItemsQuery,
+      effectiveYear === null ? [] : [effectiveYear]
     );
 
     const yearItemsListed = Number(yearItemsResult.rows[0]?.items_listed || 0);
@@ -1880,7 +2023,7 @@ app.get('/api/analytics/reporting', async (req, res) => {
 
     res.json({
       availableYears,
-      selectedYear: effectiveYear,
+      selectedYear: effectiveYear || 'all',
       profitTimeline,
       monthlyProfit,
       monthlyExpenses,
@@ -1921,7 +2064,11 @@ app.get('/api/analytics/reporting', async (req, res) => {
       yearSpecificTotals: {
         totalPurchase: yearTotalPurchase,
         totalSales: yearTotalSales,
-        profit: yearTotalProfit
+        profit: yearTotalProfit,
+        costOfSoldItems: costOfSoldItems,
+        totalProfitFromSoldItems: totalProfitFromSoldItems,
+        vintedSales: vintedSales,
+        ebaySales: ebaySales
       },
       allTimeAverageProfitMultiple: Number(allTimeAverageProfitMultiple.toFixed(2)),
       yearItemsStats: {

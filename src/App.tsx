@@ -4,18 +4,16 @@ import EbaySearch from './components/EbaySearch';
 import Research from './components/Research';
 import Reporting from './components/Reporting';
 import Stock from './components/Stock';
-import Offline from './components/Offline';
 import Expenses from './components/Expenses';
 import AuthGate from './components/AuthGate';
 import './App.css';
 
 const navItems = [
-  { to: '/', label: 'Home', end: true },
-  { to: '/research', label: 'Research' },
-  { to: '/offline', label: 'Offline' },
+  { to: '/', label: 'Price Research', end: true },
   { to: '/stock', label: 'Stock' },
+  { to: '/reporting', label: 'Reporting' },
   { to: '/expenses', label: 'Expenses' },
-  { to: '/reporting', label: 'Reporting' }
+  { to: '/research', label: 'Brand Research' }
 ];
 
 function App() {
@@ -71,7 +69,6 @@ function App() {
         <Routes>
           <Route path="/" element={<EbaySearch />} />
           <Route path="/research" element={<Research />} />
-          <Route path="/offline" element={<Offline />} />
           <Route path="/stock" element={<Stock />} />
           <Route path="/expenses" element={<Expenses />} />
           <Route path="/reporting" element={<Reporting />} />
