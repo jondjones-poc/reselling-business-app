@@ -170,6 +170,8 @@ const Stock: React.FC = () => {
   const [selectedDataRow, setSelectedDataRow] = useState<StockRow | null>(null);
   const [selectedRowElement, setSelectedRowElement] = useState<HTMLElement | null>(null);
   const [isDataPanelClosing, setIsDataPanelClosing] = useState(false);
+  const [offerPrice, setOfferPrice] = useState<string>('');
+  const [promotedFee, setPromotedFee] = useState<string>('10');
   const [showListedDropdown, setShowListedDropdown] = useState(false);
   const listedDropdownRef = useRef<HTMLDivElement>(null);
   const [showSoldPlatformDropdown, setShowSoldPlatformDropdown] = useState(false);
@@ -1218,6 +1220,8 @@ const Stock: React.FC = () => {
     window.setTimeout(() => {
       setSelectedDataRow(null);
       setSelectedRowElement(null);
+      setOfferPrice('');
+      setPromotedFee('10');
       setIsDataPanelClosing(false);
     }, 220);
   }, []);
@@ -2226,31 +2230,54 @@ const Stock: React.FC = () => {
           >
               <div 
                 className="stock-data-panel"
-                onClick={handleCloseDataPanel}
               >
-              <div className="stock-data-panel-grid">
+              <div className="stock-data-panel-grid" onClick={(e) => e.stopPropagation()}>
+                <button
+                  type="button"
+                  className="stock-data-close-button stock-data-close-button-mobile"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCloseDataPanel();
+                  }}
+                  aria-label="Close panel"
+                >
+                  × Close
+                </button>
                 <div className="stock-data-item stock-data-item-title">
                   <div className="stock-data-value stock-data-title">
                     {selectedDataRow.item_name || '—'}
                   </div>
-                  <button
-                    type="button"
-                    className="stock-data-copy-button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const title = selectedDataRow.item_name || '';
-                      if (title) {
-                        navigator.clipboard.writeText(title).then(() => {
-                          // Optional: Show a brief success message
-                        }).catch(err => {
-                          console.error('Failed to copy:', err);
-                        });
-                      }
-                    }}
-                    aria-label="Copy item title to clipboard"
-                  >
-                    📋
-                  </button>
+                  <div className="stock-data-title-actions">
+                    <button
+                      type="button"
+                      className="stock-data-copy-button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const title = selectedDataRow.item_name || '';
+                        if (title) {
+                          navigator.clipboard.writeText(title).then(() => {
+                            // Optional: Show a brief success message
+                          }).catch(err => {
+                            console.error('Failed to copy:', err);
+                          });
+                        }
+                      }}
+                      aria-label="Copy item title to clipboard"
+                    >
+                      📋
+                    </button>
+                    <button
+                      type="button"
+                      className="stock-data-close-button stock-data-close-button-desktop"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCloseDataPanel();
+                      }}
+                      aria-label="Close panel"
+                    >
+                      ×
+                    </button>
+                  </div>
                 </div>
                 <div className="stock-data-item">
                   <div className="stock-data-label">Buy Price</div>
@@ -2295,6 +2322,65 @@ const Stock: React.FC = () => {
                       : (selectedDataRow.purchase_date && (selectedDataRow.sale_date === null || selectedDataRow.sale_date === undefined))
                         ? '0 days'
                         : '—'}
+                  </div>
+                </div>
+                <div className="stock-data-prediction-section" onClick={(e) => e.stopPropagation()}>
+                  <div className="stock-data-prediction-input-group">
+                    <label className="stock-data-label">Offer</label>
+                    <input
+                      type="number"
+                      value={offerPrice}
+                      onChange={(e) => setOfferPrice(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      onFocus={(e) => e.stopPropagation()}
+                      placeholder="0.00"
+                      step="0.01"
+                      min="0"
+                      className="stock-data-prediction-input"
+                    />
+                  </div>
+                  <div className="stock-data-prediction-input-group">
+                    <label className="stock-data-label">Fee (%)</label>
+                    <input
+                      type="number"
+                      value={promotedFee}
+                      onChange={(e) => setPromotedFee(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      onFocus={(e) => e.stopPropagation()}
+                      placeholder="10"
+                      step="0.1"
+                      min="0"
+                      max="100"
+                      className="stock-data-prediction-input"
+                    />
+                  </div>
+                  <div className="stock-data-prediction-result">
+                    <label className="stock-data-label">Predicted Profit</label>
+                    <div className="stock-data-prediction-profit-text">
+                      {(() => {
+                        const purchase = metrics.purchase;
+                        const offer = parseFloat(offerPrice) || 0;
+                        const feePercent = parseFloat(promotedFee) || 0;
+                        
+                        if (Number.isNaN(purchase) || purchase <= 0 || offer <= 0) {
+                          return '—';
+                        }
+                        
+                        // eBay Final Value Fee for clothing: 10%
+                        const finalValueFeePercent = 10;
+                        const totalFeePercent = finalValueFeePercent + feePercent;
+                        // Fees are calculated on the sale price (purchase price)
+                        const totalFees = purchase * (totalFeePercent / 100);
+                        // Predicted Profit = Offer (total amount) - Purchase Price - Fees
+                        const predictedProfit = offer - purchase - totalFees;
+                        
+                        return (
+                          <span className={`stock-data-prediction-profit-value ${predictedProfit >= 0 ? 'positive' : 'negative'}`}>
+                            {formatCurrency(predictedProfit)}
+                          </span>
+                        );
+                      })()}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2373,15 +2459,6 @@ const Stock: React.FC = () => {
               <th>
                 <button
                   type="button"
-                  className={`sortable-header${sortConfig?.key === 'sold_platform' ? ` sorted-${sortConfig.direction}` : ''}`}
-                  onClick={() => handleSort('sold_platform')}
-                >
-                  Platform <span className="sort-indicator">{resolveSortIndicator('sold_platform')}</span>
-                </button>
-              </th>
-              <th>
-                <button
-                  type="button"
                   className={`sortable-header${sortConfig?.key === 'net_profit' ? ` sorted-${sortConfig.direction}` : ''}`}
                   onClick={() => handleSort('net_profit')}
                 >
@@ -2394,7 +2471,7 @@ const Stock: React.FC = () => {
           <tbody>
             {!loading && sortedRows.length === 0 && (
               <tr>
-                <td colSpan={10} className="empty-state">
+                <td colSpan={9} className="empty-state">
                   No stock records found.
                 </td>
               </tr>
@@ -2469,7 +2546,6 @@ const Stock: React.FC = () => {
                     )}
                   </td>
                   <td>{renderCellContent(row, 'sale_price', formatCurrency)}</td>
-                  <td>{renderCellContent(row, 'sold_platform')}</td>
                   <td>
                     <span className={profitClass}>{profitDisplay}</span>
                   </td>
