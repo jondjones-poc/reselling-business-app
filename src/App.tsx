@@ -5,6 +5,8 @@ import Research from './components/Research';
 import Reporting from './components/Reporting';
 import Stock from './components/Stock';
 import Expenses from './components/Expenses';
+import Orders from './components/Orders';
+import Sourcing from './components/Sourcing';
 import AuthGate from './components/AuthGate';
 import './App.css';
 
@@ -13,7 +15,9 @@ const navItems = [
   { to: '/stock', label: 'Stock' },
   { to: '/reporting', label: 'Reporting' },
   { to: '/expenses', label: 'Expenses' },
-  { to: '/research', label: 'Brand Research' }
+  { to: '/orders', label: 'Orders' },
+  { to: '/research', label: 'Brand Research' },
+  { to: '/sourcing', label: 'Sourcing' }
 ];
 
 function App() {
@@ -72,6 +76,8 @@ function App() {
           <Route path="/stock" element={<Stock />} />
           <Route path="/expenses" element={<Expenses />} />
           <Route path="/reporting" element={<Reporting />} />
+          <Route path="/orders" element={<Orders />} />
+          <Route path="/sourcing" element={<Sourcing />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
     </div>

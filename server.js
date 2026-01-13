@@ -1046,7 +1046,7 @@ app.get('/api/stock', async (req, res) => {
     }
 
     const result = await pool.query(
-      'SELECT id, item_name, category, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted, ebay FROM stock ORDER BY purchase_date DESC NULLS LAST, item_name ASC'
+      'SELECT id, item_name, category, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted, ebay, vinted_id, ebay_id, depop_id FROM stock ORDER BY purchase_date DESC NULLS LAST, item_name ASC'
     );
 
     res.json({
@@ -1077,7 +1077,10 @@ app.post('/api/stock', async (req, res) => {
       sold_platform,
       net_profit,
       vinted,
-      ebay
+      ebay,
+      vinted_id,
+      ebay_id,
+      depop_id
     } = req.body ?? {};
 
     const normalizedItemName = normalizeTextInput(item_name) ?? null;
@@ -1095,6 +1098,11 @@ app.post('/api/stock', async (req, res) => {
     // Normalize vinted and ebay: convert to boolean or null
     const normalizedVinted = vinted === null || vinted === undefined ? null : Boolean(vinted);
     const normalizedEbay = ebay === null || ebay === undefined ? null : Boolean(ebay);
+    
+    // Normalize ID fields: convert to string or null
+    const normalizedVintedId = vinted_id === null || vinted_id === undefined || vinted_id === '' ? null : String(vinted_id).trim();
+    const normalizedEbayId = ebay_id === null || ebay_id === undefined || ebay_id === '' ? null : String(ebay_id).trim();
+    const normalizedDepopId = depop_id === null || depop_id === undefined || depop_id === '' ? null : String(depop_id).trim();
 
     const insertQuery = `
       INSERT INTO stock (
@@ -1107,10 +1115,13 @@ app.post('/api/stock', async (req, res) => {
         sold_platform,
         net_profit,
         vinted,
-        ebay
+        ebay,
+        vinted_id,
+        ebay_id,
+        depop_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      RETURNING id, item_name, category, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted, ebay
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      RETURNING id, item_name, category, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted, ebay, vinted_id, ebay_id, depop_id
     `;
 
     const result = await pool.query(insertQuery, [
@@ -1123,7 +1134,10 @@ app.post('/api/stock', async (req, res) => {
       normalizedSoldPlatform,
       computedNetProfit,
       normalizedVinted,
-      normalizedEbay
+      normalizedEbay,
+      normalizedVintedId,
+      normalizedEbayId,
+      normalizedDepopId
     ]);
 
     res.status(201).json({ row: result.rows[0] });
@@ -1149,8 +1163,10 @@ app.put('/api/stock/:id', async (req, res) => {
       return res.status(400).json({ error: 'Invalid stock id' });
     }
 
+    console.log('PUT /api/stock/:id - Request body:', JSON.stringify(req.body, null, 2));
+
     const existingResult = await pool.query(
-      'SELECT id, item_name, category, purchase_price, purchase_date, sale_date, sale_price, sold_platform, vinted, ebay FROM stock WHERE id = $1',
+      'SELECT id, item_name, category, purchase_price, purchase_date, sale_date, sale_price, sold_platform, vinted, ebay, vinted_id, ebay_id, depop_id FROM stock WHERE id = $1',
       [stockId]
     );
 
@@ -1201,6 +1217,9 @@ app.put('/api/stock/:id', async (req, res) => {
 
     const existingVinted = existing.vinted === null || existing.vinted === undefined ? null : Boolean(existing.vinted);
     const existingEbay = existing.ebay === null || existing.ebay === undefined ? null : Boolean(existing.ebay);
+    const existingVintedId = existing.vinted_id ?? null;
+    const existingEbayId = existing.ebay_id ?? null;
+    const existingDepopId = existing.depop_id ?? null;
 
     const finalVinted = hasProp('vinted')
       ? (req.body.vinted === null || req.body.vinted === undefined ? null : Boolean(req.body.vinted))
@@ -1210,10 +1229,30 @@ app.put('/api/stock/:id', async (req, res) => {
       ? (req.body.ebay === null || req.body.ebay === undefined ? null : Boolean(req.body.ebay))
       : existingEbay;
 
+    const finalVintedId = hasProp('vinted_id')
+      ? (req.body.vinted_id === null || req.body.vinted_id === undefined || req.body.vinted_id === '' ? null : String(req.body.vinted_id).trim())
+      : existingVintedId;
+
+    const finalEbayId = hasProp('ebay_id')
+      ? (req.body.ebay_id === null || req.body.ebay_id === undefined || req.body.ebay_id === '' ? null : String(req.body.ebay_id).trim())
+      : existingEbayId;
+
+    const finalDepopId = hasProp('depop_id')
+      ? (req.body.depop_id === null || req.body.depop_id === undefined || req.body.depop_id === '' ? null : String(req.body.depop_id).trim())
+      : existingDepopId;
+
     const computedNetProfit =
       finalSalePrice !== null && finalPurchasePrice !== null
         ? finalSalePrice - finalPurchasePrice
         : null;
+
+    console.log('PUT /api/stock/:id - Final values:', {
+      vinted_id: finalVintedId,
+      ebay_id: finalEbayId,
+      depop_id: finalDepopId,
+      hasProp_vinted_id: hasProp('vinted_id'),
+      req_body_vinted_id: req.body.vinted_id
+    });
 
     const updateResult = await pool.query(
       `
@@ -1228,9 +1267,12 @@ app.put('/api/stock/:id', async (req, res) => {
           sold_platform = $7,
           net_profit = $8,
           vinted = $9,
-          ebay = $10
-        WHERE id = $11
-        RETURNING id, item_name, category, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted, ebay
+          ebay = $10,
+          vinted_id = $11,
+          ebay_id = $12,
+          depop_id = $13
+        WHERE id = $14
+        RETURNING id, item_name, category, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted, ebay, vinted_id, ebay_id, depop_id
       `,
       [
         finalItemName,
@@ -1243,13 +1285,23 @@ app.put('/api/stock/:id', async (req, res) => {
         computedNetProfit,
         finalVinted,
         finalEbay,
+        finalVintedId,
+        finalEbayId,
+        finalDepopId,
         stockId
       ]
     );
 
+    console.log('PUT /api/stock/:id - Update successful, returned row:', updateResult.rows[0]);
     res.json({ row: updateResult.rows[0] });
   } catch (error) {
     console.error('Stock update failed:', error);
+    console.error('Stock update error details:', {
+      message: error.message,
+      code: error.code,
+      detail: error.detail,
+      hint: error.hint
+    });
     if (error.status === 400) {
       return res.status(400).json({ error: 'Failed to update stock record', details: error.message });
     }

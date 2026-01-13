@@ -19,6 +19,9 @@ interface StockRow {
   net_profit: Nullable<string | number>;
   vinted: Nullable<boolean>;
   ebay: Nullable<boolean>;
+  vinted_id: Nullable<string>;
+  ebay_id: Nullable<string>;
+  depop_id: Nullable<string>;
 }
 
 interface StockApiResponse {
@@ -160,7 +163,9 @@ const Stock: React.FC = () => {
     sale_date: '',
     sale_price: '',
     sold_platform: '',
-    listingOptions: ['Vinted'] as string[]
+    vinted_id: '',
+    ebay_id: '',
+    depop_id: ''
   });
   const [searchTerm, setSearchTerm] = useState('');
   const [showTypeahead, setShowTypeahead] = useState(false);
@@ -172,8 +177,6 @@ const Stock: React.FC = () => {
   const [isDataPanelClosing, setIsDataPanelClosing] = useState(false);
   const [offerPrice, setOfferPrice] = useState<string>('');
   const [promotedFee, setPromotedFee] = useState<string>('10');
-  const [showListedDropdown, setShowListedDropdown] = useState(false);
-  const listedDropdownRef = useRef<HTMLDivElement>(null);
   const [showSoldPlatformDropdown, setShowSoldPlatformDropdown] = useState(false);
   const soldPlatformDropdownRef = useRef<HTMLDivElement>(null);
   const [categories, setCategories] = useState<string[]>(CATEGORIES); // Default to hardcoded, then load from API
@@ -183,8 +186,6 @@ const Stock: React.FC = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const editFormRef = useRef<HTMLDivElement>(null);
-  const isInitializingForm = useRef(false);
-  const listingOptionsRef = useRef<string[]>([]);
 
   const loadStock = async () => {
     try {
@@ -213,6 +214,7 @@ const Stock: React.FC = () => {
       if (data.rows && data.rows.length > 0) {
         console.log('Stock data loaded from API:', data.rows.length, 'rows');
         console.log('Sample row with database id:', data.rows[0]?.id, data.rows[0]);
+        console.log('Sample row vinted_id:', data.rows[0]?.vinted_id);
       }
       setRows(Array.isArray(data.rows) ? data.rows : []);
       setEditingRowId(null);
@@ -294,9 +296,6 @@ const Stock: React.FC = () => {
   // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (showListedDropdown && listedDropdownRef.current && !listedDropdownRef.current.contains(event.target as Node)) {
-        setShowListedDropdown(false);
-      }
       if (showSoldPlatformDropdown && soldPlatformDropdownRef.current && !soldPlatformDropdownRef.current.contains(event.target as Node)) {
         setShowSoldPlatformDropdown(false);
       }
@@ -305,36 +304,8 @@ const Stock: React.FC = () => {
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [showListedDropdown, showSoldPlatformDropdown]);
+  }, [showSoldPlatformDropdown]);
 
-  // Memoize listingOptions to prevent accidental mutations
-  // Use ref value if available and matches, otherwise use form state
-  const memoizedListingOptions = useMemo(() => {
-    const formOptions = Array.isArray(createForm.listingOptions) ? createForm.listingOptions : [];
-    const refOptions = listingOptionsRef.current;
-    
-    // If ref has values and form state doesn't match, log warning
-    if (refOptions.length > 0 && formOptions.length !== refOptions.length) {
-      console.warn('MISMATCH: ref has', refOptions, 'but form has', formOptions);
-      // Use ref value if it's more complete
-      if (refOptions.length > formOptions.length) {
-        console.warn('Using ref value instead of form value');
-        return [...refOptions];
-      }
-    }
-    
-    return formOptions.length > 0 ? [...formOptions] : (refOptions.length > 0 ? [...refOptions] : []);
-  }, [createForm.listingOptions]);
-
-  // Debug: Log when listingOptions changes and track what caused it
-  useEffect(() => {
-    console.log('createForm.listingOptions changed:', createForm.listingOptions, 'length:', createForm.listingOptions.length);
-    // Log stack trace to see what's calling the state change
-    if (createForm.listingOptions.length === 1 && editingRowId !== null && createForm.listingOptions[0] !== 'Vinted') {
-      console.warn('WARNING: listingOptions reduced to 1 item during edit! Stack:', new Error().stack);
-      console.warn('Current editingRowId:', editingRowId, 'listingOptions:', createForm.listingOptions);
-    }
-  }, [createForm.listingOptions, editingRowId]);
 
   useEffect(() => {
     if (!successMessage) {
@@ -990,50 +961,7 @@ const Stock: React.FC = () => {
       return;
     }
 
-    // Convert vinted/ebay to listingOptions
-    // Handle all possible combinations to ensure all selected options are shown
-    const listingOptions: string[] = [];
-    
-    // Debug: Log the actual values to see what we're getting
-    console.log('Editing row - vinted:', row.vinted, 'type:', typeof row.vinted, 'ebay:', row.ebay, 'type:', typeof row.ebay);
-    console.log('Row ID:', row.id, 'Row item_name:', row.item_name);
-    
-    // Check for Vinted - both can be true independently
-    if (row.vinted === true) {
-      listingOptions.push('Vinted');
-      console.log('Added Vinted to listingOptions');
-    }
-    
-    // Check for eBay - both can be true independently
-    if (row.ebay === true) {
-      listingOptions.push('eBay');
-      console.log('Added eBay to listingOptions');
-    }
-    
-    // If both are false or both are null, show "To List"
-    // Only add "To List" if neither Vinted nor eBay is true
-    const bothFalse = row.vinted === false && row.ebay === false;
-    const bothNull = row.vinted === null && row.ebay === null;
-    const oneFalseOneNull = (row.vinted === false && row.ebay === null) || (row.vinted === null && row.ebay === false);
-    
-    // Only show "To List" if no platform is selected (neither is true)
-    if ((bothFalse || bothNull || oneFalseOneNull) && listingOptions.length === 0) {
-      listingOptions.push('To List');
-    }
-    
-    // Default to Vinted if nothing is set (shouldn't happen, but safety check)
-    if (listingOptions.length === 0) {
-      listingOptions.push('Vinted');
-    }
-    
-    console.log('Final listingOptions:', listingOptions);
-
     setEditingRowId(row.id);
-    isInitializingForm.current = true;
-    // Create a new array reference and store in ref
-    const listingOptionsCopy = [...listingOptions];
-    listingOptionsRef.current = listingOptionsCopy;
-    console.log('Setting form with listingOptions copy:', listingOptionsCopy, 'stored in ref');
     setCreateForm({
       item_name: row.item_name ?? '',
       category: row.category ?? '',
@@ -1042,16 +970,15 @@ const Stock: React.FC = () => {
       sale_date: normalizeDateInput(row.sale_date ?? ''),
       sale_price: row.sale_price ? String(row.sale_price) : '',
       sold_platform: row.sold_platform ?? '',
-      listingOptions: listingOptionsCopy
+      vinted_id: row.vinted_id ?? '',
+      ebay_id: row.ebay_id ?? '',
+      depop_id: row.depop_id ?? ''
     });
+    console.log('startEditingRow - row data:', row);
+    console.log('startEditingRow - vinted_id:', row.vinted_id);
+    console.log('startEditingRow - form vinted_id:', row.vinted_id ?? '');
     setShowNewEntry(true);
     setSuccessMessage(null);
-    
-    // Allow form modifications after a brief delay to ensure state is set
-    setTimeout(() => {
-      isInitializingForm.current = false;
-      console.log('Form initialization complete, listingOptions should be:', listingOptions, 'ref has:', listingOptionsRef.current);
-    }, 200);
     
     // Scroll to edit form after DOM updates
     setTimeout(() => {
@@ -1070,16 +997,13 @@ const Stock: React.FC = () => {
       sale_date: '',
       sale_price: '',
       sold_platform: '',
-      listingOptions: ['Vinted'] as string[]
+      vinted_id: '',
+      ebay_id: '',
+      depop_id: ''
     });
   };
 
   const handleCreateChange = (key: keyof typeof createForm, value: string) => {
-    // Prevent accidentally overwriting listingOptions array with a string
-    if (key === 'listingOptions') {
-      console.warn('handleCreateChange called with listingOptions - this should not happen! Value:', value);
-      return;
-    }
     setCreateForm((prev) => ({
       ...prev,
       [key]: value
@@ -1091,15 +1015,6 @@ const Stock: React.FC = () => {
       setCreating(true);
       setError(null);
 
-      // Convert listingOptions to vinted and ebay booleans
-      const hasVinted = createForm.listingOptions.includes('Vinted');
-      const hasEbay = createForm.listingOptions.includes('eBay');
-      const hasToList = createForm.listingOptions.includes('To List');
-
-      // If "To List" is selected, set both to null, otherwise set based on selections
-      const vinted = hasToList ? null : (hasVinted ? true : false);
-      const ebay = hasToList ? null : (hasEbay ? true : false);
-
       const payload = {
         item_name: createForm.item_name,
         category: createForm.category,
@@ -1108,9 +1023,13 @@ const Stock: React.FC = () => {
         sale_date: createForm.sale_date,
         sale_price: createForm.sale_price,
         sold_platform: createForm.sold_platform,
-        vinted,
-        ebay
+        vinted_id: createForm.vinted_id ? createForm.vinted_id.trim() : null,
+        ebay_id: createForm.ebay_id ? createForm.ebay_id.trim() : null,
+        depop_id: createForm.depop_id ? createForm.depop_id.trim() : null
       };
+
+      console.log('Stock submit - Payload:', payload);
+      console.log('Stock submit - vinted_id value:', createForm.vinted_id);
 
       // Check if we're editing or creating
       const isEditing = editingRowId !== null;
@@ -1146,6 +1065,9 @@ const Stock: React.FC = () => {
       const data = await response.json();
       const updatedRow: StockRow | undefined = data?.row;
 
+      console.log('Stock update response - updatedRow:', updatedRow);
+      console.log('Stock update response - vinted_id:', updatedRow?.vinted_id);
+
       if (!updatedRow) {
         throw new Error('Server did not return the updated row.');
       }
@@ -1164,7 +1086,6 @@ const Stock: React.FC = () => {
       setShowNewEntry(false);
       setEditingRowId(null);
       resetCreateForm();
-      listingOptionsRef.current = []; // Reset the ref
       setSortConfig(null);
     } catch (err: any) {
       console.error('Stock create error:', err);
@@ -1301,7 +1222,7 @@ const Stock: React.FC = () => {
       {showNewEntry && (
         <div className="new-entry-card" ref={editFormRef}>
           <div className="new-entry-grid">
-            {/* Row 1: Name, Category, Purchase Price (£), Purchase Date, Listed */}
+            {/* Row 1: Name, Category, Purchase Price (£), Purchase Date */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', width: '100%' }}>
               <label className="new-entry-field">
                 <span>Name</span>
@@ -1464,230 +1385,38 @@ const Stock: React.FC = () => {
                   wrapperClassName="date-picker-wrapper"
                 />
               </label>
-              <div className="new-entry-field" style={{ position: 'relative' }} ref={listedDropdownRef}>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: '8px', color: 'rgba(255, 248, 226, 0.7)', letterSpacing: '0.05rem' }}>
-                <span>Listed</span>
-                <div
-                  className="new-entry-select"
-                  style={{
-                    position: 'relative',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    padding: '14px 18px',
-                    borderRadius: '16px',
-                    border: '1px solid rgba(255, 214, 91, 0.28)',
-                    background: 'rgba(255, 214, 91, 0.08)',
-                    color: 'var(--text-strong)',
-                    gap: '6px',
-                    flexWrap: 'nowrap',
-                    overflow: 'hidden',
-                    minHeight: 'auto',
-                    height: 'auto',
-                    lineHeight: '1.2'
-                  }}
-                  onClick={() => {
-                    console.log('Opening Listed dropdown, current listingOptions:', createForm.listingOptions);
-                    setShowListedDropdown(!showListedDropdown);
-                  }}
-                >
-                  {createForm.listingOptions.length > 0 ? (
-                    createForm.listingOptions.map((option) => {
-                      const getIconSrc = (opt: string) => {
-                        if (opt === 'Vinted') return '/images/vinted-icon.svg';
-                        if (opt === 'eBay') return '/images/ebay-icon.svg';
-                        if (opt === 'To List') return '/images/to-list-icon.svg';
-                        return null;
-                      };
-                      const iconSrc = getIconSrc(option);
-                      return (
-                        <span
-                          key={option}
-                          style={{
-                            padding: '2px 6px',
-                            background: 'rgba(255, 214, 91, 0.2)',
-                            borderRadius: '6px',
-                            fontSize: '0.85rem',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            whiteSpace: 'nowrap',
-                            flexShrink: 0
-                          }}
-                        >
-                          {iconSrc && (
-                            <img 
-                              src={iconSrc} 
-                              alt={`${option} icon`}
-                              style={{
-                                width: '12px',
-                                height: '12px',
-                                display: 'inline-block',
-                                flexShrink: 0
-                              }}
-                            />
-                          )}
-                          {option}
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setCreateForm((prev) => ({
-                              ...prev,
-                              listingOptions: prev.listingOptions.filter((opt) => opt !== option)
-                            }));
-                          }}
-                          style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: 'var(--text-strong)',
-                            cursor: 'pointer',
-                            padding: '0',
-                            fontSize: '12px',
-                            lineHeight: '1',
-                            marginLeft: '2px',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            width: '14px',
-                            height: '14px'
-                          }}
-                        >
-                          ×
-                        </button>
-                      </span>
-                    );
-                    })
-                  ) : (
-                    <span style={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: '0.95rem' }}>Select options...</span>
-                  )}
-                </div>
-                {showListedDropdown && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: '100%',
-                      left: 0,
-                      right: 0,
-                      marginTop: '4px',
-                      background: 'rgba(5, 4, 3, 0.98)',
-                      border: '1px solid rgba(255, 214, 91, 0.28)',
-                      borderRadius: '16px',
-                      padding: '8px',
-                      zIndex: 1000,
-                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)'
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {(() => {
-                      // Use memoized listingOptions to prevent closure issues
-                      const currentListingOptions = memoizedListingOptions;
-                      console.log('Dropdown render - using memoized listingOptions:', currentListingOptions);
-                      
-                      return ['Vinted', 'eBay', 'To List'].map((option) => {
-                        const getIconSrc = (opt: string) => {
-                          if (opt === 'Vinted') return '/images/vinted-icon.svg';
-                          if (opt === 'eBay') return '/images/ebay-icon.svg';
-                          if (opt === 'To List') return '/images/to-list-icon.svg';
-                          return null;
-                        };
-                        const iconSrc = getIconSrc(option);
-                        // Use the captured value to avoid closure issues
-                        const isChecked = Array.isArray(currentListingOptions) && currentListingOptions.includes(option);
-                        // Debug: Log checkbox state every time dropdown is shown
-                        console.log(`Rendering checkbox for "${option}": isChecked=${isChecked}, using capturedOptions=`, currentListingOptions);
-                      return (
-                        <label
-                          key={option}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            padding: '10px 12px',
-                            cursor: 'pointer',
-                            borderRadius: '8px',
-                            transition: 'background 0.2s ease'
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.background = 'rgba(255, 214, 91, 0.1)';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.background = 'transparent';
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={(e) => {
-                              // Prevent modifications during form initialization
-                              if (isInitializingForm.current) {
-                                console.warn(`Prevented checkbox ${option} onChange during form initialization`);
-                                e.preventDefault();
-                                return;
-                              }
-                              
-                              e.preventDefault(); // Prevent default behavior
-                              const newChecked = e.target.checked;
-                              console.log(`Checkbox ${option} onChange triggered: newChecked=${newChecked}, currentOptions=`, createForm.listingOptions);
-                              
-                              setCreateForm((prev) => {
-                                const currentOptions = prev.listingOptions || [];
-                                let newOptions: string[];
-                                
-                                if (newChecked) {
-                                  // Add option if not already present
-                                  if (!currentOptions.includes(option)) {
-                                    newOptions = [...currentOptions, option];
-                                    console.log(`Adding ${option}, newOptions:`, newOptions);
-                                  } else {
-                                    newOptions = currentOptions;
-                                    console.log(`${option} already in list, no change`);
-                                  }
-                                } else {
-                                  // Remove option
-                                  newOptions = currentOptions.filter((opt) => opt !== option);
-                                  console.log(`Removing ${option}, newOptions:`, newOptions);
-                                }
-                                
-                                // Update ref to match
-                                listingOptionsRef.current = newOptions;
-                                
-                                return {
-                                  ...prev,
-                                  listingOptions: newOptions
-                                };
-                              });
-                            }}
-                            style={{
-                              width: '16px',
-                              height: '16px',
-                              cursor: 'pointer',
-                              accentColor: 'var(--neon-primary-strong)'
-                            }}
-                          />
-                          {iconSrc && (
-                            <img 
-                              src={iconSrc} 
-                              alt={`${option} icon`}
-                              style={{
-                                width: '12px',
-                                height: '12px',
-                                display: 'inline-block',
-                                flexShrink: 0
-                              }}
-                            />
-                          )}
-                          <span style={{ color: 'var(--text-strong)', fontSize: '0.95rem' }}>{option}</span>
-                        </label>
-                      );
-                    });
-                    })()}
-                  </div>
-                )}
+            </div>
+            {/* Row 2: Platform IDs */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', width: '100%' }}>
+              <label className="new-entry-field">
+                <span>Vinted ID</span>
+                <input
+                  type="text"
+                  value={createForm.vinted_id}
+                  onChange={(event) => handleCreateChange('vinted_id', event.target.value)}
+                  placeholder="Optional"
+                />
+              </label>
+              <label className="new-entry-field">
+                <span>eBay ID</span>
+                <input
+                  type="text"
+                  value={createForm.ebay_id}
+                  onChange={(event) => handleCreateChange('ebay_id', event.target.value)}
+                  placeholder="Optional"
+                />
+              </label>
+              <label className="new-entry-field">
+                <span>Depop ID</span>
+                <input
+                  type="text"
+                  value={createForm.depop_id}
+                  onChange={(event) => handleCreateChange('depop_id', event.target.value)}
+                  placeholder="Optional"
+                />
               </label>
             </div>
-            </div>
-            {/* Row 2: Sale Price (£), Sale Date, Sold Platform */}
+            {/* Row 3: Sale Price (£), Sale Date, Sold Platform */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', width: '100%' }}>
               <label className="new-entry-field">
               <span>Sale Price (£)</span>
@@ -1858,6 +1587,7 @@ const Stock: React.FC = () => {
                 )}
               </label>
             </div>
+            </div>
             <div className="new-entry-actions" style={{ display: 'flex', gap: '12px', alignItems: 'center', justifyContent: 'flex-end', marginLeft: 'auto' }}>
               <button
                 type="button"
@@ -1883,9 +1613,21 @@ const Stock: React.FC = () => {
                 Close
               </button>
             </div>
-            </div>
             {editingRowId && (
-              <div style={{ width: '100%', marginTop: '20px' }}>
+              <div style={{ width: '100%', marginTop: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                <span style={{ 
+                  position: 'absolute', 
+                  left: 0, 
+                  color: 'var(--text-strong)', 
+                  fontSize: '4rem', 
+                  fontWeight: 'bold',
+                  lineHeight: '1',
+                  display: 'flex',
+                  alignItems: 'center',
+                  height: '100%'
+                }}>
+                  {editingRowId}
+                </span>
                 <button
                   type="button"
                   className="delete-button"
@@ -2228,9 +1970,9 @@ const Stock: React.FC = () => {
               zIndex: 1000
             }}
           >
-              <div 
-                className="stock-data-panel"
-              >
+            <div 
+              className="stock-data-panel"
+            >
               <div className="stock-data-panel-grid" onClick={(e) => e.stopPropagation()}>
                 <button
                   type="button"
@@ -2324,6 +2066,66 @@ const Stock: React.FC = () => {
                         : '—'}
                   </div>
                 </div>
+                {selectedDataRow.vinted_id && selectedDataRow.vinted_id.trim() && (
+                  <div className="stock-data-item">
+                    <div className="stock-data-label">Vinted Listing</div>
+                    <div className="stock-data-value">
+                      <a
+                        href={`https://www.vinted.co.uk/items/${selectedDataRow.vinted_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          color: 'var(--neon-primary-strong)',
+                          textDecoration: 'underline',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        View on Vinted
+                      </a>
+                    </div>
+                  </div>
+                )}
+                {selectedDataRow.ebay_id && selectedDataRow.ebay_id.trim() && (
+                  <div className="stock-data-item">
+                    <div className="stock-data-label">eBay Listing</div>
+                    <div className="stock-data-value">
+                      <a
+                        href={`https://www.ebay.co.uk/itm/${selectedDataRow.ebay_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          color: 'var(--neon-primary-strong)',
+                          textDecoration: 'underline',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        View on eBay
+                      </a>
+                    </div>
+                  </div>
+                )}
+                {selectedDataRow.depop_id && selectedDataRow.depop_id.trim() && (
+                  <div className="stock-data-item">
+                    <div className="stock-data-label">Depop Listing</div>
+                    <div className="stock-data-value">
+                      <a
+                        href={`https://www.depop.com/products/${selectedDataRow.depop_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          color: 'var(--neon-primary-strong)',
+                          textDecoration: 'underline',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        View on Depop
+                      </a>
+                    </div>
+                  </div>
+                )}
                 <div className="stock-data-prediction-section" onClick={(e) => e.stopPropagation()}>
                   <div className="stock-data-prediction-input-group">
                     <label className="stock-data-label">Offer</label>
@@ -2465,7 +2267,7 @@ const Stock: React.FC = () => {
                   Net Profit <span className="sort-indicator">{resolveSortIndicator('net_profit')}</span>
                 </button>
               </th>
-              <th className="stock-table-actions-header">Edit</th>
+              <th className="stock-table-actions-header">Info</th>
             </tr>
           </thead>
           <tbody>
@@ -2498,9 +2300,7 @@ const Stock: React.FC = () => {
                       type="button"
                       onClick={(event) => {
                         event.stopPropagation();
-                        setIsDataPanelClosing(false);
-                        setSelectedDataRow(row);
-                        setSelectedRowElement(event.currentTarget.closest('tr') as HTMLElement);
+                        startEditingRow(row);
                       }}
                       style={{
                         background: 'transparent',
@@ -2556,10 +2356,12 @@ const Stock: React.FC = () => {
                         className="row-hint-button"
                         onClick={(event) => {
                           event.stopPropagation();
-                          startEditingRow(row);
+                          setIsDataPanelClosing(false);
+                          setSelectedDataRow(row);
+                          setSelectedRowElement(event.currentTarget.closest('tr') as HTMLElement);
                         }}
                       >
-                        Edit
+                        Info
                       </button>
                     </div>
                   </td>
