@@ -29,7 +29,7 @@ const Sourcing: React.FC = () => {
   const suggestionsRef = useRef<HTMLDivElement>(null);
 
   // Quick search buttons (for convenience, separate from typeahead data source)
-  const quickSearchBrands = ['Diesel', 'Ralph', 'Tommy', 'Hogs Of Fife', 'Paul Smith', 'GANT'];
+  const quickSearchBrands = ['Diesel Jeans', 'Ralph Trousers', 'Tommy', 'Hogs Of Fife', 'Paul Smith', 'GANT', 'Nudie Jeans', 'Hackett', 'North Face', 'Levis'];
 
   const handleSearch = () => {
     if (!searchText.trim()) {

@@ -11,12 +11,12 @@ import AuthGate from './components/AuthGate';
 import './App.css';
 
 const navItems = [
-  { to: '/', label: 'Price Research', end: true },
+  { to: '/', label: 'Price', end: true },
   { to: '/stock', label: 'Stock' },
   { to: '/reporting', label: 'Reporting' },
   { to: '/expenses', label: 'Expenses' },
   { to: '/orders', label: 'Orders' },
-  { to: '/research', label: 'Brand Research' },
+  { to: '/research', label: 'Research' },
   { to: '/sourcing', label: 'Sourcing' }
 ];
 

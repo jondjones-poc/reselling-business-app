@@ -293,12 +293,27 @@
   min-width: 200px;
 }
 
+@media (max-width: 768px) {
+  .unsold-filter-select {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
 .search-group {
   display: flex;
   align-items: center;
   position: relative;
   flex: 2;
   min-width: 400px;
+}
+
+@media (max-width: 768px) {
+  .search-group {
+    min-width: 0;
+    flex: 1 1 100%;
+    width: 100%;
+  }
 }
 
 .search-input-wrapper {
@@ -1288,6 +1303,7 @@
 @media (max-width: 768px) {
   .stock-container {
     margin: 16px;
+    margin-top: 100px;
     padding: 28px;
     max-width: calc(100% - 32px);
     width: calc(100% - 32px);
@@ -1298,6 +1314,7 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 12px;
+    margin-bottom: 24px;
   }
 
   .stock-header h1 {
@@ -1308,15 +1325,19 @@
     flex-direction: column;
     align-items: stretch;
     gap: 14px;
+    margin-top: 20px;
   }
 
   .filter-select {
     width: 100%;
+    min-width: 0 !important;
   }
 
   /* Make search box full width and move category filter below on mobile */
   .search-group {
     width: 100%;
+    min-width: 0;
+    flex: 1 1 100%;
   }
 
   .search-input-wrapper {
@@ -1340,6 +1361,22 @@
     max-width: 100% !important;
     min-width: 0 !important;
     flex: 1 1 100% !important;
+  }
+  
+  /* Override inline styles for category select on mobile */
+  .search-input-wrapper .filter-select[style] {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+  
+  .filter-group {
+    width: 100%;
+    min-width: 0;
+  }
+  
+  .unsold-filter-group {
+    width: 100%;
   }
 
   .view-toggle {

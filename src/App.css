@@ -34,6 +34,8 @@ body {
   top: 0;
   left: 0;
   z-index: 1000;
+  overflow-x: hidden;
+  box-sizing: border-box;
 }
 
 .nav-container {
@@ -44,6 +46,8 @@ body {
   align-items: center;
   gap: 24px;
   padding: 18px 24px;
+  box-sizing: border-box;
+  width: 100%;
 }
 
 .nav-title {
@@ -54,6 +58,11 @@ body {
   color: var(--neon-primary);
   text-shadow: 0 0 18px rgba(255, 214, 91, 0.8);
   padding-left: 24px;
+  box-sizing: border-box;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
 }
 
 .nav-menu {
@@ -477,14 +486,27 @@ body {
 }
 
 @media (max-width: 768px) {
+  .navigation {
+    overflow-x: hidden;
+  }
+
   .nav-container {
     flex-direction: column;
-    align-items: flex-start;
+    align-items: stretch;
     gap: 12px;
+    padding: 16px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
   }
 
   .nav-title {
     cursor: pointer;
+    padding-left: 0;
+    font-size: 1.5rem;
+    letter-spacing: 0.15rem;
+    width: 100%;
+    max-width: 100%;
   }
 
   .nav-menu {
@@ -492,6 +514,8 @@ body {
     width: 100%;
     flex-direction: column;
     gap: 10px;
+    box-sizing: border-box;
+    overflow-x: hidden;
   }
 
   .nav-menu.show-mobile {
@@ -500,7 +524,14 @@ body {
 
   .nav-button {
     width: 100%;
+    max-width: 100%;
     justify-content: center;
+    box-sizing: border-box;
+    padding: 10px 20px;
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   
   .App-header {

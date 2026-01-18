@@ -1086,7 +1086,7 @@ const Research: React.FC = () => {
           </div>
         )}
       </div>
-      <div style={{ display: 'flex', justifyContent: 'center', gap: '12px', marginTop: '32px', marginBottom: '40px' }}>
+      <div className="research-buttons-row">
         <button
           onClick={handleClearBrandSearch}
           className="research-clear-button clear-red"

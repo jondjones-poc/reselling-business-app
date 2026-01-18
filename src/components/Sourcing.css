@@ -212,6 +212,19 @@
   .sourcing-price-input,
   .sourcing-search-button {
     width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  
+  .sourcing-category-select {
+    width: 100%;
+    min-width: 0;
+  }
+  
+  .sourcing-price-input {
+    width: 100% !important;
+    min-width: 0 !important;
   }
 
   .sourcing-brands-list {
