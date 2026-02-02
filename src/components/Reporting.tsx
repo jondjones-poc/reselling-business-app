@@ -1014,8 +1014,8 @@ const Reporting: React.FC = () => {
             </div>
             <div className="total-profit-card">
               <div className="total-profit-label">Inventory Value</div>
-              <div className="total-profit-value negative">
-                {monthlySummaryLoading ? '...' : formatCurrency(-(monthlySummaryData?.unsoldInventoryValue || 0))}
+              <div className="total-profit-value positive">
+                {monthlySummaryLoading ? '...' : formatCurrency(monthlySummaryData?.unsoldInventoryValue || 0)}
               </div>
             </div>
             <div className="total-profit-card">
