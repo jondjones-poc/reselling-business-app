@@ -2340,6 +2340,19 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
       ebay: row.ebay
     }));
 
+    // Calculate total unsold inventory value (all unsold items, not filtered by month/year)
+    const unsoldInventoryResult = await pool.query(
+      `
+        SELECT SUM(COALESCE(purchase_price, 0))::numeric AS total_value
+        FROM stock
+        WHERE purchase_date IS NOT NULL AND sale_date IS NULL
+      `
+    );
+    const unsoldInventoryValue = Number(unsoldInventoryResult.rows[0]?.total_value || 0);
+
+    // Calculate total profit for the month (sales - purchases)
+    const totalMonthProfit = vintedProfit + ebayProfit;
+
     res.json({
       year: requestedYear,
       month: requestedMonth,
@@ -2355,11 +2368,78 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
       },
       unsoldPurchases,
       cashFlowProfit: finalCashFlowProfit,
-      untaggedItems
+      untaggedItems,
+      unsoldInventoryValue,
+      totalMonthProfit
     });
   } catch (error) {
     console.error('Monthly platform analytics error:', error);
     res.status(500).json({ error: 'Failed to load monthly platform data' });
+  }
+});
+
+// Endpoint for trailing inventory (last 12 months of unsold inventory)
+app.get('/api/analytics/trailing-inventory', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const currentDate = new Date();
+    const currentYear = currentDate.getFullYear();
+    const currentMonth = currentDate.getMonth() + 1; // 1-12
+
+    // Calculate the last 12 months
+    const trailingMonths = [];
+    for (let i = 11; i >= 0; i--) {
+      let year = currentYear;
+      let month = currentMonth - i;
+      
+      if (month <= 0) {
+        month += 12;
+        year -= 1;
+      }
+      
+      trailingMonths.push({ year, month });
+    }
+
+    // For each month, calculate the cumulative total cost of all items purchased up to and including that month that are still unsold
+    const inventoryData = [];
+    
+    for (const { year, month } of trailingMonths) {
+      // Calculate the end date of this month (last day of the month)
+      const endDate = new Date(year, month, 0); // Day 0 of next month = last day of current month
+      const endDateString = endDate.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+      
+      // Find all items purchased on or before the end of this month that are still unsold
+      const result = await pool.query(
+        `
+          SELECT SUM(COALESCE(purchase_price, 0))::numeric AS total_inventory_cost
+          FROM stock
+          WHERE purchase_date IS NOT NULL
+            AND sale_date IS NULL
+            AND purchase_date <= $1
+        `,
+        [endDateString]
+      );
+      
+      const totalCost = Number(result.rows[0]?.total_inventory_cost || 0);
+      inventoryData.push({
+        year,
+        month,
+        label: `${monthLabels[month - 1]} ${year}`,
+        inventoryCost: totalCost
+      });
+    }
+
+    res.json({
+      data: inventoryData
+    });
+  } catch (error) {
+    console.error('Trailing inventory analytics error:', error);
+    res.status(500).json({ error: 'Failed to load trailing inventory data', details: error.message });
   }
 });
 

@@ -4,14 +4,16 @@ import {
   CategoryScale,
   LinearScale,
   BarElement,
+  LineElement,
+  PointElement,
   Tooltip,
   Legend,
   ChartOptions,
 } from 'chart.js';
-import { Bar } from 'react-chartjs-2';
+import { Bar, Line } from 'react-chartjs-2';
 import './Reporting.css';
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend);
 
 interface ProfitTimelinePoint {
   year: number;
@@ -97,6 +99,13 @@ interface ActiveListingsCount {
 
 interface UnsoldInventoryValue {
   value: number;
+}
+
+interface TrailingInventoryPoint {
+  year: number;
+  month: number;
+  label: string;
+  inventoryCost: number;
 }
 
 interface ReportingResponse {
@@ -229,6 +238,21 @@ const Reporting: React.FC = () => {
     ebay: boolean | null;
   }>>([]);
   const [monthlyLoading, setMonthlyLoading] = useState(false);
+  
+  // State for the new monthly summary row (in Global view)
+  const [monthlySummaryYear, setMonthlySummaryYear] = useState<number>(new Date().getFullYear());
+  const [monthlySummaryMonth, setMonthlySummaryMonth] = useState<number>(new Date().getMonth() + 1);
+  const [monthlySummaryData, setMonthlySummaryData] = useState<{
+    ebaySales: number;
+    vintedSales: number;
+    monthProfit: number;
+    unsoldInventoryValue: number;
+  } | null>(null);
+  const [monthlySummaryLoading, setMonthlySummaryLoading] = useState(false);
+  
+  // State for trailing inventory
+  const [trailingInventory, setTrailingInventory] = useState<TrailingInventoryPoint[]>([]);
+  const [trailingInventoryLoading, setTrailingInventoryLoading] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -329,6 +353,84 @@ const Reporting: React.FC = () => {
       fetchMonthlyData();
     }
   }, [viewMode, monthlyViewYear, monthlyViewMonth]);
+
+  // Fetch monthly summary data for the new row in Global view
+  useEffect(() => {
+    if (viewMode === 'global') {
+      const fetchMonthlySummary = async () => {
+        try {
+          setMonthlySummaryLoading(true);
+          const url = `${API_BASE}/api/analytics/monthly-platform?year=${monthlySummaryYear}&month=${monthlySummaryMonth}`;
+          const response = await fetch(url);
+          if (!response.ok) {
+            throw new Error('Failed to load monthly summary data');
+          }
+          const data = await response.json();
+          setMonthlySummaryData({
+            ebaySales: data.ebay?.sales || 0,
+            vintedSales: data.vinted?.sales || 0,
+            monthProfit: data.totalMonthProfit || 0,
+            unsoldInventoryValue: data.unsoldInventoryValue || 0
+          });
+        } catch (err: any) {
+          console.error('[Monthly Summary] Fetch error:', err);
+          setMonthlySummaryData({
+            ebaySales: 0,
+            vintedSales: 0,
+            monthProfit: 0,
+            unsoldInventoryValue: 0
+          });
+        } finally {
+          setMonthlySummaryLoading(false);
+        }
+      };
+      fetchMonthlySummary();
+    }
+  }, [viewMode, monthlySummaryYear, monthlySummaryMonth]);
+
+  // Fetch trailing inventory data
+  useEffect(() => {
+    if (viewMode === 'global') {
+      const fetchTrailingInventory = async () => {
+        try {
+          setTrailingInventoryLoading(true);
+          const response = await fetch(`${API_BASE}/api/analytics/trailing-inventory`);
+          if (!response.ok) {
+            throw new Error('Failed to load trailing inventory data');
+          }
+          const data = await response.json();
+          setTrailingInventory(data.data || []);
+        } catch (err: any) {
+          console.error('[Trailing Inventory] Fetch error:', err);
+          setTrailingInventory([]);
+        } finally {
+          setTrailingInventoryLoading(false);
+        }
+      };
+      fetchTrailingInventory();
+    }
+  }, [viewMode]);
+
+  // Fetch trailing inventory data
+  useEffect(() => {
+    const fetchTrailingInventory = async () => {
+      try {
+        setTrailingInventoryLoading(true);
+        const response = await fetch(`${API_BASE}/api/analytics/trailing-inventory`);
+        if (!response.ok) {
+          throw new Error('Failed to load trailing inventory data');
+        }
+        const data = await response.json();
+        setTrailingInventory(data.data || []);
+      } catch (err: any) {
+        console.error('[Trailing Inventory] Fetch error:', err);
+        setTrailingInventory([]);
+      } finally {
+        setTrailingInventoryLoading(false);
+      }
+    };
+    fetchTrailingInventory();
+  }, []);
 
   const timelineChartData = useMemo(() => {
     if (profitTimeline.length === 0) {
@@ -578,6 +680,71 @@ const Reporting: React.FC = () => {
     };
   }, [unsoldStockByCategory]);
 
+  // Line chart options for trailing inventory
+  const lineChartOptions: ChartOptions<'line'> = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label(context) {
+            const value = context.raw as number;
+            return formatCurrency(value || 0);
+          },
+        },
+      },
+    },
+    scales: {
+      x: {
+        grid: { color: 'rgba(255, 214, 91, 0.08)' },
+        ticks: { color: 'rgba(255, 248, 226, 0.8)' },
+      },
+      y: {
+        beginAtZero: true,
+        grid: { color: 'rgba(255, 214, 91, 0.12)' },
+        ticks: {
+          color: 'rgba(255, 248, 226, 0.75)',
+          callback(value) {
+            if (typeof value === 'number') {
+              return formatCurrency(value);
+            }
+            return value;
+          },
+        },
+      },
+    },
+  };
+
+  // Trailing inventory line chart data
+  const trailingInventoryChartData = useMemo(() => {
+    if (trailingInventory.length === 0) {
+      return null;
+    }
+
+    const labels = trailingInventory.map((item) => item.label);
+    const values = trailingInventory.map((item) => item.inventoryCost);
+
+    return {
+      labels,
+      datasets: [
+        {
+          label: 'Inventory Value',
+          data: values,
+          borderColor: 'rgba(255, 214, 91, 0.9)',
+          backgroundColor: 'rgba(255, 214, 91, 0.1)',
+          borderWidth: 2,
+          pointRadius: 4,
+          pointBackgroundColor: 'rgba(255, 214, 91, 0.9)',
+          pointBorderColor: 'rgba(255, 214, 91, 1)',
+          pointHoverRadius: 6,
+          tension: 0.4,
+          fill: true,
+        },
+      ],
+    };
+  }, [trailingInventory]);
+
   return (
     <div className="reporting-container">
 
@@ -819,6 +986,96 @@ const Reporting: React.FC = () => {
             </div>
           </div>
 
+          {/* Row 5: Monthly Sales Summary - Platform Sales (combined), Month Profit, Inventory Value, Month Filter */}
+          <div className="reporting-summary">
+            <div className="total-profit-card">
+              <div className="total-profit-label">Platform Sales ({monthLabels[monthlySummaryMonth - 1]} {monthlySummaryYear})</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: 0 }}>
+                <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ fontSize: '0.9rem', color: 'rgba(255, 248, 226, 0.7)', letterSpacing: '0.05rem', fontWeight: 600 }}>Vinted =</div>
+                  <div className="total-profit-value positive" style={{ fontSize: '1.1rem', margin: 0 }}>
+                    {monthlySummaryLoading ? '...' : formatCurrency(monthlySummaryData?.vintedSales || 0)}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ fontSize: '0.9rem', color: 'rgba(255, 248, 226, 0.7)', letterSpacing: '0.05rem', fontWeight: 600 }}>eBay =</div>
+                  <div className="total-profit-value positive" style={{ fontSize: '1.1rem', margin: 0 }}>
+                    {monthlySummaryLoading ? '...' : formatCurrency(monthlySummaryData?.ebaySales || 0)}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="total-profit-card">
+              <div className="total-profit-label">Month Profit ({monthLabels[monthlySummaryMonth - 1]} {monthlySummaryYear})</div>
+              <div className={`total-profit-value ${(monthlySummaryData?.monthProfit || 0) >= 0 ? 'positive' : 'negative'}`}>
+                {monthlySummaryLoading ? '...' : formatCurrency(monthlySummaryData?.monthProfit || 0)}
+              </div>
+              <div className="total-profit-description">Sales - Purchases for this month</div>
+            </div>
+            <div className="total-profit-card">
+              <div className="total-profit-label">Inventory Value</div>
+              <div className="total-profit-value negative">
+                {monthlySummaryLoading ? '...' : formatCurrency(-(monthlySummaryData?.unsoldInventoryValue || 0))}
+              </div>
+            </div>
+            <div className="total-profit-card">
+              <div className="total-profit-label">Month Filter</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%', alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: 0 }}>
+                <div style={{ width: '100%' }}>
+                  <div className="total-profit-value" style={{ fontSize: '1.2rem', marginBottom: '8px' }}>
+                    <select
+                      value={monthlySummaryMonth}
+                      onChange={(e) => setMonthlySummaryMonth(Number(e.target.value))}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'var(--neon-primary-strong)',
+                        fontSize: '1.2rem',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        outline: 'none',
+                        textAlign: 'center',
+                        width: '100%'
+                      }}
+                    >
+                      {monthLabels.map((label, index) => (
+                        <option key={index + 1} value={index + 1}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div style={{ width: '100%' }}>
+                  <div className="total-profit-value" style={{ fontSize: '1.2rem', marginBottom: '8px' }}>
+                    <select
+                      value={monthlySummaryYear}
+                      onChange={(e) => setMonthlySummaryYear(Number(e.target.value))}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#8cffc3',
+                        fontSize: '1.2rem',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        outline: 'none',
+                        textAlign: 'center',
+                        width: '100%'
+                      }}
+                    >
+                      {availableYears.length === 0 && <option value={monthlySummaryYear}>{monthlySummaryYear}</option>}
+                      {availableYears.map((year) => (
+                        <option key={year} value={year}>
+                          {year}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="reporting-grid">
           <section className="reporting-card">
             <div className="card-header">
@@ -977,6 +1234,22 @@ const Reporting: React.FC = () => {
             </div>
           </section>
           </div>
+
+          {/* Trailing Inventory Chart */}
+          <section className="reporting-card" style={{ marginTop: '24px' }}>
+            <div className="card-header">
+              <h2>Inventory Value (Trailing 12 Months)</h2>
+            </div>
+            {trailingInventoryLoading ? (
+              <div className="reporting-status">Loading trailing inventory data...</div>
+            ) : trailingInventoryChartData ? (
+              <div className="chart-wrapper">
+                <Line data={trailingInventoryChartData} options={lineChartOptions} />
+              </div>
+            ) : (
+              <div className="reporting-empty">No trailing inventory data available.</div>
+            )}
+          </section>
           </>
         )}
       </div>
