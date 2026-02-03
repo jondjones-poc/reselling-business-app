@@ -556,7 +556,8 @@ const Stock: React.FC = () => {
         filtered = filtered.filter((row) => {
           const itemName = row.item_name ? row.item_name.toLowerCase() : '';
           const vintedId = row.vinted_id ? row.vinted_id.toLowerCase() : '';
-          return itemName.includes(searchLower) || vintedId.includes(searchLower);
+          const ebayId = row.ebay_id ? row.ebay_id.toLowerCase() : '';
+          return itemName.includes(searchLower) || vintedId.includes(searchLower) || ebayId.includes(searchLower);
         });
       }
 
@@ -573,7 +574,8 @@ const Stock: React.FC = () => {
       filtered = filtered.filter((row) => {
         const itemName = row.item_name ? row.item_name.toLowerCase() : '';
         const vintedId = row.vinted_id ? row.vinted_id.toLowerCase() : '';
-        return itemName.includes(searchLower) || vintedId.includes(searchLower);
+        const ebayId = row.ebay_id ? row.ebay_id.toLowerCase() : '';
+        return itemName.includes(searchLower) || vintedId.includes(searchLower) || ebayId.includes(searchLower);
       });
 
       // Then apply category filter to narrow down search results
