@@ -253,6 +253,7 @@ const Orders: React.FC = () => {
           <div className="orders-search-results">
             {searchResults.map((item) => {
               const isEbaySold = item.sold_platform === 'eBay' && item.ebay_id;
+              const isVintedSold = item.sold_platform === 'Vinted' && item.vinted_id;
               const itemName = item.item_name || '—';
               
               return (
@@ -262,6 +263,20 @@ const Orders: React.FC = () => {
                     {isEbaySold ? (
                       <a
                         href={`https://www.ebay.co.uk/itm/${item.ebay_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          color: 'var(--neon-primary-strong)',
+                          textDecoration: 'underline',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {itemName}
+                      </a>
+                    ) : isVintedSold ? (
+                      <a
+                        href={`https://www.vinted.co.uk/items/${item.vinted_id}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}
