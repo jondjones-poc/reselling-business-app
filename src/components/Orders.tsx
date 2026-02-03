@@ -17,6 +17,9 @@ interface StockRow {
   net_profit: Nullable<string | number>;
   vinted: Nullable<boolean>;
   ebay: Nullable<boolean>;
+  vinted_id: Nullable<string>;
+  ebay_id: Nullable<string>;
+  depop_id: Nullable<string>;
 }
 
 interface StockApiResponse {
@@ -158,17 +161,29 @@ const Orders: React.FC = () => {
   }, [allStock]);
 
   // Search results - only show unsold items
+  // Uses AND logic: all words must match (order doesn't matter)
   const searchResults = useMemo(() => {
     if (!searchTerm.trim()) {
       return [];
     }
 
-    const term = searchTerm.toLowerCase().trim();
+    const searchLower = searchTerm.toLowerCase().trim();
+    const searchWords = searchLower.split(/\s+/).filter(word => word.length > 0);
+    
     return unsoldItems
       .filter((row) => {
-        const itemName = row.item_name ? row.item_name.toLowerCase() : '';
-        const sku = String(row.id).toLowerCase();
-        return itemName.includes(term) || sku.includes(term);
+        const itemName = row.item_name ? String(row.item_name).toLowerCase() : '';
+        const vintedId = row.vinted_id ? String(row.vinted_id).toLowerCase() : '';
+        const ebayId = row.ebay_id ? String(row.ebay_id).toLowerCase() : '';
+        const skuId = String(row.id).toLowerCase();
+        
+        // For item name: match if ALL words are present (AND logic, order doesn't matter)
+        const itemNameMatches = searchWords.length > 0 && searchWords.every(word => itemName.includes(word));
+        
+        // For IDs: exact match (for precise ID searches)
+        const idMatches = vintedId.includes(searchLower) || ebayId.includes(searchLower) || skuId.includes(searchLower);
+        
+        return itemNameMatches || idMatches;
       })
       .slice(0, 10); // Limit to 10 results
   }, [searchTerm, unsoldItems]);
