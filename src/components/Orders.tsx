@@ -155,12 +155,7 @@ const Orders: React.FC = () => {
     }
   }, [orderItems]);
 
-  // Filter unsold items
-  const unsoldItems = useMemo(() => {
-    return allStock.filter((row) => !row.sale_date);
-  }, [allStock]);
-
-  // Search results - only show unsold items
+  // Search results - search all items
   // Uses AND logic: all words must match (order doesn't matter)
   const searchResults = useMemo(() => {
     if (!searchTerm.trim()) {
@@ -170,7 +165,7 @@ const Orders: React.FC = () => {
     const searchLower = searchTerm.toLowerCase().trim();
     const searchWords = searchLower.split(/\s+/).filter(word => word.length > 0);
     
-    return unsoldItems
+    return allStock
       .filter((row) => {
         const itemName = row.item_name ? String(row.item_name).toLowerCase() : '';
         const vintedId = row.vinted_id ? String(row.vinted_id).toLowerCase() : '';
@@ -186,7 +181,7 @@ const Orders: React.FC = () => {
         return itemNameMatches || idMatches;
       })
       .slice(0, 10); // Limit to 10 results
-  }, [searchTerm, unsoldItems]);
+  }, [searchTerm, allStock]);
 
   const handleAddItem = (item: StockRow) => {
     // Check if item is already in the order
@@ -237,7 +232,7 @@ const Orders: React.FC = () => {
           <input
             type="text"
             className="orders-search-input"
-            placeholder="Search unsold items by name or SKU..."
+            placeholder="Search all items by name or SKU..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             disabled={loading}
@@ -256,29 +251,52 @@ const Orders: React.FC = () => {
 
         {searchResults.length > 0 && (
           <div className="orders-search-results">
-            {searchResults.map((item) => (
-              <div key={item.id} className="orders-search-result-item">
-                <span className="orders-result-sku">{item.id}</span>
-                <span className="orders-result-name">{item.item_name || '—'}</span>
-                <span className="orders-result-price">
-                  {formatCurrency(item.purchase_price)}
-                </span>
-                <button
-                  type="button"
-                  className="orders-add-button"
-                  onClick={() => handleAddItem(item)}
-                  disabled={orderItems.some((orderItem) => orderItem.id === item.id)}
-                >
-                  {orderItems.some((orderItem) => orderItem.id === item.id) ? 'Added' : 'Add'}
-                </button>
-              </div>
-            ))}
+            {searchResults.map((item) => {
+              const isEbaySold = item.sold_platform === 'eBay' && item.ebay_id;
+              const itemName = item.item_name || '—';
+              
+              return (
+                <div key={item.id} className="orders-search-result-item">
+                  <span className="orders-result-sku">{item.id}</span>
+                  <span className="orders-result-name">
+                    {isEbaySold ? (
+                      <a
+                        href={`https://www.ebay.co.uk/itm/${item.ebay_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          color: 'var(--neon-primary-strong)',
+                          textDecoration: 'underline',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {itemName}
+                      </a>
+                    ) : (
+                      itemName
+                    )}
+                  </span>
+                  <span className="orders-result-price">
+                    {formatCurrency(item.purchase_price)}
+                  </span>
+                  <button
+                    type="button"
+                    className="orders-add-button"
+                    onClick={() => handleAddItem(item)}
+                    disabled={orderItems.some((orderItem) => orderItem.id === item.id)}
+                  >
+                    {orderItems.some((orderItem) => orderItem.id === item.id) ? 'Added' : 'Add'}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
 
         {searchTerm && searchResults.length === 0 && !loading && (
           <div className="orders-no-results">
-            No unsold items found matching "{searchTerm}"
+            No items found matching "{searchTerm}"
           </div>
         )}
       </div>
