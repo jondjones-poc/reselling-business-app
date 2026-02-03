@@ -563,7 +563,8 @@ const Stock: React.FC = () => {
           const itemName = row.item_name ? String(row.item_name).toLowerCase() : '';
           const vintedId = row.vinted_id ? String(row.vinted_id).toLowerCase() : '';
           const ebayId = row.ebay_id ? String(row.ebay_id).toLowerCase() : '';
-          return itemName.includes(searchLower) || vintedId.includes(searchLower) || ebayId.includes(searchLower);
+          const skuId = String(row.id).toLowerCase();
+          return itemName.includes(searchLower) || vintedId.includes(searchLower) || ebayId.includes(searchLower) || skuId.includes(searchLower);
         });
       }
 
@@ -581,13 +582,15 @@ const Stock: React.FC = () => {
         const itemName = row.item_name ? String(row.item_name).toLowerCase() : '';
         const vintedId = row.vinted_id ? String(row.vinted_id).toLowerCase() : '';
         const ebayId = row.ebay_id ? String(row.ebay_id).toLowerCase() : '';
-        const matches = itemName.includes(searchLower) || vintedId.includes(searchLower) || ebayId.includes(searchLower);
+        const skuId = String(row.id).toLowerCase();
+        const matches = itemName.includes(searchLower) || vintedId.includes(searchLower) || ebayId.includes(searchLower) || skuId.includes(searchLower);
         if (searchLower && (row.ebay_id || row.vinted_id)) {
           console.log('Search debug:', { 
             searchTerm: searchLower, 
             ebayId, 
             vintedId, 
             itemName, 
+            skuId,
             rowId: row.id,
             matches 
           });
