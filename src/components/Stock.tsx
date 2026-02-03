@@ -566,8 +566,8 @@ const Stock: React.FC = () => {
           const ebayId = row.ebay_id ? String(row.ebay_id).toLowerCase() : '';
           const skuId = String(row.id).toLowerCase();
           
-          // For item name: match if ANY word matches (OR logic)
-          const itemNameMatches = searchWords.some(word => itemName.includes(word));
+          // For item name: match if ALL words are present (AND logic, order doesn't matter)
+          const itemNameMatches = searchWords.length > 0 && searchWords.every(word => itemName.includes(word));
           
           // For IDs: exact match (for precise ID searches)
           const idMatches = vintedId.includes(searchLower) || ebayId.includes(searchLower) || skuId.includes(searchLower);
