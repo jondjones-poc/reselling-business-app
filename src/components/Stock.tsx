@@ -559,12 +559,20 @@ const Stock: React.FC = () => {
       // Apply search globally even with unsold filter
       if (searchTerm.trim()) {
         const searchLower = searchTerm.toLowerCase().trim();
+        const searchWords = searchLower.split(/\s+/).filter(word => word.length > 0);
         filtered = filtered.filter((row) => {
           const itemName = row.item_name ? String(row.item_name).toLowerCase() : '';
           const vintedId = row.vinted_id ? String(row.vinted_id).toLowerCase() : '';
           const ebayId = row.ebay_id ? String(row.ebay_id).toLowerCase() : '';
           const skuId = String(row.id).toLowerCase();
-          return itemName.includes(searchLower) || vintedId.includes(searchLower) || ebayId.includes(searchLower) || skuId.includes(searchLower);
+          
+          // For item name: match if ANY word matches (OR logic)
+          const itemNameMatches = searchWords.some(word => itemName.includes(word));
+          
+          // For IDs: exact match (for precise ID searches)
+          const idMatches = vintedId.includes(searchLower) || ebayId.includes(searchLower) || skuId.includes(searchLower);
+          
+          return itemNameMatches || idMatches;
         });
       }
 
@@ -578,20 +586,31 @@ const Stock: React.FC = () => {
     if (hasSearchTerm) {
       // First, apply global search across all rows
       const searchLower = searchTerm.toLowerCase().trim();
+      const searchWords = searchLower.split(/\s+/).filter(word => word.length > 0);
       filtered = filtered.filter((row) => {
         const itemName = row.item_name ? String(row.item_name).toLowerCase() : '';
         const vintedId = row.vinted_id ? String(row.vinted_id).toLowerCase() : '';
         const ebayId = row.ebay_id ? String(row.ebay_id).toLowerCase() : '';
         const skuId = String(row.id).toLowerCase();
-        const matches = itemName.includes(searchLower) || vintedId.includes(searchLower) || ebayId.includes(searchLower) || skuId.includes(searchLower);
+        
+        // For item name: match if ANY word matches (OR logic)
+        const itemNameMatches = searchWords.some(word => itemName.includes(word));
+        
+        // For IDs: exact match (for precise ID searches)
+        const idMatches = vintedId.includes(searchLower) || ebayId.includes(searchLower) || skuId.includes(searchLower);
+        
+        const matches = itemNameMatches || idMatches;
         if (searchLower && (row.ebay_id || row.vinted_id)) {
           console.log('Search debug:', { 
             searchTerm: searchLower, 
+            searchWords,
             ebayId, 
             vintedId, 
             itemName, 
             skuId,
             rowId: row.id,
+            itemNameMatches,
+            idMatches,
             matches 
           });
         }
