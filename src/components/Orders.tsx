@@ -268,7 +268,6 @@ const Orders: React.FC = () => {
                         onClick={(e) => e.stopPropagation()}
                         style={{
                           color: 'var(--neon-primary-strong)',
-                          textDecoration: 'underline',
                           cursor: 'pointer'
                         }}
                       >
@@ -282,7 +281,6 @@ const Orders: React.FC = () => {
                         onClick={(e) => e.stopPropagation()}
                         style={{
                           color: 'var(--neon-primary-strong)',
-                          textDecoration: 'underline',
                           cursor: 'pointer'
                         }}
                       >

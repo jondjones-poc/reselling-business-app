@@ -126,6 +126,14 @@
   flex: 1;
   color: var(--text-strong);
   font-size: 0.95rem;
+  text-align: left;
+}
+
+.orders-result-name a {
+  font-size: 2rem;
+  text-align: left;
+  display: inline-block;
+  text-decoration: underline;
 }
 
 .orders-result-price {
