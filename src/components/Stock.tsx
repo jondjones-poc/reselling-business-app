@@ -215,6 +215,12 @@ const Stock: React.FC = () => {
         console.log('Stock data loaded from API:', data.rows.length, 'rows');
         console.log('Sample row with database id:', data.rows[0]?.id, data.rows[0]);
         console.log('Sample row vinted_id:', data.rows[0]?.vinted_id);
+        console.log('Sample row ebay_id:', data.rows[0]?.ebay_id);
+        // Find row with specific ebay_id for debugging
+        const testRow = data.rows.find(r => r.ebay_id && String(r.ebay_id).includes('297907143894'));
+        if (testRow) {
+          console.log('Found row with ebay_id 297907143894:', testRow);
+        }
       }
       setRows(Array.isArray(data.rows) ? data.rows : []);
       setEditingRowId(null);
@@ -554,9 +560,9 @@ const Stock: React.FC = () => {
       if (searchTerm.trim()) {
         const searchLower = searchTerm.toLowerCase().trim();
         filtered = filtered.filter((row) => {
-          const itemName = row.item_name ? row.item_name.toLowerCase() : '';
-          const vintedId = row.vinted_id ? row.vinted_id.toLowerCase() : '';
-          const ebayId = row.ebay_id ? row.ebay_id.toLowerCase() : '';
+          const itemName = row.item_name ? String(row.item_name).toLowerCase() : '';
+          const vintedId = row.vinted_id ? String(row.vinted_id).toLowerCase() : '';
+          const ebayId = row.ebay_id ? String(row.ebay_id).toLowerCase() : '';
           return itemName.includes(searchLower) || vintedId.includes(searchLower) || ebayId.includes(searchLower);
         });
       }
@@ -572,10 +578,21 @@ const Stock: React.FC = () => {
       // First, apply global search across all rows
       const searchLower = searchTerm.toLowerCase().trim();
       filtered = filtered.filter((row) => {
-        const itemName = row.item_name ? row.item_name.toLowerCase() : '';
-        const vintedId = row.vinted_id ? row.vinted_id.toLowerCase() : '';
-        const ebayId = row.ebay_id ? row.ebay_id.toLowerCase() : '';
-        return itemName.includes(searchLower) || vintedId.includes(searchLower) || ebayId.includes(searchLower);
+        const itemName = row.item_name ? String(row.item_name).toLowerCase() : '';
+        const vintedId = row.vinted_id ? String(row.vinted_id).toLowerCase() : '';
+        const ebayId = row.ebay_id ? String(row.ebay_id).toLowerCase() : '';
+        const matches = itemName.includes(searchLower) || vintedId.includes(searchLower) || ebayId.includes(searchLower);
+        if (searchLower && (row.ebay_id || row.vinted_id)) {
+          console.log('Search debug:', { 
+            searchTerm: searchLower, 
+            ebayId, 
+            vintedId, 
+            itemName, 
+            rowId: row.id,
+            matches 
+          });
+        }
+        return matches;
       });
 
       // Then apply category filter to narrow down search results
