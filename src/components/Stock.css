@@ -617,6 +617,57 @@
   box-shadow: var(--neon-shadow);
 }
 
+.add-to-orders-button {
+  padding: 16px 24px;
+  border-radius: 999px;
+  border: 1px solid rgba(140, 255, 195, 0.32);
+  background: rgba(140, 255, 195, 0.18);
+  color: #8cffc3;
+  font-weight: 600;
+  letter-spacing: 0.06rem;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.add-to-orders-button:hover:not(:disabled) {
+  background: rgba(140, 255, 195, 0.3);
+  transform: translateY(-1px);
+  box-shadow: var(--neon-shadow);
+}
+
+.add-to-orders-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.sku-add-to-orders-button {
+  padding: 16px 24px;
+  border-radius: 999px;
+  border: 1px solid rgba(140, 255, 195, 0.32);
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-strong);
+  font-size: 4rem;
+  font-weight: bold;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sku-add-to-orders-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.15);
+  transform: translateY(-1px);
+  box-shadow: var(--neon-shadow);
+}
+
+.sku-add-to-orders-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .stock-error {
   margin-bottom: 20px;
   color: #ffb0b0;

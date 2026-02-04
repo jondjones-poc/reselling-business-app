@@ -107,6 +107,23 @@ const formatDate = (value: Nullable<string>) => {
   }).format(date);
 };
 
+// Cookie utility functions
+const getCookie = (name: string): string | null => {
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) {
+    return parts.pop()?.split(';').shift() || null;
+  }
+  return null;
+};
+
+const setCookie = (name: string, value: string, days: number = 30) => {
+  const date = new Date();
+  date.setTime(date.getTime() + days * 24 * 60 * 60 * 1000);
+  const expires = `expires=${date.toUTCString()}`;
+  document.cookie = `${name}=${value};${expires};path=/`;
+};
+
 const normalizeDateInput = (value: Nullable<string>) => {
   if (!value) {
     return '';
@@ -1257,6 +1274,56 @@ const Stock: React.FC = () => {
     setShowDeleteConfirm(false);
   };
 
+  const handleAddToOrders = () => {
+    if (!editingRowId) return;
+
+    const currentRow = rows.find(row => row.id === editingRowId);
+    if (!currentRow) return;
+
+    // Get existing orders from cookie
+    const savedOrders = getCookie('orders');
+    let orderItems: Array<{
+      id: number;
+      item_name: string;
+      purchase_price: number;
+      vinted: Nullable<boolean>;
+      ebay: Nullable<boolean>;
+    }> = [];
+
+    if (savedOrders) {
+      try {
+        const parsed = JSON.parse(savedOrders);
+        orderItems = Array.isArray(parsed) ? parsed : [];
+      } catch (err) {
+        console.error('Failed to parse saved orders:', err);
+        orderItems = [];
+      }
+    }
+
+    // Check if item is already in the order
+    if (orderItems.some((item) => item.id === editingRowId)) {
+      setSuccessMessage('Item is already in the orders list.');
+      return;
+    }
+
+    // Add the item to the orders list
+    const purchasePrice = currentRow.purchase_price
+      ? (typeof currentRow.purchase_price === 'number' ? currentRow.purchase_price : Number(currentRow.purchase_price))
+      : 0;
+
+    const newOrderItem = {
+      id: currentRow.id,
+      item_name: currentRow.item_name || '—',
+      purchase_price: purchasePrice,
+      vinted: currentRow.vinted,
+      ebay: currentRow.ebay
+    };
+
+    orderItems.push(newOrderItem);
+    setCookie('orders', JSON.stringify(orderItems));
+    setSuccessMessage('Item added to orders list.');
+  };
+
   return (
     <div className="stock-container">
       {error && <div className="stock-error">{error}</div>}
@@ -1265,6 +1332,26 @@ const Stock: React.FC = () => {
       {showNewEntry && (
         <div className="new-entry-card" ref={editFormRef}>
           <div className="new-entry-grid">
+            {editingRowId && (
+              <div style={{ width: '100%', marginBottom: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <button
+                  type="button"
+                  className="sku-add-to-orders-button"
+                  onClick={handleAddToOrders}
+                  disabled={creating || deleting}
+                >
+                  {editingRowId}
+                </button>
+                <button
+                  type="button"
+                  className="delete-button"
+                  onClick={handleDeleteClick}
+                  disabled={creating || deleting}
+                >
+                  Delete Item
+                </button>
+              </div>
+            )}
             {/* Row 1: Name, Category, Purchase Price (£), Purchase Date */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', width: '100%' }}>
               <label className="new-entry-field">
@@ -1459,7 +1546,7 @@ const Stock: React.FC = () => {
                 />
               </label>
             </div>
-            {/* Row 3: Sale Price (£), Sale Date, Sold Platform */}
+            {/* Row 3: Sale Price (£), Sale Date, Sold Platform, Update/Close buttons */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', width: '100%' }}>
               <label className="new-entry-field">
               <span>Sale Price (£)</span>
@@ -1630,57 +1717,37 @@ const Stock: React.FC = () => {
                 )}
               </label>
             </div>
-            </div>
-            <div className="new-entry-actions" style={{ display: 'flex', gap: '12px', alignItems: 'center', justifyContent: 'flex-end', marginLeft: 'auto' }}>
-              <button
-                type="button"
-                className="save-button"
-                onClick={handleCreateSubmit}
-                disabled={creating || deleting}
-              >
-                {creating ? 'Saving…' : editingRowId ? 'Update' : 'Save'}
-              </button>
-              <button
-                type="button"
-                className="cancel-button"
-              onClick={() => {
-                if (!creating && !deleting) {
-                  setShowNewEntry(false);
-                  setEditingRowId(null);
-                  resetCreateForm();
-                  setShowDeleteConfirm(false);
-                }
-              }}
-                disabled={creating || deleting}
-              >
-                Close
-              </button>
-            </div>
-            {editingRowId && (
-              <div style={{ width: '100%', marginTop: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-                <span style={{ 
-                  position: 'absolute', 
-                  left: 0, 
-                  color: 'var(--text-strong)', 
-                  fontSize: '4rem', 
-                  fontWeight: 'bold',
-                  lineHeight: '1',
-                  display: 'flex',
-                  alignItems: 'center',
-                  height: '100%'
-                }}>
-                  {editingRowId}
-                </span>
-                <button
-                  type="button"
-                  className="delete-button"
-                  onClick={handleDeleteClick}
-                  disabled={creating || deleting}
-                >
-                  Delete Item
-                </button>
+              <div className="new-entry-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <span style={{ color: 'rgba(255, 248, 226, 0.7)', letterSpacing: '0.05rem', fontSize: '0.85rem', textTransform: 'uppercase', height: '1.2rem' }}>&nbsp;</span>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    className="save-button"
+                    onClick={handleCreateSubmit}
+                    disabled={creating || deleting}
+                    style={{ flex: '1' }}
+                  >
+                    {creating ? 'Saving…' : editingRowId ? 'Update' : 'Save'}
+                  </button>
+                  <button
+                    type="button"
+                    className="cancel-button"
+                    onClick={() => {
+                      if (!creating && !deleting) {
+                        setShowNewEntry(false);
+                        setEditingRowId(null);
+                        resetCreateForm();
+                        setShowDeleteConfirm(false);
+                      }
+                    }}
+                    disabled={creating || deleting}
+                    style={{ flex: '1' }}
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
-            )}
+            </div>
           </div>
         </div>
       )}
