@@ -437,6 +437,7 @@ const Orders: React.FC = () => {
             <h2>Items to Pick Up ({orderItems.length})</h2>
           </div>
 
+          {/* Desktop Table View */}
           <div className="table-wrapper">
             <table className="orders-table">
               <thead>
@@ -503,6 +504,67 @@ const Orders: React.FC = () => {
                 })}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile Card View */}
+          <div className="orders-cards-wrapper">
+            {orderItems.map((item) => {
+              const isEbaySold = item.sold_platform === 'eBay' && item.ebay_id;
+              const isVintedSold = item.sold_platform === 'Vinted' && item.vinted_id;
+              const itemName = item.item_name || '—';
+              
+              return (
+                <div key={item.id} className="orders-card">
+                  <div className="orders-card-header">
+                    <span className="orders-card-sku">SKU: {item.id}</span>
+                    <button
+                      type="button"
+                      className="orders-remove-button"
+                      onClick={() => handleRemoveItem(item.id)}
+                      disabled={ordersLoading}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  <div className="orders-card-body">
+                    <div className="orders-card-field">
+                      <span className="orders-card-label">Item Name:</span>
+                      <span className="orders-card-value">
+                        {isEbaySold ? (
+                          <a
+                            href={`https://www.ebay.co.uk/itm/${item.ebay_id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="orders-card-link"
+                          >
+                            {itemName}
+                          </a>
+                        ) : isVintedSold ? (
+                          <a
+                            href={`https://www.vinted.co.uk/items/${item.vinted_id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="orders-card-link"
+                          >
+                            {itemName}
+                          </a>
+                        ) : (
+                          itemName
+                        )}
+                      </span>
+                    </div>
+                    <div className="orders-card-field">
+                      <span className="orders-card-label">Price:</span>
+                      <span className="orders-card-value">{formatCurrency(item.purchase_price)}</span>
+                    </div>
+                    <div className="orders-card-field">
+                      <span className="orders-card-label">Platform:</span>
+                      <span className="orders-card-value">{getListingPlatform(item.vinted, item.ebay)}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           <div className="orders-clear-list-section">

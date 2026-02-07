@@ -324,6 +324,81 @@
   }
 }
 
+/* Mobile Card View */
+.orders-cards-wrapper {
+  display: none;
+  gap: 16px;
+  flex-direction: column;
+}
+
+.orders-card {
+  background: rgba(5, 4, 3, 0.94);
+  border: 1px solid rgba(255, 214, 91, 0.28);
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  transition: all 0.2s ease;
+}
+
+.orders-card:hover {
+  border-color: rgba(255, 214, 91, 0.4);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+}
+
+.orders-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 214, 91, 0.2);
+}
+
+.orders-card-sku {
+  font-weight: 700;
+  color: var(--neon-primary-strong);
+  font-size: 1.4rem;
+  letter-spacing: 0.05rem;
+}
+
+.orders-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.orders-card-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.orders-card-label {
+  font-size: 0.9rem;
+  color: rgba(255, 248, 226, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.05rem;
+  font-weight: 600;
+}
+
+.orders-card-value {
+  font-size: 1.3rem;
+  color: var(--text-strong);
+  font-weight: 500;
+  word-break: break-word;
+}
+
+.orders-card-link {
+  color: var(--neon-primary-strong);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.orders-card-link:hover {
+  color: var(--neon-primary-strong);
+  opacity: 0.8;
+}
+
 /* Mobile responsive */
 @media (max-width: 768px) {
   .orders-container {
@@ -360,22 +435,14 @@
     font-size: 1.5rem;
   }
 
+  /* Hide table on mobile */
   .table-wrapper {
-    overflow-x: auto;
+    display: none;
   }
 
-  .orders-table {
-    font-size: 1.5rem;
-  }
-
-  .orders-table th {
-    font-size: 1.35rem;
-    padding: 16px 20px;
-  }
-
-  .orders-table td {
-    font-size: 1.5rem;
-    padding: 16px 20px;
+  /* Show cards on mobile */
+  .orders-cards-wrapper {
+    display: flex;
   }
 
   .orders-clear-list-button {
