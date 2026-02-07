@@ -29,10 +29,14 @@ interface StockApiResponse {
 
 interface OrderItem {
   id: number;
-  item_name: string;
-  purchase_price: number;
+  item_name: Nullable<string>;
+  purchase_price: Nullable<string | number>;
   vinted: Nullable<boolean>;
   ebay: Nullable<boolean>;
+  vinted_id: Nullable<string>;
+  ebay_id: Nullable<string>;
+  depop_id: Nullable<string>;
+  sold_platform: Nullable<string>;
 }
 
 const formatCurrency = (value: Nullable<string | number>) => {
@@ -52,22 +56,29 @@ const formatCurrency = (value: Nullable<string | number>) => {
   }).format(parsed);
 };
 
-// Cookie utility functions
-const getCookie = (name: string): string | null => {
-  const value = `; ${document.cookie}`;
-  const parts = value.split(`; ${name}=`);
-  if (parts.length === 2) {
-    return parts.pop()?.split(';').shift() || null;
-  }
-  return null;
-};
-
-const setCookie = (name: string, value: string, days: number = 30) => {
-  const date = new Date();
-  date.setTime(date.getTime() + days * 24 * 60 * 60 * 1000);
-  const expires = `expires=${date.toUTCString()}`;
-  document.cookie = `${name}=${value};${expires};path=/`;
-};
+interface OrdersApiResponse {
+  rows: Array<{
+    order_id: number;
+    stock_id: number;
+    created_at: string;
+    updated_at: string;
+    id: number;
+    item_name: Nullable<string>;
+    category: Nullable<string>;
+    purchase_price: Nullable<string | number>;
+    purchase_date: Nullable<string>;
+    sale_date: Nullable<string>;
+    sale_price: Nullable<string | number>;
+    sold_platform: Nullable<string>;
+    net_profit: Nullable<string | number>;
+    vinted: Nullable<boolean>;
+    ebay: Nullable<boolean>;
+    vinted_id: Nullable<string>;
+    ebay_id: Nullable<string>;
+    depop_id: Nullable<string>;
+  }>;
+  count: number;
+}
 
 const Orders: React.FC = () => {
   const [allStock, setAllStock] = useState<StockRow[]>([]);
@@ -76,6 +87,7 @@ const Orders: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [clearConfirmCount, setClearConfirmCount] = useState(0);
+  const [ordersLoading, setOrdersLoading] = useState(false);
 
   // Load all stock data
   const loadStock = async () => {
@@ -124,36 +136,62 @@ const Orders: React.FC = () => {
     return platforms.join(', ');
   };
 
-  // Load order items from cookie on mount
+  // Load order items from API
+  const loadOrders = async () => {
+    try {
+      setOrdersLoading(true);
+      setError(null);
+
+      const response = await fetch(`${API_BASE}/api/orders`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || 'Failed to load orders data');
+      }
+
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        throw new Error(text || 'Unexpected response format');
+      }
+
+      const data: OrdersApiResponse = await response.json();
+      // Transform API response to OrderItem format
+      const transformed = (data.rows ?? []).map((row) => ({
+        id: row.id,
+        item_name: row.item_name,
+        purchase_price: row.purchase_price,
+        vinted: row.vinted,
+        ebay: row.ebay,
+        vinted_id: row.vinted_id,
+        ebay_id: row.ebay_id,
+        depop_id: row.depop_id,
+        sold_platform: row.sold_platform
+      }));
+      setOrderItems(transformed);
+    } catch (err: any) {
+      console.error('Orders load error:', err);
+      if (err.message === 'Failed to fetch' || err.name === 'TypeError') {
+        setError('Unable to connect to server. Please ensure the backend server is running on port 5003.');
+      } else {
+        setError(err.message || 'Unable to load orders data');
+      }
+      setOrderItems([]);
+    } finally {
+      setOrdersLoading(false);
+    }
+  };
+
+  // Load stock and orders on mount
   useEffect(() => {
     loadStock();
-    const savedOrders = getCookie('orders');
-    if (savedOrders) {
-      try {
-        const parsed = JSON.parse(savedOrders);
-        // Handle backward compatibility - if old format, migrate it
-        const migrated = Array.isArray(parsed) ? parsed.map((item: any) => ({
-          ...item,
-          vinted: item.vinted ?? null,
-          ebay: item.ebay ?? null
-        })) : [];
-        setOrderItems(migrated);
-      } catch (err) {
-        console.error('Failed to parse saved orders:', err);
-        setOrderItems([]);
-      }
-    }
+    loadOrders();
   }, []);
-
-  // Save order items to cookie whenever they change
-  useEffect(() => {
-    if (orderItems.length > 0) {
-      setCookie('orders', JSON.stringify(orderItems));
-    } else {
-      // Clear cookie if no items
-      setCookie('orders', '', -1);
-    }
-  }, [orderItems]);
 
   // Search results - search all items
   // Uses AND logic: all words must match (order doesn't matter)
@@ -183,33 +221,82 @@ const Orders: React.FC = () => {
       .slice(0, 10); // Limit to 10 results
   }, [searchTerm, allStock]);
 
-  const handleAddItem = (item: StockRow) => {
-    // Check if item is already in the order
+  const handleAddItem = async (item: StockRow) => {
+    // Check if item is already in the order (client-side check)
     if (orderItems.some((orderItem) => orderItem.id === item.id)) {
       return;
     }
 
-    const purchasePrice = item.purchase_price
-      ? (typeof item.purchase_price === 'number' ? item.purchase_price : Number(item.purchase_price))
-      : 0;
+    try {
+      setOrdersLoading(true);
+      setError(null);
 
-    const newOrderItem: OrderItem = {
-      id: item.id,
-      item_name: item.item_name || '—',
-      purchase_price: purchasePrice,
-      vinted: item.vinted,
-      ebay: item.ebay
-    };
+      const response = await fetch(`${API_BASE}/api/orders`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ stock_id: item.id }),
+      });
 
-    setOrderItems((prev) => [...prev, newOrderItem]);
-    setSearchTerm(''); // Clear search after adding
+      if (!response.ok) {
+        let message = 'Failed to add item to orders';
+        try {
+          const errorBody = await response.json();
+          message = errorBody?.error || message;
+        } catch {
+          const text = await response.text();
+          message = text || message;
+        }
+        throw new Error(message);
+      }
+
+      // Reload orders to get the updated list
+      await loadOrders();
+      setSearchTerm(''); // Clear search after adding
+    } catch (err: any) {
+      console.error('Add to orders error:', err);
+      setError(err.message || 'Unable to add item to orders');
+    } finally {
+      setOrdersLoading(false);
+    }
   };
 
-  const handleRemoveItem = (id: number) => {
-    setOrderItems((prev) => prev.filter((item) => item.id !== id));
+  const handleRemoveItem = async (id: number) => {
+    try {
+      setOrdersLoading(true);
+      setError(null);
+
+      const response = await fetch(`${API_BASE}/api/orders/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        let message = 'Failed to remove item from orders';
+        try {
+          const errorBody = await response.json();
+          message = errorBody?.error || message;
+        } catch {
+          const text = await response.text();
+          message = text || message;
+        }
+        throw new Error(message);
+      }
+
+      // Reload orders to get the updated list
+      await loadOrders();
+    } catch (err: any) {
+      console.error('Remove from orders error:', err);
+      setError(err.message || 'Unable to remove item from orders');
+    } finally {
+      setOrdersLoading(false);
+    }
   };
 
-  const handleClearList = () => {
+  const handleClearList = async () => {
     if (clearConfirmCount === 0) {
       setClearConfirmCount(1);
       // Reset confirmation count after 2 seconds
@@ -218,8 +305,38 @@ const Orders: React.FC = () => {
       }, 2000);
     } else {
       // Confirmed - clear the list
-      setOrderItems([]);
-      setClearConfirmCount(0);
+      try {
+        setOrdersLoading(true);
+        setError(null);
+
+        const response = await fetch(`${API_BASE}/api/orders`, {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (!response.ok) {
+          let message = 'Failed to clear orders';
+          try {
+            const errorBody = await response.json();
+            message = errorBody?.error || message;
+          } catch {
+            const text = await response.text();
+            message = text || message;
+          }
+          throw new Error(message);
+        }
+
+        // Reload orders to get the updated list (should be empty)
+        await loadOrders();
+        setClearConfirmCount(0);
+      } catch (err: any) {
+        console.error('Clear orders error:', err);
+        setError(err.message || 'Unable to clear orders');
+      } finally {
+        setOrdersLoading(false);
+      }
     }
   };
 
@@ -297,7 +414,7 @@ const Orders: React.FC = () => {
                     type="button"
                     className="orders-add-button"
                     onClick={() => handleAddItem(item)}
-                    disabled={orderItems.some((orderItem) => orderItem.id === item.id)}
+                    disabled={orderItems.some((orderItem) => orderItem.id === item.id) || ordersLoading}
                   >
                     {orderItems.some((orderItem) => orderItem.id === item.id) ? 'Added' : 'Add'}
                   </button>
@@ -332,23 +449,58 @@ const Orders: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {orderItems.map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.id}</td>
-                    <td>{item.item_name}</td>
-                    <td>{formatCurrency(item.purchase_price)}</td>
-                    <td>{getListingPlatform(item.vinted, item.ebay)}</td>
-                    <td>
-                      <button
-                        type="button"
-                        className="orders-remove-button"
-                        onClick={() => handleRemoveItem(item.id)}
-                      >
-                        Remove
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {orderItems.map((item) => {
+                  const isEbaySold = item.sold_platform === 'eBay' && item.ebay_id;
+                  const isVintedSold = item.sold_platform === 'Vinted' && item.vinted_id;
+                  const itemName = item.item_name || '—';
+                  
+                  return (
+                    <tr key={item.id}>
+                      <td>{item.id}</td>
+                      <td>
+                        {isEbaySold ? (
+                          <a
+                            href={`https://www.ebay.co.uk/itm/${item.ebay_id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              color: 'var(--neon-primary-strong)',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            {itemName}
+                          </a>
+                        ) : isVintedSold ? (
+                          <a
+                            href={`https://www.vinted.co.uk/items/${item.vinted_id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              color: 'var(--neon-primary-strong)',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            {itemName}
+                          </a>
+                        ) : (
+                          itemName
+                        )}
+                      </td>
+                      <td>{formatCurrency(item.purchase_price)}</td>
+                      <td>{getListingPlatform(item.vinted, item.ebay)}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="orders-remove-button"
+                          onClick={() => handleRemoveItem(item.id)}
+                          disabled={ordersLoading}
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -358,6 +510,7 @@ const Orders: React.FC = () => {
               type="button"
               className={`orders-clear-list-button ${clearConfirmCount > 0 ? 'confirm' : ''}`}
               onClick={handleClearList}
+              disabled={ordersLoading}
             >
               {clearConfirmCount > 0 ? 'Click Again to Confirm Clear List' : 'Clear List'}
             </button>

@@ -107,22 +107,6 @@ const formatDate = (value: Nullable<string>) => {
   }).format(date);
 };
 
-// Cookie utility functions
-const getCookie = (name: string): string | null => {
-  const value = `; ${document.cookie}`;
-  const parts = value.split(`; ${name}=`);
-  if (parts.length === 2) {
-    return parts.pop()?.split(';').shift() || null;
-  }
-  return null;
-};
-
-const setCookie = (name: string, value: string, days: number = 30) => {
-  const date = new Date();
-  date.setTime(date.getTime() + days * 24 * 60 * 60 * 1000);
-  const expires = `expires=${date.toUTCString()}`;
-  document.cookie = `${name}=${value};${expires};path=/`;
-};
 
 const normalizeDateInput = (value: Nullable<string>) => {
   if (!value) {
@@ -1274,54 +1258,37 @@ const Stock: React.FC = () => {
     setShowDeleteConfirm(false);
   };
 
-  const handleAddToOrders = () => {
+  const handleAddToOrders = async () => {
     if (!editingRowId) return;
 
-    const currentRow = rows.find(row => row.id === editingRowId);
-    if (!currentRow) return;
+    try {
+      setError(null);
 
-    // Get existing orders from cookie
-    const savedOrders = getCookie('orders');
-    let orderItems: Array<{
-      id: number;
-      item_name: string;
-      purchase_price: number;
-      vinted: Nullable<boolean>;
-      ebay: Nullable<boolean>;
-    }> = [];
+      const response = await fetch(`${API_BASE}/api/orders`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ stock_id: editingRowId }),
+      });
 
-    if (savedOrders) {
-      try {
-        const parsed = JSON.parse(savedOrders);
-        orderItems = Array.isArray(parsed) ? parsed : [];
-      } catch (err) {
-        console.error('Failed to parse saved orders:', err);
-        orderItems = [];
+      if (!response.ok) {
+        let message = 'Failed to add item to orders';
+        try {
+          const errorBody = await response.json();
+          message = errorBody?.error || message;
+        } catch {
+          const text = await response.text();
+          message = text || message;
+        }
+        throw new Error(message);
       }
+
+      setSuccessMessage('Item added to orders list.');
+    } catch (err: any) {
+      console.error('Add to orders error:', err);
+      setError(err.message || 'Unable to add item to orders');
     }
-
-    // Check if item is already in the order
-    if (orderItems.some((item) => item.id === editingRowId)) {
-      setSuccessMessage('Item is already in the orders list.');
-      return;
-    }
-
-    // Add the item to the orders list
-    const purchasePrice = currentRow.purchase_price
-      ? (typeof currentRow.purchase_price === 'number' ? currentRow.purchase_price : Number(currentRow.purchase_price))
-      : 0;
-
-    const newOrderItem = {
-      id: currentRow.id,
-      item_name: currentRow.item_name || '—',
-      purchase_price: purchasePrice,
-      vinted: currentRow.vinted,
-      ebay: currentRow.ebay
-    };
-
-    orderItems.push(newOrderItem);
-    setCookie('orders', JSON.stringify(orderItems));
-    setSuccessMessage('Item added to orders list.');
   };
 
   return (

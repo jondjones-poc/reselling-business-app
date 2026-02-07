@@ -1505,6 +1505,144 @@ app.delete('/api/expenses/:id', async (req, res) => {
   }
 });
 
+// Orders API endpoints
+app.get('/api/orders', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    // Join with stock table to get all item details
+    const result = await pool.query(
+      `SELECT 
+        o.id as order_id,
+        o.stock_id,
+        o.created_at,
+        o.updated_at,
+        s.id,
+        s.item_name,
+        s.category,
+        s.purchase_price,
+        s.purchase_date,
+        s.sale_date,
+        s.sale_price,
+        s.sold_platform,
+        s.net_profit,
+        s.vinted,
+        s.ebay,
+        s.vinted_id,
+        s.ebay_id,
+        s.depop_id
+      FROM orders o
+      INNER JOIN stock s ON o.stock_id = s.id
+      ORDER BY o.created_at DESC`
+    );
+
+    res.json({
+      rows: result.rows ?? [],
+      count: result.rowCount ?? 0
+    });
+  } catch (error) {
+    console.error('Orders query failed:', error);
+    res.status(500).json({ error: 'Failed to load orders data', details: error.message });
+  }
+});
+
+app.post('/api/orders', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const { stock_id } = req.body ?? {};
+
+    if (!stock_id || !Number.isInteger(Number(stock_id))) {
+      return res.status(400).json({ error: 'Valid stock_id is required' });
+    }
+
+    const stockId = Number(stock_id);
+
+    // Check if stock item exists
+    const stockCheck = await pool.query('SELECT id FROM stock WHERE id = $1', [stockId]);
+    if (stockCheck.rowCount === 0) {
+      return res.status(404).json({ error: 'Stock item not found' });
+    }
+
+    // Check if already in orders (UNIQUE constraint will also prevent this, but we can provide better error)
+    const existingOrder = await pool.query('SELECT id FROM orders WHERE stock_id = $1', [stockId]);
+    if (existingOrder.rowCount > 0) {
+      return res.status(409).json({ error: 'Item is already in the orders list' });
+    }
+
+    // Insert into orders
+    const result = await pool.query(
+      'INSERT INTO orders (stock_id) VALUES ($1) RETURNING id, stock_id, created_at, updated_at',
+      [stockId]
+    );
+
+    res.status(201).json({ success: true, order: result.rows[0] });
+  } catch (error) {
+    console.error('Orders insert failed:', error);
+    // Handle unique constraint violation
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'Item is already in the orders list' });
+    }
+    res.status(500).json({ error: 'Failed to add item to orders', details: error.message });
+  }
+});
+
+app.delete('/api/orders/:stock_id', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const stockId = Number(req.params.stock_id);
+    if (!Number.isInteger(stockId)) {
+      return res.status(400).json({ error: 'Invalid stock_id' });
+    }
+
+    const existingResult = await pool.query(
+      'SELECT id FROM orders WHERE stock_id = $1',
+      [stockId]
+    );
+
+    if (existingResult.rowCount === 0) {
+      return res.status(404).json({ error: 'Order item not found' });
+    }
+
+    await pool.query('DELETE FROM orders WHERE stock_id = $1', [stockId]);
+
+    res.json({ success: true, message: 'Order item removed successfully' });
+  } catch (error) {
+    console.error('Orders delete failed:', error);
+    res.status(500).json({ error: 'Failed to remove order item', details: error.message });
+  }
+});
+
+app.delete('/api/orders', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    await pool.query('DELETE FROM orders');
+
+    res.json({ success: true, message: 'All orders cleared successfully' });
+  } catch (error) {
+    console.error('Orders clear failed:', error);
+    res.status(500).json({ error: 'Failed to clear orders', details: error.message });
+  }
+});
+
 app.get('/api/analytics/reporting', async (req, res) => {
   try {
     const pool = getDatabasePool();
