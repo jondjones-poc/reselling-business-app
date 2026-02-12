@@ -188,6 +188,37 @@ const Stock: React.FC = () => {
   const [deleting, setDeleting] = useState(false);
   const editFormRef = useRef<HTMLDivElement>(null);
 
+  // Scroll to edit form when it opens on mobile
+  useEffect(() => {
+    if (showNewEntry && editingRowId && editFormRef.current) {
+      const isMobile = window.innerWidth <= 768;
+      const scrollToForm = () => {
+        if (editFormRef.current) {
+          editFormRef.current.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: isMobile ? 'center' : 'start',
+            inline: 'nearest'
+          });
+          // Additional scroll adjustment for mobile to account for fixed headers
+          if (isMobile) {
+            setTimeout(() => {
+              const rect = editFormRef.current?.getBoundingClientRect();
+              if (rect && rect.top < 120) {
+                window.scrollBy({
+                  top: rect.top - 120,
+                  behavior: 'smooth'
+                });
+              }
+            }, 100);
+          }
+        }
+      };
+      // Delay to ensure DOM has updated
+      const timeoutId = setTimeout(scrollToForm, 200);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [showNewEntry, editingRowId]);
+
   const loadStock = async () => {
     try {
       setLoading(true);
@@ -1024,12 +1055,30 @@ const Stock: React.FC = () => {
     setShowNewEntry(true);
     setSuccessMessage(null);
     
-    // Scroll to edit form after DOM updates
+    // Scroll to edit form after DOM updates - with better mobile support
     setTimeout(() => {
       if (editFormRef.current) {
-        editFormRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        // Use 'center' for mobile to ensure form is fully visible
+        const isMobile = window.innerWidth <= 768;
+        editFormRef.current.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: isMobile ? 'center' : 'start',
+          inline: 'nearest'
+        });
+        // Additional scroll adjustment for mobile to account for fixed headers
+        if (isMobile) {
+          setTimeout(() => {
+            const rect = editFormRef.current?.getBoundingClientRect();
+            if (rect && rect.top < 120) {
+              window.scrollBy({
+                top: rect.top - 120,
+                behavior: 'smooth'
+              });
+            }
+          }, 100);
+        }
       }
-    }, 100);
+    }, 150);
   };
 
   const resetCreateForm = () => {
@@ -1292,7 +1341,7 @@ const Stock: React.FC = () => {
   };
 
   return (
-    <div className="stock-container">
+    <div className={`stock-container ${showNewEntry ? 'editing-mode' : ''}`}>
       {error && <div className="stock-error">{error}</div>}
       {successMessage && <div className="stock-success">{successMessage}</div>}
 

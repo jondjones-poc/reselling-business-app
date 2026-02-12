@@ -1466,6 +1466,14 @@
   .table-wrapper {
     border-radius: 20px;
     overflow-x: auto;
+    overflow-y: visible;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Hide table when editing on mobile */
+  .stock-container.editing-mode .table-wrapper {
+    display: none;
   }
 
   .stock-table {
@@ -1565,6 +1573,27 @@
 
   .stock-data-close-button-desktop {
     display: none;
+  }
+
+  /* Ensure edit form is visible on mobile */
+  .new-entry-card {
+    position: relative;
+    z-index: 100;
+    margin-bottom: 24px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .new-entry-card:focus-within {
+    outline: 2px solid rgba(255, 214, 91, 0.5);
+    outline-offset: 4px;
+  }
+
+  /* Ensure table doesn't cover edit form on mobile */
+  .table-wrapper {
+    position: relative;
+    z-index: 1;
   }
 
   /* Remove gap between close button and title on mobile */

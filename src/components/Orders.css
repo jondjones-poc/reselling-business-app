@@ -435,11 +435,6 @@
     font-size: 1.5rem;
   }
 
-  /* Hide table on mobile */
-  .table-wrapper {
-    display: none;
-  }
-
   /* Show cards on mobile */
   .orders-cards-wrapper {
     display: flex;
