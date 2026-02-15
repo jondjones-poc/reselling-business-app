@@ -10,7 +10,6 @@ type Nullable<T> = T | null | undefined;
 interface StockRow {
   id: number;
   item_name: Nullable<string>;
-  category: Nullable<string>;
   purchase_price: Nullable<string | number>;
   purchase_date: Nullable<string>;
   sale_date: Nullable<string>;
@@ -18,10 +17,21 @@ interface StockRow {
   sold_platform: Nullable<string>;
   net_profit: Nullable<string | number>;
   vinted: Nullable<boolean>;
-  ebay: Nullable<boolean>;
   vinted_id: Nullable<string>;
   ebay_id: Nullable<string>;
   depop_id: Nullable<string>;
+  brand_id: Nullable<number>;
+  category_id: Nullable<number>;
+}
+
+interface Brand {
+  id: number;
+  brand_name: string;
+}
+
+interface Category {
+  id: number;
+  category_name: string;
 }
 
 interface StockApiResponse {
@@ -44,32 +54,7 @@ const MONTHS = [
   { value: '12', label: 'December' }
 ];
 
-const CATEGORIES = [
-  'Accessories',
-  'Advertising',
-  'Bag',
-  'Book',
-  'Bottoms',
-  'CD',
-  'Clothes',
-  'Coat',
-  'DVD',
-  'Electronics',
-  'Game',
-  'Jacket',
-  'Jumper',
-  'Kids',
-  'Kitchenware',
-  'Plush',
-  'Polo',
-  'Shirt',
-  'Shoes',
-  'Tie',
-  'Toy',
-  'Trousers',
-  'Top',
-  'VHS'
-];
+// Removed unused CATEGORIES constant - now using categories from database
 
 const PLATFORMS = ['Not Listed', 'Vinted', 'eBay'];
 
@@ -158,7 +143,7 @@ const Stock: React.FC = () => {
   const [creating, setCreating] = useState(false);
   const [createForm, setCreateForm] = useState({
     item_name: '',
-    category: '',
+    category_id: '',
     purchase_price: '',
     purchase_date: '',
     sale_date: '',
@@ -166,8 +151,10 @@ const Stock: React.FC = () => {
     sold_platform: '',
     vinted_id: '',
     ebay_id: '',
-    depop_id: ''
+    depop_id: '',
+    brand_id: ''
   });
+  const [brands, setBrands] = useState<Brand[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [showTypeahead, setShowTypeahead] = useState(false);
   const [typeaheadSuggestions, setTypeaheadSuggestions] = useState<string[]>([]);
@@ -180,10 +167,13 @@ const Stock: React.FC = () => {
   const [promotedFee, setPromotedFee] = useState<string>('10');
   const [showSoldPlatformDropdown, setShowSoldPlatformDropdown] = useState(false);
   const soldPlatformDropdownRef = useRef<HTMLDivElement>(null);
-  const [categories, setCategories] = useState<string[]>(CATEGORIES); // Default to hardcoded, then load from API
+  const [categories, setCategories] = useState<Category[]>([]);
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [savingCategory, setSavingCategory] = useState(false);
+  const [showAddBrand, setShowAddBrand] = useState(false);
+  const [newBrandName, setNewBrandName] = useState('');
+  const [savingBrand, setSavingBrand] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const editFormRef = useRef<HTMLDivElement>(null);
@@ -270,23 +260,45 @@ const Stock: React.FC = () => {
     }
   };
 
+  const loadBrands = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/brands`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setBrands(Array.isArray(data.rows) ? data.rows : []);
+      }
+    } catch (err) {
+      console.error('Failed to load brands:', err);
+    }
+  };
+
   useEffect(() => {
     loadStock();
     loadCategories();
+    loadBrands();
   }, []);
 
   const loadCategories = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/settings`);
+      const response = await fetch(`${API_BASE}/api/categories`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
       if (response.ok) {
         const data = await response.json();
-        if (data.stockCategories && data.stockCategories.length > 0) {
-          setCategories(data.stockCategories);
-        }
+        setCategories(Array.isArray(data.rows) ? data.rows : []);
       }
     } catch (err) {
       console.error('Failed to load categories:', err);
-      // Keep default categories if API fails
     }
   };
 
@@ -297,37 +309,124 @@ const Stock: React.FC = () => {
 
     const categoryName = newCategoryName.trim();
     
-    // Check if category already exists
-    if (categories.includes(categoryName)) {
+    // Check if category already exists (case-insensitive)
+    const categoryExists = categories.some(c => c.category_name.toLowerCase() === categoryName.toLowerCase());
+    if (categoryExists) {
+      setError('Category already exists');
       setNewCategoryName('');
       setShowAddCategory(false);
       return;
     }
 
     setSavingCategory(true);
+    setError(null);
     try {
-      const updatedCategories = [...categories, categoryName].sort();
-      
-      const response = await fetch(`${API_BASE}/api/settings/categories`, {
-        method: 'PUT',
+      console.log('Adding category:', categoryName);
+      const response = await fetch(`${API_BASE}/api/categories`, {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ categories: updatedCategories }),
+        body: JSON.stringify({ category_name: categoryName }),
       });
 
-      if (response.ok) {
-        setCategories(updatedCategories);
-        setNewCategoryName('');
-        setShowAddCategory(false);
-      } else {
-        throw new Error('Failed to save category');
+      console.log('Category API response status:', response.status);
+
+      if (!response.ok) {
+        let errorMessage = 'Failed to add category';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.details || errorMessage;
+          console.error('Category API error:', errorData);
+        } catch (e) {
+          const text = await response.text();
+          console.error('Category API error (text):', text);
+          errorMessage = text || errorMessage;
+        }
+        throw new Error(errorMessage);
       }
-    } catch (err) {
+
+      const data = await response.json();
+      console.log('Category created successfully:', data);
+      
+      // Reload categories to get the updated list
+      await loadCategories();
+      // Set the newly created category as selected
+      if (data.row && data.row.id) {
+        handleCreateChange('category_id', String(data.row.id));
+      }
+      setNewCategoryName('');
+      setShowAddCategory(false);
+      setSuccessMessage('Category added successfully');
+    } catch (err: any) {
       console.error('Failed to add category:', err);
-      setError('Failed to save category. Please try again.');
+      setError(err.message || 'Failed to add category');
     } finally {
       setSavingCategory(false);
+    }
+  };
+
+  const handleAddBrand = async () => {
+    if (!newBrandName.trim()) {
+      return;
+    }
+
+    const brandName = newBrandName.trim();
+    
+    // Check if brand already exists (case-insensitive)
+    const brandExists = brands.some(b => b.brand_name.toLowerCase() === brandName.toLowerCase());
+    if (brandExists) {
+      setError('Brand already exists');
+      setNewBrandName('');
+      setShowAddBrand(false);
+      return;
+    }
+
+    setSavingBrand(true);
+    setError(null);
+    try {
+      console.log('Adding brand:', brandName);
+      const response = await fetch(`${API_BASE}/api/brands`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ brand_name: brandName }),
+      });
+
+      console.log('Brand API response status:', response.status);
+
+      if (!response.ok) {
+        let errorMessage = 'Failed to add brand';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.details || errorMessage;
+          console.error('Brand API error:', errorData);
+        } catch (e) {
+          const text = await response.text();
+          console.error('Brand API error (text):', text);
+          errorMessage = text || errorMessage;
+        }
+        throw new Error(errorMessage);
+      }
+
+      const data = await response.json();
+      console.log('Brand created successfully:', data);
+      
+      // Reload brands to get the updated list
+      await loadBrands();
+      // Set the newly created brand as selected
+      if (data.row && data.row.id) {
+        handleCreateChange('brand_id', String(data.row.id));
+      }
+      setNewBrandName('');
+      setShowAddBrand(false);
+      setSuccessMessage('Brand added successfully');
+    } catch (err: any) {
+      console.error('Failed to add brand:', err);
+      setError(err.message || 'Failed to add brand');
+    } finally {
+      setSavingBrand(false);
     }
   };
 
@@ -523,14 +622,18 @@ const Stock: React.FC = () => {
   }, [rows]);
 
   const uniqueCategories = useMemo(() => {
-    const cats = new Set<string>();
+    // Get unique category names from the categories list based on category_id in rows
+    const categoryIds = new Set<number>();
     rows.forEach((row) => {
-      if (row.category && row.category.trim()) {
-        cats.add(row.category.trim());
+      if (row.category_id) {
+        categoryIds.add(row.category_id);
       }
     });
-    return Array.from(cats).sort();
-  }, [rows]);
+    return categories
+      .filter(cat => categoryIds.has(cat.id))
+      .map(cat => cat.category_name)
+      .sort();
+  }, [rows, categories]);
 
   useEffect(() => {
     if (!searchTerm.trim()) {
@@ -651,7 +754,11 @@ const Stock: React.FC = () => {
 
       // Then apply category filter to narrow down search results
       if (selectedCategoryFilter) {
-        filtered = filtered.filter((row) => row.category === selectedCategoryFilter);
+        // Find the category_id for the selected category name
+        const selectedCategory = categories.find(cat => cat.category_name === selectedCategoryFilter);
+        if (selectedCategory) {
+          filtered = filtered.filter((row) => row.category_id === selectedCategory.id);
+        }
       }
 
       // Search results are global - don't apply date/viewMode filters
@@ -674,8 +781,8 @@ const Stock: React.FC = () => {
           return false;
         }
       } else if (viewMode === 'list-on-ebay') {
-        // Show items where ebay is FALSE (not null, not true, only false)
-        if (row.ebay !== false) {
+        // Show items where ebay_id is null or empty (not listed on eBay)
+        if (row.ebay_id && row.ebay_id.trim()) {
           return false;
         }
       } else if (viewMode === 'to-list') {
@@ -684,9 +791,10 @@ const Stock: React.FC = () => {
           return false;
         }
         
-        // Show items where category is "To List" OR (vinted is false/null AND ebay is false/null)
-        const hasCategoryToList = row.category === 'To List';
-        const notListedAnywhere = (row.vinted === false || row.vinted === null) && (row.ebay === false || row.ebay === null);
+        // Show items where category is "To List" OR (vinted is false/null AND ebay_id is null/empty)
+        const toListCategory = categories.find(cat => cat.category_name === 'To List');
+        const hasCategoryToList = toListCategory && row.category_id === toListCategory.id;
+        const notListedAnywhere = (row.vinted === false || row.vinted === null) && (!row.ebay_id || !row.ebay_id.trim());
         
         if (!hasCategoryToList && !notListedAnywhere) {
           return false;
@@ -745,13 +853,16 @@ const Stock: React.FC = () => {
       }
 
       // Apply category filter
-      if (selectedCategoryFilter && row.category !== selectedCategoryFilter) {
-        return false;
+      if (selectedCategoryFilter) {
+        const selectedCategory = categories.find(cat => cat.category_name === selectedCategoryFilter);
+        if (selectedCategory && row.category_id !== selectedCategory.id) {
+          return false;
+        }
       }
 
       return true;
     });
-  }, [rows, selectedMonth, selectedYear, selectedWeek, viewMode, searchTerm, unsoldFilter, selectedCategoryFilter, availableWeeks]);
+  }, [rows, selectedMonth, selectedYear, selectedWeek, viewMode, searchTerm, unsoldFilter, selectedCategoryFilter, availableWeeks, categories]);
 
   const computeDataPanelMetrics = (row: StockRow) => {
     const purchase = row.purchase_price !== null && row.purchase_price !== undefined
@@ -887,6 +998,12 @@ const Stock: React.FC = () => {
 
   const sortedRows = useMemo(() => {
     const getComparableValue = (row: StockRow, key: keyof StockRow) => {
+      // Special handling for category_id - use category name for sorting
+      if (key === 'category_id') {
+        const category = categories.find(cat => cat.id === row.category_id);
+        return category ? category.category_name.toLowerCase() : '';
+      }
+
       const value = row[key];
 
       if (value === null || value === undefined) {
@@ -942,7 +1059,7 @@ const Stock: React.FC = () => {
 
       return -1 * multiplier;
     });
-  }, [filteredRows, sortConfig]);
+  }, [filteredRows, sortConfig, categories]);
 
   const exportToCSV = () => {
     if (sortedRows.length === 0) {
@@ -975,7 +1092,10 @@ const Stock: React.FC = () => {
 
         return [
           `"${(row.item_name || '').replace(/"/g, '""')}"`,
-          `"${(row.category || '').replace(/"/g, '""')}"`,
+          `"${(() => {
+            const category = categories.find(cat => cat.id === row.category_id);
+            return category ? category.category_name : '';
+          })().replace(/"/g, '""')}"`,
           purchasePrice,
           row.purchase_date ? formatDate(row.purchase_date) : '',
           row.sale_date ? formatDate(row.sale_date) : '',
@@ -1039,7 +1159,7 @@ const Stock: React.FC = () => {
     setEditingRowId(row.id);
     setCreateForm({
       item_name: row.item_name ?? '',
-      category: row.category ?? '',
+      category_id: row.category_id ? String(row.category_id) : '',
       purchase_price: row.purchase_price ? String(row.purchase_price) : '',
       purchase_date: normalizeDateInput(row.purchase_date ?? ''),
       sale_date: normalizeDateInput(row.sale_date ?? ''),
@@ -1047,7 +1167,8 @@ const Stock: React.FC = () => {
       sold_platform: row.sold_platform ?? '',
       vinted_id: row.vinted_id ?? '',
       ebay_id: row.ebay_id ?? '',
-      depop_id: row.depop_id ?? ''
+      depop_id: row.depop_id ?? '',
+      brand_id: row.brand_id ? String(row.brand_id) : ''
     });
     console.log('startEditingRow - row data:', row);
     console.log('startEditingRow - vinted_id:', row.vinted_id);
@@ -1084,7 +1205,7 @@ const Stock: React.FC = () => {
   const resetCreateForm = () => {
     setCreateForm({
       item_name: '',
-      category: '',
+      category_id: '',
       purchase_price: '',
       purchase_date: '',
       sale_date: '',
@@ -1092,7 +1213,8 @@ const Stock: React.FC = () => {
       sold_platform: '',
       vinted_id: '',
       ebay_id: '',
-      depop_id: ''
+      depop_id: '',
+      brand_id: ''
     });
   };
 
@@ -1110,7 +1232,7 @@ const Stock: React.FC = () => {
 
       const payload = {
         item_name: createForm.item_name,
-        category: createForm.category,
+        category_id: createForm.category_id ? Number(createForm.category_id) : null,
         purchase_price: createForm.purchase_price,
         purchase_date: createForm.purchase_date,
         sale_date: createForm.sale_date,
@@ -1118,7 +1240,8 @@ const Stock: React.FC = () => {
         sold_platform: createForm.sold_platform,
         vinted_id: createForm.vinted_id ? createForm.vinted_id.trim() : null,
         ebay_id: createForm.ebay_id ? createForm.ebay_id.trim() : null,
-        depop_id: createForm.depop_id ? createForm.depop_id.trim() : null
+        depop_id: createForm.depop_id ? createForm.depop_id.trim() : null,
+        brand_id: createForm.brand_id ? Number(createForm.brand_id) : null
       };
 
       console.log('Stock submit - Payload:', payload);
@@ -1194,6 +1317,12 @@ const Stock: React.FC = () => {
     formatter?: (value: Nullable<string | number>) => string,
     isDate?: boolean
   ) => {
+    // Special handling for category_id - display category name
+    if (key === 'category_id') {
+      const category = categories.find(cat => cat.id === row.category_id);
+      return category ? category.category_name : '—';
+    }
+
     const value = row[key];
 
     if (key === 'net_profit') {
@@ -1381,7 +1510,7 @@ const Stock: React.FC = () => {
               </label>
               <div className="new-entry-field" style={{ position: 'relative' }}>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: '8px', color: 'rgba(255, 248, 226, 0.7)', letterSpacing: '0.05rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                     <span>Category</span>
                     <button
                       type="button"
@@ -1418,13 +1547,13 @@ const Stock: React.FC = () => {
                   </div>
                   <select
                     className="new-entry-select"
-                    value={createForm.category}
-                    onChange={(event) => handleCreateChange('category', event.target.value)}
+                    value={createForm.category_id}
+                    onChange={(event) => handleCreateChange('category_id', event.target.value)}
                   >
                     <option value="">Select category...</option>
                     {categories.map((category) => (
-                      <option key={category} value={category}>
-                        {category}
+                      <option key={category.id} value={category.id}>
+                        {category.category_name}
                       </option>
                     ))}
                   </select>
@@ -1532,8 +1661,138 @@ const Stock: React.FC = () => {
                 />
               </label>
             </div>
-            {/* Row 2: Platform IDs */}
+            {/* Row 2: Brand, Platform IDs */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', width: '100%' }}>
+              <div className="new-entry-field" style={{ position: 'relative' }}>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: '8px', color: 'rgba(255, 248, 226, 0.7)', letterSpacing: '0.05rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                    <span>Brand</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAddBrand(!showAddBrand);
+                        setNewBrandName('');
+                      }}
+                      style={{
+                        background: 'rgba(255, 214, 91, 0.15)',
+                        border: '1px solid rgba(255, 214, 91, 0.3)',
+                        borderRadius: '6px',
+                        color: 'var(--neon-primary-strong)',
+                        cursor: 'pointer',
+                        padding: '4px 8px',
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minWidth: '24px',
+                        height: '24px',
+                        transition: 'all 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(255, 214, 91, 0.25)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'rgba(255, 214, 91, 0.15)';
+                      }}
+                      title="Add new brand"
+                    >
+                      +
+                    </button>
+                  </div>
+                  <select
+                    className="new-entry-select"
+                    value={createForm.brand_id}
+                    onChange={(event) => handleCreateChange('brand_id', event.target.value)}
+                  >
+                    <option value="">-- No Brand --</option>
+                    {brands.map((brand) => (
+                      <option key={brand.id} value={brand.id}>
+                        {brand.brand_name}
+                      </option>
+                    ))}
+                  </select>
+                  {showAddBrand && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: '8px',
+                        alignItems: 'center',
+                        marginTop: '4px',
+                        padding: '8px',
+                        background: 'rgba(255, 214, 91, 0.08)',
+                        borderRadius: '8px',
+                        border: '1px solid rgba(255, 214, 91, 0.2)'
+                      }}
+                    >
+                      <input
+                        type="text"
+                        value={newBrandName}
+                        onChange={(e) => setNewBrandName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleAddBrand();
+                          } else if (e.key === 'Escape') {
+                            setShowAddBrand(false);
+                            setNewBrandName('');
+                          }
+                        }}
+                        placeholder="New brand name..."
+                        style={{
+                          flex: 1,
+                          padding: '8px 12px',
+                          borderRadius: '8px',
+                          border: '1px solid rgba(255, 214, 91, 0.28)',
+                          background: 'rgba(5, 4, 3, 0.6)',
+                          color: 'var(--text-strong)',
+                          fontSize: '0.9rem',
+                          outline: 'none'
+                        }}
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddBrand}
+                        disabled={savingBrand || !newBrandName.trim()}
+                        style={{
+                          padding: '8px 16px',
+                          background: 'var(--neon-primary-strong)',
+                          color: '#000',
+                          border: 'none',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          fontWeight: 600,
+                          fontSize: '0.85rem',
+                          opacity: savingBrand || !newBrandName.trim() ? 0.6 : 1
+                        }}
+                      >
+                        {savingBrand ? 'Saving...' : 'Add'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowAddBrand(false);
+                          setNewBrandName('');
+                        }}
+                        disabled={savingBrand}
+                        style={{
+                          padding: '8px 12px',
+                          background: 'transparent',
+                          color: 'rgba(255, 248, 226, 0.7)',
+                          border: '1px solid rgba(255, 248, 226, 0.3)',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          fontSize: '1.2rem',
+                          fontWeight: 600,
+                          opacity: savingBrand ? 0.6 : 1
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  )}
+                </label>
+              </div>
               <label className="new-entry-field">
                 <span>Vinted ID</span>
                 <input
@@ -2342,10 +2601,10 @@ const Stock: React.FC = () => {
               <th>
                 <button
                   type="button"
-                  className={`sortable-header${sortConfig?.key === 'category' ? ` sorted-${sortConfig.direction}` : ''}`}
-                  onClick={() => handleSort('category')}
+                  className={`sortable-header${sortConfig?.key === 'category_id' ? ` sorted-${sortConfig.direction}` : ''}`}
+                  onClick={() => handleSort('category_id')}
                 >
-                  Category <span className="sort-indicator">{resolveSortIndicator('category')}</span>
+                  Category <span className="sort-indicator">{resolveSortIndicator('category_id')}</span>
                 </button>
               </th>
               <th>
@@ -2453,7 +2712,7 @@ const Stock: React.FC = () => {
                       {renderCellContent(row, 'item_name')}
                     </button>
                   </td>
-                  <td>{renderCellContent(row, 'category')}</td>
+                  <td>{renderCellContent(row, 'category_id')}</td>
                   <td>{renderCellContent(row, 'purchase_price', formatCurrency)}</td>
                   <td>
                     {renderCellContent(

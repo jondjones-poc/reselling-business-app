@@ -1046,7 +1046,7 @@ app.get('/api/stock', async (req, res) => {
     }
 
     const result = await pool.query(
-      'SELECT id, item_name, category, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted, ebay, vinted_id, ebay_id, depop_id FROM stock ORDER BY purchase_date DESC NULLS LAST, item_name ASC'
+      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted, vinted_id, ebay_id, depop_id, brand_id, category_id FROM stock ORDER BY purchase_date DESC NULLS LAST, item_name ASC'
     );
 
     res.json({
@@ -1069,7 +1069,7 @@ app.post('/api/stock', async (req, res) => {
 
     const {
       item_name,
-      category,
+      category_id,
       purchase_price,
       purchase_date,
       sale_date,
@@ -1077,14 +1077,13 @@ app.post('/api/stock', async (req, res) => {
       sold_platform,
       net_profit,
       vinted,
-      ebay,
       vinted_id,
       ebay_id,
       depop_id
     } = req.body ?? {};
 
     const normalizedItemName = normalizeTextInput(item_name) ?? null;
-    const normalizedCategory = normalizeTextInput(category) ?? null;
+    const normalizedCategoryId = category_id === null || category_id === undefined || category_id === '' ? null : Number(category_id);
     const normalizedSoldPlatform = normalizeTextInput(sold_platform) ?? null;
     const normalizedPurchasePrice = normalizeDecimalInput(purchase_price, 'purchase_price');
     const normalizedSalePrice = normalizeDecimalInput(sale_price, 'sale_price');
@@ -1095,9 +1094,8 @@ app.post('/api/stock', async (req, res) => {
         ? normalizedSalePrice - normalizedPurchasePrice
         : null;
     
-    // Normalize vinted and ebay: convert to boolean or null
+    // Normalize vinted: convert to boolean or null
     const normalizedVinted = vinted === null || vinted === undefined ? null : Boolean(vinted);
-    const normalizedEbay = ebay === null || ebay === undefined ? null : Boolean(ebay);
     
     // Normalize ID fields: convert to string or null
     const normalizedVintedId = vinted_id === null || vinted_id === undefined || vinted_id === '' ? null : String(vinted_id).trim();
@@ -1107,7 +1105,7 @@ app.post('/api/stock', async (req, res) => {
     const insertQuery = `
       INSERT INTO stock (
         item_name,
-        category,
+        category_id,
         purchase_price,
         purchase_date,
         sale_date,
@@ -1115,18 +1113,17 @@ app.post('/api/stock', async (req, res) => {
         sold_platform,
         net_profit,
         vinted,
-        ebay,
         vinted_id,
         ebay_id,
         depop_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-      RETURNING id, item_name, category, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted, ebay, vinted_id, ebay_id, depop_id
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted, vinted_id, ebay_id, depop_id, category_id
     `;
 
     const result = await pool.query(insertQuery, [
       normalizedItemName,
-      normalizedCategory,
+      normalizedCategoryId,
       normalizedPurchasePrice,
       normalizedPurchaseDate,
       normalizedSaleDate,
@@ -1134,7 +1131,6 @@ app.post('/api/stock', async (req, res) => {
       normalizedSoldPlatform,
       computedNetProfit,
       normalizedVinted,
-      normalizedEbay,
       normalizedVintedId,
       normalizedEbayId,
       normalizedDepopId
@@ -1166,7 +1162,7 @@ app.put('/api/stock/:id', async (req, res) => {
     console.log('PUT /api/stock/:id - Request body:', JSON.stringify(req.body, null, 2));
 
     const existingResult = await pool.query(
-      'SELECT id, item_name, category, purchase_price, purchase_date, sale_date, sale_price, sold_platform, vinted, ebay, vinted_id, ebay_id, depop_id FROM stock WHERE id = $1',
+      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, vinted, vinted_id, ebay_id, depop_id, brand_id, category_id FROM stock WHERE id = $1',
       [stockId]
     );
 
@@ -1182,9 +1178,13 @@ app.put('/api/stock/:id', async (req, res) => {
       ? normalizeTextInput(req.body.item_name) ?? null
       : existing.item_name ?? null;
 
-    const finalCategory = hasProp('category')
-      ? normalizeTextInput(req.body.category) ?? null
-      : existing.category ?? null;
+    const existingCategoryId = existing.category_id !== null && existing.category_id !== undefined
+      ? Number(existing.category_id)
+      : null;
+
+    const finalCategoryId = hasProp('category_id')
+      ? (req.body.category_id === null || req.body.category_id === undefined || req.body.category_id === '' ? null : Number(req.body.category_id))
+      : existingCategoryId;
 
     const existingPurchasePrice =
       existing.purchase_price !== null && existing.purchase_price !== undefined
@@ -1216,7 +1216,6 @@ app.put('/api/stock/:id', async (req, res) => {
       : existing.sold_platform ?? null;
 
     const existingVinted = existing.vinted === null || existing.vinted === undefined ? null : Boolean(existing.vinted);
-    const existingEbay = existing.ebay === null || existing.ebay === undefined ? null : Boolean(existing.ebay);
     const existingVintedId = existing.vinted_id ?? null;
     const existingEbayId = existing.ebay_id ?? null;
     const existingDepopId = existing.depop_id ?? null;
@@ -1224,10 +1223,6 @@ app.put('/api/stock/:id', async (req, res) => {
     const finalVinted = hasProp('vinted')
       ? (req.body.vinted === null || req.body.vinted === undefined ? null : Boolean(req.body.vinted))
       : existingVinted;
-
-    const finalEbay = hasProp('ebay')
-      ? (req.body.ebay === null || req.body.ebay === undefined ? null : Boolean(req.body.ebay))
-      : existingEbay;
 
     const finalVintedId = hasProp('vinted_id')
       ? (req.body.vinted_id === null || req.body.vinted_id === undefined || req.body.vinted_id === '' ? null : String(req.body.vinted_id).trim())
@@ -1240,6 +1235,14 @@ app.put('/api/stock/:id', async (req, res) => {
     const finalDepopId = hasProp('depop_id')
       ? (req.body.depop_id === null || req.body.depop_id === undefined || req.body.depop_id === '' ? null : String(req.body.depop_id).trim())
       : existingDepopId;
+
+    const existingBrandId = existing.brand_id !== null && existing.brand_id !== undefined
+      ? Number(existing.brand_id)
+      : null;
+
+    const finalBrandId = hasProp('brand_id')
+      ? (req.body.brand_id === null || req.body.brand_id === undefined || req.body.brand_id === '' ? null : Number(req.body.brand_id))
+      : existingBrandId;
 
     const computedNetProfit =
       finalSalePrice !== null && finalPurchasePrice !== null
@@ -1259,7 +1262,7 @@ app.put('/api/stock/:id', async (req, res) => {
         UPDATE stock
         SET
           item_name = $1,
-          category = $2,
+          category_id = $2,
           purchase_price = $3,
           purchase_date = $4,
           sale_date = $5,
@@ -1267,16 +1270,16 @@ app.put('/api/stock/:id', async (req, res) => {
           sold_platform = $7,
           net_profit = $8,
           vinted = $9,
-          ebay = $10,
-          vinted_id = $11,
-          ebay_id = $12,
-          depop_id = $13
+          vinted_id = $10,
+          ebay_id = $11,
+          depop_id = $12,
+          brand_id = $13
         WHERE id = $14
-        RETURNING id, item_name, category, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted, ebay, vinted_id, ebay_id, depop_id
+        RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted, vinted_id, ebay_id, depop_id, brand_id, category_id
       `,
       [
         finalItemName,
-        finalCategory,
+        finalCategoryId,
         finalPurchasePrice,
         finalPurchaseDate,
         finalSaleDate,
@@ -1284,10 +1287,10 @@ app.put('/api/stock/:id', async (req, res) => {
         finalSoldPlatform,
         computedNetProfit,
         finalVinted,
-        finalEbay,
         finalVintedId,
         finalEbayId,
         finalDepopId,
+        finalBrandId,
         stockId
       ]
     );
@@ -1340,6 +1343,140 @@ app.delete('/api/stock/:id', async (req, res) => {
   }
 });
 
+// Brand API endpoints
+app.get('/api/brands', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const result = await pool.query(
+      'SELECT id, brand_name FROM brand ORDER BY brand_name ASC'
+    );
+
+    res.json({
+      rows: result.rows ?? [],
+      count: result.rowCount ?? 0
+    });
+  } catch (error) {
+    console.error('Brands query failed:', error);
+    res.status(500).json({ error: 'Failed to load brands data', details: error.message });
+  }
+});
+
+app.post('/api/brands', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const { brand_name } = req.body ?? {};
+
+    if (!brand_name || typeof brand_name !== 'string' || !brand_name.trim()) {
+      return res.status(400).json({ error: 'Brand name is required' });
+    }
+
+    const normalizedBrandName = brand_name.trim();
+
+    // Check if brand already exists (case-insensitive)
+    const existingResult = await pool.query(
+      'SELECT id FROM brand WHERE LOWER(TRIM(brand_name)) = LOWER($1)',
+      [normalizedBrandName]
+    );
+
+    if (existingResult.rowCount > 0) {
+      return res.status(400).json({ error: 'Brand already exists' });
+    }
+
+    const insertQuery = `
+      INSERT INTO brand (brand_name)
+      VALUES ($1)
+      RETURNING id, brand_name
+    `;
+
+    const result = await pool.query(insertQuery, [normalizedBrandName]);
+
+    res.status(201).json({ row: result.rows[0] });
+  } catch (error) {
+    console.error('Brand insert failed:', error);
+    if (error.code === '23505') { // Unique violation
+      return res.status(400).json({ error: 'Brand already exists' });
+    }
+    res.status(500).json({ error: 'Failed to create brand', details: error.message });
+  }
+});
+
+// Category API endpoints
+app.get('/api/categories', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const result = await pool.query(
+      'SELECT id, category_name FROM category ORDER BY category_name ASC'
+    );
+
+    res.json({
+      rows: result.rows ?? [],
+      count: result.rowCount ?? 0
+    });
+  } catch (error) {
+    console.error('Categories query failed:', error);
+    res.status(500).json({ error: 'Failed to load categories data', details: error.message });
+  }
+});
+
+app.post('/api/categories', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const { category_name } = req.body ?? {};
+
+    if (!category_name || typeof category_name !== 'string' || !category_name.trim()) {
+      return res.status(400).json({ error: 'Category name is required' });
+    }
+
+    const normalizedCategoryName = category_name.trim();
+
+    // Check if category already exists (case-insensitive)
+    const existingResult = await pool.query(
+      'SELECT id FROM category WHERE LOWER(TRIM(category_name)) = LOWER($1)',
+      [normalizedCategoryName]
+    );
+
+    if (existingResult.rowCount > 0) {
+      return res.status(400).json({ error: 'Category already exists' });
+    }
+
+    const insertQuery = `
+      INSERT INTO category (category_name)
+      VALUES ($1)
+      RETURNING id, category_name
+    `;
+
+    const result = await pool.query(insertQuery, [normalizedCategoryName]);
+
+    res.status(201).json({ row: result.rows[0] });
+  } catch (error) {
+    console.error('Category insert failed:', error);
+    if (error.code === '23505') { // Unique violation
+      return res.status(400).json({ error: 'Category already exists' });
+    }
+    res.status(500).json({ error: 'Failed to create category', details: error.message });
+  }
+});
+
 // Expenses API endpoints
 app.get('/api/expenses', async (req, res) => {
   try {
@@ -1350,7 +1487,7 @@ app.get('/api/expenses', async (req, res) => {
     }
 
     const result = await pool.query(
-      'SELECT id, item, cost, purchase_date FROM expenses ORDER BY purchase_date DESC NULLS LAST, item ASC'
+      'SELECT id, item, cost, purchase_date, receipt_name, purchase_location FROM expenses ORDER BY purchase_date DESC NULLS LAST, item ASC'
     );
 
     res.json({
@@ -1374,23 +1511,29 @@ app.post('/api/expenses', async (req, res) => {
     const {
       item,
       cost,
-      purchase_date
+      purchase_date,
+      receipt_name,
+      purchase_location
     } = req.body ?? {};
 
     const normalizedItem = normalizeTextInput(item) ?? null;
     const normalizedCost = normalizeDecimalInput(cost, 'cost');
     const normalizedPurchaseDate = normalizeDateInputValue(purchase_date, 'purchase_date');
+    const normalizedReceiptName = normalizeTextInput(receipt_name) ?? null;
+    const normalizedPurchaseLocation = normalizeTextInput(purchase_location) ?? null;
 
     const insertQuery = `
-      INSERT INTO expenses (item, cost, purchase_date)
-      VALUES ($1, $2, $3)
-      RETURNING id, item, cost, purchase_date
+      INSERT INTO expenses (item, cost, purchase_date, receipt_name, purchase_location)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING id, item, cost, purchase_date, receipt_name, purchase_location
     `;
 
     const result = await pool.query(insertQuery, [
       normalizedItem,
       normalizedCost,
-      normalizedPurchaseDate
+      normalizedPurchaseDate,
+      normalizedReceiptName,
+      normalizedPurchaseLocation
     ]);
 
     res.status(201).json({ row: result.rows[0] });
@@ -1417,7 +1560,7 @@ app.put('/api/expenses/:id', async (req, res) => {
     }
 
     const existingResult = await pool.query(
-      'SELECT id, item, cost, purchase_date FROM expenses WHERE id = $1',
+      'SELECT id, item, cost, purchase_date, receipt_name, purchase_location FROM expenses WHERE id = $1',
       [expenseId]
     );
 
@@ -1446,20 +1589,32 @@ app.put('/api/expenses/:id', async (req, res) => {
       ? normalizeDateInputValue(req.body.purchase_date, 'purchase_date')
       : ensureIsoDateString(existing.purchase_date);
 
+    const finalReceiptName = hasProp('receipt_name')
+      ? normalizeTextInput(req.body.receipt_name) ?? null
+      : existing.receipt_name ?? null;
+
+    const finalPurchaseLocation = hasProp('purchase_location')
+      ? normalizeTextInput(req.body.purchase_location) ?? null
+      : existing.purchase_location ?? null;
+
     const updateResult = await pool.query(
       `
         UPDATE expenses
         SET
           item = $1,
           cost = $2,
-          purchase_date = $3
-        WHERE id = $4
-        RETURNING id, item, cost, purchase_date
+          purchase_date = $3,
+          receipt_name = $4,
+          purchase_location = $5
+        WHERE id = $6
+        RETURNING id, item, cost, purchase_date, receipt_name, purchase_location
       `,
       [
         finalItem,
         finalCost,
         finalPurchaseDate,
+        finalReceiptName,
+        finalPurchaseLocation,
         expenseId
       ]
     );
@@ -1514,31 +1669,31 @@ app.get('/api/orders', async (req, res) => {
       return res.status(500).json({ error: 'Database connection not configured' });
     }
 
-    // Join with stock table to get all item details
-    const result = await pool.query(
-      `SELECT 
-        o.id as order_id,
-        o.stock_id,
-        o.created_at,
-        o.updated_at,
-        s.id,
-        s.item_name,
-        s.category,
-        s.purchase_price,
-        s.purchase_date,
-        s.sale_date,
-        s.sale_price,
-        s.sold_platform,
-        s.net_profit,
-        s.vinted,
-        s.ebay,
-        s.vinted_id,
-        s.ebay_id,
-        s.depop_id
-      FROM orders o
-      INNER JOIN stock s ON o.stock_id = s.id
-      ORDER BY o.created_at DESC`
-    );
+      // Join with stock table to get all item details
+      const result = await pool.query(
+        `SELECT 
+          o.id as order_id,
+          o.stock_id,
+          o.created_at,
+          o.updated_at,
+          s.id,
+          s.item_name,
+          s.purchase_price,
+          s.purchase_date,
+          s.sale_date,
+          s.sale_price,
+          s.sold_platform,
+          s.net_profit,
+          s.vinted,
+          s.vinted_id,
+          s.ebay_id,
+          s.depop_id,
+          s.brand_id,
+          s.category_id
+        FROM orders o
+        INNER JOIN stock s ON o.stock_id = s.id
+        ORDER BY o.created_at DESC`
+      );
 
     res.json({
       rows: result.rows ?? [],
@@ -1816,22 +1971,24 @@ app.get('/api/analytics/reporting', async (req, res) => {
 
     const salesByCategoryQuery = effectiveYear === null ? `
         SELECT
-          COALESCE(category, 'Uncategorized') AS category,
-          SUM(COALESCE(sale_price, 0))::numeric AS total_sales
-        FROM stock
-        WHERE sale_date IS NOT NULL
-        GROUP BY COALESCE(category, 'Uncategorized')
-        HAVING SUM(COALESCE(sale_price, 0)) > 0
+          COALESCE(c.category_name, 'Uncategorized') AS category,
+          SUM(COALESCE(s.sale_price, 0))::numeric AS total_sales
+        FROM stock s
+        LEFT JOIN category c ON s.category_id = c.id
+        WHERE s.sale_date IS NOT NULL
+        GROUP BY COALESCE(c.category_name, 'Uncategorized')
+        HAVING SUM(COALESCE(s.sale_price, 0)) > 0
         ORDER BY total_sales DESC
       ` : `
         SELECT
-          COALESCE(category, 'Uncategorized') AS category,
-          SUM(COALESCE(sale_price, 0))::numeric AS total_sales
-        FROM stock
-        WHERE sale_date IS NOT NULL
-          AND EXTRACT(YEAR FROM sale_date)::int = $1
-        GROUP BY COALESCE(category, 'Uncategorized')
-        HAVING SUM(COALESCE(sale_price, 0)) > 0
+          COALESCE(c.category_name, 'Uncategorized') AS category,
+          SUM(COALESCE(s.sale_price, 0))::numeric AS total_sales
+        FROM stock s
+        LEFT JOIN category c ON s.category_id = c.id
+        WHERE s.sale_date IS NOT NULL
+          AND EXTRACT(YEAR FROM s.sale_date)::int = $1
+        GROUP BY COALESCE(c.category_name, 'Uncategorized')
+        HAVING SUM(COALESCE(s.sale_price, 0)) > 0
         ORDER BY total_sales DESC
       `;
     const salesByCategoryResult = await pool.query(
@@ -1846,26 +2003,28 @@ app.get('/api/analytics/reporting', async (req, res) => {
 
     const unsoldStockByCategoryQuery = effectiveYear === null ? `
         SELECT
-          COALESCE(category, 'Uncategorized') AS category,
-          SUM(COALESCE(purchase_price, 0))::numeric AS total_value,
+          COALESCE(c.category_name, 'Uncategorized') AS category,
+          SUM(COALESCE(s.purchase_price, 0))::numeric AS total_value,
           COUNT(*)::int AS item_count
-        FROM stock
-        WHERE purchase_date IS NOT NULL
-          AND sale_date IS NULL
-        GROUP BY COALESCE(category, 'Uncategorized')
-        HAVING SUM(COALESCE(purchase_price, 0)) > 0
+        FROM stock s
+        LEFT JOIN category c ON s.category_id = c.id
+        WHERE s.purchase_date IS NOT NULL
+          AND s.sale_date IS NULL
+        GROUP BY COALESCE(c.category_name, 'Uncategorized')
+        HAVING SUM(COALESCE(s.purchase_price, 0)) > 0
         ORDER BY total_value DESC
       ` : `
         SELECT
-          COALESCE(category, 'Uncategorized') AS category,
-          SUM(COALESCE(purchase_price, 0))::numeric AS total_value,
+          COALESCE(c.category_name, 'Uncategorized') AS category,
+          SUM(COALESCE(s.purchase_price, 0))::numeric AS total_value,
           COUNT(*)::int AS item_count
-        FROM stock
-        WHERE purchase_date IS NOT NULL
-          AND sale_date IS NULL
-          AND EXTRACT(YEAR FROM purchase_date)::int = $1
-        GROUP BY COALESCE(category, 'Uncategorized')
-        HAVING SUM(COALESCE(purchase_price, 0)) > 0
+        FROM stock s
+        LEFT JOIN category c ON s.category_id = c.id
+        WHERE s.purchase_date IS NOT NULL
+          AND s.sale_date IS NULL
+          AND EXTRACT(YEAR FROM s.purchase_date)::int = $1
+        GROUP BY COALESCE(c.category_name, 'Uncategorized')
+        HAVING SUM(COALESCE(s.purchase_price, 0)) > 0
         ORDER BY total_value DESC
       `;
     const unsoldStockByCategoryResult = await pool.query(
@@ -1877,6 +2036,43 @@ app.get('/api/analytics/reporting', async (req, res) => {
       category: row.category || 'Uncategorized',
       totalValue: Number(row.total_value),
       itemCount: Number(row.item_count)
+    }));
+
+    // Sales by Brand query (excludes unbranded items)
+    const salesByBrandQuery = effectiveYear === null ? `
+        SELECT
+          b.brand_name AS brand,
+          SUM(COALESCE(s.sale_price, 0))::numeric AS total_sales
+        FROM stock s
+        INNER JOIN brand b ON s.brand_id = b.id
+        WHERE s.sale_date IS NOT NULL
+          AND s.brand_id IS NOT NULL
+        GROUP BY b.brand_name
+        HAVING SUM(COALESCE(s.sale_price, 0)) > 0
+        ORDER BY total_sales DESC
+        LIMIT 15
+      ` : `
+        SELECT
+          b.brand_name AS brand,
+          SUM(COALESCE(s.sale_price, 0))::numeric AS total_sales
+        FROM stock s
+        INNER JOIN brand b ON s.brand_id = b.id
+        WHERE s.sale_date IS NOT NULL
+          AND s.brand_id IS NOT NULL
+          AND EXTRACT(YEAR FROM s.sale_date)::int = $1
+        GROUP BY b.brand_name
+        HAVING SUM(COALESCE(s.sale_price, 0)) > 0
+        ORDER BY total_sales DESC
+        LIMIT 15
+      `;
+    const salesByBrandResult = await pool.query(
+      salesByBrandQuery,
+      effectiveYear === null ? [] : [effectiveYear]
+    );
+
+    const salesByBrand = salesByBrandResult.rows.map((row) => ({
+      brand: row.brand,
+      totalSales: Number(row.total_sales)
     }));
 
     const sellThroughRateResult = await pool.query(`
@@ -2219,6 +2415,7 @@ app.get('/api/analytics/reporting', async (req, res) => {
       monthlyExpenses,
       salesByCategory,
       unsoldStockByCategory,
+      salesByBrand,
       sellThroughRate: {
         totalListed,
         totalSold,
@@ -2317,7 +2514,7 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
       console.log(`[Monthly Platform] Total sales amount: £${totalSales.toFixed(2)}`);
       console.log('[Monthly Platform] All items with sold_platform values:');
       debugResult.rows.forEach(r => {
-        console.log(`  - ${r.item_name}: sold_platform="${r.sold_platform}" (type: ${typeof r.sold_platform}), vinted=${r.vinted}, ebay=${r.ebay}, sale_price=£${r.sale_price}`);
+        console.log(`  - ${r.item_name}: sold_platform="${r.sold_platform}" (type: ${typeof r.sold_platform}), vinted=${r.vinted}, ebay_id=${r.ebay_id || 'null'}, sale_price=£${r.sale_price}`);
       });
       console.log('[Monthly Platform] Unique sold_platform values:', [...new Set(debugResult.rows.map(r => r.sold_platform))]);
     }
@@ -2443,14 +2640,13 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
         SELECT
           id,
           item_name,
-          category,
           purchase_price,
           purchase_date,
           sale_date,
           sale_price,
           sold_platform,
           vinted,
-          ebay
+          category_id
         FROM stock
         WHERE sale_date IS NOT NULL
           AND EXTRACT(YEAR FROM sale_date)::int = $1
@@ -2468,14 +2664,13 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
     const untaggedItems = untaggedItemsResult.rows.map((row) => ({
       id: row.id,
       item_name: row.item_name,
-      category: row.category,
       purchase_price: row.purchase_price ? Number(row.purchase_price) : null,
       purchase_date: row.purchase_date,
       sale_date: row.sale_date,
       sale_price: row.sale_price ? Number(row.sale_price) : null,
       sold_platform: row.sold_platform,
       vinted: row.vinted,
-      ebay: row.ebay
+      category_id: row.category_id
     }));
 
     // Calculate total unsold inventory value (all unsold items, not filtered by month/year)

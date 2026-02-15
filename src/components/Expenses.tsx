@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
+import * as XLSX from 'xlsx';
 import './Stock.css';
 
 const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5003';
@@ -12,6 +13,8 @@ interface ExpenseRow {
   item: Nullable<string>;
   cost: Nullable<string | number>;
   purchase_date: Nullable<string>;
+  receipt_name: Nullable<string>;
+  purchase_location: Nullable<string>;
 }
 
 interface ExpensesApiResponse {
@@ -83,6 +86,30 @@ const dateToIsoString = (value: Date | null) => {
   return iso.slice(0, 10);
 };
 
+const getCurrentTaxYear = () => {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth(); // 0-11, where 0 is January
+  
+  // Tax year runs from April 1 to March 31
+  // If we're in Jan, Feb, or Mar, the tax year started the previous year
+  // If we're in Apr-Dec, the tax year started this year
+  let taxYearStart: Date;
+  let taxYearEnd: Date;
+  
+  if (currentMonth < 3) {
+    // Jan, Feb, Mar - tax year started previous year on April 1
+    taxYearStart = new Date(currentYear - 1, 3, 1); // April 1 of previous year
+    taxYearEnd = new Date(currentYear, 2, 31, 23, 59, 59, 999); // March 31 of current year
+  } else {
+    // Apr-Dec - tax year started this year on April 1
+    taxYearStart = new Date(currentYear, 3, 1); // April 1 of current year
+    taxYearEnd = new Date(currentYear + 1, 2, 31, 23, 59, 59, 999); // March 31 of next year
+  }
+  
+  return { start: taxYearStart, end: taxYearEnd };
+};
+
 const Expenses: React.FC = () => {
   const [rows, setRows] = useState<ExpenseRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -98,7 +125,9 @@ const Expenses: React.FC = () => {
   const [createForm, setCreateForm] = useState({
     item: '',
     cost: '',
-    purchase_date: ''
+    purchase_date: '',
+    receipt_name: '',
+    purchase_location: ''
   });
   const [searchTerm, setSearchTerm] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -169,7 +198,11 @@ const Expenses: React.FC = () => {
       const searchLower = searchTerm.toLowerCase().trim();
       filtered = filtered.filter((row) => {
         const itemName = row.item ? row.item.toLowerCase() : '';
-        return itemName.includes(searchLower);
+        const receiptName = row.receipt_name ? row.receipt_name.toLowerCase() : '';
+        const purchaseLocation = row.purchase_location ? row.purchase_location.toLowerCase() : '';
+        return itemName.includes(searchLower) || 
+               receiptName.includes(searchLower) || 
+               purchaseLocation.includes(searchLower);
       });
     }
 
@@ -268,7 +301,9 @@ const Expenses: React.FC = () => {
     setCreateForm({
       item: row.item ?? '',
       cost: row.cost ? String(row.cost) : '',
-      purchase_date: normalizeDateInput(row.purchase_date ?? '')
+      purchase_date: normalizeDateInput(row.purchase_date ?? ''),
+      receipt_name: row.receipt_name ?? '',
+      purchase_location: row.purchase_location ?? ''
     });
     setShowNewEntry(true);
     setSuccessMessage(null);
@@ -278,7 +313,9 @@ const Expenses: React.FC = () => {
     setCreateForm({
       item: '',
       cost: '',
-      purchase_date: ''
+      purchase_date: '',
+      receipt_name: '',
+      purchase_location: ''
     });
   };
 
@@ -297,7 +334,9 @@ const Expenses: React.FC = () => {
       const payload = {
         item: createForm.item,
         cost: createForm.cost,
-        purchase_date: createForm.purchase_date
+        purchase_date: createForm.purchase_date,
+        receipt_name: createForm.receipt_name,
+        purchase_location: createForm.purchase_location
       };
 
       const isEditing = editingRowId !== null;
@@ -408,6 +447,175 @@ const Expenses: React.FC = () => {
     setShowDeleteConfirm(false);
   };
 
+  const handleTaxYearExport = async () => {
+    try {
+      setError(null);
+      
+      const taxYear = getCurrentTaxYear();
+      const taxYearStartStr = taxYear.start.toISOString().slice(0, 10);
+      const taxYearEndStr = taxYear.end.toISOString().slice(0, 10);
+      
+      // Filter expenses for the current tax year
+      const taxYearExpenses = rows.filter((row) => {
+        if (!row.purchase_date) return false;
+        const purchaseDate = new Date(row.purchase_date);
+        return purchaseDate >= taxYear.start && purchaseDate <= taxYear.end;
+      });
+      
+      // Fetch stock data
+      const stockResponse = await fetch(`${API_BASE}/api/stock`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!stockResponse.ok) {
+        throw new Error('Failed to fetch stock data');
+      }
+      
+      const stockData = await stockResponse.json();
+      const allStockItems = Array.isArray(stockData.rows) ? stockData.rows : [];
+      
+      // Filter stock items purchased within tax year
+      const taxYearStockPurchases = allStockItems.filter((item: any) => {
+        if (!item.purchase_date) return false;
+        const purchaseDate = new Date(item.purchase_date);
+        return purchaseDate >= taxYear.start && purchaseDate <= taxYear.end;
+      });
+      
+      // Filter stock items sold within tax year
+      const taxYearStockSales = allStockItems.filter((item: any) => {
+        if (!item.sale_date) return false;
+        const saleDate = new Date(item.sale_date);
+        return saleDate >= taxYear.start && saleDate <= taxYear.end;
+      });
+      
+      // Calculate total expenses
+      const totalExpenses = taxYearExpenses.reduce((sum, row) => {
+        const cost = row.cost ? Number(row.cost) : 0;
+        return sum + (Number.isNaN(cost) ? 0 : cost);
+      }, 0);
+      
+      // Calculate total clothes cost (purchase_price for items purchased in tax year)
+      const totalClothesCost = taxYearStockPurchases.reduce((sum: number, item: any) => {
+        const price = item.purchase_price ? Number(item.purchase_price) : 0;
+        return sum + (Number.isNaN(price) ? 0 : price);
+      }, 0);
+      
+      // Calculate total sales (sale_price for items sold in tax year)
+      const totalSales = taxYearStockSales.reduce((sum: number, item: any) => {
+        const price = item.sale_price ? Number(item.sale_price) : 0;
+        return sum + (Number.isNaN(price) ? 0 : price);
+      }, 0);
+      
+      // Calculate net: sales - (expenses + clothes cost) 
+      // This will be negative when costs exceed sales
+      const netAmount = totalSales - (totalExpenses + totalClothesCost);
+      
+      // Create Tax Summary sheet
+      const summaryData = [
+        ['Tax Year Summary'],
+        [''],
+        ['Tax Year Period:', `${taxYearStartStr} to ${taxYearEndStr}`],
+        [''],
+        ['Total Expenses:', formatCurrency(totalExpenses)],
+        ['Total Clothes Cost:', formatCurrency(totalClothesCost)],
+        ['Total Sales:', formatCurrency(totalSales)],
+        [''],
+        ['Net Amount (Sales - Expenses - Clothes Cost):', formatCurrency(netAmount)],
+        [''],
+        ['Number of Expense Records:', taxYearExpenses.length],
+        ['Number of Clothes Purchased:', taxYearStockPurchases.length],
+        ['Number of Items Sold:', taxYearStockSales.length],
+      ];
+      
+      const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
+      
+      // Set column widths for summary sheet
+      summarySheet['!cols'] = [
+        { wch: 40 },
+        { wch: 30 }
+      ];
+      
+      // Right-align the second column (values column)
+      const range = XLSX.utils.decode_range(summarySheet['!ref'] || 'A1');
+      for (let row = 0; row <= range.e.r; row++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: row, c: 1 });
+        if (!summarySheet[cellAddress]) continue;
+        if (!summarySheet[cellAddress].s) {
+          summarySheet[cellAddress].s = {};
+        }
+        if (!summarySheet[cellAddress].s.alignment) {
+          summarySheet[cellAddress].s.alignment = {};
+        }
+        summarySheet[cellAddress].s.alignment.horizontal = 'right';
+      }
+      
+      // Create Detailed Expenses sheet
+      const expensesData = taxYearExpenses.map((row) => ({
+        'Item': row.item || '—',
+        'Purchase Location': row.purchase_location || '—',
+        'Cost (£)': row.cost ? formatCurrency(row.cost) : '—',
+        'Purchase Date': row.purchase_date ? formatDate(row.purchase_date) : '—',
+        'Receipt Name': row.receipt_name || '—'
+      }));
+      
+      const expensesSheet = XLSX.utils.json_to_sheet(expensesData);
+      
+      // Set column widths for expenses sheet
+      expensesSheet['!cols'] = [
+        { wch: 30 }, // Item
+        { wch: 25 }, // Purchase Location
+        { wch: 12 }, // Cost
+        { wch: 15 }, // Purchase Date
+        { wch: 25 }  // Receipt Name
+      ];
+      
+      // Create Stock/Clothes sheet
+      const stockSheetData = taxYearStockPurchases.map((item: any) => ({
+        'Item Name': item.item_name || '—',
+        'Category': item.category || '—',
+        'Purchase Price (£)': item.purchase_price ? formatCurrency(item.purchase_price) : '—',
+        'Purchase Date': item.purchase_date ? formatDate(item.purchase_date) : '—',
+        'Sale Date': item.sale_date ? formatDate(item.sale_date) : '—',
+        'Sale Price (£)': item.sale_price ? formatCurrency(item.sale_price) : '—',
+        'Sold Platform': item.sold_platform || '—'
+      }));
+      
+      const stockSheet = XLSX.utils.json_to_sheet(stockSheetData);
+      
+      // Set column widths for stock sheet
+      stockSheet['!cols'] = [
+        { wch: 40 }, // Item Name
+        { wch: 20 }, // Category
+        { wch: 15 }, // Purchase Price
+        { wch: 15 }, // Purchase Date
+        { wch: 15 }, // Sale Date
+        { wch: 15 }, // Sale Price
+        { wch: 15 }  // Sold Platform
+      ];
+      
+      // Create workbook with all sheets
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, summarySheet, 'Tax Summary');
+      XLSX.utils.book_append_sheet(workbook, expensesSheet, 'Expenses');
+      XLSX.utils.book_append_sheet(workbook, stockSheet, 'Clothes Purchased');
+      
+      // Generate filename with tax year (e.g., 2024-2025 for April 2024 to March 2025)
+      const taxYearLabel = `${taxYear.start.getFullYear()}-${taxYear.end.getFullYear()}`;
+      const filename = `Tax_Year_Expenses_${taxYearLabel}.xlsx`;
+      
+      // Write and download
+      XLSX.writeFile(workbook, filename);
+      
+      setSuccessMessage(`Tax year export downloaded successfully: ${filename}`);
+    } catch (err: any) {
+      console.error('Tax year export error:', err);
+      setError(err.message || 'Failed to export tax year data');
+    }
+  };
+
   const renderCellContent = (
     row: ExpenseRow,
     key: keyof Omit<ExpenseRow, 'id'>,
@@ -463,6 +671,24 @@ const Expenses: React.FC = () => {
                   className="date-picker-input"
                   calendarClassName="date-picker-calendar"
                   wrapperClassName="date-picker-wrapper"
+                />
+              </label>
+              <label className="new-entry-field">
+                <span>Receipt Name</span>
+                <input
+                  type="text"
+                  value={createForm.receipt_name}
+                  onChange={(event) => handleCreateChange('receipt_name', event.target.value)}
+                  placeholder="e.g. receipt_2024_01_15.pdf"
+                />
+              </label>
+              <label className="new-entry-field">
+                <span>Purchase Location</span>
+                <input
+                  type="text"
+                  value={createForm.purchase_location}
+                  onChange={(event) => handleCreateChange('purchase_location', event.target.value)}
+                  placeholder="e.g. Amazon, eBay, Local Store"
                 />
               </label>
             </div>
@@ -619,6 +845,15 @@ const Expenses: React.FC = () => {
           <button
             type="button"
             className="new-entry-button"
+            onClick={handleTaxYearExport}
+            disabled={loading || rows.length === 0}
+            style={{ marginRight: '12px' }}
+          >
+            Download Tax Year Spreadsheet
+          </button>
+          <button
+            type="button"
+            className="new-entry-button"
             onClick={() => {
               setShowNewEntry(true);
               setEditingRowId(null);
@@ -659,6 +894,15 @@ const Expenses: React.FC = () => {
               <th>
                 <button
                   type="button"
+                  className={`sortable-header${sortConfig?.key === 'purchase_location' ? ` sorted-${sortConfig.direction}` : ''}`}
+                  onClick={() => handleSort('purchase_location')}
+                >
+                  Purchase Location <span className="sort-indicator">{resolveSortIndicator('purchase_location')}</span>
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
                   className={`sortable-header${sortConfig?.key === 'cost' ? ` sorted-${sortConfig.direction}` : ''}`}
                   onClick={() => handleSort('cost')}
                 >
@@ -674,13 +918,22 @@ const Expenses: React.FC = () => {
                   Purchase Date <span className="sort-indicator">{resolveSortIndicator('purchase_date')}</span>
                 </button>
               </th>
+              <th>
+                <button
+                  type="button"
+                  className={`sortable-header${sortConfig?.key === 'receipt_name' ? ` sorted-${sortConfig.direction}` : ''}`}
+                  onClick={() => handleSort('receipt_name')}
+                >
+                  Receipt Name <span className="sort-indicator">{resolveSortIndicator('receipt_name')}</span>
+                </button>
+              </th>
               <th className="stock-table-actions-header">Edit</th>
             </tr>
           </thead>
           <tbody>
             {!loading && sortedRows.length === 0 && (
               <tr>
-                <td colSpan={4} className="empty-state">
+                <td colSpan={6} className="empty-state">
                   No expense records found.
                 </td>
               </tr>
@@ -688,6 +941,7 @@ const Expenses: React.FC = () => {
             {sortedRows.map((row) => (
               <tr key={row.id}>
                 <td>{renderCellContent(row, 'item')}</td>
+                <td>{renderCellContent(row, 'purchase_location')}</td>
                 <td>{renderCellContent(row, 'cost', formatCurrency)}</td>
                 <td>
                   {renderCellContent(
@@ -697,6 +951,7 @@ const Expenses: React.FC = () => {
                     true
                   )}
                 </td>
+                <td>{renderCellContent(row, 'receipt_name')}</td>
                 <td className="stock-table-actions-cell">
                   <div className="row-actions">
                     <button

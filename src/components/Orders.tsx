@@ -8,7 +8,6 @@ type Nullable<T> = T | null | undefined;
 interface StockRow {
   id: number;
   item_name: Nullable<string>;
-  category: Nullable<string>;
   purchase_price: Nullable<string | number>;
   purchase_date: Nullable<string>;
   sale_date: Nullable<string>;
@@ -16,10 +15,10 @@ interface StockRow {
   sold_platform: Nullable<string>;
   net_profit: Nullable<string | number>;
   vinted: Nullable<boolean>;
-  ebay: Nullable<boolean>;
   vinted_id: Nullable<string>;
   ebay_id: Nullable<string>;
   depop_id: Nullable<string>;
+  category_id: Nullable<number>;
 }
 
 interface StockApiResponse {
@@ -32,11 +31,17 @@ interface OrderItem {
   item_name: Nullable<string>;
   purchase_price: Nullable<string | number>;
   vinted: Nullable<boolean>;
-  ebay: Nullable<boolean>;
   vinted_id: Nullable<string>;
   ebay_id: Nullable<string>;
   depop_id: Nullable<string>;
   sold_platform: Nullable<string>;
+  brand_id: Nullable<number>;
+  category_id: Nullable<number>;
+}
+
+interface Brand {
+  id: number;
+  brand_name: string;
 }
 
 const formatCurrency = (value: Nullable<string | number>) => {
@@ -64,7 +69,7 @@ interface OrdersApiResponse {
     updated_at: string;
     id: number;
     item_name: Nullable<string>;
-    category: Nullable<string>;
+    category_id: Nullable<number>;
     purchase_price: Nullable<string | number>;
     purchase_date: Nullable<string>;
     sale_date: Nullable<string>;
@@ -72,7 +77,6 @@ interface OrdersApiResponse {
     sold_platform: Nullable<string>;
     net_profit: Nullable<string | number>;
     vinted: Nullable<boolean>;
-    ebay: Nullable<boolean>;
     vinted_id: Nullable<string>;
     ebay_id: Nullable<string>;
     depop_id: Nullable<string>;
@@ -88,6 +92,10 @@ const Orders: React.FC = () => {
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [clearConfirmCount, setClearConfirmCount] = useState(0);
   const [ordersLoading, setOrdersLoading] = useState(false);
+  const [editingItemId, setEditingItemId] = useState<number | null>(null);
+  const [brands, setBrands] = useState<Brand[]>([]);
+  const [selectedBrandId, setSelectedBrandId] = useState<string>('');
+  const [updating, setUpdating] = useState(false);
 
   // Load all stock data
   const loadStock = async () => {
@@ -128,10 +136,10 @@ const Orders: React.FC = () => {
   };
 
   // Helper function to get listing platform display
-  const getListingPlatform = (vinted: Nullable<boolean>, ebay: Nullable<boolean>): string => {
+  const getListingPlatform = (vinted: Nullable<boolean>, ebay_id: Nullable<string>): string => {
     const platforms: string[] = [];
     if (vinted === true) platforms.push('Vinted');
-    if (ebay === true) platforms.push('eBay');
+    if (ebay_id && ebay_id.trim()) platforms.push('eBay');
     if (platforms.length === 0) return 'Not Listed';
     return platforms.join(', ');
   };
@@ -167,11 +175,12 @@ const Orders: React.FC = () => {
         item_name: row.item_name,
         purchase_price: row.purchase_price,
         vinted: row.vinted,
-        ebay: row.ebay,
         vinted_id: row.vinted_id,
         ebay_id: row.ebay_id,
         depop_id: row.depop_id,
-        sold_platform: row.sold_platform
+        sold_platform: row.sold_platform,
+        brand_id: (row as any).brand_id ?? null,
+        category_id: (row as any).category_id ?? null
       }));
       setOrderItems(transformed);
     } catch (err: any) {
@@ -187,10 +196,30 @@ const Orders: React.FC = () => {
     }
   };
 
+  // Load brands
+  const loadBrands = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/brands`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setBrands(Array.isArray(data.rows) ? data.rows : []);
+      }
+    } catch (err) {
+      console.error('Failed to load brands:', err);
+    }
+  };
+
   // Load stock and orders on mount
   useEffect(() => {
     loadStock();
     loadOrders();
+    loadBrands();
   }, []);
 
   // Search results - search all items
@@ -293,6 +322,59 @@ const Orders: React.FC = () => {
       setError(err.message || 'Unable to remove item from orders');
     } finally {
       setOrdersLoading(false);
+    }
+  };
+
+  const handleEditItem = (item: OrderItem) => {
+    setEditingItemId(item.id);
+    setSelectedBrandId(item.brand_id ? String(item.brand_id) : '');
+  };
+
+  const handleCancelEdit = () => {
+    setEditingItemId(null);
+    setSelectedBrandId('');
+  };
+
+  const handleUpdateBrand = async () => {
+    if (!editingItemId) return;
+
+    try {
+      setUpdating(true);
+      setError(null);
+
+      const brandIdValue = selectedBrandId === '' ? null : Number(selectedBrandId);
+      
+      const response = await fetch(`${API_BASE}/api/stock/${editingItemId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          brand_id: brandIdValue
+        }),
+      });
+
+      if (!response.ok) {
+        let message = 'Failed to update brand';
+        try {
+          const errorBody = await response.json();
+          message = errorBody?.error || message;
+        } catch {
+          const text = await response.text();
+          message = text || message;
+        }
+        throw new Error(message);
+      }
+
+      // Reload orders to get updated data
+      await loadOrders();
+      setEditingItemId(null);
+      setSelectedBrandId('');
+    } catch (err: any) {
+      console.error('Update brand error:', err);
+      setError(err.message || 'Unable to update brand');
+    } finally {
+      setUpdating(false);
     }
   };
 
@@ -437,6 +519,86 @@ const Orders: React.FC = () => {
             <h2>Items to Pick Up ({orderItems.length})</h2>
           </div>
 
+          {/* Edit Form */}
+          {editingItemId && (() => {
+            const editingItem = orderItems.find(item => item.id === editingItemId);
+            if (!editingItem) return null;
+            
+            return (
+              <div className="orders-edit-form" style={{
+                backgroundColor: 'rgba(20, 20, 20, 0.95)',
+                border: '1px solid var(--neon-primary-strong)',
+                borderRadius: '8px',
+                padding: '20px',
+                marginBottom: '20px'
+              }}>
+                <h3 style={{ marginTop: 0, color: 'var(--neon-primary-strong)' }}>
+                  Edit Brand - {editingItem.item_name || 'Item'}
+                </h3>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '200px', flex: '1' }}>
+                    <span style={{ color: 'rgba(255, 248, 226, 0.85)' }}>Brand</span>
+                    <select
+                      value={selectedBrandId}
+                      onChange={(e) => setSelectedBrandId(e.target.value)}
+                      disabled={updating}
+                      style={{
+                        padding: '8px 12px',
+                        backgroundColor: 'rgba(255, 248, 226, 0.1)',
+                        border: '1px solid rgba(255, 248, 226, 0.3)',
+                        borderRadius: '4px',
+                        color: 'var(--neon-primary-strong)',
+                        fontSize: '1rem'
+                      }}
+                    >
+                      <option value="">-- No Brand --</option>
+                      {brands.map((brand) => (
+                        <option key={brand.id} value={brand.id}>
+                          {brand.brand_name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+                    <button
+                      type="button"
+                      onClick={handleUpdateBrand}
+                      disabled={updating}
+                      style={{
+                        padding: '8px 16px',
+                        backgroundColor: 'var(--neon-primary-strong)',
+                        color: '#000',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontWeight: 600,
+                        opacity: updating ? 0.6 : 1
+                      }}
+                    >
+                      {updating ? 'Updating...' : 'Update'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCancelEdit}
+                      disabled={updating}
+                      style={{
+                        padding: '8px 16px',
+                        backgroundColor: 'transparent',
+                        color: 'rgba(255, 248, 226, 0.85)',
+                        border: '1px solid rgba(255, 248, 226, 0.3)',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        opacity: updating ? 0.6 : 1
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Desktop Table View */}
           <div className="table-wrapper">
             <table className="orders-table">
@@ -488,16 +650,27 @@ const Orders: React.FC = () => {
                         )}
                       </td>
                       <td>{formatCurrency(item.purchase_price)}</td>
-                      <td>{getListingPlatform(item.vinted, item.ebay)}</td>
+                      <td>{getListingPlatform(item.vinted, item.ebay_id)}</td>
                       <td>
-                        <button
-                          type="button"
-                          className="orders-remove-button"
-                          onClick={() => handleRemoveItem(item.id)}
-                          disabled={ordersLoading}
-                        >
-                          Remove
-                        </button>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button
+                            type="button"
+                            className="orders-remove-button"
+                            onClick={() => handleEditItem(item)}
+                            disabled={ordersLoading || updating}
+                            style={{ marginRight: '8px' }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="orders-remove-button"
+                            onClick={() => handleRemoveItem(item.id)}
+                            disabled={ordersLoading || updating}
+                          >
+                            Remove
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -559,8 +732,18 @@ const Orders: React.FC = () => {
                     </div>
                     <div className="orders-card-field">
                       <span className="orders-card-label">Platform:</span>
-                      <span className="orders-card-value">{getListingPlatform(item.vinted, item.ebay)}</span>
+                      <span className="orders-card-value">{getListingPlatform(item.vinted, item.ebay_id)}</span>
                     </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                    <button
+                      type="button"
+                      className="orders-remove-button"
+                      onClick={() => handleEditItem(item)}
+                      disabled={ordersLoading || updating}
+                    >
+                      Edit
+                    </button>
                   </div>
                 </div>
               );

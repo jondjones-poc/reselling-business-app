@@ -65,6 +65,11 @@ interface UnsoldStockByCategoryDatum {
   itemCount: number;
 }
 
+interface SalesByBrandDatum {
+  brand: string;
+  totalSales: number;
+}
+
 interface SellThroughRate {
   totalListed: number;
   totalSold: number;
@@ -118,6 +123,7 @@ interface ReportingResponse {
   monthlyAverageProfitPerItem: MonthlyAverageProfitPerItemDatum[];
   monthlyAverageProfitMultiple: MonthlyAverageProfitMultipleDatum[];
   salesByCategory: SalesByCategoryDatum[];
+  salesByBrand: SalesByBrandDatum[];
   yearSpecificTotals?: {
     totalPurchase: number;
     totalSales: number;
@@ -203,6 +209,7 @@ const Reporting: React.FC = () => {
   const [monthlyAverageProfitMultiple, setMonthlyAverageProfitMultiple] = useState<MonthlyAverageProfitMultipleDatum[]>([]);
   const [salesByCategory, setSalesByCategory] = useState<SalesByCategoryDatum[]>([]);
   const [unsoldStockByCategory, setUnsoldStockByCategory] = useState<UnsoldStockByCategoryDatum[]>([]);
+  const [salesByBrand, setSalesByBrand] = useState<SalesByBrandDatum[]>([]);
   const [yearSpecificTotals, setYearSpecificTotals] = useState<{ totalPurchase: number; totalSales: number; profit: number; costOfSoldItems?: number; totalProfitFromSoldItems?: number; vintedSales?: number; ebaySales?: number } | null>(null);
   const [allTimeAverageProfitMultiple, setAllTimeAverageProfitMultiple] = useState<number | null>(null);
   const [yearItemsStats, setYearItemsStats] = useState<{ listed: number; sold: number } | null>(null);
@@ -275,6 +282,8 @@ const Reporting: React.FC = () => {
         setMonthlyAverageProfitMultiple(data.monthlyAverageProfitMultiple || []);
         setSalesByCategory(data.salesByCategory || []);
         setUnsoldStockByCategory(data.unsoldStockByCategory || []);
+        setSalesByBrand(data.salesByBrand || []);
+        setSalesByBrand(data.salesByBrand || []);
         setYearSpecificTotals(data.yearSpecificTotals || null);
         setAllTimeAverageProfitMultiple(data.allTimeAverageProfitMultiple ?? null);
         setYearItemsStats(data.yearItemsStats || null);
@@ -568,6 +577,50 @@ const Reporting: React.FC = () => {
       ],
     };
   }, [salesByCategory]);
+
+  const salesByBrandData = useMemo(() => {
+    if (salesByBrand.length === 0) {
+      return null;
+    }
+
+    const labels = salesByBrand.map((item) => item.brand);
+    const values = salesByBrand.map((item) => item.totalSales);
+
+    const colorPalette = [
+      { bg: 'rgba(255, 214, 91, 0.6)', border: 'rgba(255, 214, 91, 0.9)' },
+      { bg: 'rgba(140, 255, 195, 0.6)', border: 'rgba(140, 255, 195, 0.9)' },
+      { bg: 'rgba(255, 120, 120, 0.6)', border: 'rgba(255, 120, 120, 0.9)' },
+      { bg: 'rgba(140, 195, 255, 0.6)', border: 'rgba(140, 195, 255, 0.9)' },
+      { bg: 'rgba(255, 195, 140, 0.6)', border: 'rgba(255, 195, 140, 0.9)' },
+      { bg: 'rgba(195, 140, 255, 0.6)', border: 'rgba(195, 140, 255, 0.9)' },
+      { bg: 'rgba(255, 214, 140, 0.6)', border: 'rgba(255, 214, 140, 0.9)' },
+      { bg: 'rgba(140, 255, 255, 0.6)', border: 'rgba(140, 255, 255, 0.9)' },
+      { bg: 'rgba(255, 140, 195, 0.6)', border: 'rgba(255, 140, 195, 0.9)' },
+      { bg: 'rgba(195, 255, 140, 0.6)', border: 'rgba(195, 255, 140, 0.9)' },
+      { bg: 'rgba(255, 180, 120, 0.6)', border: 'rgba(255, 180, 120, 0.9)' },
+      { bg: 'rgba(120, 255, 180, 0.6)', border: 'rgba(120, 255, 180, 0.9)' },
+      { bg: 'rgba(180, 120, 255, 0.6)', border: 'rgba(180, 120, 255, 0.9)' },
+      { bg: 'rgba(255, 120, 180, 0.6)', border: 'rgba(255, 120, 180, 0.9)' },
+      { bg: 'rgba(120, 180, 255, 0.6)', border: 'rgba(120, 180, 255, 0.9)' }
+    ];
+
+    const backgroundColor = labels.map((_, index) => colorPalette[index % colorPalette.length].bg);
+    const borderColor = labels.map((_, index) => colorPalette[index % colorPalette.length].border);
+
+    return {
+      labels,
+      datasets: [
+        {
+          label: 'Sales by Brand',
+          data: values,
+          backgroundColor,
+          borderColor,
+          borderWidth: 1,
+          borderRadius: 6,
+        },
+      ],
+    };
+  }, [salesByBrand]);
 
   const monthlyAverageSellingPriceData = useMemo(() => {
     const labels = monthLabels;
@@ -1248,6 +1301,19 @@ const Reporting: React.FC = () => {
               </div>
             ) : (
               <div className="reporting-empty">No trailing inventory data available.</div>
+            )}
+          </section>
+
+          <section className="reporting-card">
+            <div className="card-header">
+              <h2>Best Selling Brands</h2>
+            </div>
+            {salesByBrandData ? (
+              <div className="chart-wrapper">
+                <Bar data={salesByBrandData} options={chartOptions} />
+              </div>
+            ) : (
+              <div className="reporting-empty">No sales data available for {selectedYear}.</div>
             )}
           </section>
           </>
