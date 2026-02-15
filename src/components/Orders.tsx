@@ -14,7 +14,6 @@ interface StockRow {
   sale_price: Nullable<string | number>;
   sold_platform: Nullable<string>;
   net_profit: Nullable<string | number>;
-  vinted: Nullable<boolean>;
   vinted_id: Nullable<string>;
   ebay_id: Nullable<string>;
   depop_id: Nullable<string>;
@@ -30,7 +29,6 @@ interface OrderItem {
   id: number;
   item_name: Nullable<string>;
   purchase_price: Nullable<string | number>;
-  vinted: Nullable<boolean>;
   vinted_id: Nullable<string>;
   ebay_id: Nullable<string>;
   depop_id: Nullable<string>;
@@ -76,7 +74,6 @@ interface OrdersApiResponse {
     sale_price: Nullable<string | number>;
     sold_platform: Nullable<string>;
     net_profit: Nullable<string | number>;
-    vinted: Nullable<boolean>;
     vinted_id: Nullable<string>;
     ebay_id: Nullable<string>;
     depop_id: Nullable<string>;
@@ -136,9 +133,9 @@ const Orders: React.FC = () => {
   };
 
   // Helper function to get listing platform display
-  const getListingPlatform = (vinted: Nullable<boolean>, ebay_id: Nullable<string>): string => {
+  const getListingPlatform = (vinted_id: Nullable<string>, ebay_id: Nullable<string>): string => {
     const platforms: string[] = [];
-    if (vinted === true) platforms.push('Vinted');
+    if (vinted_id && vinted_id.trim()) platforms.push('Vinted');
     if (ebay_id && ebay_id.trim()) platforms.push('eBay');
     if (platforms.length === 0) return 'Not Listed';
     return platforms.join(', ');
@@ -174,7 +171,6 @@ const Orders: React.FC = () => {
         id: row.id,
         item_name: row.item_name,
         purchase_price: row.purchase_price,
-        vinted: row.vinted,
         vinted_id: row.vinted_id,
         ebay_id: row.ebay_id,
         depop_id: row.depop_id,
@@ -650,7 +646,7 @@ const Orders: React.FC = () => {
                         )}
                       </td>
                       <td>{formatCurrency(item.purchase_price)}</td>
-                      <td>{getListingPlatform(item.vinted, item.ebay_id)}</td>
+                      <td>{getListingPlatform(item.vinted_id, item.ebay_id)}</td>
                       <td>
                         <div style={{ display: 'flex', gap: '8px' }}>
                           <button
@@ -732,7 +728,7 @@ const Orders: React.FC = () => {
                     </div>
                     <div className="orders-card-field">
                       <span className="orders-card-label">Platform:</span>
-                      <span className="orders-card-value">{getListingPlatform(item.vinted, item.ebay_id)}</span>
+                      <span className="orders-card-value">{getListingPlatform(item.vinted_id, item.ebay_id)}</span>
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>

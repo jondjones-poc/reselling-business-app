@@ -1046,7 +1046,7 @@ app.get('/api/stock', async (req, res) => {
     }
 
     const result = await pool.query(
-      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted, vinted_id, ebay_id, depop_id, brand_id, category_id FROM stock ORDER BY purchase_date DESC NULLS LAST, item_name ASC'
+      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id FROM stock ORDER BY purchase_date DESC NULLS LAST, item_name ASC'
     );
 
     res.json({
@@ -1076,7 +1076,6 @@ app.post('/api/stock', async (req, res) => {
       sale_price,
       sold_platform,
       net_profit,
-      vinted,
       vinted_id,
       ebay_id,
       depop_id
@@ -1094,9 +1093,6 @@ app.post('/api/stock', async (req, res) => {
         ? normalizedSalePrice - normalizedPurchasePrice
         : null;
     
-    // Normalize vinted: convert to boolean or null
-    const normalizedVinted = vinted === null || vinted === undefined ? null : Boolean(vinted);
-    
     // Normalize ID fields: convert to string or null
     const normalizedVintedId = vinted_id === null || vinted_id === undefined || vinted_id === '' ? null : String(vinted_id).trim();
     const normalizedEbayId = ebay_id === null || ebay_id === undefined || ebay_id === '' ? null : String(ebay_id).trim();
@@ -1112,13 +1108,12 @@ app.post('/api/stock', async (req, res) => {
         sale_price,
         sold_platform,
         net_profit,
-        vinted,
         vinted_id,
         ebay_id,
         depop_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-      RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted, vinted_id, ebay_id, depop_id, category_id
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, category_id
     `;
 
     const result = await pool.query(insertQuery, [
@@ -1130,7 +1125,6 @@ app.post('/api/stock', async (req, res) => {
       normalizedSalePrice,
       normalizedSoldPlatform,
       computedNetProfit,
-      normalizedVinted,
       normalizedVintedId,
       normalizedEbayId,
       normalizedDepopId
@@ -1162,7 +1156,7 @@ app.put('/api/stock/:id', async (req, res) => {
     console.log('PUT /api/stock/:id - Request body:', JSON.stringify(req.body, null, 2));
 
     const existingResult = await pool.query(
-      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, vinted, vinted_id, ebay_id, depop_id, brand_id, category_id FROM stock WHERE id = $1',
+      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, vinted_id, ebay_id, depop_id, brand_id, category_id FROM stock WHERE id = $1',
       [stockId]
     );
 
@@ -1215,14 +1209,9 @@ app.put('/api/stock/:id', async (req, res) => {
       ? normalizeTextInput(req.body.sold_platform) ?? null
       : existing.sold_platform ?? null;
 
-    const existingVinted = existing.vinted === null || existing.vinted === undefined ? null : Boolean(existing.vinted);
     const existingVintedId = existing.vinted_id ?? null;
     const existingEbayId = existing.ebay_id ?? null;
     const existingDepopId = existing.depop_id ?? null;
-
-    const finalVinted = hasProp('vinted')
-      ? (req.body.vinted === null || req.body.vinted === undefined ? null : Boolean(req.body.vinted))
-      : existingVinted;
 
     const finalVintedId = hasProp('vinted_id')
       ? (req.body.vinted_id === null || req.body.vinted_id === undefined || req.body.vinted_id === '' ? null : String(req.body.vinted_id).trim())
@@ -1269,13 +1258,12 @@ app.put('/api/stock/:id', async (req, res) => {
           sale_price = $6,
           sold_platform = $7,
           net_profit = $8,
-          vinted = $9,
-          vinted_id = $10,
-          ebay_id = $11,
-          depop_id = $12,
-          brand_id = $13
-        WHERE id = $14
-        RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted, vinted_id, ebay_id, depop_id, brand_id, category_id
+          vinted_id = $9,
+          ebay_id = $10,
+          depop_id = $11,
+          brand_id = $12
+        WHERE id = $13
+        RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id
       `,
       [
         finalItemName,
@@ -1286,7 +1274,6 @@ app.put('/api/stock/:id', async (req, res) => {
         finalSalePrice,
         finalSoldPlatform,
         computedNetProfit,
-        finalVinted,
         finalVintedId,
         finalEbayId,
         finalDepopId,
@@ -1684,7 +1671,6 @@ app.get('/api/orders', async (req, res) => {
           s.sale_price,
           s.sold_platform,
           s.net_profit,
-          s.vinted,
           s.vinted_id,
           s.ebay_id,
           s.depop_id,
@@ -2496,8 +2482,8 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
           sale_date,
           sale_price,
           sold_platform,
-          vinted,
-          ebay,
+          vinted_id,
+          ebay_id,
           EXTRACT(YEAR FROM sale_date)::int AS sale_year,
           EXTRACT(MONTH FROM sale_date)::int AS sale_month
         FROM stock
@@ -2514,14 +2500,14 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
       console.log(`[Monthly Platform] Total sales amount: £${totalSales.toFixed(2)}`);
       console.log('[Monthly Platform] All items with sold_platform values:');
       debugResult.rows.forEach(r => {
-        console.log(`  - ${r.item_name}: sold_platform="${r.sold_platform}" (type: ${typeof r.sold_platform}), vinted=${r.vinted}, ebay_id=${r.ebay_id || 'null'}, sale_price=£${r.sale_price}`);
+        console.log(`  - ${r.item_name}: sold_platform="${r.sold_platform}" (type: ${typeof r.sold_platform}), vinted_id=${r.vinted_id || 'null'}, ebay_id=${r.ebay_id || 'null'}, sale_price=£${r.sale_price}`);
       });
       console.log('[Monthly Platform] Unique sold_platform values:', [...new Set(debugResult.rows.map(r => r.sold_platform))]);
     }
 
     // Vinted: Calculate total purchases, sales, and profit for items sold on Vinted in this month
-    // Include items where sold_platform = 'Vinted' OR vinted = true
-    // Exclude items explicitly marked as eBay (sold_platform = 'eBay' AND ebay = true)
+    // Include items where sold_platform = 'Vinted' OR vinted_id has a value
+    // Exclude items explicitly marked as eBay (sold_platform = 'eBay' AND ebay_id has a value AND vinted_id is null/empty)
     const vintedResult = await pool.query(
       `
         SELECT
@@ -2534,9 +2520,9 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
           AND EXTRACT(MONTH FROM sale_date)::int = $2
           AND (
             sold_platform = 'Vinted'
-            OR vinted = true
+            OR (vinted_id IS NOT NULL AND vinted_id != '')
           )
-          AND NOT (sold_platform = 'eBay' AND ebay = true AND vinted = false)
+          AND NOT (sold_platform = 'eBay' AND ebay_id IS NOT NULL AND ebay_id != '' AND (vinted_id IS NULL OR vinted_id = ''))
       `,
       [requestedYear, requestedMonth]
     );
@@ -2645,7 +2631,7 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
           sale_date,
           sale_price,
           sold_platform,
-          vinted,
+          vinted_id,
           category_id
         FROM stock
         WHERE sale_date IS NOT NULL
@@ -2669,7 +2655,7 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
       sale_date: row.sale_date,
       sale_price: row.sale_price ? Number(row.sale_price) : null,
       sold_platform: row.sold_platform,
-      vinted: row.vinted,
+      vinted_id: row.vinted_id,
       category_id: row.category_id
     }));
 

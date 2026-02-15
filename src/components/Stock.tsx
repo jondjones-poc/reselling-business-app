@@ -16,7 +16,6 @@ interface StockRow {
   sale_price: Nullable<string | number>;
   sold_platform: Nullable<string>;
   net_profit: Nullable<string | number>;
-  vinted: Nullable<boolean>;
   vinted_id: Nullable<string>;
   ebay_id: Nullable<string>;
   depop_id: Nullable<string>;
@@ -776,25 +775,34 @@ const Stock: React.FC = () => {
           return false;
         }
       } else if (viewMode === 'list-on-vinted') {
-        // Show items where vinted is FALSE (not null, not true, only false)
-        if (row.vinted !== false) {
+        // Only show unsold items (sale_price is null/empty) where vinted_id is null or empty (not listed on Vinted)
+        const isSold = row.sale_price !== null && row.sale_price !== undefined && row.sale_price !== '' && Number(row.sale_price) > 0;
+        if (isSold) {
+          return false;
+        }
+        if (row.vinted_id && row.vinted_id.trim()) {
           return false;
         }
       } else if (viewMode === 'list-on-ebay') {
-        // Show items where ebay_id is null or empty (not listed on eBay)
+        // Only show unsold items (sale_price is null/empty) where ebay_id is null or empty (not listed on eBay)
+        const isSold = row.sale_price !== null && row.sale_price !== undefined && row.sale_price !== '' && Number(row.sale_price) > 0;
+        if (isSold) {
+          return false;
+        }
         if (row.ebay_id && row.ebay_id.trim()) {
           return false;
         }
       } else if (viewMode === 'to-list') {
-        // Only show unsold items
-        if (row.sale_date) {
+        // Only show unsold items (sale_price is null/empty)
+        const isSold = row.sale_price !== null && row.sale_price !== undefined && row.sale_price !== '' && Number(row.sale_price) > 0;
+        if (isSold) {
           return false;
         }
         
-        // Show items where category is "To List" OR (vinted is false/null AND ebay_id is null/empty)
+        // Show items where category is "To List" OR (vinted_id is null/empty AND ebay_id is null/empty)
         const toListCategory = categories.find(cat => cat.category_name === 'To List');
         const hasCategoryToList = toListCategory && row.category_id === toListCategory.id;
-        const notListedAnywhere = (row.vinted === false || row.vinted === null) && (!row.ebay_id || !row.ebay_id.trim());
+        const notListedAnywhere = (!row.vinted_id || !row.vinted_id.trim()) && (!row.ebay_id || !row.ebay_id.trim());
         
         if (!hasCategoryToList && !notListedAnywhere) {
           return false;
@@ -2107,7 +2115,6 @@ const Stock: React.FC = () => {
                 placeholder="Search items..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                disabled={unsoldFilter !== 'off'}
                 onFocus={() => {
                   if (typeaheadSuggestions.length > 0) {
                     setShowTypeahead(true);
@@ -2130,7 +2137,6 @@ const Stock: React.FC = () => {
                   setUnsoldFilter('off');
                   loadStock();
                 }}
-                disabled={unsoldFilter !== 'off'}
                 title="Clear all filters"
                 style={{
                   position: 'absolute',
@@ -2168,7 +2174,6 @@ const Stock: React.FC = () => {
             <select
               value={selectedCategoryFilter}
               onChange={(e) => setSelectedCategoryFilter(e.target.value)}
-              disabled={unsoldFilter !== 'off'}
               className="filter-select"
               style={{
                 minWidth: '140px',
@@ -2212,7 +2217,6 @@ const Stock: React.FC = () => {
             value={selectedWeek}
             onChange={(event) => setSelectedWeek(event.target.value)}
             className="filter-select"
-            disabled={selectedYear === 'all-time' || selectedYear === 'last-30-days' || unsoldFilter !== 'off'}
             title="Filter By Week"
           >
             <option value="off">Filter By Week</option>
@@ -2232,7 +2236,6 @@ const Stock: React.FC = () => {
               setSelectedWeek('off'); // Reset week when month changes
             }}
             className="filter-select"
-            disabled={selectedYear === 'all-time' || selectedYear === 'last-30-days' || unsoldFilter !== 'off'}
           >
             {MONTHS.map((month) => (
               <option key={month.value} value={month.value}>
@@ -2250,7 +2253,6 @@ const Stock: React.FC = () => {
               setSelectedWeek('off'); // Reset week when year changes
             }}
             className="filter-select"
-            disabled={unsoldFilter !== 'off'}
           >
             <option value="last-30-days">Last 30 Days</option>
             <option value="all-time">All Time</option>
@@ -2267,7 +2269,6 @@ const Stock: React.FC = () => {
             value={viewMode}
             onChange={(event) => setViewMode(event.target.value as 'all' | 'active-listing' | 'sales' | 'listing' | 'to-list' | 'list-on-vinted' | 'list-on-ebay')}
             className="filter-select"
-            disabled={selectedYear === 'all-time' || unsoldFilter !== 'off'}
           >
             <option value="all">All</option>
             <option value="active-listing">Active</option>

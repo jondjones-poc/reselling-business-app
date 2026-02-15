@@ -241,8 +241,8 @@ const Reporting: React.FC = () => {
     sale_date: string | null;
     sale_price: number | null;
     sold_platform: string | null;
-    vinted: boolean | null;
-    ebay: boolean | null;
+    vinted_id: string | null;
+    ebay_id: string | null;
   }>>([]);
   const [monthlyLoading, setMonthlyLoading] = useState(false);
   
@@ -1451,7 +1451,7 @@ const Reporting: React.FC = () => {
                         ) : (
                           <span className="untagged-warning">No platform tagged</span>
                         )}
-                        {(!item.vinted && !item.ebay) && (
+                        {(!item.vinted_id && !item.ebay_id) && (
                           <span className="untagged-warning">Not listed on any platform</span>
                         )}
                       </div>
