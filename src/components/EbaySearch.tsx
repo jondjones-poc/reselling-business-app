@@ -233,20 +233,40 @@ const EbaySearch: React.FC = () => {
         setSettingsLoading(true);
         setSettingsError(null);
 
-        const apiResponse = await fetch(`${API_BASE}/api/settings`);
-        if (apiResponse.ok) {
-          const apiData: AppSettings = await apiResponse.json();
-          const applied = applySettings(apiData);
-          if (applied && apiData.colors?.length) {
-            setSettingsLoading(false);
-            return;
+        // Try API fetch with timeout to prevent hanging on mobile
+        let apiSuccess = false;
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout for mobile
+
+          const apiResponse = await fetch(`${API_BASE}/api/settings`, {
+            signal: controller.signal
+          });
+          clearTimeout(timeoutId);
+          
+          if (apiResponse.ok) {
+            const apiData: AppSettings = await apiResponse.json();
+            const applied = applySettings(apiData);
+            if (applied && apiData.colors?.length) {
+              apiSuccess = true;
+            }
+          }
+        } catch (apiError: any) {
+          // If it's an abort (timeout) or network error, log and continue to fallback
+          if (apiError.name === 'AbortError') {
+            console.warn('API request timed out, using fallback settings');
+          } else {
+            console.warn('API request failed, using fallback settings:', apiError);
           }
         }
-      } catch (error) {
-        console.warn('Falling back to static settings:', error);
-      }
 
-      try {
+        // If API succeeded, we're done
+        if (apiSuccess) {
+          setSettingsLoading(false);
+          return;
+        }
+
+        // Otherwise, try fallback (this will always run if API fails or times out)
         const fallbackResponse = await fetch('/app-settings.json');
         if (!fallbackResponse.ok) {
           throw new Error(`Fallback settings not found: ${fallbackResponse.status}`);

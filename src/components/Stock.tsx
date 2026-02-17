@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import './Stock.css';
@@ -123,6 +124,7 @@ const dateToIsoString = (value: Date | null) => {
 };
 
 const Stock: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [rows, setRows] = useState<StockRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -282,6 +284,61 @@ const Stock: React.FC = () => {
     loadCategories();
     loadBrands();
   }, []);
+
+  // Handle editId query parameter from Orders page
+  useEffect(() => {
+    const editIdParam = searchParams.get('editId');
+    if (editIdParam && rows.length > 0 && !loading && !editingRowId && !creating) {
+      const editId = parseInt(editIdParam, 10);
+      if (!isNaN(editId)) {
+        const rowToEdit = rows.find(row => row.id === editId);
+        if (rowToEdit) {
+          // Set editing state and form data
+          setEditingRowId(rowToEdit.id);
+          setCreateForm({
+            item_name: rowToEdit.item_name ?? '',
+            category_id: rowToEdit.category_id ? String(rowToEdit.category_id) : '',
+            purchase_price: rowToEdit.purchase_price ? String(rowToEdit.purchase_price) : '',
+            purchase_date: normalizeDateInput(rowToEdit.purchase_date ?? ''),
+            sale_date: normalizeDateInput(rowToEdit.sale_date ?? ''),
+            sale_price: rowToEdit.sale_price ? String(rowToEdit.sale_price) : '',
+            sold_platform: rowToEdit.sold_platform ?? '',
+            vinted_id: rowToEdit.vinted_id ?? '',
+            ebay_id: rowToEdit.ebay_id ?? '',
+            depop_id: rowToEdit.depop_id ?? '',
+            brand_id: rowToEdit.brand_id ? String(rowToEdit.brand_id) : ''
+          });
+          setShowNewEntry(true);
+          setSuccessMessage(null);
+          // Remove the query parameter from URL
+          setSearchParams({});
+          
+          // Scroll to edit form after DOM updates
+          setTimeout(() => {
+            if (editFormRef.current) {
+              const isMobile = window.innerWidth <= 768;
+              editFormRef.current.scrollIntoView({ 
+                behavior: 'smooth', 
+                block: isMobile ? 'center' : 'start',
+                inline: 'nearest'
+              });
+              if (isMobile) {
+                setTimeout(() => {
+                  const rect = editFormRef.current?.getBoundingClientRect();
+                  if (rect && rect.top < 120) {
+                    window.scrollBy({
+                      top: rect.top - 120,
+                      behavior: 'smooth'
+                    });
+                  }
+                }, 100);
+              }
+            }
+          }, 150);
+        }
+      }
+    }
+  }, [rows, loading, searchParams, editingRowId, creating, setSearchParams]);
 
   const loadCategories = async () => {
     try {

@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import './Orders.css';
 
 const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5003';
@@ -37,10 +38,6 @@ interface OrderItem {
   category_id: Nullable<number>;
 }
 
-interface Brand {
-  id: number;
-  brand_name: string;
-}
 
 const formatCurrency = (value: Nullable<string | number>) => {
   if (value === null || value === undefined || value === '') {
@@ -82,6 +79,7 @@ interface OrdersApiResponse {
 }
 
 const Orders: React.FC = () => {
+  const navigate = useNavigate();
   const [allStock, setAllStock] = useState<StockRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -89,10 +87,6 @@ const Orders: React.FC = () => {
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [clearConfirmCount, setClearConfirmCount] = useState(0);
   const [ordersLoading, setOrdersLoading] = useState(false);
-  const [editingItemId, setEditingItemId] = useState<number | null>(null);
-  const [brands, setBrands] = useState<Brand[]>([]);
-  const [selectedBrandId, setSelectedBrandId] = useState<string>('');
-  const [updating, setUpdating] = useState(false);
 
   // Load all stock data
   const loadStock = async () => {
@@ -192,30 +186,10 @@ const Orders: React.FC = () => {
     }
   };
 
-  // Load brands
-  const loadBrands = async () => {
-    try {
-      const response = await fetch(`${API_BASE}/api/brands`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setBrands(Array.isArray(data.rows) ? data.rows : []);
-      }
-    } catch (err) {
-      console.error('Failed to load brands:', err);
-    }
-  };
-
   // Load stock and orders on mount
   useEffect(() => {
     loadStock();
     loadOrders();
-    loadBrands();
   }, []);
 
   // Search results - search all items
@@ -322,56 +296,8 @@ const Orders: React.FC = () => {
   };
 
   const handleEditItem = (item: OrderItem) => {
-    setEditingItemId(item.id);
-    setSelectedBrandId(item.brand_id ? String(item.brand_id) : '');
-  };
-
-  const handleCancelEdit = () => {
-    setEditingItemId(null);
-    setSelectedBrandId('');
-  };
-
-  const handleUpdateBrand = async () => {
-    if (!editingItemId) return;
-
-    try {
-      setUpdating(true);
-      setError(null);
-
-      const brandIdValue = selectedBrandId === '' ? null : Number(selectedBrandId);
-      
-      const response = await fetch(`${API_BASE}/api/stock/${editingItemId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          brand_id: brandIdValue
-        }),
-      });
-
-      if (!response.ok) {
-        let message = 'Failed to update brand';
-        try {
-          const errorBody = await response.json();
-          message = errorBody?.error || message;
-        } catch {
-          const text = await response.text();
-          message = text || message;
-        }
-        throw new Error(message);
-      }
-
-      // Reload orders to get updated data
-      await loadOrders();
-      setEditingItemId(null);
-      setSelectedBrandId('');
-    } catch (err: any) {
-      console.error('Update brand error:', err);
-      setError(err.message || 'Unable to update brand');
-    } finally {
-      setUpdating(false);
-    }
+    // Navigate to Stock page with editId query parameter
+    navigate(`/stock?editId=${item.id}`);
   };
 
   const handleClearList = async () => {
@@ -515,86 +441,6 @@ const Orders: React.FC = () => {
             <h2>Items to Pick Up ({orderItems.length})</h2>
           </div>
 
-          {/* Edit Form */}
-          {editingItemId && (() => {
-            const editingItem = orderItems.find(item => item.id === editingItemId);
-            if (!editingItem) return null;
-            
-            return (
-              <div className="orders-edit-form" style={{
-                backgroundColor: 'rgba(20, 20, 20, 0.95)',
-                border: '1px solid var(--neon-primary-strong)',
-                borderRadius: '8px',
-                padding: '20px',
-                marginBottom: '20px'
-              }}>
-                <h3 style={{ marginTop: 0, color: 'var(--neon-primary-strong)' }}>
-                  Edit Brand - {editingItem.item_name || 'Item'}
-                </h3>
-                <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <label style={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '200px', flex: '1' }}>
-                    <span style={{ color: 'rgba(255, 248, 226, 0.85)' }}>Brand</span>
-                    <select
-                      value={selectedBrandId}
-                      onChange={(e) => setSelectedBrandId(e.target.value)}
-                      disabled={updating}
-                      style={{
-                        padding: '8px 12px',
-                        backgroundColor: 'rgba(255, 248, 226, 0.1)',
-                        border: '1px solid rgba(255, 248, 226, 0.3)',
-                        borderRadius: '4px',
-                        color: 'var(--neon-primary-strong)',
-                        fontSize: '1rem'
-                      }}
-                    >
-                      <option value="">-- No Brand --</option>
-                      {brands.map((brand) => (
-                        <option key={brand.id} value={brand.id}>
-                          {brand.brand_name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
-                    <button
-                      type="button"
-                      onClick={handleUpdateBrand}
-                      disabled={updating}
-                      style={{
-                        padding: '8px 16px',
-                        backgroundColor: 'var(--neon-primary-strong)',
-                        color: '#000',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontWeight: 600,
-                        opacity: updating ? 0.6 : 1
-                      }}
-                    >
-                      {updating ? 'Updating...' : 'Update'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleCancelEdit}
-                      disabled={updating}
-                      style={{
-                        padding: '8px 16px',
-                        backgroundColor: 'transparent',
-                        color: 'rgba(255, 248, 226, 0.85)',
-                        border: '1px solid rgba(255, 248, 226, 0.3)',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        opacity: updating ? 0.6 : 1
-                      }}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
-
           {/* Desktop Table View */}
           <div className="table-wrapper">
             <table className="orders-table">
@@ -653,7 +499,7 @@ const Orders: React.FC = () => {
                             type="button"
                             className="orders-remove-button"
                             onClick={() => handleEditItem(item)}
-                            disabled={ordersLoading || updating}
+                            disabled={ordersLoading}
                             style={{ marginRight: '8px' }}
                           >
                             Edit
@@ -662,7 +508,7 @@ const Orders: React.FC = () => {
                             type="button"
                             className="orders-remove-button"
                             onClick={() => handleRemoveItem(item.id)}
-                            disabled={ordersLoading || updating}
+                            disabled={ordersLoading}
                           >
                             Remove
                           </button>
@@ -736,7 +582,7 @@ const Orders: React.FC = () => {
                       type="button"
                       className="orders-remove-button"
                       onClick={() => handleEditItem(item)}
-                      disabled={ordersLoading || updating}
+                      disabled={ordersLoading}
                     >
                       Edit
                     </button>
