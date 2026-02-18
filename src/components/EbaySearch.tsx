@@ -51,6 +51,12 @@ const EbaySearch: React.FC = () => {
   const [ebayResearchLoading, setEbayResearchLoading] = useState(false);
   const [ebayResearchError, setEbayResearchError] = useState<string | null>(null);
   const [ebayResearchResult, setEbayResearchResult] = useState<ResearchResult | null>(null);
+  
+  // Potential Profit Calculator state
+  const [itemPrice, setItemPrice] = useState('');
+  const [salePrice, setSalePrice] = useState('');
+  const [listingFees, setListingFees] = useState('1.50');
+  const [promotedFees, setPromotedFees] = useState('10');
 
   const genderOptions = genders.length > 0 ? genders : [DEFAULT_GENDER];
 
@@ -771,6 +777,131 @@ const EbaySearch: React.FC = () => {
             </div>
           </div>
         )}
+      </div>
+    </div>
+
+    <div className="ebay-search-container">
+      <div className="potential-profit-section">
+        <h3 className="potential-profit-title">Potential Profit</h3>
+        <div className="potential-profit-form">
+          <div className="potential-profit-inputs">
+            <div className="potential-profit-input-group">
+              <label htmlFor="item-price" className="potential-profit-label">Item Price</label>
+              <input
+                id="item-price"
+                type="number"
+                value={itemPrice}
+                onChange={(e) => setItemPrice(e.target.value)}
+                placeholder="0.00"
+                className="potential-profit-input"
+                step="0.01"
+                min="0"
+              />
+            </div>
+            <div className="potential-profit-input-group">
+              <label htmlFor="sale-price" className="potential-profit-label">Sale Price</label>
+              <input
+                id="sale-price"
+                type="number"
+                value={salePrice}
+                onChange={(e) => setSalePrice(e.target.value)}
+                placeholder="0.00"
+                className="potential-profit-input"
+                step="0.01"
+                min="0"
+              />
+            </div>
+            <div className="potential-profit-input-group">
+              <label htmlFor="listing-fees" className="potential-profit-label">Listing Fees</label>
+              <input
+                id="listing-fees"
+                type="number"
+                value={listingFees}
+                onChange={(e) => setListingFees(e.target.value)}
+                placeholder="1.50"
+                className="potential-profit-input"
+                step="0.01"
+                min="0"
+              />
+            </div>
+            <div className="potential-profit-input-group">
+              <label htmlFor="promoted-fees" className="potential-profit-label">Promoted Fees (%)</label>
+              <input
+                id="promoted-fees"
+                type="number"
+                value={promotedFees}
+                onChange={(e) => setPromotedFees(e.target.value)}
+                placeholder="10"
+                className="potential-profit-input"
+                step="0.1"
+                min="0"
+                max="100"
+              />
+            </div>
+          </div>
+
+          <div className="potential-profit-results">
+            <div className="potential-profit-platform">
+              <div className="potential-profit-platform-label">Vinted</div>
+              <div className="potential-profit-platform-value">
+                {(() => {
+                  const item = parseFloat(itemPrice) || 0;
+                  const sale = parseFloat(salePrice) || 0;
+                  const profit = sale - item;
+                  return profit >= 0 ? `£${profit.toFixed(2)}` : `-£${Math.abs(profit).toFixed(2)}`;
+                })()}
+              </div>
+            </div>
+            <div className="potential-profit-platform">
+              <div className="potential-profit-platform-label">eBay</div>
+              <div className="potential-profit-platform-values">
+                {(() => {
+                  const item = parseFloat(itemPrice) || 0;
+                  const sale = parseFloat(salePrice) || 0;
+                  const listing = parseFloat(listingFees) || 0;
+                  const promotedPercent = parseFloat(promotedFees) || 0;
+                  const promotedFee = (sale * promotedPercent) / 100;
+                  
+                  // Profit without promotion
+                  const profitWithoutPromo = sale - (item + listing);
+                  const profitWithoutPromoDisplay = profitWithoutPromo >= 0 ? `£${profitWithoutPromo.toFixed(2)}` : `-£${Math.abs(profitWithoutPromo).toFixed(2)}`;
+                  
+                  // Profit with promotion
+                  const totalCosts = item + listing + promotedFee;
+                  const profitWithPromo = sale - totalCosts;
+                  const profitWithPromoDisplay = profitWithPromo >= 0 ? `£${profitWithPromo.toFixed(2)}` : `-£${Math.abs(profitWithPromo).toFixed(2)}`;
+                  
+                  return (
+                    <>
+                      <div className="potential-profit-platform-value">{profitWithoutPromoDisplay}</div>
+                      <div className="potential-profit-separator">|</div>
+                      <div className="potential-profit-platform-value">{profitWithPromoDisplay}</div>
+                      <div className="potential-profit-promo-fee">(promotion fee: £{promotedFee.toFixed(2)})</div>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+          </div>
+
+          <div className="potential-profit-reset-container">
+            <button
+              type="button"
+              onClick={() => {
+                setItemPrice('');
+                setSalePrice('');
+                setListingFees('1.50');
+                setPromotedFees('10');
+              }}
+              className="potential-profit-reset-button"
+              title="Reset form"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+              </svg>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
     </>

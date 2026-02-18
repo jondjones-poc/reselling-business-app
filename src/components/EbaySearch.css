@@ -417,6 +417,11 @@
   outline: none;
   transition: all 0.3s ease;
   box-shadow: inset 0 0 12px rgba(255, 214, 91, 0.16);
+  text-align: center;
+}
+
+.str-input::placeholder {
+  text-align: center;
 }
 
 .str-input:focus {
@@ -671,4 +676,185 @@
   .category-control {
     min-width: 100%;
   }
+
+  .potential-profit-section {
+    padding: 20px;
+  }
+
+  .potential-profit-inputs {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .potential-profit-input-group {
+    min-width: 100%;
+  }
+
+  .potential-profit-results {
+    flex-direction: column;
+    gap: 12px;
+  }
+}
+
+/* Potential Profit Section */
+.potential-profit-section {
+  margin-top: 0;
+}
+
+.potential-profit-title {
+  color: var(--neon-primary-strong);
+  font-size: 1.4rem;
+  margin-bottom: 20px;
+  margin-top: 0;
+  text-align: center;
+  letter-spacing: 0.08rem;
+  text-transform: uppercase;
+}
+
+.potential-profit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.potential-profit-inputs {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.potential-profit-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.potential-profit-label {
+  color: var(--text-strong);
+  font-size: 0.9rem;
+  letter-spacing: 0.05rem;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.potential-profit-input {
+  padding: 14px 20px;
+  border-radius: 999px;
+  border: 1px solid var(--neon-border);
+  background: rgba(255, 214, 91, 0.12);
+  color: var(--text-strong);
+  font-size: 16px;
+  outline: none;
+  transition: all 0.3s ease;
+  box-shadow: inset 0 0 12px rgba(255, 214, 91, 0.16);
+  width: 100%;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.potential-profit-input::placeholder {
+  text-align: center;
+}
+
+.potential-profit-input:focus {
+  border-color: var(--neon-border-strong);
+  box-shadow: var(--neon-shadow);
+  background: rgba(255, 214, 91, 0.18);
+}
+
+.potential-profit-results {
+  display: flex;
+  gap: 24px;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  background: rgba(255, 214, 91, 0.08);
+  border-radius: 16px;
+  border: 1px solid var(--neon-border);
+}
+
+.potential-profit-platform {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.potential-profit-platform-label {
+  color: var(--text-strong);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.05rem;
+  text-transform: uppercase;
+}
+
+.potential-profit-platform-value {
+  color: var(--neon-primary-strong);
+  font-size: 1.8rem;
+  font-weight: 700;
+  text-shadow: 0 0 10px rgba(255, 214, 91, 0.5);
+}
+
+.potential-profit-platform-values {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.potential-profit-separator {
+  color: rgba(255, 248, 226, 0.5);
+  font-size: 1.2rem;
+  font-weight: 300;
+}
+
+.potential-profit-promo-fee {
+  color: rgba(255, 248, 226, 0.6);
+  font-size: 0.85rem;
+  font-weight: 500;
+  margin-top: 4px;
+  width: 100%;
+  text-align: center;
+}
+
+.potential-profit-reset-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.potential-profit-reset-button {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 214, 91, 0.3);
+  background: rgba(255, 214, 91, 0.1);
+  color: var(--neon-primary-strong);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  padding: 0;
+}
+
+.potential-profit-reset-button:hover {
+  background: rgba(255, 214, 91, 0.2);
+  border-color: rgba(255, 214, 91, 0.5);
+  transform: rotate(180deg);
+}
+
+.potential-profit-reset-button:active {
+  transform: rotate(360deg);
+}
+
+.potential-profit-reset-button svg {
+  width: 16px;
+  height: 16px;
 }
