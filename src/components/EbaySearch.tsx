@@ -668,71 +668,6 @@ const EbaySearch: React.FC = () => {
     </div>
 
     <div className="ebay-search-container">
-      <div className="ebay-research-section">
-        <form onSubmit={handleEbayResearchSubmit} className="ebay-search-form">
-          <div className="primary-action-row research-action-row" style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
-            <button
-              type="submit"
-              className="ebay-search-button"
-              disabled={ebayResearchLoading || !hasSearchableInput}
-            >
-              {ebayResearchLoading ? 'Searching...' : 'Search Click-Through Rate'}
-            </button>
-            {ebayResearchResult && (
-              <button
-                type="button"
-                onClick={handleClearEbayResearch}
-                className="research-clear-button clear-red"
-              >
-                Clear
-              </button>
-            )}
-          </div>
-
-          {ebayResearchError && <div className="settings-error">{ebayResearchError}</div>}
-
-          {ebayResearchResult && !ebayResearchError && (() => {
-            // Swap the values - API returns them backwards
-            const active = ebayResearchResult.soldCount; // API's soldCount is actually active
-            const sold = ebayResearchResult.activeCount; // API's activeCount is actually sold
-            const totalInventory = sold + active;
-            const strRate = totalInventory > 0 ? (sold / totalInventory) * 100 : null;
-            
-            return (
-              <div className="listings-container">
-                <h3>Research for "{ebayResearchResult.query}"</h3>
-                <div className="price-stats">
-                  <div className="price-stat">
-                    <span className="label">Active Listings</span>
-                    <span className="value">{active.toLocaleString()}</span>
-                  </div>
-                  <div className="price-stat">
-                    <span className="label">Sold Listings</span>
-                    <span className="value">{sold.toLocaleString()}</span>
-                  </div>
-                </div>
-                {strRate !== null && (
-                  <div className={`str-result ${getSTRColor(strRate)}`} style={{ marginTop: '24px' }}>
-                    <div className="str-rate-value">{strRate.toFixed(1)}%</div>
-                    <div className="str-rate-label">{getSTRLabel(strRate)}</div>
-                    <div className="str-rate-formula">
-                      ({sold} / ({sold} + {active})) × 100 = {strRate.toFixed(1)}%
-                    </div>
-                  </div>
-                )}
-                {ebayResearchResult.diagnostics?.completedError && (
-                  <div className="settings-error" style={{ marginTop: '16px', marginBottom: '0' }}>
-                    Sold data is temporarily unavailable: {ebayResearchResult.diagnostics.completedError}
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-        </form>
-      </div>
-    </div>
-
-    <div className="ebay-search-container">
       <div className="str-calculator-section">
         <div className="str-calculator-inputs">
           <div className="str-input-group">
@@ -845,17 +780,53 @@ const EbaySearch: React.FC = () => {
               <div className="potential-profit-platform-label">Vinted</div>
               <div className="potential-profit-platform-value">
                 {(() => {
+                  const hasBothPrices = itemPrice && salePrice && itemPrice.trim() !== '' && salePrice.trim() !== '';
+                  if (!hasBothPrices) {
+                    return '£0.00';
+                  }
                   const item = parseFloat(itemPrice) || 0;
                   const sale = parseFloat(salePrice) || 0;
                   const profit = sale - item;
                   return profit >= 0 ? `£${profit.toFixed(2)}` : `-£${Math.abs(profit).toFixed(2)}`;
                 })()}
               </div>
+              {(() => {
+                const hasBothPrices = itemPrice && salePrice && itemPrice.trim() !== '' && salePrice.trim() !== '';
+                if (!hasBothPrices) {
+                  return null;
+                }
+                const item = parseFloat(itemPrice) || 0;
+                const sale = parseFloat(salePrice) || 0;
+                const profit = sale - item;
+                const isBuy = item > 0 && profit >= (item * 2);
+                return (
+                  <div className={`potential-profit-tag ${isBuy ? 'potential-profit-buy' : 'potential-profit-avoid'}`}>
+                    {isBuy ? 'Buy' : 'Avoid'}
+                  </div>
+                );
+              })()}
             </div>
             <div className="potential-profit-platform">
               <div className="potential-profit-platform-label">eBay</div>
               <div className="potential-profit-platform-values">
                 {(() => {
+                  const hasBothPrices = itemPrice && salePrice && itemPrice.trim() !== '' && salePrice.trim() !== '';
+                  
+                  if (!hasBothPrices) {
+                    return (
+                      <>
+                        <div className="potential-profit-value-group">
+                          <div className="potential-profit-platform-value">£0.00</div>
+                        </div>
+                        <div className="potential-profit-separator">|</div>
+                        <div className="potential-profit-value-group">
+                          <div className="potential-profit-platform-value">£0.00</div>
+                        </div>
+                        <div className="potential-profit-promo-fee">(promotion fee: £0.00)</div>
+                      </>
+                    );
+                  }
+                  
                   const item = parseFloat(itemPrice) || 0;
                   const sale = parseFloat(salePrice) || 0;
                   const listing = parseFloat(listingFees) || 0;
@@ -871,11 +842,24 @@ const EbaySearch: React.FC = () => {
                   const profitWithPromo = sale - totalCosts;
                   const profitWithPromoDisplay = profitWithPromo >= 0 ? `£${profitWithPromo.toFixed(2)}` : `-£${Math.abs(profitWithPromo).toFixed(2)}`;
                   
+                  const isBuyWithoutPromo = item > 0 && profitWithoutPromo >= (item * 2);
+                  const isBuyWithPromo = item > 0 && profitWithPromo >= (item * 2);
+                  
                   return (
                     <>
-                      <div className="potential-profit-platform-value">{profitWithoutPromoDisplay}</div>
+                      <div className="potential-profit-value-group">
+                        <div className="potential-profit-platform-value">{profitWithoutPromoDisplay}</div>
+                        <div className={`potential-profit-tag ${isBuyWithoutPromo ? 'potential-profit-buy' : 'potential-profit-avoid'}`}>
+                          {isBuyWithoutPromo ? 'Buy' : 'Avoid'}
+                        </div>
+                      </div>
                       <div className="potential-profit-separator">|</div>
-                      <div className="potential-profit-platform-value">{profitWithPromoDisplay}</div>
+                      <div className="potential-profit-value-group">
+                        <div className="potential-profit-platform-value">{profitWithPromoDisplay}</div>
+                        <div className={`potential-profit-tag ${isBuyWithPromo ? 'potential-profit-buy' : 'potential-profit-avoid'}`}>
+                          {isBuyWithPromo ? 'Buy' : 'Avoid'}
+                        </div>
+                      </div>
                       <div className="potential-profit-promo-fee">(promotion fee: £{promotedFee.toFixed(2)})</div>
                     </>
                   );
@@ -902,6 +886,71 @@ const EbaySearch: React.FC = () => {
             </button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div className="ebay-search-container">
+      <div className="ebay-research-section">
+        <form onSubmit={handleEbayResearchSubmit} className="ebay-search-form">
+          <div className="primary-action-row research-action-row" style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+            <button
+              type="submit"
+              className="ebay-search-button"
+              disabled={ebayResearchLoading || !hasSearchableInput}
+            >
+              {ebayResearchLoading ? 'Searching...' : 'Search Click-Through Rate'}
+            </button>
+            {ebayResearchResult && (
+              <button
+                type="button"
+                onClick={handleClearEbayResearch}
+                className="research-clear-button clear-red"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          {ebayResearchError && <div className="settings-error">{ebayResearchError}</div>}
+
+          {ebayResearchResult && !ebayResearchError && (() => {
+            // Swap the values - API returns them backwards
+            const active = ebayResearchResult.soldCount; // API's soldCount is actually active
+            const sold = ebayResearchResult.activeCount; // API's activeCount is actually sold
+            const totalInventory = sold + active;
+            const strRate = totalInventory > 0 ? (sold / totalInventory) * 100 : null;
+            
+            return (
+              <div className="listings-container">
+                <h3>Research for "{ebayResearchResult.query}"</h3>
+                <div className="price-stats">
+                  <div className="price-stat">
+                    <span className="label">Active Listings</span>
+                    <span className="value">{active.toLocaleString()}</span>
+                  </div>
+                  <div className="price-stat">
+                    <span className="label">Sold Listings</span>
+                    <span className="value">{sold.toLocaleString()}</span>
+                  </div>
+                </div>
+                {strRate !== null && (
+                  <div className={`str-result ${getSTRColor(strRate)}`} style={{ marginTop: '24px' }}>
+                    <div className="str-rate-value">{strRate.toFixed(1)}%</div>
+                    <div className="str-rate-label">{getSTRLabel(strRate)}</div>
+                    <div className="str-rate-formula">
+                      ({sold} / ({sold} + {active})) × 100 = {strRate.toFixed(1)}%
+                    </div>
+                  </div>
+                )}
+                {ebayResearchResult.diagnostics?.completedError && (
+                  <div className="settings-error" style={{ marginTop: '16px', marginBottom: '0' }}>
+                    Sold data is temporarily unavailable: {ebayResearchResult.diagnostics.completedError}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </form>
       </div>
     </div>
     </>
