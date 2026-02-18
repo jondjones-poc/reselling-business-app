@@ -95,12 +95,40 @@
   box-shadow: inset 0 0 18px rgba(255, 214, 91, 0.1);
 }
 
-.config-section-title {
-  margin: 0 0 24px 0;
+.config-section-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 24px;
+}
+
+.config-refresh-button {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 214, 91, 0.3);
+  background: rgba(255, 214, 91, 0.1);
   color: var(--neon-primary-strong);
-  font-size: 1.6rem;
-  letter-spacing: 0.08rem;
-  text-transform: uppercase;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  padding: 0;
+}
+
+.config-refresh-button:hover {
+  background: rgba(255, 214, 91, 0.2);
+  border-color: rgba(255, 214, 91, 0.5);
+  transform: rotate(180deg);
+}
+
+.config-refresh-button:active {
+  transform: rotate(360deg);
+}
+
+.config-refresh-button svg {
+  width: 16px;
+  height: 16px;
 }
 
 .config-loading,

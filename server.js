@@ -2063,6 +2063,28 @@ app.get('/api/analytics/reporting', async (req, res) => {
       totalSales: Number(row.total_sales)
     }));
 
+    // Worst Selling Brands query (unsold items by brand)
+    // For unsold items, we show all unsold items regardless of purchase year
+    // since they're all currently unsold. Year filter doesn't apply here.
+    const worstSellingBrandsQuery = `
+        SELECT
+          b.brand_name AS brand,
+          COUNT(*)::int AS item_count
+        FROM stock s
+        INNER JOIN brand b ON s.brand_id = b.id
+        WHERE s.sale_date IS NULL
+          AND s.brand_id IS NOT NULL
+        GROUP BY b.brand_name
+        ORDER BY item_count DESC
+        LIMIT 15
+      `;
+    const worstSellingBrandsResult = await pool.query(worstSellingBrandsQuery);
+
+    const worstSellingBrands = worstSellingBrandsResult.rows.map((row) => ({
+      brand: row.brand,
+      itemCount: Number(row.item_count)
+    }));
+
     const sellThroughRateResult = await pool.query(`
       SELECT
         COUNT(*) FILTER (WHERE purchase_date IS NOT NULL) AS total_listed,
@@ -2404,6 +2426,7 @@ app.get('/api/analytics/reporting', async (req, res) => {
       salesByCategory,
       unsoldStockByCategory,
       salesByBrand,
+      worstSellingBrands,
       sellThroughRate: {
         totalListed,
         totalSold,
