@@ -435,8 +435,8 @@
     font-size: 1.5rem;
   }
 
-  /* Hide table on mobile */
-  .table-wrapper {
+  /* Hide table on mobile - scoped to orders page only */
+  .orders-container .table-wrapper {
     display: none;
   }
 

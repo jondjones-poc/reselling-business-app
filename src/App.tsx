@@ -7,6 +7,7 @@ import Stock from './components/Stock';
 import Expenses from './components/Expenses';
 import Orders from './components/Orders';
 import Sourcing from './components/Sourcing';
+import Config from './components/Config';
 import AuthGate from './components/AuthGate';
 import './App.css';
 
@@ -66,6 +67,26 @@ function App() {
                   {item.label}
                 </NavLink>
               ))}
+              {/* Settings menu item for mobile only */}
+              <NavLink
+                to="/config"
+                className={({ isActive }) =>
+                  `nav-button${isActive ? ' active' : ''} nav-button-mobile-only`
+                }
+                onClick={() => setShowMobileMenu(false)}
+              >
+                Settings
+              </NavLink>
+              {/* Settings icon for desktop only */}
+              <NavLink
+                to="/config"
+                className={({ isActive }) =>
+                  `nav-settings-icon${isActive ? ' active' : ''} nav-settings-icon-desktop`
+                }
+                title="Settings"
+              >
+                ⚙️
+              </NavLink>
             </div>
           </div>
         </nav>
@@ -78,6 +99,7 @@ function App() {
           <Route path="/reporting" element={<Reporting />} />
           <Route path="/orders" element={<Orders />} />
           <Route path="/sourcing" element={<Sourcing />} />
+          <Route path="/config" element={<Config />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
     </div>

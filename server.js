@@ -1242,8 +1242,10 @@ app.put('/api/stock/:id', async (req, res) => {
       vinted_id: finalVintedId,
       ebay_id: finalEbayId,
       depop_id: finalDepopId,
-      hasProp_vinted_id: hasProp('vinted_id'),
-      req_body_vinted_id: req.body.vinted_id
+      brand_id: finalBrandId,
+      hasProp_brand_id: hasProp('brand_id'),
+      req_body_brand_id: req.body.brand_id,
+      existing_brand_id: existing.brand_id
     });
 
     const updateResult = await pool.query(

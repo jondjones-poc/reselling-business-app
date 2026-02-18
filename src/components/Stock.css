@@ -641,6 +641,15 @@
   cursor: not-allowed;
 }
 
+.new-entry-grid .sku-button-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-basis: 100%;
+  width: 100%;
+}
+
 .sku-add-to-orders-button {
   padding: 16px 24px;
   border-radius: 999px;
@@ -655,6 +664,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  flex: 1;
 }
 
 .sku-add-to-orders-button:hover:not(:disabled) {
@@ -842,6 +852,34 @@
 
 .stock-data-item:last-child {
   border-bottom: none;
+}
+
+.stock-data-edit-button-container {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 214, 91, 0.2);
+  display: flex;
+  justify-content: center;
+}
+
+.stock-data-edit-button {
+  padding: 14px 28px;
+  border-radius: 999px;
+  border: 1px solid rgba(140, 255, 195, 0.32);
+  background: rgba(140, 255, 195, 0.18);
+  color: #8cffc3;
+  font-weight: 600;
+  letter-spacing: 0.06rem;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 0.9rem;
+}
+
+.stock-data-edit-button:hover {
+  background: rgba(140, 255, 195, 0.3);
+  transform: translateY(-1px);
+  box-shadow: var(--neon-shadow);
 }
 
 .stock-data-item-title {
@@ -1108,6 +1146,11 @@
   .stock-table td:nth-child(9) {
     min-width: 100px;
     max-width: 120px;
+  }
+
+  /* Hide cards on desktop */
+  .stock-cards-wrapper {
+    display: none;
   }
 }
 
@@ -1463,16 +1506,51 @@
     width: 100%;
   }
 
+  /* Hide table on mobile */
   .table-wrapper {
-    border-radius: 20px;
-    overflow-x: auto;
-    overflow-y: visible;
-    position: relative;
-    z-index: 1;
+    display: none;
+  }
+
+  /* Show cards on mobile */
+  .stock-cards-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  /* Center align and adjust title size on mobile */
+  .stock-card-body .stock-card-title,
+  .stock-card-body button.stock-card-title {
+    text-align: center;
+    font-size: 1.2rem !important;
+  }
+
+  /* Center align Category and Purchase Price labels and values on mobile */
+  .stock-card-field {
+    text-align: center;
+  }
+
+  .stock-card-label {
+    text-align: center;
+    font-size: 0.8rem !important;
+  }
+
+  .stock-card-value {
+    text-align: center;
+    font-size: 0.8rem !important;
+  }
+
+  /* Hide SKU label on mobile */
+  .stock-card-sku .sku-label {
+    display: none;
   }
 
   /* Hide table when editing on mobile */
   .stock-container.editing-mode .table-wrapper {
+    display: none;
+  }
+
+  .stock-container.editing-mode .stock-cards-wrapper {
     display: none;
   }
 
@@ -1611,6 +1689,196 @@
     height: 36px;
     padding: 6px;
   }
+
+  /* Edit button 100% width on mobile */
+  .stock-data-edit-button-container {
+    width: 100%;
+  }
+
+  .stock-data-edit-button {
+    width: 100%;
+  }
+
+  /* SKU button and Delete button mobile styles */
+  .new-entry-grid .sku-button-container {
+    flex-basis: 100%;
+    width: 100%;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 0;
+  }
+
+  .sku-add-to-orders-button {
+    width: 100%;
+  }
+
+  .delete-button-desktop {
+    display: none;
+  }
+
+  .delete-button-mobile {
+    display: block;
+  }
+}
+
+/* Desktop: Hide mobile delete button, show desktop delete button */
+.delete-button-mobile {
+  display: none;
+}
+
+.delete-button-desktop {
+  display: block;
+}
+
+/* Mobile Card Styles - Cards are hidden by default, shown on mobile via media query */
+.stock-card {
+  background: rgba(5, 4, 3, 0.94);
+  border: 1px solid rgba(255, 214, 91, 0.28);
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  transition: all 0.2s ease;
+}
+
+.stock-card:hover {
+  border-color: rgba(255, 214, 91, 0.4);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+}
+
+.stock-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 214, 91, 0.2);
+}
+
+.stock-card-sku {
+  font-weight: 700;
+  color: var(--neon-primary-strong);
+  font-size: 1.4rem;
+  letter-spacing: 0.05rem;
+}
+
+.stock-card-info-button {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(140, 255, 195, 0.3);
+  background: rgba(140, 255, 195, 0.15);
+  color: #8cffc3;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.stock-card-info-button:hover {
+  background: rgba(140, 255, 195, 0.25);
+  transform: translateY(-1px);
+}
+
+.stock-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.stock-card-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stock-card-label {
+  font-size: 0.9rem;
+  color: rgba(255, 248, 226, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.05rem;
+  font-weight: 600;
+}
+
+.stock-card-value {
+  font-size: 1.3rem;
+  color: var(--text-strong);
+  font-weight: 500;
+  word-break: break-word;
+}
+
+.stock-card-title {
+  background: transparent;
+  border: none;
+  color: var(--neon-primary-strong);
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 214, 91, 0.5);
+  text-underline-offset: 2px;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+  font-size: 1.6rem;
+  font-weight: 700;
+  margin-bottom: 12px;
+  line-height: 1.3;
+  width: 100%;
+}
+
+.stock-card-title:hover {
+  text-decoration-color: rgba(255, 214, 91, 0.8);
+  color: var(--neon-primary-strong);
+}
+
+.stock-card-link {
+  background: transparent;
+  border: none;
+  color: var(--neon-primary-strong);
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 214, 91, 0.5);
+  text-underline-offset: 2px;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+}
+
+.stock-card-link:hover {
+  text-decoration-color: rgba(255, 214, 91, 0.8);
+  color: var(--neon-primary-strong);
+}
+
+.stock-empty-state {
+  padding: 40px 20px;
+  text-align: center;
+  color: rgba(255, 248, 226, 0.6);
+  font-size: 1rem;
+  background: rgba(5, 4, 3, 0.5);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 214, 91, 0.1);
+}
+
+.stock-cards-load-more {
+  display: flex;
+  justify-content: center;
+  padding: 20px 0;
+}
+
+.stock-load-more-button {
+  padding: 14px 28px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 214, 91, 0.32);
+  background: rgba(255, 214, 91, 0.14);
+  color: var(--neon-primary-strong);
+  font-weight: 600;
+  letter-spacing: 0.06rem;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 0.9rem;
+}
+
+.stock-load-more-button:hover {
+  background: rgba(255, 214, 91, 0.24);
+  transform: translateY(-1px);
+  box-shadow: var(--neon-shadow);
 }
 
 .export-section {

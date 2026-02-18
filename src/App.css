@@ -45,7 +45,7 @@ body {
   justify-content: space-between;
   align-items: center;
   gap: 24px;
-  padding: 18px 24px;
+  padding: 18px 0;
   box-sizing: border-box;
   width: 100%;
 }
@@ -57,7 +57,7 @@ body {
   letter-spacing: 0.2rem;
   color: var(--neon-primary);
   text-shadow: 0 0 18px rgba(255, 214, 91, 0.8);
-  padding-left: 24px;
+  padding-left: 32px;
   box-sizing: border-box;
   white-space: nowrap;
   overflow: hidden;
@@ -68,6 +68,43 @@ body {
 .nav-menu {
   display: flex;
   gap: 14px;
+  align-items: center;
+  padding-right: 32px;
+}
+
+.nav-settings-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  border-radius: 999px;
+  background: rgba(255, 214, 91, 0.08);
+  color: var(--text-strong);
+  font-size: 20px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: 1px solid var(--neon-border);
+  box-shadow: inset 0 0 8px rgba(255, 214, 91, 0.2);
+  text-decoration: none;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+}
+
+.nav-settings-icon:hover {
+  background: rgba(255, 214, 91, 0.18);
+  box-shadow: var(--neon-shadow);
+  transform: translateY(-1px);
+}
+
+.nav-settings-icon.active {
+  background: rgba(255, 214, 91, 0.28);
+  border-color: var(--neon-border-strong);
+  box-shadow: 0 0 18px rgba(255, 214, 91, 0.5);
+}
+
+.nav-settings-icon-desktop {
+  display: inline-flex;
 }
 
 .nav-button {
@@ -86,6 +123,10 @@ body {
   border: 1px solid var(--neon-border);
   box-shadow: inset 0 0 8px rgba(255, 214, 91, 0.2);
   text-decoration: none;
+}
+
+.nav-button-mobile-only {
+  display: none !important;
 }
 
 .nav-button:hover {
@@ -532,6 +573,14 @@ body {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .nav-settings-icon-desktop {
+    display: none;
+  }
+
+  .nav-button-mobile-only {
+    display: inline-flex;
   }
   
   .App-header {

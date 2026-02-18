@@ -1,0 +1,217 @@
+.config-container {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 40px;
+  margin-top: 120px;
+  background: var(--neon-surface);
+  border-radius: 28px;
+  border: 1px solid var(--neon-border);
+  box-shadow: 0 22px 48px rgba(0, 0, 0, 0.6), var(--neon-shadow);
+  box-sizing: border-box;
+  min-height: calc(100vh - 160px);
+}
+
+.config-error {
+  background: rgba(255, 120, 120, 0.15);
+  border: 1px solid rgba(255, 120, 120, 0.3);
+  color: #ffb0b0;
+  padding: 16px 20px;
+  border-radius: 12px;
+  margin-bottom: 24px;
+  font-size: 0.95rem;
+}
+
+.config-layout {
+  display: flex;
+  gap: 24px;
+  min-height: 600px;
+}
+
+.config-sidebar {
+  width: 33.333%;
+  min-width: 250px;
+  background: rgba(5, 4, 3, 0.94);
+  border: 1px solid rgba(255, 214, 91, 0.28);
+  border-radius: 24px;
+  padding: 24px;
+  box-shadow: inset 0 0 18px rgba(255, 214, 91, 0.1);
+}
+
+.config-sidebar-header {
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 214, 91, 0.2);
+}
+
+.config-sidebar-header h2 {
+  margin: 0;
+  color: var(--neon-primary-strong);
+  font-size: 1.8rem;
+  letter-spacing: 0.08rem;
+  text-transform: uppercase;
+}
+
+.config-sidebar-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.config-menu-item {
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 214, 91, 0.2);
+  background: rgba(255, 214, 91, 0.08);
+  color: var(--text-strong);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.05rem;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.config-menu-item:hover {
+  background: rgba(255, 214, 91, 0.15);
+  border-color: rgba(255, 214, 91, 0.35);
+  transform: translateX(4px);
+}
+
+.config-menu-item.active {
+  background: rgba(255, 214, 91, 0.2);
+  border-color: var(--neon-border-strong);
+  color: var(--neon-primary-strong);
+  box-shadow: 0 0 12px rgba(255, 214, 91, 0.3);
+}
+
+.config-content {
+  flex: 1;
+  background: rgba(5, 4, 3, 0.94);
+  border: 1px solid rgba(255, 214, 91, 0.28);
+  border-radius: 24px;
+  padding: 32px;
+  box-shadow: inset 0 0 18px rgba(255, 214, 91, 0.1);
+}
+
+.config-section-title {
+  margin: 0 0 24px 0;
+  color: var(--neon-primary-strong);
+  font-size: 1.6rem;
+  letter-spacing: 0.08rem;
+  text-transform: uppercase;
+}
+
+.config-loading,
+.config-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: rgba(255, 248, 226, 0.6);
+  font-size: 1rem;
+}
+
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.config-grid-item {
+  background: rgba(255, 214, 91, 0.05);
+  border: 1px solid rgba(255, 214, 91, 0.2);
+  border-radius: 16px;
+  padding: 20px;
+  transition: all 0.2s ease;
+}
+
+.config-grid-item:hover {
+  border-color: rgba(255, 214, 91, 0.4);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.config-grid-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 214, 91, 0.2);
+}
+
+.config-grid-sku {
+  font-weight: 700;
+  color: var(--neon-primary-strong);
+  font-size: 1.2rem;
+  letter-spacing: 0.05rem;
+}
+
+.config-grid-edit-button {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(140, 255, 195, 0.3);
+  background: rgba(140, 255, 195, 0.15);
+  color: #8cffc3;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.config-grid-edit-button:hover {
+  background: rgba(140, 255, 195, 0.25);
+  transform: translateY(-1px);
+}
+
+.config-grid-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.config-grid-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.config-grid-label {
+  font-size: 0.85rem;
+  color: rgba(255, 248, 226, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.05rem;
+  font-weight: 600;
+}
+
+.config-grid-value {
+  font-size: 1.1rem;
+  color: var(--text-strong);
+  font-weight: 500;
+  word-break: break-word;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+  .config-container {
+    padding: 24px;
+    margin-top: 100px;
+  }
+
+  .config-layout {
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .config-sidebar {
+    width: 100%;
+    min-width: auto;
+  }
+
+  .config-content {
+    padding: 24px;
+  }
+
+  .config-grid {
+    grid-template-columns: 1fr;
+  }
+}

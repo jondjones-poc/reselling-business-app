@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import './Stock.css';
@@ -124,6 +124,7 @@ const dateToIsoString = (value: Date | null) => {
 };
 
 const Stock: React.FC = () => {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [rows, setRows] = useState<StockRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -178,6 +179,8 @@ const Stock: React.FC = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const editFormRef = useRef<HTMLDivElement>(null);
+  const [visibleItemsCount, setVisibleItemsCount] = useState(20);
+  const cardsWrapperRef = useRef<HTMLDivElement>(null);
 
   // Scroll to edit form when it opens on mobile
   useEffect(() => {
@@ -284,6 +287,11 @@ const Stock: React.FC = () => {
     loadCategories();
     loadBrands();
   }, []);
+
+  // Reset visible items count when filters change
+  useEffect(() => {
+    setVisibleItemsCount(20);
+  }, [selectedMonth, selectedYear, selectedWeek, viewMode, searchTerm, unsoldFilter, selectedCategoryFilter]);
 
   // Handle editId query parameter from Orders page
   useEffect(() => {
@@ -1310,7 +1318,8 @@ const Stock: React.FC = () => {
       };
 
       console.log('Stock submit - Payload:', payload);
-      console.log('Stock submit - vinted_id value:', createForm.vinted_id);
+      console.log('Stock submit - brand_id value:', createForm.brand_id);
+      console.log('Stock submit - brand_id in payload:', payload.brand_id);
 
       // Check if we're editing or creating
       const isEditing = editingRowId !== null;
@@ -1347,6 +1356,7 @@ const Stock: React.FC = () => {
       const updatedRow: StockRow | undefined = data?.row;
 
       console.log('Stock update response - updatedRow:', updatedRow);
+      console.log('Stock update response - brand_id:', updatedRow?.brand_id);
       console.log('Stock update response - vinted_id:', updatedRow?.vinted_id);
 
       if (!updatedRow) {
@@ -1543,24 +1553,26 @@ const Stock: React.FC = () => {
         <div className="new-entry-card" ref={editFormRef}>
           <div className="new-entry-grid">
             {editingRowId && (
-              <div style={{ width: '100%', marginBottom: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <button
-                  type="button"
-                  className="sku-add-to-orders-button"
-                  onClick={handleAddToOrders}
-                  disabled={creating || deleting}
-                >
-                  {editingRowId}
-                </button>
-                <button
-                  type="button"
-                  className="delete-button"
-                  onClick={handleDeleteClick}
-                  disabled={creating || deleting}
-                >
-                  Delete Item
-                </button>
-              </div>
+              <>
+                <div className="sku-button-container" style={{ width: '100%', marginBottom: '20px' }}>
+                  <button
+                    type="button"
+                    className="sku-add-to-orders-button"
+                    onClick={handleAddToOrders}
+                    disabled={creating || deleting}
+                  >
+                    {editingRowId}
+                  </button>
+                  <button
+                    type="button"
+                    className="delete-button delete-button-desktop"
+                    onClick={handleDeleteClick}
+                    disabled={creating || deleting}
+                  >
+                    Delete Item
+                  </button>
+                </div>
+              </>
             )}
             {/* Row 1: Name, Category, Purchase Price (£), Purchase Date */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', width: '100%' }}>
@@ -1772,7 +1784,7 @@ const Stock: React.FC = () => {
                   >
                     <option value="">-- No Brand --</option>
                     {brands.map((brand) => (
-                      <option key={brand.id} value={brand.id}>
+                      <option key={brand.id} value={String(brand.id)}>
                         {brand.brand_name}
                       </option>
                     ))}
@@ -2059,32 +2071,45 @@ const Stock: React.FC = () => {
             </div>
               <div className="new-entry-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <span style={{ color: 'rgba(255, 248, 226, 0.7)', letterSpacing: '0.05rem', fontSize: '0.85rem', textTransform: 'uppercase', height: '1.2rem' }}>&nbsp;</span>
-                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                  <button
-                    type="button"
-                    className="save-button"
-                    onClick={handleCreateSubmit}
-                    disabled={creating || deleting}
-                    style={{ flex: '1' }}
-                  >
-                    {creating ? 'Saving…' : editingRowId ? 'Update' : 'Save'}
-                  </button>
-                  <button
-                    type="button"
-                    className="cancel-button"
-                    onClick={() => {
-                      if (!creating && !deleting) {
-                        setShowNewEntry(false);
-                        setEditingRowId(null);
-                        resetCreateForm();
-                        setShowDeleteConfirm(false);
-                      }
-                    }}
-                    disabled={creating || deleting}
-                    style={{ flex: '1' }}
-                  >
-                    Close
-                  </button>
+                <div className="update-close-buttons-container" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      className="save-button"
+                      onClick={handleCreateSubmit}
+                      disabled={creating || deleting}
+                      style={{ flex: '1' }}
+                    >
+                      {creating ? 'Saving…' : editingRowId ? 'Update' : 'Save'}
+                    </button>
+                    <button
+                      type="button"
+                      className="cancel-button"
+                      onClick={() => {
+                        if (!creating && !deleting) {
+                          setShowNewEntry(false);
+                          setEditingRowId(null);
+                          resetCreateForm();
+                          setShowDeleteConfirm(false);
+                        }
+                      }}
+                      disabled={creating || deleting}
+                      style={{ flex: '1' }}
+                    >
+                      Close
+                    </button>
+                  </div>
+                  {editingRowId && (
+                    <button
+                      type="button"
+                      className="delete-button delete-button-mobile"
+                      onClick={handleDeleteClick}
+                      disabled={creating || deleting}
+                      style={{ width: '100%' }}
+                    >
+                      Delete Item
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -2628,12 +2653,26 @@ const Stock: React.FC = () => {
                     </div>
                   </div>
                 </div>
+                <div className="stock-data-edit-button-container">
+                  <button
+                    type="button"
+                    className="stock-data-edit-button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCloseDataPanel();
+                      navigate(`/stock?editId=${selectedDataRow.id}`);
+                    }}
+                  >
+                    Edit
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         );
       })()}
 
+      {/* Desktop Table View */}
       <div className="table-wrapper">
         <table className="stock-table">
           <thead>
@@ -2813,6 +2852,91 @@ const Stock: React.FC = () => {
             })}
           </tbody>
         </table>
+      </div>
+
+      {/* Mobile Card View */}
+      <div className="stock-cards-wrapper" ref={cardsWrapperRef}>
+        {!loading && sortedRows.length === 0 && (
+          <div className="stock-empty-state">
+            No stock records found.
+          </div>
+        )}
+        {sortedRows.slice(0, visibleItemsCount).map((row) => {
+          const categoryName = categories.find(c => c.id === row.category_id)?.category_name || '—';
+          const brandName = brands.find(b => b.id === row.brand_id)?.brand_name || '—';
+
+          return (
+            <div key={row.id} className="stock-card">
+              <div className="stock-card-header">
+                <span className="stock-card-sku"><span className="sku-label">SKU: </span>{row.id}</span>
+                <button
+                  type="button"
+                  className="stock-card-info-button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setIsDataPanelClosing(false);
+                    setSelectedDataRow(row);
+                    const cardElement = event.currentTarget.closest('.stock-card') as HTMLElement;
+                    setSelectedRowElement(cardElement);
+                  }}
+                >
+                  Info
+                </button>
+              </div>
+              <div className="stock-card-body">
+                <button
+                  type="button"
+                  className="stock-card-title stock-card-link"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    startEditingRow(row);
+                  }}
+                >
+                  {renderCellContent(row, 'item_name')}
+                </button>
+                {categoryName !== '—' && (
+                  <div className="stock-card-field">
+                    <span className="stock-card-label">Category</span>
+                    <span className="stock-card-value">{categoryName}</span>
+                  </div>
+                )}
+                {brandName !== '—' && (
+                  <div className="stock-card-field">
+                    <span className="stock-card-label">Brand</span>
+                    <span className="stock-card-value">{brandName}</span>
+                  </div>
+                )}
+                <div className="stock-card-field">
+                  <span className="stock-card-label">Purchase Price</span>
+                  <span className="stock-card-value">{renderCellContent(row, 'purchase_price', formatCurrency)}</span>
+                </div>
+                {row.sale_date && (
+                  <div className="stock-card-field">
+                    <span className="stock-card-label">Sale Date</span>
+                    <span className="stock-card-value">{formatDate(row.sale_date)}</span>
+                  </div>
+                )}
+                {row.sale_price && (
+                  <div className="stock-card-field">
+                    <span className="stock-card-label">Sale Price</span>
+                    <span className="stock-card-value">{formatCurrency(row.sale_price)}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        {visibleItemsCount < sortedRows.length && (
+          <div className="stock-cards-load-more">
+            <button
+              type="button"
+              className="stock-load-more-button"
+              onClick={() => setVisibleItemsCount(prev => Math.min(prev + 20, sortedRows.length))}
+            >
+              Load More ({sortedRows.length - visibleItemsCount} remaining)
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="export-section">
