@@ -60,7 +60,7 @@ const formatDate = (value: Nullable<string>) => {
   }).format(date);
 };
 
-type ConfigMenu = 'untagged-brand' | 'no-ebay-id';
+type ConfigMenu = 'untagged-brand' | 'no-ebay-id' | 'no-vinted-id';
 
 const Config: React.FC = () => {
   const [activeMenu, setActiveMenu] = useState<ConfigMenu>('untagged-brand');
@@ -117,6 +117,9 @@ const Config: React.FC = () => {
     if (activeMenu === 'no-ebay-id') {
       return rows.filter(row => !row.ebay_id || row.ebay_id.trim() === '');
     }
+    if (activeMenu === 'no-vinted-id') {
+      return rows.filter(row => !row.vinted_id || row.vinted_id.trim() === '');
+    }
     return [];
   }, [rows, activeMenu]);
 
@@ -148,6 +151,13 @@ const Config: React.FC = () => {
               onClick={() => setActiveMenu('no-ebay-id')}
             >
               No eBay ID
+            </button>
+            <button
+              type="button"
+              className={`config-menu-item ${activeMenu === 'no-vinted-id' ? 'active' : ''}`}
+              onClick={() => setActiveMenu('no-vinted-id')}
+            >
+              No Vinted ID
             </button>
           </nav>
         </div>
@@ -260,6 +270,67 @@ const Config: React.FC = () => {
                           <div className="config-grid-field">
                             <span className="config-grid-label">Vinted ID</span>
                             <span className="config-grid-value">{row.vinted_id}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeMenu === 'no-vinted-id' && (
+            <div className="config-section">
+              <div className="config-section-header">
+                <button
+                  type="button"
+                  className="config-refresh-button"
+                  onClick={loadStock}
+                  title="Refresh list"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+                  </svg>
+                </button>
+              </div>
+              {loading ? (
+                <div className="config-loading">Loading...</div>
+              ) : filteredRows.length === 0 ? (
+                <div className="config-empty">No items found without a Vinted ID.</div>
+              ) : (
+                <div className="config-grid">
+                  {filteredRows.map((row) => (
+                    <div key={row.id} className="config-grid-item">
+                      <div className="config-grid-item-header">
+                        <span className="config-grid-sku">SKU: {row.id}</span>
+                        <button
+                          type="button"
+                          className="config-grid-edit-button"
+                          onClick={() => handleEditItem(row)}
+                        >
+                          Edit
+                        </button>
+                      </div>
+                      <div className="config-grid-item-body">
+                        <div className="config-grid-field">
+                          <span className="config-grid-label">Item Name</span>
+                          <span className="config-grid-value">{row.item_name || '—'}</span>
+                        </div>
+                        <div className="config-grid-field">
+                          <span className="config-grid-label">Purchase Price</span>
+                          <span className="config-grid-value">{formatCurrency(row.purchase_price)}</span>
+                        </div>
+                        {row.purchase_date && (
+                          <div className="config-grid-field">
+                            <span className="config-grid-label">Purchase Date</span>
+                            <span className="config-grid-value">{formatDate(row.purchase_date)}</span>
+                          </div>
+                        )}
+                        {row.ebay_id && (
+                          <div className="config-grid-field">
+                            <span className="config-grid-label">eBay ID</span>
+                            <span className="config-grid-value">{row.ebay_id}</span>
                           </div>
                         )}
                       </div>

@@ -75,6 +75,13 @@ interface WorstSellingBrandsDatum {
   itemCount: number;
 }
 
+interface BrandSellThroughDatum {
+  brand: string;
+  itemsListed: number;
+  itemsSold: number;
+  sellThroughRate: number;
+}
+
 interface SellThroughRate {
   totalListed: number;
   totalSold: number;
@@ -130,6 +137,8 @@ interface ReportingResponse {
   salesByCategory: SalesByCategoryDatum[];
   salesByBrand: SalesByBrandDatum[];
   worstSellingBrands: WorstSellingBrandsDatum[];
+  bestSellThroughBrands: BrandSellThroughDatum[];
+  worstSellThroughBrands: BrandSellThroughDatum[];
   yearSpecificTotals?: {
     totalPurchase: number;
     totalSales: number;
@@ -217,6 +226,8 @@ const Reporting: React.FC = () => {
   const [unsoldStockByCategory, setUnsoldStockByCategory] = useState<UnsoldStockByCategoryDatum[]>([]);
   const [salesByBrand, setSalesByBrand] = useState<SalesByBrandDatum[]>([]);
   const [worstSellingBrands, setWorstSellingBrands] = useState<WorstSellingBrandsDatum[]>([]);
+  const [bestSellThroughBrands, setBestSellThroughBrands] = useState<BrandSellThroughDatum[]>([]);
+  const [worstSellThroughBrands, setWorstSellThroughBrands] = useState<BrandSellThroughDatum[]>([]);
   const [yearSpecificTotals, setYearSpecificTotals] = useState<{ totalPurchase: number; totalSales: number; profit: number; costOfSoldItems?: number; totalProfitFromSoldItems?: number; vintedSales?: number; ebaySales?: number } | null>(null);
   const [allTimeAverageProfitMultiple, setAllTimeAverageProfitMultiple] = useState<number | null>(null);
   const [yearItemsStats, setYearItemsStats] = useState<{ listed: number; sold: number } | null>(null);
@@ -291,6 +302,8 @@ const Reporting: React.FC = () => {
         setUnsoldStockByCategory(data.unsoldStockByCategory || []);
         setSalesByBrand(data.salesByBrand || []);
         setWorstSellingBrands(data.worstSellingBrands || []);
+        setBestSellThroughBrands(data.bestSellThroughBrands || []);
+        setWorstSellThroughBrands(data.worstSellThroughBrands || []);
         setYearSpecificTotals(data.yearSpecificTotals || null);
         setAllTimeAverageProfitMultiple(data.allTimeAverageProfitMultiple ?? null);
         setYearItemsStats(data.yearItemsStats || null);
@@ -672,6 +685,74 @@ const Reporting: React.FC = () => {
       ],
     };
   }, [worstSellingBrands]);
+
+  const bestSellThroughBrandsData = useMemo(() => {
+    if (bestSellThroughBrands.length === 0) {
+      return null;
+    }
+
+    const labels = bestSellThroughBrands.map((item) => item.brand);
+    const values = bestSellThroughBrands.map((item) => item.sellThroughRate);
+
+    const colorPalette = [
+      { bg: 'rgba(140, 255, 195, 0.6)', border: 'rgba(140, 255, 195, 0.9)' },
+      { bg: 'rgba(255, 214, 91, 0.6)', border: 'rgba(255, 214, 91, 0.9)' },
+      { bg: 'rgba(140, 195, 255, 0.6)', border: 'rgba(140, 195, 255, 0.9)' },
+      { bg: 'rgba(195, 255, 140, 0.6)', border: 'rgba(195, 255, 140, 0.9)' },
+      { bg: 'rgba(255, 195, 140, 0.6)', border: 'rgba(255, 195, 140, 0.9)' }
+    ];
+
+    const backgroundColor = labels.map((_, index) => colorPalette[index % colorPalette.length].bg);
+    const borderColor = labels.map((_, index) => colorPalette[index % colorPalette.length].border);
+
+    return {
+      labels,
+      datasets: [
+        {
+          label: 'Sell-Through Rate by Brand',
+          data: values,
+          backgroundColor,
+          borderColor,
+          borderWidth: 1,
+          borderRadius: 6
+        }
+      ]
+    };
+  }, [bestSellThroughBrands]);
+
+  const worstSellThroughBrandsData = useMemo(() => {
+    if (worstSellThroughBrands.length === 0) {
+      return null;
+    }
+
+    const labels = worstSellThroughBrands.map((item) => item.brand);
+    const values = worstSellThroughBrands.map((item) => item.sellThroughRate);
+
+    const colorPalette = [
+      { bg: 'rgba(255, 120, 120, 0.6)', border: 'rgba(255, 120, 120, 0.9)' },
+      { bg: 'rgba(255, 180, 120, 0.6)', border: 'rgba(255, 180, 120, 0.9)' },
+      { bg: 'rgba(195, 140, 255, 0.6)', border: 'rgba(195, 140, 255, 0.9)' },
+      { bg: 'rgba(255, 140, 195, 0.6)', border: 'rgba(255, 140, 195, 0.9)' },
+      { bg: 'rgba(120, 180, 255, 0.6)', border: 'rgba(120, 180, 255, 0.9)' }
+    ];
+
+    const backgroundColor = labels.map((_, index) => colorPalette[index % colorPalette.length].bg);
+    const borderColor = labels.map((_, index) => colorPalette[index % colorPalette.length].border);
+
+    return {
+      labels,
+      datasets: [
+        {
+          label: 'Sell-Through Rate by Brand',
+          data: values,
+          backgroundColor,
+          borderColor,
+          borderWidth: 1,
+          borderRadius: 6
+        }
+      ]
+    };
+  }, [worstSellThroughBrands]);
 
   const monthlyAverageSellingPriceData = useMemo(() => {
     const labels = monthLabels;
@@ -1370,7 +1451,7 @@ const Reporting: React.FC = () => {
 
           <section className="reporting-card">
             <div className="card-header">
-              <h2>Worst Selling Brands</h2>
+              <h2>Largest Inventory Count By Brand</h2>
             </div>
             {worstSellingBrandsData ? (
               <div className="chart-wrapper">
@@ -1409,6 +1490,96 @@ const Reporting: React.FC = () => {
               </div>
             ) : (
               <div className="reporting-empty">No unsold items data available.</div>
+            )}
+          </section>
+
+          <section className="reporting-card">
+            <div className="card-header">
+              <h2>Best Brands by Sell-Through Rate</h2>
+            </div>
+            {bestSellThroughBrandsData ? (
+              <div className="chart-wrapper">
+                <Bar
+                  data={bestSellThroughBrandsData}
+                  options={{
+                    ...chartOptions,
+                    plugins: {
+                      ...chartOptions.plugins,
+                      tooltip: {
+                        callbacks: {
+                          label(context) {
+                            const value = context.raw as number;
+                            return `${Number(value).toFixed(1)}%`;
+                          }
+                        }
+                      }
+                    },
+                    scales: {
+                      ...chartOptions.scales,
+                      y: {
+                        ...chartOptions.scales?.y,
+                        max: 100,
+                        ticks: {
+                          ...chartOptions.scales?.y?.ticks,
+                          callback(value) {
+                            if (typeof value === 'number') {
+                              return `${value}%`;
+                            }
+                            return value;
+                          }
+                        }
+                      }
+                    }
+                  }}
+                />
+              </div>
+            ) : (
+              <div className="reporting-empty">No sell-through brand data available.</div>
+            )}
+          </section>
+
+          <section className="reporting-card">
+            <div className="card-header">
+              <h2>Worst Brands by Sell-Through Rate</h2>
+            </div>
+            {worstSellThroughBrandsData ? (
+              <div className="chart-wrapper">
+                <Bar
+                  data={worstSellThroughBrandsData}
+                  options={{
+                    ...chartOptions,
+                    plugins: {
+                      ...chartOptions.plugins,
+                      tooltip: {
+                        callbacks: {
+                          label(context) {
+                            const value = context.raw as number;
+                            return `${Number(value).toFixed(1)}%`;
+                          }
+                        }
+                      }
+                    },
+                    scales: {
+                      ...chartOptions.scales,
+                      y: {
+                        ...chartOptions.scales?.y,
+                        max: 100,
+                        ticks: {
+                          ...chartOptions.scales?.y?.ticks,
+                          callback(value) {
+                            if (typeof value === 'number') {
+                              return `${value}%`;
+                            }
+                            return value;
+                          }
+                        }
+                      }
+                    }
+                  }}
+                />
+              </div>
+            ) : (
+              <div className="reporting-empty">No sell-through brand data available.</div>
             )}
           </section>
           </>

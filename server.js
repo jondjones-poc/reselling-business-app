@@ -1078,7 +1078,8 @@ app.post('/api/stock', async (req, res) => {
       net_profit,
       vinted_id,
       ebay_id,
-      depop_id
+      depop_id,
+      brand_id
     } = req.body ?? {};
 
     const normalizedItemName = normalizeTextInput(item_name) ?? null;
@@ -1097,6 +1098,7 @@ app.post('/api/stock', async (req, res) => {
     const normalizedVintedId = vinted_id === null || vinted_id === undefined || vinted_id === '' ? null : String(vinted_id).trim();
     const normalizedEbayId = ebay_id === null || ebay_id === undefined || ebay_id === '' ? null : String(ebay_id).trim();
     const normalizedDepopId = depop_id === null || depop_id === undefined || depop_id === '' ? null : String(depop_id).trim();
+    const normalizedBrandId = brand_id === null || brand_id === undefined || brand_id === '' ? null : Number(brand_id);
 
     const insertQuery = `
       INSERT INTO stock (
@@ -1110,10 +1112,11 @@ app.post('/api/stock', async (req, res) => {
         net_profit,
         vinted_id,
         ebay_id,
-        depop_id
+        depop_id,
+        brand_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-      RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, category_id
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id
     `;
 
     const result = await pool.query(insertQuery, [
@@ -1127,7 +1130,8 @@ app.post('/api/stock', async (req, res) => {
       computedNetProfit,
       normalizedVintedId,
       normalizedEbayId,
-      normalizedDepopId
+      normalizedDepopId,
+      normalizedBrandId
     ]);
 
     res.status(201).json({ row: result.rows[0] });
@@ -2035,6 +2039,7 @@ app.get('/api/analytics/reporting', async (req, res) => {
         INNER JOIN brand b ON s.brand_id = b.id
         WHERE s.sale_date IS NOT NULL
           AND s.brand_id IS NOT NULL
+          AND LOWER(TRIM(COALESCE(b.brand_name, ''))) <> 'misc'
         GROUP BY b.brand_name
         HAVING SUM(COALESCE(s.sale_price, 0)) > 0
         ORDER BY total_sales DESC
@@ -2047,6 +2052,7 @@ app.get('/api/analytics/reporting', async (req, res) => {
         INNER JOIN brand b ON s.brand_id = b.id
         WHERE s.sale_date IS NOT NULL
           AND s.brand_id IS NOT NULL
+          AND LOWER(TRIM(COALESCE(b.brand_name, ''))) <> 'misc'
           AND EXTRACT(YEAR FROM s.sale_date)::int = $1
         GROUP BY b.brand_name
         HAVING SUM(COALESCE(s.sale_price, 0)) > 0
@@ -2074,6 +2080,7 @@ app.get('/api/analytics/reporting', async (req, res) => {
         INNER JOIN brand b ON s.brand_id = b.id
         WHERE s.sale_date IS NULL
           AND s.brand_id IS NOT NULL
+          AND LOWER(TRIM(COALESCE(b.brand_name, ''))) <> 'misc'
         GROUP BY b.brand_name
         ORDER BY item_count DESC
         LIMIT 15
@@ -2083,6 +2090,120 @@ app.get('/api/analytics/reporting', async (req, res) => {
     const worstSellingBrands = worstSellingBrandsResult.rows.map((row) => ({
       brand: row.brand,
       itemCount: Number(row.item_count)
+    }));
+
+    const bestSellThroughBrandsQuery = effectiveYear === null ? `
+        SELECT
+          b.brand_name AS brand,
+          COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL)::int AS items_listed,
+          COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL AND s.sale_date IS NOT NULL)::int AS items_sold,
+          CASE
+            WHEN COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL) > 0
+            THEN (
+              COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL AND s.sale_date IS NOT NULL)::numeric
+              / COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL)::numeric
+            ) * 100
+            ELSE 0
+          END AS sell_through_rate
+        FROM stock s
+        INNER JOIN brand b ON s.brand_id = b.id
+        WHERE s.brand_id IS NOT NULL
+          AND LOWER(TRIM(COALESCE(b.brand_name, ''))) <> 'misc'
+        GROUP BY b.brand_name
+        HAVING COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL) > 0
+        ORDER BY sell_through_rate DESC, items_listed DESC
+        LIMIT 15
+      ` : `
+        SELECT
+          b.brand_name AS brand,
+          COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL)::int AS items_listed,
+          COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL AND s.sale_date IS NOT NULL)::int AS items_sold,
+          CASE
+            WHEN COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL) > 0
+            THEN (
+              COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL AND s.sale_date IS NOT NULL)::numeric
+              / COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL)::numeric
+            ) * 100
+            ELSE 0
+          END AS sell_through_rate
+        FROM stock s
+        INNER JOIN brand b ON s.brand_id = b.id
+        WHERE s.brand_id IS NOT NULL
+          AND LOWER(TRIM(COALESCE(b.brand_name, ''))) <> 'misc'
+          AND EXTRACT(YEAR FROM s.purchase_date)::int = $1
+        GROUP BY b.brand_name
+        HAVING COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL) > 0
+        ORDER BY sell_through_rate DESC, items_listed DESC
+        LIMIT 15
+      `;
+    const bestSellThroughBrandsResult = await pool.query(
+      bestSellThroughBrandsQuery,
+      effectiveYear === null ? [] : [effectiveYear]
+    );
+
+    const bestSellThroughBrands = bestSellThroughBrandsResult.rows.map((row) => ({
+      brand: row.brand,
+      itemsListed: Number(row.items_listed),
+      itemsSold: Number(row.items_sold),
+      sellThroughRate: Number(row.sell_through_rate)
+    }));
+
+    const worstSellThroughBrandsQuery = effectiveYear === null ? `
+        SELECT
+          b.brand_name AS brand,
+          COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL)::int AS items_listed,
+          COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL AND s.sale_date IS NOT NULL)::int AS items_sold,
+          CASE
+            WHEN COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL) > 0
+            THEN (
+              COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL AND s.sale_date IS NOT NULL)::numeric
+              / COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL)::numeric
+            ) * 100
+            ELSE 0
+          END AS sell_through_rate
+        FROM stock s
+        INNER JOIN brand b ON s.brand_id = b.id
+        WHERE s.brand_id IS NOT NULL
+          AND LOWER(TRIM(COALESCE(b.brand_name, ''))) <> 'misc'
+        GROUP BY b.brand_name
+        HAVING COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL) > 0
+          AND COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL AND s.sale_date IS NOT NULL) > 0
+        ORDER BY sell_through_rate ASC, items_listed DESC
+        LIMIT 15
+      ` : `
+        SELECT
+          b.brand_name AS brand,
+          COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL)::int AS items_listed,
+          COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL AND s.sale_date IS NOT NULL)::int AS items_sold,
+          CASE
+            WHEN COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL) > 0
+            THEN (
+              COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL AND s.sale_date IS NOT NULL)::numeric
+              / COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL)::numeric
+            ) * 100
+            ELSE 0
+          END AS sell_through_rate
+        FROM stock s
+        INNER JOIN brand b ON s.brand_id = b.id
+        WHERE s.brand_id IS NOT NULL
+          AND LOWER(TRIM(COALESCE(b.brand_name, ''))) <> 'misc'
+          AND EXTRACT(YEAR FROM s.purchase_date)::int = $1
+        GROUP BY b.brand_name
+        HAVING COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL) > 0
+          AND COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL AND s.sale_date IS NOT NULL) > 0
+        ORDER BY sell_through_rate ASC, items_listed DESC
+        LIMIT 15
+      `;
+    const worstSellThroughBrandsResult = await pool.query(
+      worstSellThroughBrandsQuery,
+      effectiveYear === null ? [] : [effectiveYear]
+    );
+
+    const worstSellThroughBrands = worstSellThroughBrandsResult.rows.map((row) => ({
+      brand: row.brand,
+      itemsListed: Number(row.items_listed),
+      itemsSold: Number(row.items_sold),
+      sellThroughRate: Number(row.sell_through_rate)
     }));
 
     const sellThroughRateResult = await pool.query(`
@@ -2427,6 +2548,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
       unsoldStockByCategory,
       salesByBrand,
       worstSellingBrands,
+      bestSellThroughBrands,
+      worstSellThroughBrands,
       sellThroughRate: {
         totalListed,
         totalSold,
