@@ -181,6 +181,7 @@
   display: flex;
   flex-direction: column;
   gap: 24px;
+  min-width: 0;
 }
 
 .reporting-card {
@@ -193,6 +194,8 @@
   flex-direction: column;
   gap: 18px;
   width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .card-header h2 {
@@ -208,8 +211,18 @@
 }
 
 .chart-wrapper {
+  position: relative;
   height: 320px;
   width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.chart-wrapper > canvas {
+  display: block;
+  width: 100% !important;
+  max-width: 100%;
+  height: 100% !important;
 }
 
 /* View Toggle */
@@ -265,6 +278,48 @@
   pointer-events: auto;
 }
 
+.stock-analysis-filter-row {
+  margin-bottom: 16px;
+}
+
+.stock-analysis-filter-card {
+  width: 100%;
+  background: rgba(5, 4, 3, 0.94);
+  border: 1px solid rgba(255, 214, 91, 0.28);
+  border-radius: 16px;
+  padding: 14px 18px;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.45), var(--neon-shadow);
+  box-sizing: border-box;
+}
+
+.stock-analysis-filter-label {
+  color: rgba(255, 248, 226, 0.75);
+  font-size: 0.85rem;
+  letter-spacing: 0.08rem;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.stock-analysis-filter-select {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 214, 91, 0.32);
+  background: rgba(255, 214, 91, 0.12);
+  color: var(--text-strong);
+  font-size: 0.95rem;
+  outline: none;
+  transition: all 0.3s ease;
+  cursor: pointer;
+  box-shadow: inset 0 0 12px rgba(255, 214, 91, 0.12);
+}
+
+.stock-analysis-filter-select:focus {
+  border-color: var(--neon-border-strong);
+  box-shadow: var(--neon-shadow);
+  background: rgba(255, 214, 91, 0.22);
+}
+
 /* Monthly View Filters */
 .monthly-filters {
   display: flex;
@@ -317,6 +372,9 @@
   padding: 28px;
   box-shadow: 0 16px 32px rgba(0, 0, 0, 0.55), var(--neon-shadow);
   align-items: center;
+  position: relative;
+  overflow: visible;
+  z-index: 5;
 }
 
 .platform-logo-cell {
@@ -324,12 +382,48 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: visible;
 }
 
 .platform-logo {
   width: 48px;
   height: 48px;
   object-fit: contain;
+}
+
+.platform-logo-tooltip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.platform-logo-tooltip:hover {
+  z-index: 2000;
+}
+
+.platform-icon-tooltip-text {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(5, 4, 3, 0.96);
+  border: 1px solid rgba(255, 214, 91, 0.35);
+  color: rgba(255, 248, 226, 0.9);
+  font-size: 0.72rem;
+  letter-spacing: 0.03rem;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 3000;
+}
+
+.platform-logo-tooltip:hover .platform-icon-tooltip-text {
+  opacity: 1;
 }
 
 .platform-stat-cell {
@@ -473,6 +567,14 @@
     flex-wrap: wrap;
     gap: 16px;
     padding: 20px;
+  }
+
+  .stock-analysis-filter-card {
+    padding: 12px 14px;
+  }
+
+  .stock-analysis-filter-select {
+    font-size: 0.9rem;
   }
 
   .platform-logo-cell {

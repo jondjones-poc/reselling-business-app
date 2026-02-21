@@ -282,6 +282,34 @@
 .view-group {
   display: flex;
   align-items: center;
+  gap: 8px;
+}
+
+.stock-refresh-icon-button {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid rgba(140, 255, 195, 0.35);
+  background: rgba(140, 255, 195, 0.15);
+  color: #8cffc3;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0;
+  transition: all 0.2s ease;
+}
+
+.stock-refresh-icon-button:hover {
+  background: rgba(140, 255, 195, 0.25);
+  border-color: rgba(140, 255, 195, 0.55);
+  transform: rotate(180deg);
+}
+
+.stock-refresh-icon-button:active {
+  transform: rotate(360deg);
 }
 
 .unsold-filter-group {

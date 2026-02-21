@@ -2360,6 +2360,15 @@ const Stock: React.FC = () => {
             <option value="list-on-vinted">To List On Vinted</option>
             <option value="list-on-ebay">To List On eBay</option>
           </select>
+          <button
+            type="button"
+            className="stock-refresh-icon-button"
+            onClick={loadStock}
+            title="Refresh stock list"
+            aria-label="Refresh stock list"
+          >
+            ↻
+          </button>
         </div>
 
         <div className="filter-group unsold-filter-group">

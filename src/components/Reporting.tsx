@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -70,6 +71,14 @@ interface SalesByBrandDatum {
   totalSales: number;
 }
 
+interface SalesByBrandCategorySet {
+  trousers: SalesByBrandDatum[];
+  shirt: SalesByBrandDatum[];
+  top: SalesByBrandDatum[];
+  coat: SalesByBrandDatum[];
+  jacket: SalesByBrandDatum[];
+}
+
 interface WorstSellingBrandsDatum {
   brand: string;
   itemCount: number;
@@ -125,6 +134,13 @@ interface TrailingInventoryPoint {
   inventoryCost: number;
 }
 
+interface StockRowForSalesData {
+  purchase_date: string | null;
+  sale_date: string | null;
+  purchase_price: number | string | null;
+  sale_price: number | string | null;
+}
+
 interface ReportingResponse {
   availableYears: number[];
   selectedYear: number;
@@ -136,6 +152,7 @@ interface ReportingResponse {
   monthlyAverageProfitMultiple: MonthlyAverageProfitMultipleDatum[];
   salesByCategory: SalesByCategoryDatum[];
   salesByBrand: SalesByBrandDatum[];
+  bestSellingBrandsByCategory: SalesByBrandCategorySet;
   worstSellingBrands: WorstSellingBrandsDatum[];
   bestSellThroughBrands: BrandSellThroughDatum[];
   worstSellThroughBrands: BrandSellThroughDatum[];
@@ -214,17 +231,24 @@ const chartOptions: ChartOptions<'bar'> = {
 };
 
 const Reporting: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabFromUrl = searchParams.get('tab');
+  const initialViewMode: 'sales-data' | 'stock-analysis' =
+    tabFromUrl === 'stock-analysis' ? 'stock-analysis' : 'sales-data';
+
   const [availableYears, setAvailableYears] = useState<number[]>([]);
-  const [selectedYear, setSelectedYear] = useState<number | 'all'>(new Date().getFullYear());
-  const [profitTimeline, setProfitTimeline] = useState<ProfitTimelinePoint[]>([]);
+  const [selectedYear, setSelectedYear] = useState<number | 'all'>('all');
   const [monthlyProfit, setMonthlyProfit] = useState<MonthlyProfitDatum[]>([]);
-  const [monthlyExpenses, setMonthlyExpenses] = useState<MonthlyExpenseDatum[]>([]);
-  const [monthlyAverageSellingPrice, setMonthlyAverageSellingPrice] = useState<MonthlyAverageSellingPriceDatum[]>([]);
-  const [monthlyAverageProfitPerItem, setMonthlyAverageProfitPerItem] = useState<MonthlyAverageProfitPerItemDatum[]>([]);
-  const [monthlyAverageProfitMultiple, setMonthlyAverageProfitMultiple] = useState<MonthlyAverageProfitMultipleDatum[]>([]);
   const [salesByCategory, setSalesByCategory] = useState<SalesByCategoryDatum[]>([]);
   const [unsoldStockByCategory, setUnsoldStockByCategory] = useState<UnsoldStockByCategoryDatum[]>([]);
   const [salesByBrand, setSalesByBrand] = useState<SalesByBrandDatum[]>([]);
+  const [bestSellingBrandsByCategory, setBestSellingBrandsByCategory] = useState<SalesByBrandCategorySet>({
+    trousers: [],
+    shirt: [],
+    top: [],
+    coat: [],
+    jacket: []
+  });
   const [worstSellingBrands, setWorstSellingBrands] = useState<WorstSellingBrandsDatum[]>([]);
   const [bestSellThroughBrands, setBestSellThroughBrands] = useState<BrandSellThroughDatum[]>([]);
   const [worstSellThroughBrands, setWorstSellThroughBrands] = useState<BrandSellThroughDatum[]>([]);
@@ -243,9 +267,7 @@ const Reporting: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   
   // Monthly view state
-  const [viewMode, setViewMode] = useState<'global' | 'monthly'>('global');
-  const [monthlyViewYear, setMonthlyViewYear] = useState<number>(new Date().getFullYear());
-  const [monthlyViewMonth, setMonthlyViewMonth] = useState<number>(new Date().getMonth() + 1);
+  const [viewMode, setViewMode] = useState<'sales-data' | 'stock-analysis'>(initialViewMode);
   const [vintedData, setVintedData] = useState<{ purchases: number; sales: number; profit: number }>({ purchases: 0, sales: 0, profit: 0 });
   const [ebayData, setEbayData] = useState<{ purchases: number; sales: number; profit: number }>({ purchases: 0, sales: 0, profit: 0 });
   const [unsoldPurchases, setUnsoldPurchases] = useState<number>(0);
@@ -278,6 +300,9 @@ const Reporting: React.FC = () => {
   // State for trailing inventory
   const [trailingInventory, setTrailingInventory] = useState<TrailingInventoryPoint[]>([]);
   const [trailingInventoryLoading, setTrailingInventoryLoading] = useState(false);
+  const [stockRowsForSalesData, setStockRowsForSalesData] = useState<StockRowForSalesData[]>([]);
+  const [salesDateFilter, setSalesDateFilter] = useState<'all-time' | 'last-30-days' | 'last-3-months' | 'current-year' | 'previous-year'>('all-time');
+  const now = useMemo(() => new Date(), []);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -292,15 +317,17 @@ const Reporting: React.FC = () => {
         }
         const data: ReportingResponse = await response.json();
         setAvailableYears(data.availableYears);
-        setProfitTimeline(data.profitTimeline);
         setMonthlyProfit(data.monthlyProfit);
-        setMonthlyExpenses(data.monthlyExpenses);
-        setMonthlyAverageSellingPrice(data.monthlyAverageSellingPrice || []);
-        setMonthlyAverageProfitPerItem(data.monthlyAverageProfitPerItem || []);
-        setMonthlyAverageProfitMultiple(data.monthlyAverageProfitMultiple || []);
         setSalesByCategory(data.salesByCategory || []);
         setUnsoldStockByCategory(data.unsoldStockByCategory || []);
         setSalesByBrand(data.salesByBrand || []);
+        setBestSellingBrandsByCategory(data.bestSellingBrandsByCategory || {
+          trousers: [],
+          shirt: [],
+          top: [],
+          coat: [],
+          jacket: []
+        });
         setWorstSellingBrands(data.worstSellingBrands || []);
         setBestSellThroughBrands(data.bestSellThroughBrands || []);
         setWorstSellThroughBrands(data.worstSellThroughBrands || []);
@@ -329,13 +356,46 @@ const Reporting: React.FC = () => {
     fetchData();
   }, [selectedYear]);
 
+  useEffect(() => {
+    const nextViewMode: 'sales-data' | 'stock-analysis' =
+      searchParams.get('tab') === 'stock-analysis' ? 'stock-analysis' : 'sales-data';
+    setViewMode((prev) => (prev === nextViewMode ? prev : nextViewMode));
+  }, [searchParams]);
+
+  useEffect(() => {
+    const currentTab = searchParams.get('tab');
+    if (currentTab === viewMode) {
+      return;
+    }
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set('tab', viewMode);
+    setSearchParams(nextParams, { replace: true });
+  }, [viewMode, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    const fetchStockRows = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/api/stock`);
+        if (!response.ok) {
+          return;
+        }
+        const data = await response.json();
+        setStockRowsForSalesData(Array.isArray(data?.rows) ? data.rows : []);
+      } catch (err) {
+        console.error('Failed to load stock rows for sales-data filters:', err);
+        setStockRowsForSalesData([]);
+      }
+    };
+    fetchStockRows();
+  }, []);
+
   // Fetch monthly platform data when in monthly view
   useEffect(() => {
-    if (viewMode === 'monthly') {
+    if (viewMode === 'sales-data') {
       const fetchMonthlyData = async () => {
         try {
           setMonthlyLoading(true);
-          const url = `${API_BASE}/api/analytics/monthly-platform?year=${monthlyViewYear}&month=${monthlyViewMonth}`;
+          const url = `${API_BASE}/api/analytics/monthly-platform?year=${monthlySummaryYear}&month=${monthlySummaryMonth}`;
           console.log('[Monthly Platform] Fetching data from:', url);
           const response = await fetch(url);
           if (!response.ok) {
@@ -381,11 +441,11 @@ const Reporting: React.FC = () => {
       };
       fetchMonthlyData();
     }
-  }, [viewMode, monthlyViewYear, monthlyViewMonth]);
+  }, [viewMode, monthlySummaryYear, monthlySummaryMonth]);
 
   // Fetch monthly summary data for the new row in Global view
   useEffect(() => {
-    if (viewMode === 'global') {
+    if (viewMode === 'sales-data') {
       const fetchMonthlySummary = async () => {
         try {
           setMonthlySummaryLoading(true);
@@ -419,7 +479,7 @@ const Reporting: React.FC = () => {
 
   // Fetch trailing inventory data
   useEffect(() => {
-    if (viewMode === 'global') {
+    if (viewMode === 'sales-data') {
       const fetchTrailingInventory = async () => {
         try {
           setTrailingInventoryLoading(true);
@@ -461,87 +521,6 @@ const Reporting: React.FC = () => {
     fetchTrailingInventory();
   }, []);
 
-  const timelineChartData = useMemo(() => {
-    if (profitTimeline.length === 0) {
-      return null;
-    }
-
-    const labels = profitTimeline.map((point) => {
-      const date = new Date(point.label);
-      return `${date.toLocaleString('default', { month: 'short' })} ${date.getFullYear()}`;
-    });
-
-    const values = profitTimeline.map((point) => point.profit);
-
-    return {
-      labels,
-      datasets: [
-        {
-          label: 'Profit',
-          data: values,
-          backgroundColor: values.map((value) =>
-            value >= 0 ? 'rgba(255, 214, 91, 0.6)' : 'rgba(255, 120, 120, 0.6)'
-          ),
-          borderColor: values.map((value) =>
-            value >= 0 ? 'rgba(255, 214, 91, 0.9)' : 'rgba(255, 120, 120, 0.85)'
-          ),
-          borderWidth: 1,
-          borderRadius: 6,
-        },
-      ],
-    };
-  }, [profitTimeline]);
-
-  const monthlySalesData = useMemo(() => {
-    const labels = monthLabels;
-    const values = labels.map((_label, index) => {
-      const found = monthlyProfit.find((item) => item.month === index + 1);
-      return found ? found.totalSales ?? 0 : 0;
-    });
-
-    return {
-      data: {
-        labels,
-        datasets: [
-          {
-            label: 'Monthly Sales',
-            data: values,
-            backgroundColor: values.map((value) =>
-              value >= 0 ? 'rgba(140, 255, 195, 0.5)' : 'rgba(255, 120, 120, 0.45)'
-            ),
-            borderColor: values.map((value) =>
-              value >= 0 ? 'rgba(140, 255, 195, 0.85)' : 'rgba(255, 120, 120, 0.8)'
-            ),
-            borderWidth: 1,
-            borderRadius: 6,
-          },
-        ],
-      },
-      hasData: values.some((value) => value !== 0),
-    };
-  }, [monthlyProfit]);
-
-  const monthlyExpensesData = useMemo(() => {
-    const labels = monthLabels;
-    const values = labels.map((_label, index) => {
-      const found = monthlyExpenses.find((item) => item.month === index + 1);
-      return found ? found.expense ?? 0 : 0;
-    });
-
-    return {
-      labels,
-      datasets: [
-        {
-          label: 'Monthly Expenses',
-          data: values,
-          backgroundColor: 'rgba(255, 120, 120, 0.45)',
-          borderColor: 'rgba(255, 120, 120, 0.8)',
-          borderWidth: 1,
-          borderRadius: 6,
-        },
-      ],
-    };
-  }, [monthlyExpenses]);
 
   const totalProfit = useMemo(() => {
     // Use year-specific totals if available (matches Stock page calculation)
@@ -641,6 +620,44 @@ const Reporting: React.FC = () => {
       ],
     };
   }, [salesByBrand]);
+
+  const buildBrandSalesChart = (items: SalesByBrandDatum[] | null) => {
+    if (!items || items.length === 0) {
+      return null;
+    }
+
+    const labels = items.map((item) => item.brand);
+    const values = items.map((item) => item.totalSales);
+    const colorPalette = [
+      { bg: 'rgba(255, 214, 91, 0.6)', border: 'rgba(255, 214, 91, 0.9)' },
+      { bg: 'rgba(140, 255, 195, 0.6)', border: 'rgba(140, 255, 195, 0.9)' },
+      { bg: 'rgba(255, 120, 120, 0.6)', border: 'rgba(255, 120, 120, 0.9)' },
+      { bg: 'rgba(140, 195, 255, 0.6)', border: 'rgba(140, 195, 255, 0.9)' },
+      { bg: 'rgba(255, 195, 140, 0.6)', border: 'rgba(255, 195, 140, 0.9)' }
+    ];
+    const backgroundColor = labels.map((_, index) => colorPalette[index % colorPalette.length].bg);
+    const borderColor = labels.map((_, index) => colorPalette[index % colorPalette.length].border);
+
+    return {
+      labels,
+      datasets: [
+        {
+          label: 'Sales by Brand',
+          data: values,
+          backgroundColor,
+          borderColor,
+          borderWidth: 1,
+          borderRadius: 6
+        }
+      ]
+    };
+  };
+
+  const trousersBrandSalesData = useMemo(() => buildBrandSalesChart(bestSellingBrandsByCategory.trousers), [bestSellingBrandsByCategory]);
+  const shirtBrandSalesData = useMemo(() => buildBrandSalesChart(bestSellingBrandsByCategory.shirt), [bestSellingBrandsByCategory]);
+  const topBrandSalesData = useMemo(() => buildBrandSalesChart(bestSellingBrandsByCategory.top), [bestSellingBrandsByCategory]);
+  const coatBrandSalesData = useMemo(() => buildBrandSalesChart(bestSellingBrandsByCategory.coat), [bestSellingBrandsByCategory]);
+  const jacketBrandSalesData = useMemo(() => buildBrandSalesChart(bestSellingBrandsByCategory.jacket), [bestSellingBrandsByCategory]);
 
   const worstSellingBrandsData = useMemo(() => {
     if (worstSellingBrands.length === 0) {
@@ -754,77 +771,6 @@ const Reporting: React.FC = () => {
     };
   }, [worstSellThroughBrands]);
 
-  const monthlyAverageSellingPriceData = useMemo(() => {
-    const labels = monthLabels;
-    const values = labels.map((_label, index) => {
-      const found = monthlyAverageSellingPrice.find((item) => item.month === index + 1);
-      return found ? found.average ?? 0 : 0;
-    });
-
-    return {
-      labels,
-      datasets: [
-        {
-          label: 'Average Selling Price',
-          data: values,
-          backgroundColor: 'rgba(140, 255, 195, 0.45)',
-          borderColor: 'rgba(140, 255, 195, 0.8)',
-          borderWidth: 1,
-          borderRadius: 6,
-        },
-      ],
-    };
-  }, [monthlyAverageSellingPrice]);
-
-  const monthlyAverageProfitPerItemData = useMemo(() => {
-    const labels = monthLabels;
-    const values = labels.map((_label, index) => {
-      const found = monthlyAverageProfitPerItem.find((item) => item.month === index + 1);
-      return found ? found.average ?? 0 : 0;
-    });
-
-    return {
-      labels,
-      datasets: [
-        {
-          label: 'Average Profit per Item',
-          data: values,
-          backgroundColor: (context: any) => {
-            const value = context.parsed.y;
-            return value >= 0 ? 'rgba(140, 255, 195, 0.45)' : 'rgba(255, 120, 120, 0.45)';
-          },
-          borderColor: (context: any) => {
-            const value = context.parsed.y;
-            return value >= 0 ? 'rgba(140, 255, 195, 0.8)' : 'rgba(255, 120, 120, 0.8)';
-          },
-          borderWidth: 1,
-          borderRadius: 6,
-        },
-      ],
-    };
-  }, [monthlyAverageProfitPerItem]);
-
-  const monthlyAverageProfitMultipleData = useMemo(() => {
-    const labels = monthLabels;
-    const values = labels.map((_label, index) => {
-      const found = monthlyAverageProfitMultiple.find((item) => item.month === index + 1);
-      return found ? found.average ?? 0 : 0;
-    });
-
-    return {
-      labels,
-      datasets: [
-        {
-          label: 'Average Profit Multiple',
-          data: values,
-          backgroundColor: 'rgba(255, 214, 91, 0.45)',
-          borderColor: 'rgba(255, 214, 91, 0.8)',
-          borderWidth: 1,
-          borderRadius: 6,
-        },
-      ],
-    };
-  }, [monthlyAverageProfitMultiple]);
 
   const unsoldStockByCategoryData = useMemo(() => {
     if (unsoldStockByCategory.length === 0) {
@@ -930,6 +876,379 @@ const Reporting: React.FC = () => {
     };
   }, [trailingInventory]);
 
+  const previousDataYear = useMemo(() => {
+    if (!availableYears.length) {
+      return null;
+    }
+    const currentYear = now.getFullYear();
+    const priorYears = availableYears.filter((year) => year < currentYear).sort((a, b) => b - a);
+    if (priorYears.length > 0) {
+      return priorYears[0];
+    }
+    const sortedYears = [...availableYears].sort((a, b) => b - a);
+    return sortedYears.length > 1 ? sortedYears[1] : null;
+  }, [availableYears, now]);
+
+  const isDateInSalesRange = useMemo(() => {
+    return (dateValue: string | null | undefined): boolean => {
+      if (!dateValue) {
+        return false;
+      }
+      const date = new Date(dateValue);
+      if (Number.isNaN(date.getTime())) {
+        return false;
+      }
+
+      if (salesDateFilter === 'all-time') {
+        return true;
+      }
+
+      if (salesDateFilter === 'last-30-days') {
+        const start = new Date(now);
+        start.setHours(0, 0, 0, 0);
+        start.setDate(start.getDate() - 29);
+        return date >= start && date <= now;
+      }
+
+      if (salesDateFilter === 'last-3-months') {
+        const start = new Date(now);
+        start.setHours(0, 0, 0, 0);
+        start.setMonth(start.getMonth() - 3);
+        return date >= start && date <= now;
+      }
+
+      if (salesDateFilter === 'current-year') {
+        return date.getFullYear() === now.getFullYear();
+      }
+
+      if (salesDateFilter === 'previous-year') {
+        return previousDataYear !== null && date.getFullYear() === previousDataYear;
+      }
+
+      return true;
+    };
+  }, [salesDateFilter, now, previousDataYear]);
+
+  const monthlyChartBuckets = useMemo(() => {
+    if (selectedYear === 'all') {
+      const base = new Date(now.getFullYear(), now.getMonth(), 1);
+      const buckets: Array<{ key: string; label: string }> = [];
+      for (let offset = 0; offset <= 11; offset += 1) {
+        const d = new Date(base);
+        d.setMonth(base.getMonth() - offset);
+        buckets.push({
+          key: `${d.getFullYear()}-${d.getMonth() + 1}`,
+          label: `${monthLabels[d.getMonth()]} ${d.getFullYear()}`
+        });
+      }
+      return buckets;
+    }
+
+    const year = Number(selectedYear);
+    return monthLabels.map((label, monthIndex) => ({
+      key: `${year}-${monthIndex + 1}`,
+      label
+    }));
+  }, [selectedYear, now]);
+
+  const salesTimelineChartData = useMemo(() => {
+    if (!stockRowsForSalesData.length) {
+      return null;
+    }
+
+    const valuesByBucket = monthlyChartBuckets.map(() => ({ sales: 0, purchase: 0 }));
+    const bucketIndexByKey = new Map(monthlyChartBuckets.map((bucket, index) => [bucket.key, index]));
+    const toNumber = (value: number | string | null | undefined) => {
+      const num = Number(value ?? 0);
+      return Number.isFinite(num) ? num : 0;
+    };
+
+    stockRowsForSalesData.forEach((row) => {
+      if (isDateInSalesRange(row.purchase_date)) {
+        const d = new Date(row.purchase_date as string);
+        if (!Number.isNaN(d.getTime())) {
+          const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+          const bucketIndex = bucketIndexByKey.get(key);
+          if (bucketIndex !== undefined) {
+            valuesByBucket[bucketIndex].purchase += toNumber(row.purchase_price);
+          }
+        }
+      }
+
+      if (isDateInSalesRange(row.sale_date)) {
+        const d = new Date(row.sale_date as string);
+        if (!Number.isNaN(d.getTime())) {
+          const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+          const bucketIndex = bucketIndexByKey.get(key);
+          if (bucketIndex !== undefined) {
+            valuesByBucket[bucketIndex].sales += toNumber(row.sale_price);
+          }
+        }
+      }
+    });
+
+    const labels = monthlyChartBuckets.map((bucket) => bucket.label);
+    const values = valuesByBucket.map((point) => point.sales - point.purchase);
+    if (!values.some((value) => value !== 0)) {
+      return null;
+    }
+
+    return {
+      labels,
+      datasets: [
+        {
+          label: 'Profit',
+          data: values,
+          backgroundColor: values.map((value) =>
+            value >= 0 ? 'rgba(255, 214, 91, 0.6)' : 'rgba(255, 120, 120, 0.6)'
+          ),
+          borderColor: values.map((value) =>
+            value >= 0 ? 'rgba(255, 214, 91, 0.9)' : 'rgba(255, 120, 120, 0.85)'
+          ),
+          borderWidth: 1,
+          borderRadius: 6
+        }
+      ]
+    };
+  }, [stockRowsForSalesData, isDateInSalesRange, monthlyChartBuckets]);
+
+  const salesMonthlySalesData = useMemo(() => {
+    const values = Array(monthlyChartBuckets.length).fill(0);
+    const bucketIndexByKey = new Map(monthlyChartBuckets.map((bucket, index) => [bucket.key, index]));
+    stockRowsForSalesData.forEach((row) => {
+      if (isDateInSalesRange(row.sale_date)) {
+        const d = new Date(row.sale_date as string);
+        if (!Number.isNaN(d.getTime())) {
+          const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+          const bucketIndex = bucketIndexByKey.get(key);
+          if (bucketIndex !== undefined) {
+            values[bucketIndex] += Number(row.sale_price ?? 0) || 0;
+          }
+        }
+      }
+    });
+    return {
+      data: {
+        labels: monthlyChartBuckets.map((bucket) => bucket.label),
+        datasets: [
+          {
+            label: 'Monthly Sales',
+            data: values,
+            backgroundColor: values.map((value) =>
+              value >= 0 ? 'rgba(140, 255, 195, 0.5)' : 'rgba(255, 120, 120, 0.45)'
+            ),
+            borderColor: values.map((value) =>
+              value >= 0 ? 'rgba(140, 255, 195, 0.85)' : 'rgba(255, 120, 120, 0.8)'
+            ),
+            borderWidth: 1,
+            borderRadius: 6
+          }
+        ]
+      },
+      hasData: values.some((value) => value !== 0)
+    };
+  }, [stockRowsForSalesData, isDateInSalesRange, monthlyChartBuckets]);
+
+  const salesMonthlyExpensesData = useMemo(() => {
+    const values = Array(monthlyChartBuckets.length).fill(0);
+    const bucketIndexByKey = new Map(monthlyChartBuckets.map((bucket, index) => [bucket.key, index]));
+    stockRowsForSalesData.forEach((row) => {
+      if (isDateInSalesRange(row.purchase_date)) {
+        const d = new Date(row.purchase_date as string);
+        if (!Number.isNaN(d.getTime())) {
+          const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+          const bucketIndex = bucketIndexByKey.get(key);
+          if (bucketIndex !== undefined) {
+            values[bucketIndex] += Number(row.purchase_price ?? 0) || 0;
+          }
+        }
+      }
+    });
+    return {
+      labels: monthlyChartBuckets.map((bucket) => bucket.label),
+      datasets: [
+        {
+          label: 'Monthly Expenses',
+          data: values,
+          backgroundColor: 'rgba(255, 120, 120, 0.45)',
+          borderColor: 'rgba(255, 120, 120, 0.8)',
+          borderWidth: 1,
+          borderRadius: 6
+        }
+      ]
+    };
+  }, [stockRowsForSalesData, isDateInSalesRange, monthlyChartBuckets]);
+
+  const salesMonthlyAverageSellingPriceData = useMemo(() => {
+    const sums = Array(monthlyChartBuckets.length).fill(0);
+    const counts = Array(monthlyChartBuckets.length).fill(0);
+    const bucketIndexByKey = new Map(monthlyChartBuckets.map((bucket, index) => [bucket.key, index]));
+    stockRowsForSalesData.forEach((row) => {
+      if (isDateInSalesRange(row.sale_date)) {
+        const d = new Date(row.sale_date as string);
+        const value = Number(row.sale_price ?? 0);
+        if (!Number.isNaN(d.getTime()) && Number.isFinite(value) && value > 0) {
+          const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+          const bucketIndex = bucketIndexByKey.get(key);
+          if (bucketIndex !== undefined) {
+            sums[bucketIndex] += value;
+            counts[bucketIndex] += 1;
+          }
+        }
+      }
+    });
+    const values = sums.map((sum, idx) => (counts[idx] > 0 ? sum / counts[idx] : 0));
+    return {
+      labels: monthlyChartBuckets.map((bucket) => bucket.label),
+      datasets: [
+        {
+          label: 'Average Selling Price',
+          data: values,
+          backgroundColor: 'rgba(140, 255, 195, 0.45)',
+          borderColor: 'rgba(140, 255, 195, 0.8)',
+          borderWidth: 1,
+          borderRadius: 6
+        }
+      ]
+    };
+  }, [stockRowsForSalesData, isDateInSalesRange, monthlyChartBuckets]);
+
+  const salesMonthlyAverageProfitPerItemData = useMemo(() => {
+    const sums = Array(monthlyChartBuckets.length).fill(0);
+    const counts = Array(monthlyChartBuckets.length).fill(0);
+    const bucketIndexByKey = new Map(monthlyChartBuckets.map((bucket, index) => [bucket.key, index]));
+    stockRowsForSalesData.forEach((row) => {
+      if (isDateInSalesRange(row.sale_date)) {
+        const d = new Date(row.sale_date as string);
+        const sale = Number(row.sale_price ?? 0);
+        const purchase = Number(row.purchase_price ?? 0);
+        if (!Number.isNaN(d.getTime()) && Number.isFinite(sale) && Number.isFinite(purchase) && sale > 0) {
+          const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+          const bucketIndex = bucketIndexByKey.get(key);
+          if (bucketIndex !== undefined) {
+            sums[bucketIndex] += (sale - purchase);
+            counts[bucketIndex] += 1;
+          }
+        }
+      }
+    });
+    const values = sums.map((sum, idx) => (counts[idx] > 0 ? sum / counts[idx] : 0));
+    return {
+      labels: monthlyChartBuckets.map((bucket) => bucket.label),
+      datasets: [
+        {
+          label: 'Average Profit per Item',
+          data: values,
+          backgroundColor: (context: any) => {
+            const value = context.parsed.y;
+            return value >= 0 ? 'rgba(140, 255, 195, 0.45)' : 'rgba(255, 120, 120, 0.45)';
+          },
+          borderColor: (context: any) => {
+            const value = context.parsed.y;
+            return value >= 0 ? 'rgba(140, 255, 195, 0.8)' : 'rgba(255, 120, 120, 0.8)';
+          },
+          borderWidth: 1,
+          borderRadius: 6
+        }
+      ]
+    };
+  }, [stockRowsForSalesData, isDateInSalesRange, monthlyChartBuckets]);
+
+  const salesMonthlyAverageProfitMultipleData = useMemo(() => {
+    const sums = Array(monthlyChartBuckets.length).fill(0);
+    const counts = Array(monthlyChartBuckets.length).fill(0);
+    const bucketIndexByKey = new Map(monthlyChartBuckets.map((bucket, index) => [bucket.key, index]));
+    stockRowsForSalesData.forEach((row) => {
+      if (isDateInSalesRange(row.sale_date)) {
+        const d = new Date(row.sale_date as string);
+        const sale = Number(row.sale_price ?? 0);
+        const purchase = Number(row.purchase_price ?? 0);
+        if (!Number.isNaN(d.getTime()) && Number.isFinite(sale) && Number.isFinite(purchase) && purchase > 0 && sale > 0) {
+          const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+          const bucketIndex = bucketIndexByKey.get(key);
+          if (bucketIndex !== undefined) {
+            sums[bucketIndex] += (sale / purchase);
+            counts[bucketIndex] += 1;
+          }
+        }
+      }
+    });
+    const values = sums.map((sum, idx) => (counts[idx] > 0 ? sum / counts[idx] : 0));
+    return {
+      labels: monthlyChartBuckets.map((bucket) => bucket.label),
+      datasets: [
+        {
+          label: 'Average Profit Multiple',
+          data: values,
+          backgroundColor: 'rgba(255, 214, 91, 0.45)',
+          borderColor: 'rgba(255, 214, 91, 0.8)',
+          borderWidth: 1,
+          borderRadius: 6
+        }
+      ]
+    };
+  }, [stockRowsForSalesData, isDateInSalesRange, monthlyChartBuckets]);
+
+  const salesItemsListedByMonthData = useMemo(() => {
+    const values = Array(monthlyChartBuckets.length).fill(0);
+    const bucketIndexByKey = new Map(monthlyChartBuckets.map((bucket, index) => [bucket.key, index]));
+    stockRowsForSalesData.forEach((row) => {
+      if (isDateInSalesRange(row.purchase_date)) {
+        const d = new Date(row.purchase_date as string);
+        if (!Number.isNaN(d.getTime())) {
+          const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+          const bucketIndex = bucketIndexByKey.get(key);
+          if (bucketIndex !== undefined) {
+            values[bucketIndex] += 1;
+          }
+        }
+      }
+    });
+    return {
+      labels: monthlyChartBuckets.map((bucket) => bucket.label),
+      datasets: [
+        {
+          label: 'Items Listed',
+          data: values,
+          backgroundColor: 'rgba(140, 195, 255, 0.5)',
+          borderColor: 'rgba(140, 195, 255, 0.85)',
+          borderWidth: 1,
+          borderRadius: 6
+        }
+      ]
+    };
+  }, [stockRowsForSalesData, isDateInSalesRange, monthlyChartBuckets]);
+
+  const salesItemsSoldByMonthData = useMemo(() => {
+    const values = Array(monthlyChartBuckets.length).fill(0);
+    const bucketIndexByKey = new Map(monthlyChartBuckets.map((bucket, index) => [bucket.key, index]));
+    stockRowsForSalesData.forEach((row) => {
+      if (isDateInSalesRange(row.sale_date)) {
+        const d = new Date(row.sale_date as string);
+        if (!Number.isNaN(d.getTime())) {
+          const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+          const bucketIndex = bucketIndexByKey.get(key);
+          if (bucketIndex !== undefined) {
+            values[bucketIndex] += 1;
+          }
+        }
+      }
+    });
+    return {
+      labels: monthlyChartBuckets.map((bucket) => bucket.label),
+      datasets: [
+        {
+          label: 'Items Sold',
+          data: values,
+          backgroundColor: 'rgba(195, 255, 140, 0.5)',
+          borderColor: 'rgba(195, 255, 140, 0.85)',
+          borderWidth: 1,
+          borderRadius: 6
+        }
+      ]
+    };
+  }, [stockRowsForSalesData, isDateInSalesRange, monthlyChartBuckets]);
+
   return (
     <div className="reporting-container">
 
@@ -939,21 +1258,21 @@ const Reporting: React.FC = () => {
       {/* Toggle for Global/Monthly view */}
       <div className="view-toggle-container">
         <button
-          className={`view-toggle-button ${viewMode === 'global' ? 'active' : ''}`}
-          onClick={() => setViewMode('global')}
+          className={`view-toggle-button ${viewMode === 'sales-data' ? 'active' : ''}`}
+          onClick={() => setViewMode('sales-data')}
         >
-          Global
+          Sales Data
         </button>
         <button
-          className={`view-toggle-button ${viewMode === 'monthly' ? 'active' : ''}`}
-          onClick={() => setViewMode('monthly')}
+          className={`view-toggle-button ${viewMode === 'stock-analysis' ? 'active' : ''}`}
+          onClick={() => setViewMode('stock-analysis')}
         >
-          Monthly
+          Stock Analysis
         </button>
       </div>
 
-      {/* Global View */}
-      <div className={`view-content ${viewMode === 'global' ? 'active' : ''}`}>
+      {/* Sales Data View */}
+      <div className={`view-content ${viewMode === 'sales-data' ? 'active' : ''}`}>
         {!loading && !error && (
           <>
           {/* Row 1: Total Company Profit, Total Sales, Unsold Inventory Value, Current Sales */}
@@ -1261,14 +1580,126 @@ const Reporting: React.FC = () => {
             </div>
           </div>
 
+          {monthlyLoading ? (
+            <div className="reporting-status">Loading monthly data...</div>
+          ) : (
+            <>
+              <div className="monthly-platform-row">
+                <div className="platform-logo-cell">
+                  <div className="platform-logo-tooltip">
+                    <img src="/images/vinted-icon.svg" alt="Vinted" className="platform-logo" />
+                    <span className="platform-icon-tooltip-text">Vinted monthly summary</span>
+                  </div>
+                </div>
+                <div className="platform-stat-cell">
+                  <div className="platform-stat-label">Stock Cost</div>
+                  <div className="platform-stat-value negative">
+                    {formatCurrency(vintedData.purchases)}
+                  </div>
+                </div>
+                <div className="platform-stat-cell">
+                  <div className="platform-stat-label">Total Sales</div>
+                  <div className="platform-stat-value positive">
+                    {formatCurrency(vintedData.sales)}
+                  </div>
+                </div>
+                <div className="platform-stat-cell">
+                  <div className="platform-stat-label">Profit</div>
+                  <div className={`platform-stat-value ${vintedData.profit >= 0 ? 'positive' : 'negative'}`}>
+                    {formatCurrency(vintedData.profit)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="monthly-platform-row">
+                <div className="platform-logo-cell">
+                  <div className="platform-logo-tooltip">
+                    <img src="/images/ebay-icon.svg" alt="eBay" className="platform-logo" />
+                    <span className="platform-icon-tooltip-text">eBay monthly summary</span>
+                  </div>
+                </div>
+                <div className="platform-stat-cell">
+                  <div className="platform-stat-label">Stock Cost</div>
+                  <div className="platform-stat-value negative">
+                    {formatCurrency(ebayData.purchases)}
+                  </div>
+                </div>
+                <div className="platform-stat-cell">
+                  <div className="platform-stat-label">Total Sales</div>
+                  <div className="platform-stat-value positive">
+                    {formatCurrency(ebayData.sales)}
+                  </div>
+                </div>
+                <div className="platform-stat-cell">
+                  <div className="platform-stat-label">Profit</div>
+                  <div className={`platform-stat-value ${ebayData.profit >= 0 ? 'positive' : 'negative'}`}>
+                    {formatCurrency(ebayData.profit)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="monthly-platform-row">
+                <div className="platform-logo-cell">
+                  <div className="platform-logo-tooltip">
+                    <img src="/images/to-list-icon.svg" alt="To List" className="platform-logo" />
+                    <span className="platform-icon-tooltip-text">Unsold stock and cash flow summary</span>
+                  </div>
+                </div>
+                <div className="platform-stat-cell">
+                  <div className="platform-stat-label">Stock Cost</div>
+                  <div className="platform-stat-value negative">
+                    {formatCurrency(unsoldPurchases)}
+                  </div>
+                </div>
+                <div className="platform-stat-cell" />
+                <div className="platform-stat-cell">
+                  <div className="platform-stat-label">Cash Flow Profit</div>
+                  <div className={`platform-stat-value ${cashFlowProfit >= 0 ? 'positive' : 'negative'}`}>
+                    {formatCurrency(cashFlowProfit)}
+                  </div>
+                </div>
+              </div>
+
+              {untaggedItems.length > 0 && (
+                <div className="untagged-items-section">
+                  <h3 className="untagged-items-heading">Items Not Tagged Correctly</h3>
+                  <div className="untagged-items-list">
+                    {untaggedItems.map((item) => (
+                      <div key={item.id} className="untagged-item-card">
+                        <div className="untagged-item-name">{item.item_name || 'Unnamed Item'}</div>
+                        <div className="untagged-item-details">
+                          <span>Category: {item.category || 'Uncategorized'}</span>
+                          {item.sale_date && (
+                            <span>Sold: {new Date(item.sale_date).toLocaleDateString()}</span>
+                          )}
+                          {item.sale_price && (
+                            <span>Sale Price: {formatCurrency(item.sale_price)}</span>
+                          )}
+                          {item.sold_platform ? (
+                            <span>Platform: {item.sold_platform}</span>
+                          ) : (
+                            <span className="untagged-warning">No platform tagged</span>
+                          )}
+                          {(!item.vinted_id && !item.ebay_id) && (
+                            <span className="untagged-warning">Not listed on any platform</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
           <div className="reporting-grid">
           <section className="reporting-card">
             <div className="card-header">
               <h2>Month-on-Month Profit</h2>
             </div>
-            {timelineChartData ? (
+            {salesTimelineChartData ? (
               <div className="chart-wrapper">
-                <Bar data={timelineChartData} options={chartOptions} />
+                <Bar data={salesTimelineChartData} options={chartOptions} />
               </div>
             ) : (
               <div className="reporting-empty">No profit data available yet.</div>
@@ -1279,9 +1710,9 @@ const Reporting: React.FC = () => {
             <div className="card-header">
               <h2>Sales by Month</h2>
             </div>
-            {monthlySalesData.hasData ? (
+            {salesMonthlySalesData.hasData ? (
               <div className="chart-wrapper">
-                <Bar data={monthlySalesData.data} options={chartOptions} />
+                <Bar data={salesMonthlySalesData.data} options={chartOptions} />
               </div>
             ) : (
               <div className="reporting-empty">No recorded sales {selectedYear === 'all' ? 'available.' : `for ${selectedYear}.`}</div>
@@ -1293,44 +1724,98 @@ const Reporting: React.FC = () => {
               <h2>Expenses by Month</h2>
             </div>
             <div className="chart-wrapper">
-              <Bar data={monthlyExpensesData} options={chartOptions} />
+              <Bar data={salesMonthlyExpensesData} options={chartOptions} />
             </div>
           </section>
 
           <section className="reporting-card">
             <div className="card-header">
-              <h2>Sales by Category</h2>
+              <h2>Items Listed by Month</h2>
             </div>
-            {salesByCategoryData ? (
-              <div className="chart-wrapper">
-                <Bar data={salesByCategoryData} options={chartOptions} />
-              </div>
-            ) : (
-              <div className="reporting-empty">No sales data available for {selectedYear}.</div>
-            )}
+            <div className="chart-wrapper">
+              <Bar
+                data={salesItemsListedByMonthData}
+                options={{
+                  ...chartOptions,
+                  plugins: {
+                    ...chartOptions.plugins,
+                    tooltip: {
+                      callbacks: {
+                        label(context) {
+                          const value = context.raw as number;
+                          return `${value} item${value !== 1 ? 's' : ''}`;
+                        }
+                      }
+                    }
+                  },
+                  scales: {
+                    ...chartOptions.scales,
+                    y: {
+                      ...chartOptions.scales?.y,
+                      ticks: {
+                        ...chartOptions.scales?.y?.ticks,
+                        callback(value) {
+                          if (typeof value === 'number') {
+                            return value.toString();
+                          }
+                          return value;
+                        }
+                      }
+                    }
+                  }
+                }}
+              />
+            </div>
           </section>
 
           <section className="reporting-card">
             <div className="card-header">
-              <h2>Unsold Stock by Category</h2>
+              <h2>Items Sold by Month</h2>
             </div>
-            {unsoldStockByCategoryData ? (
-              <div className="chart-wrapper">
-                <Bar data={unsoldStockByCategoryData} options={chartOptions} />
-              </div>
-            ) : (
-              <div className="reporting-empty">No unsold stock data available {selectedYear === 'all' ? '.' : `for ${selectedYear}.`}</div>
-            )}
+            <div className="chart-wrapper">
+              <Bar
+                data={salesItemsSoldByMonthData}
+                options={{
+                  ...chartOptions,
+                  plugins: {
+                    ...chartOptions.plugins,
+                    tooltip: {
+                      callbacks: {
+                        label(context) {
+                          const value = context.raw as number;
+                          return `${value} item${value !== 1 ? 's' : ''}`;
+                        }
+                      }
+                    }
+                  },
+                  scales: {
+                    ...chartOptions.scales,
+                    y: {
+                      ...chartOptions.scales?.y,
+                      ticks: {
+                        ...chartOptions.scales?.y?.ticks,
+                        callback(value) {
+                          if (typeof value === 'number') {
+                            return value.toString();
+                          }
+                          return value;
+                        }
+                      }
+                    }
+                  }
+                }}
+              />
+            </div>
           </section>
 
           <section className="reporting-card">
             <div className="card-header">
               <h2>Average Selling Price by Month</h2>
             </div>
-            {monthlyAverageSellingPrice.length > 0 ? (
+            {salesMonthlyAverageSellingPriceData.datasets[0].data.some((value) => value !== 0) ? (
               <div className="chart-wrapper">
                 <Bar 
-                  data={monthlyAverageSellingPriceData} 
+                  data={salesMonthlyAverageSellingPriceData} 
                   options={{
                     ...chartOptions,
                     scales: {
@@ -1356,10 +1841,10 @@ const Reporting: React.FC = () => {
             <div className="card-header">
               <h2>Average Profit per Item by Month</h2>
             </div>
-            {monthlyAverageProfitPerItem.length > 0 ? (
+            {salesMonthlyAverageProfitPerItemData.datasets[0].data.some((value) => value !== 0) ? (
               <div className="chart-wrapper">
                 <Bar 
-                  data={monthlyAverageProfitPerItemData} 
+                  data={salesMonthlyAverageProfitPerItemData} 
                   options={{
                     ...chartOptions,
                     scales: {
@@ -1387,7 +1872,7 @@ const Reporting: React.FC = () => {
             </div>
             <div className="chart-wrapper">
               <Bar 
-                data={monthlyAverageProfitMultipleData} 
+                data={salesMonthlyAverageProfitMultipleData} 
                 options={{
                   ...chartOptions,
                   plugins: {
@@ -1420,19 +1905,40 @@ const Reporting: React.FC = () => {
           </section>
           </div>
 
-          {/* Trailing Inventory Chart */}
-          <section className="reporting-card" style={{ marginTop: '24px' }}>
+          </>
+        )}
+      </div>
+
+      {/* Stock Analysis View */}
+      <div className={`view-content ${viewMode === 'stock-analysis' ? 'active' : ''}`}>
+        <div className="stock-analysis-filter-row">
+          <div className="stock-analysis-filter-card">
+            <select
+              className="stock-analysis-filter-select"
+              value={salesDateFilter}
+              onChange={(event) => setSalesDateFilter(event.target.value as 'all-time' | 'last-30-days' | 'last-3-months' | 'current-year' | 'previous-year')}
+            >
+              <option value="all-time">All Time</option>
+              <option value="last-30-days">Last 30 Days</option>
+              <option value="last-3-months">Last 3 Months</option>
+              <option value="current-year">Current Year ({now.getFullYear()})</option>
+              {previousDataYear !== null && (
+                <option value="previous-year">Previous Year ({previousDataYear})</option>
+              )}
+            </select>
+          </div>
+        </div>
+        <div className="reporting-grid">
+          <section className="reporting-card">
             <div className="card-header">
-              <h2>Inventory Value (Trailing 12 Months)</h2>
+              <h2>Sales by Category</h2>
             </div>
-            {trailingInventoryLoading ? (
-              <div className="reporting-status">Loading trailing inventory data...</div>
-            ) : trailingInventoryChartData ? (
+            {salesByCategoryData ? (
               <div className="chart-wrapper">
-                <Line data={trailingInventoryChartData} options={lineChartOptions} />
+                <Bar data={salesByCategoryData} options={chartOptions} />
               </div>
             ) : (
-              <div className="reporting-empty">No trailing inventory data available.</div>
+              <div className="reporting-empty">No sales data available for {selectedYear}.</div>
             )}
           </section>
 
@@ -1451,45 +1957,66 @@ const Reporting: React.FC = () => {
 
           <section className="reporting-card">
             <div className="card-header">
-              <h2>Largest Inventory Count By Brand</h2>
+              <h2>Best Selling Brands by Trousers</h2>
             </div>
-            {worstSellingBrandsData ? (
+            {trousersBrandSalesData ? (
               <div className="chart-wrapper">
-                <Bar 
-                  data={worstSellingBrandsData} 
-                  options={{
-                    ...chartOptions,
-                    plugins: {
-                      ...chartOptions.plugins,
-                      tooltip: {
-                        callbacks: {
-                          label(context) {
-                            const value = context.raw as number;
-                            return `${value} unsold item${value !== 1 ? 's' : ''}`;
-                          },
-                        },
-                      },
-                    },
-                    scales: {
-                      ...chartOptions.scales,
-                      y: {
-                        ...chartOptions.scales?.y,
-                        ticks: {
-                          ...chartOptions.scales?.y?.ticks,
-                          callback(value) {
-                            if (typeof value === 'number') {
-                              return value.toString();
-                            }
-                            return value;
-                          },
-                        },
-                      },
-                    },
-                  }} 
-                />
+                <Bar data={trousersBrandSalesData} options={chartOptions} />
               </div>
             ) : (
-              <div className="reporting-empty">No unsold items data available.</div>
+              <div className="reporting-empty">No trousers brand sales data available.</div>
+            )}
+          </section>
+
+          <section className="reporting-card">
+            <div className="card-header">
+              <h2>Best Selling Brands by Shirt</h2>
+            </div>
+            {shirtBrandSalesData ? (
+              <div className="chart-wrapper">
+                <Bar data={shirtBrandSalesData} options={chartOptions} />
+              </div>
+            ) : (
+              <div className="reporting-empty">No shirt brand sales data available.</div>
+            )}
+          </section>
+
+          <section className="reporting-card">
+            <div className="card-header">
+              <h2>Best Selling Brands by Top</h2>
+            </div>
+            {topBrandSalesData ? (
+              <div className="chart-wrapper">
+                <Bar data={topBrandSalesData} options={chartOptions} />
+              </div>
+            ) : (
+              <div className="reporting-empty">No top brand sales data available.</div>
+            )}
+          </section>
+
+          <section className="reporting-card">
+            <div className="card-header">
+              <h2>Best Selling Brands by Coat</h2>
+            </div>
+            {coatBrandSalesData ? (
+              <div className="chart-wrapper">
+                <Bar data={coatBrandSalesData} options={chartOptions} />
+              </div>
+            ) : (
+              <div className="reporting-empty">No coat brand sales data available.</div>
+            )}
+          </section>
+
+          <section className="reporting-card">
+            <div className="card-header">
+              <h2>Best Selling Brands by Jacket</h2>
+            </div>
+            {jacketBrandSalesData ? (
+              <div className="chart-wrapper">
+                <Bar data={jacketBrandSalesData} options={chartOptions} />
+              </div>
+            ) : (
+              <div className="reporting-empty">No jacket brand sales data available.</div>
             )}
           </section>
 
@@ -1582,152 +2109,84 @@ const Reporting: React.FC = () => {
               <div className="reporting-empty">No sell-through brand data available.</div>
             )}
           </section>
-          </>
-        )}
-      </div>
 
-      {/* Monthly View */}
-      <div className={`view-content ${viewMode === 'monthly' ? 'active' : ''}`}>
-        {monthlyLoading && <div className="reporting-status">Loading monthly data...</div>}
-        {!monthlyLoading && (
-          <>
-            {/* Month and Year Filters */}
-            <div className="monthly-filters">
-              <div className="monthly-filter-group">
-                <label className="monthly-filter-label">Year</label>
-                <select
-                  value={monthlyViewYear}
-                  onChange={(e) => setMonthlyViewYear(Number(e.target.value))}
-                  className="monthly-filter-select"
-                >
-                  {availableYears.length === 0 && <option value={monthlyViewYear}>{monthlyViewYear}</option>}
-                  {availableYears.map((year) => (
-                    <option key={year} value={year}>
-                      {year}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="monthly-filter-group">
-                <label className="monthly-filter-label">Month</label>
-                <select
-                  value={monthlyViewMonth}
-                  onChange={(e) => setMonthlyViewMonth(Number(e.target.value))}
-                  className="monthly-filter-select"
-                >
-                  {monthLabels.map((label, index) => (
-                    <option key={index + 1} value={index + 1}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+          <div className="card-header">
+            <h2>Inventory Data</h2>
+          </div>
+
+          <section className="reporting-card">
+            <div className="card-header">
+              <h2>Inventory Value (Trailing 12 Months)</h2>
             </div>
-
-            {/* Vinted Row */}
-            <div className="monthly-platform-row">
-              <div className="platform-logo-cell">
-                <img src="/images/vinted-icon.svg" alt="Vinted" className="platform-logo" />
+            {trailingInventoryLoading ? (
+              <div className="reporting-status">Loading trailing inventory data...</div>
+            ) : trailingInventoryChartData ? (
+              <div className="chart-wrapper">
+                <Line data={trailingInventoryChartData} options={lineChartOptions} />
               </div>
-              <div className="platform-stat-cell">
-                <div className="platform-stat-label">Stock Cost</div>
-                <div className="platform-stat-value negative">
-                  {formatCurrency(vintedData.purchases)}
-                </div>
-              </div>
-              <div className="platform-stat-cell">
-                <div className="platform-stat-label">Total Sales</div>
-                <div className="platform-stat-value positive">
-                  {formatCurrency(vintedData.sales)}
-                </div>
-              </div>
-              <div className="platform-stat-cell">
-                <div className="platform-stat-label">Profit</div>
-                <div className={`platform-stat-value ${vintedData.profit >= 0 ? 'positive' : 'negative'}`}>
-                  {formatCurrency(vintedData.profit)}
-                </div>
-              </div>
-            </div>
-
-            {/* eBay Row */}
-            <div className="monthly-platform-row">
-              <div className="platform-logo-cell">
-                <img src="/images/ebay-icon.svg" alt="eBay" className="platform-logo" />
-              </div>
-              <div className="platform-stat-cell">
-                <div className="platform-stat-label">Stock Cost</div>
-                <div className="platform-stat-value negative">
-                  {formatCurrency(ebayData.purchases)}
-                </div>
-              </div>
-              <div className="platform-stat-cell">
-                <div className="platform-stat-label">Total Sales</div>
-                <div className="platform-stat-value positive">
-                  {formatCurrency(ebayData.sales)}
-                </div>
-              </div>
-              <div className="platform-stat-cell">
-                <div className="platform-stat-label">Profit</div>
-                <div className={`platform-stat-value ${ebayData.profit >= 0 ? 'positive' : 'negative'}`}>
-                  {formatCurrency(ebayData.profit)}
-                </div>
-              </div>
-            </div>
-
-            {/* Unsold Purchases Row */}
-            <div className="monthly-platform-row">
-              <div className="platform-logo-cell">
-                <img src="/images/to-list-icon.svg" alt="To List" className="platform-logo" />
-              </div>
-              <div className="platform-stat-cell">
-                <div className="platform-stat-label">Stock Cost</div>
-                <div className="platform-stat-value negative">
-                  {formatCurrency(unsoldPurchases)}
-                </div>
-              </div>
-              <div className="platform-stat-cell">
-                {/* Empty column */}
-              </div>
-              <div className="platform-stat-cell">
-                <div className="platform-stat-label">Cash Flow Profit</div>
-                <div className={`platform-stat-value ${cashFlowProfit >= 0 ? 'positive' : 'negative'}`}>
-                  {formatCurrency(cashFlowProfit)}
-                </div>
-              </div>
-            </div>
-
-            {/* Items Not Tagged Correctly */}
-            {untaggedItems.length > 0 && (
-              <div className="untagged-items-section">
-                <h3 className="untagged-items-heading">Items Not Tagged Correctly</h3>
-                <div className="untagged-items-list">
-                  {untaggedItems.map((item) => (
-                    <div key={item.id} className="untagged-item-card">
-                      <div className="untagged-item-name">{item.item_name || 'Unnamed Item'}</div>
-                      <div className="untagged-item-details">
-                        <span>Category: {item.category || 'Uncategorized'}</span>
-                        {item.sale_date && (
-                          <span>Sold: {new Date(item.sale_date).toLocaleDateString()}</span>
-                        )}
-                        {item.sale_price && (
-                          <span>Sale Price: {formatCurrency(item.sale_price)}</span>
-                        )}
-                        {item.sold_platform ? (
-                          <span>Platform: {item.sold_platform}</span>
-                        ) : (
-                          <span className="untagged-warning">No platform tagged</span>
-                        )}
-                        {(!item.vinted_id && !item.ebay_id) && (
-                          <span className="untagged-warning">Not listed on any platform</span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+            ) : (
+              <div className="reporting-empty">No trailing inventory data available.</div>
             )}
-          </>
-        )}
+          </section>
+
+          <section className="reporting-card">
+            <div className="card-header">
+              <h2>Unsold Stock by Category</h2>
+            </div>
+            {unsoldStockByCategoryData ? (
+              <div className="chart-wrapper">
+                <Bar data={unsoldStockByCategoryData} options={chartOptions} />
+              </div>
+            ) : (
+              <div className="reporting-empty">No unsold stock data available {selectedYear === 'all' ? '.' : `for ${selectedYear}.`}</div>
+            )}
+          </section>
+
+          <section className="reporting-card">
+            <div className="card-header">
+              <h2>Largest Inventory Count By Brand</h2>
+            </div>
+            {worstSellingBrandsData ? (
+              <div className="chart-wrapper">
+                <Bar 
+                  data={worstSellingBrandsData} 
+                  options={{
+                    ...chartOptions,
+                    plugins: {
+                      ...chartOptions.plugins,
+                      tooltip: {
+                        callbacks: {
+                          label(context) {
+                            const value = context.raw as number;
+                            return `${value} unsold item${value !== 1 ? 's' : ''}`;
+                          }
+                        }
+                      }
+                    },
+                    scales: {
+                      ...chartOptions.scales,
+                      y: {
+                        ...chartOptions.scales?.y,
+                        ticks: {
+                          ...chartOptions.scales?.y?.ticks,
+                          callback(value) {
+                            if (typeof value === 'number') {
+                              return value.toString();
+                            }
+                            return value;
+                          }
+                        }
+                      }
+                    }
+                  }} 
+                />
+              </div>
+            ) : (
+              <div className="reporting-empty">No unsold items data available.</div>
+            )}
+          </section>
+
+        </div>
       </div>
     </div>
   );

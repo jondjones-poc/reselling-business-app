@@ -2069,6 +2069,77 @@ app.get('/api/analytics/reporting', async (req, res) => {
       totalSales: Number(row.total_sales)
     }));
 
+    const categoryBrandSalesQuery = effectiveYear === null ? `
+        WITH ranked AS (
+          SELECT
+            s.category_id,
+            b.brand_name AS brand,
+            SUM(COALESCE(s.sale_price, 0))::numeric AS total_sales,
+            ROW_NUMBER() OVER (
+              PARTITION BY s.category_id
+              ORDER BY SUM(COALESCE(s.sale_price, 0)) DESC
+            ) AS rn
+          FROM stock s
+          INNER JOIN brand b ON s.brand_id = b.id
+          WHERE s.sale_date IS NOT NULL
+            AND s.brand_id IS NOT NULL
+            AND s.category_id IN (11, 25, 29, 5, 27)
+          AND LOWER(TRIM(COALESCE(b.brand_name, ''))) <> 'misc'
+          GROUP BY s.category_id, b.brand_name
+        )
+        SELECT category_id, brand, total_sales
+        FROM ranked
+        WHERE rn <= 15
+        ORDER BY category_id, total_sales DESC
+      ` : `
+        WITH ranked AS (
+          SELECT
+            s.category_id,
+            b.brand_name AS brand,
+            SUM(COALESCE(s.sale_price, 0))::numeric AS total_sales,
+            ROW_NUMBER() OVER (
+              PARTITION BY s.category_id
+              ORDER BY SUM(COALESCE(s.sale_price, 0)) DESC
+            ) AS rn
+          FROM stock s
+          INNER JOIN brand b ON s.brand_id = b.id
+          WHERE s.sale_date IS NOT NULL
+            AND s.brand_id IS NOT NULL
+            AND s.category_id IN (11, 25, 29, 5, 27)
+          AND LOWER(TRIM(COALESCE(b.brand_name, ''))) <> 'misc'
+            AND EXTRACT(YEAR FROM s.sale_date)::int = $1
+          GROUP BY s.category_id, b.brand_name
+        )
+        SELECT category_id, brand, total_sales
+        FROM ranked
+        WHERE rn <= 15
+        ORDER BY category_id, total_sales DESC
+      `;
+    const categoryBrandSalesResult = await pool.query(
+      categoryBrandSalesQuery,
+      effectiveYear === null ? [] : [effectiveYear]
+    );
+
+    const bestSellingBrandsByCategory = {
+      trousers: [],
+      shirt: [],
+      top: [],
+      coat: [],
+      jacket: []
+    };
+
+    categoryBrandSalesResult.rows.forEach((row) => {
+      const entry = {
+        brand: row.brand,
+        totalSales: Number(row.total_sales)
+      };
+      if (Number(row.category_id) === 11) bestSellingBrandsByCategory.trousers.push(entry);
+      if (Number(row.category_id) === 25) bestSellingBrandsByCategory.shirt.push(entry);
+      if (Number(row.category_id) === 29) bestSellingBrandsByCategory.top.push(entry);
+      if (Number(row.category_id) === 5) bestSellingBrandsByCategory.coat.push(entry);
+      if (Number(row.category_id) === 27) bestSellingBrandsByCategory.jacket.push(entry);
+    });
+
     // Worst Selling Brands query (unsold items by brand)
     // For unsold items, we show all unsold items regardless of purchase year
     // since they're all currently unsold. Year filter doesn't apply here.
@@ -2547,6 +2618,7 @@ app.get('/api/analytics/reporting', async (req, res) => {
       salesByCategory,
       unsoldStockByCategory,
       salesByBrand,
+      bestSellingBrandsByCategory,
       worstSellingBrands,
       bestSellThroughBrands,
       worstSellThroughBrands,
