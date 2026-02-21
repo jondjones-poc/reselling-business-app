@@ -151,6 +151,8 @@
   border-radius: 16px;
   padding: 20px;
   transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
 }
 
 .config-grid-item:hover {
@@ -195,6 +197,36 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex: 1;
+}
+
+.config-grid-item-footer {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 214, 91, 0.18);
+}
+
+.config-grid-autotag-button {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 214, 91, 0.35);
+  background: rgba(255, 214, 91, 0.15);
+  color: var(--neon-primary-strong);
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.config-grid-autotag-button:hover:not(:disabled) {
+  background: rgba(255, 214, 91, 0.25);
+  border-color: rgba(255, 214, 91, 0.55);
+}
+
+.config-grid-autotag-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .config-grid-field {

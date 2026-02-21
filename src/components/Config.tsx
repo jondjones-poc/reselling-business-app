@@ -26,6 +26,8 @@ interface StockApiResponse {
   count: number;
 }
 
+const MISC_BRAND_ID = 39;
+
 const formatCurrency = (value: Nullable<string | number>) => {
   if (value === null || value === undefined || value === '') {
     return '—';
@@ -67,6 +69,8 @@ const Config: React.FC = () => {
   const [rows, setRows] = useState<StockRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [autoTaggingId, setAutoTaggingId] = useState<number | null>(null);
+  const [autoTaggedHiddenIds, setAutoTaggedHiddenIds] = useState<Set<number>>(new Set());
 
   const loadStock = async () => {
     try {
@@ -112,7 +116,9 @@ const Config: React.FC = () => {
   // Filter rows based on active menu
   const filteredRows = useMemo(() => {
     if (activeMenu === 'untagged-brand') {
-      return rows.filter(row => row.brand_id === null || row.brand_id === undefined);
+      return rows.filter(
+        (row) => (row.brand_id === null || row.brand_id === undefined) && !autoTaggedHiddenIds.has(Number(row.id))
+      );
     }
     if (activeMenu === 'no-ebay-id') {
       return rows.filter(row => !row.ebay_id || row.ebay_id.trim() === '');
@@ -121,10 +127,49 @@ const Config: React.FC = () => {
       return rows.filter(row => !row.vinted_id || row.vinted_id.trim() === '');
     }
     return [];
-  }, [rows, activeMenu]);
+  }, [rows, activeMenu, autoTaggedHiddenIds]);
 
   const handleEditItem = (row: StockRow) => {
     window.open(`/stock?editId=${row.id}`, '_blank');
+  };
+
+  const handleAutoTag = async (row: StockRow) => {
+    try {
+      setAutoTaggingId(row.id);
+      setError(null);
+
+      const updateResponse = await fetch(`${API_BASE}/api/stock/${row.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          brand_id: MISC_BRAND_ID
+        }),
+      });
+
+      if (!updateResponse.ok) {
+        const message = await updateResponse.text();
+        throw new Error(message || 'Failed to auto-tag item');
+      }
+
+      const normalizedId = Number(row.id);
+      setAutoTaggedHiddenIds((prev) => {
+        const next = new Set(prev);
+        next.add(normalizedId);
+        return next;
+      });
+
+      // Remove immediately for responsive UX, then refresh from server.
+      setRows((prevRows) => prevRows.filter((item) => Number(item.id) !== normalizedId));
+
+      await loadStock();
+    } catch (err: any) {
+      console.error('AutoTag error:', err);
+      setError(err?.message || 'Unable to auto-tag item');
+    } finally {
+      setAutoTaggingId(null);
+    }
   };
 
   return (
@@ -211,6 +256,16 @@ const Config: React.FC = () => {
                             <span className="config-grid-value">{formatDate(row.purchase_date)}</span>
                           </div>
                         )}
+                      </div>
+                      <div className="config-grid-item-footer">
+                        <button
+                          type="button"
+                          className="config-grid-autotag-button"
+                          onClick={() => handleAutoTag(row)}
+                          disabled={autoTaggingId === row.id}
+                        >
+                          {autoTaggingId === row.id ? 'AutoTagging...' : 'AutoTag'}
+                        </button>
                       </div>
                     </div>
                   ))}
