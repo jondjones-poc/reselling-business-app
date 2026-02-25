@@ -1658,7 +1658,6 @@ const Stock: React.FC = () => {
                       // eBay profit without promotion
                       const ebayProfitWithoutPromo = sale - (item + listingFees);
                       const ebayProfitWithoutPromoDisplay = ebayProfitWithoutPromo >= 0 ? `£${ebayProfitWithoutPromo.toFixed(2)}` : `-£${Math.abs(ebayProfitWithoutPromo).toFixed(2)}`;
-                      const isEbayBuyWithoutPromo = item > 0 && ebayProfitWithoutPromo >= (item * 2);
                       
                       // eBay profit with promotion
                       const totalCosts = item + listingFees + promotedFee;
@@ -2330,7 +2329,6 @@ const Stock: React.FC = () => {
                         // eBay profit without promotion
                         const ebayProfitWithoutPromo = sale - (item + listingFees);
                         const ebayProfitWithoutPromoDisplay = ebayProfitWithoutPromo >= 0 ? `£${ebayProfitWithoutPromo.toFixed(2)}` : `-£${Math.abs(ebayProfitWithoutPromo).toFixed(2)}`;
-                        const isEbayBuyWithoutPromo = item > 0 && ebayProfitWithoutPromo >= (item * 2);
                         
                         // eBay profit with promotion
                         const totalCosts = item + listingFees + promotedFee;
