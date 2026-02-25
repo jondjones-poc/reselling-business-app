@@ -1046,7 +1046,7 @@ app.get('/api/stock', async (req, res) => {
     }
 
     const result = await pool.query(
-      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id FROM stock ORDER BY purchase_date DESC NULLS LAST, item_name ASC'
+      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, projected_sale_price FROM stock ORDER BY purchase_date DESC NULLS LAST, item_name ASC'
     );
 
     res.json({
@@ -1079,7 +1079,8 @@ app.post('/api/stock', async (req, res) => {
       vinted_id,
       ebay_id,
       depop_id,
-      brand_id
+      brand_id,
+      projected_sale_price
     } = req.body ?? {};
 
     const normalizedItemName = normalizeTextInput(item_name) ?? null;
@@ -1099,6 +1100,7 @@ app.post('/api/stock', async (req, res) => {
     const normalizedEbayId = ebay_id === null || ebay_id === undefined || ebay_id === '' ? null : String(ebay_id).trim();
     const normalizedDepopId = depop_id === null || depop_id === undefined || depop_id === '' ? null : String(depop_id).trim();
     const normalizedBrandId = brand_id === null || brand_id === undefined || brand_id === '' ? null : Number(brand_id);
+    const normalizedProjectedSalePrice = normalizeDecimalInput(projected_sale_price, 'projected_sale_price');
 
     const insertQuery = `
       INSERT INTO stock (
@@ -1113,10 +1115,11 @@ app.post('/api/stock', async (req, res) => {
         vinted_id,
         ebay_id,
         depop_id,
-        brand_id
+        brand_id,
+        projected_sale_price
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-      RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, projected_sale_price
     `;
 
     const result = await pool.query(insertQuery, [
@@ -1131,7 +1134,8 @@ app.post('/api/stock', async (req, res) => {
       normalizedVintedId,
       normalizedEbayId,
       normalizedDepopId,
-      normalizedBrandId
+      normalizedBrandId,
+      normalizedProjectedSalePrice
     ]);
 
     res.status(201).json({ row: result.rows[0] });
@@ -1160,7 +1164,7 @@ app.put('/api/stock/:id', async (req, res) => {
     console.log('PUT /api/stock/:id - Request body:', JSON.stringify(req.body, null, 2));
 
     const existingResult = await pool.query(
-      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, vinted_id, ebay_id, depop_id, brand_id, category_id FROM stock WHERE id = $1',
+      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, vinted_id, ebay_id, depop_id, brand_id, category_id, projected_sale_price FROM stock WHERE id = $1',
       [stockId]
     );
 
@@ -1237,6 +1241,15 @@ app.put('/api/stock/:id', async (req, res) => {
       ? (req.body.brand_id === null || req.body.brand_id === undefined || req.body.brand_id === '' ? null : Number(req.body.brand_id))
       : existingBrandId;
 
+    const existingProjectedSalePrice =
+      existing.projected_sale_price !== null && existing.projected_sale_price !== undefined
+        ? Number(existing.projected_sale_price)
+        : null;
+
+    const finalProjectedSalePrice = hasProp('projected_sale_price')
+      ? normalizeDecimalInput(req.body.projected_sale_price, 'projected_sale_price')
+      : existingProjectedSalePrice;
+
     const computedNetProfit =
       finalSalePrice !== null && finalPurchasePrice !== null
         ? finalSalePrice - finalPurchasePrice
@@ -1267,9 +1280,10 @@ app.put('/api/stock/:id', async (req, res) => {
           vinted_id = $9,
           ebay_id = $10,
           depop_id = $11,
-          brand_id = $12
-        WHERE id = $13
-        RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id
+          brand_id = $12,
+          projected_sale_price = $13
+        WHERE id = $14
+        RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, projected_sale_price
       `,
       [
         finalItemName,
@@ -1284,6 +1298,7 @@ app.put('/api/stock/:id', async (req, res) => {
         finalEbayId,
         finalDepopId,
         finalBrandId,
+        finalProjectedSalePrice,
         stockId
       ]
     );
@@ -1337,6 +1352,115 @@ app.delete('/api/stock/:id', async (req, res) => {
 });
 
 // Brand API endpoints
+// Debug endpoint - MUST be before /api/brands to avoid route conflict
+app.get('/api/brands-debug', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    // Check current user and permissions
+    const userCheck = await pool.query('SELECT current_user, current_database(), session_user');
+    
+    // Get all actual column names
+    const columnQuery = await pool.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_schema = 'public' 
+      AND table_name = 'brand'
+      ORDER BY ordinal_position
+    `);
+    
+    const actualColumns = columnQuery.rows.map(r => r.column_name);
+
+    // Check table privileges
+    const privileges = await pool.query(`
+      SELECT grantee, privilege_type
+      FROM information_schema.table_privileges 
+      WHERE table_schema = 'public' 
+      AND table_name = 'brand'
+      AND grantee = current_user
+    `);
+
+    // Query with all columns
+    const columnList = actualColumns.join(', ');
+    const result = await pool.query(
+      `SELECT ${columnList} FROM public.brand ORDER BY brand_name ASC LIMIT 1`
+    );
+
+    // Test explicit column query
+    const explicitResult = await pool.query(
+      'SELECT id, brand_name, created_at, updated_at, brand_website FROM public.brand LIMIT 1'
+    );
+
+    // Check column privileges
+    const columnPrivileges = await pool.query(`
+      SELECT column_name, privilege_type
+      FROM information_schema.column_privileges 
+      WHERE table_schema = 'public' 
+      AND table_name = 'brand'
+      AND grantee = current_user
+    `);
+
+    // Check RLS status
+    const rlsCheck = await pool.query(`
+      SELECT rowsecurity as rls_enabled
+      FROM pg_tables 
+      WHERE schemaname = 'public' 
+      AND tablename = 'brand'
+    `);
+
+    // Test if columns have data
+    const dataCheck = await pool.query(`
+      SELECT 
+        COUNT(*) as total_rows,
+        COUNT(created_at) as rows_with_created_at,
+        COUNT(updated_at) as rows_with_updated_at,
+        COUNT(brand_website) as rows_with_website
+      FROM public.brand
+    `);
+
+    // Get raw row object inspection
+    const rawRowInspection = result.rows.length > 0 ? {
+      keys: Object.keys(result.rows[0]),
+      hasOwnProperty_created_at: result.rows[0].hasOwnProperty('created_at'),
+      hasOwnProperty_updated_at: result.rows[0].hasOwnProperty('updated_at'),
+      hasOwnProperty_brand_website: result.rows[0].hasOwnProperty('brand_website'),
+      hasCreatedAt: 'created_at' in result.rows[0],
+      hasUpdatedAt: 'updated_at' in result.rows[0],
+      hasBrandWebsite: 'brand_website' in result.rows[0],
+      created_at_value: result.rows[0].created_at,
+      updated_at_value: result.rows[0].updated_at,
+      brand_website_value: result.rows[0].brand_website,
+      created_at_type: typeof result.rows[0].created_at,
+      updated_at_type: typeof result.rows[0].updated_at,
+      brand_website_type: typeof result.rows[0].brand_website,
+      fullObject: result.rows[0]
+    } : null;
+
+    const diagnostic = {
+      currentUser: userCheck.rows[0],
+      actualColumns: actualColumns,
+      tablePrivileges: privileges.rows,
+      columnPrivileges: columnPrivileges.rows,
+      rlsEnabled: rlsCheck.rows[0]?.rls_enabled || false,
+      dataCheck: dataCheck.rows[0],
+      firstRowKeys: result.rows.length > 0 ? Object.keys(result.rows[0]) : [],
+      firstRow: result.rows.length > 0 ? result.rows[0] : null,
+      rawRowInspection: rawRowInspection,
+      explicitQueryKeys: explicitResult.rows.length > 0 ? Object.keys(explicitResult.rows[0]) : [],
+      explicitQueryRow: explicitResult.rows.length > 0 ? explicitResult.rows[0] : null
+    };
+
+    res.json(diagnostic);
+  } catch (error) {
+    res.status(500).json({ error: 'Debug query failed', details: error.message });
+  }
+});
+
+// Main brands endpoint - MUST be before /api/brands/:id route to avoid route conflict
 app.get('/api/brands', async (req, res) => {
   try {
     const pool = getDatabasePool();
@@ -1345,13 +1469,48 @@ app.get('/api/brands', async (req, res) => {
       return res.status(500).json({ error: 'Database connection not configured' });
     }
 
+    // Query all columns explicitly
     const result = await pool.query(
-      'SELECT id, brand_name FROM brand ORDER BY brand_name ASC'
+      'SELECT id, brand_name, created_at, updated_at, brand_website FROM public.brand ORDER BY brand_name ASC'
     );
 
+    // Diagnostic: Check what the database actually returned
+    const diagnostic = {
+      totalRows: result.rows.length,
+      firstRowExists: result.rows.length > 0,
+      firstRowKeys: result.rows.length > 0 ? Object.keys(result.rows[0]) : [],
+      firstRowHasCreatedAt: result.rows.length > 0 ? ('created_at' in result.rows[0]) : false,
+      firstRowHasUpdatedAt: result.rows.length > 0 ? ('updated_at' in result.rows[0]) : false,
+      firstRowHasBrandWebsite: result.rows.length > 0 ? ('brand_website' in result.rows[0]) : false,
+      firstRowCreatedAt: result.rows.length > 0 ? result.rows[0].created_at : null,
+      firstRowUpdatedAt: result.rows.length > 0 ? result.rows[0].updated_at : null,
+      firstRowBrandWebsite: result.rows.length > 0 ? result.rows[0].brand_website : null,
+      firstRowFull: result.rows.length > 0 ? result.rows[0] : null
+    };
+
+    // ALWAYS return all 5 columns - check if property exists in row object
+    const rows = result.rows.map(row => {
+      // Always create object with all 5 properties
+      // Use 'in' operator to check if property exists, not just undefined check
+      return {
+        id: row.id,
+        brand_name: row.brand_name,
+        created_at: ('created_at' in row) ? row.created_at : null,
+        updated_at: ('updated_at' in row) ? row.updated_at : null,
+        brand_website: ('brand_website' in row) ? row.brand_website : null
+      };
+    });
+
+    const firstRowAfterMapping = rows.length > 0 ? rows[0] : null;
+
     res.json({
-      rows: result.rows ?? [],
-      count: result.rowCount ?? 0
+      rows: rows ?? [],
+      count: result.rowCount ?? 0,
+      _diagnostic: {
+        ...diagnostic,
+        mappedRowKeys: firstRowAfterMapping ? Object.keys(firstRowAfterMapping) : [],
+        mappedRow: firstRowAfterMapping
+      }
     });
   } catch (error) {
     console.error('Brands query failed:', error);

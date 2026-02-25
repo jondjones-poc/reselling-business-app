@@ -22,6 +22,7 @@ interface StockRow {
   depop_id: Nullable<string>;
   brand_id: Nullable<number>;
   category_id: Nullable<number>;
+  projected_sale_price: Nullable<string | number>;
 }
 
 interface Brand {
@@ -154,7 +155,8 @@ const Stock: React.FC = () => {
     vinted_id: '',
     ebay_id: '',
     depop_id: '',
-    brand_id: ''
+    brand_id: '',
+    projected_sale_price: ''
   });
   const [brands, setBrands] = useState<Brand[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -314,7 +316,8 @@ const Stock: React.FC = () => {
             vinted_id: rowToEdit.vinted_id ?? '',
             ebay_id: rowToEdit.ebay_id ?? '',
             depop_id: rowToEdit.depop_id ?? '',
-            brand_id: rowToEdit.brand_id ? String(rowToEdit.brand_id) : ''
+            brand_id: rowToEdit.brand_id ? String(rowToEdit.brand_id) : '',
+            projected_sale_price: rowToEdit.projected_sale_price ? String(rowToEdit.projected_sale_price) : ''
           });
           setShowNewEntry(true);
           setSuccessMessage(null);
@@ -1229,6 +1232,14 @@ const Stock: React.FC = () => {
       return;
     }
 
+    // Ensure row has a valid ID before setting editing state
+    if (!row.id) {
+      console.error('startEditingRow: Row has no ID', row);
+      setError('Cannot edit item: missing ID');
+      return;
+    }
+
+    console.log('startEditingRow - Setting editingRowId to:', row.id);
     setEditingRowId(row.id);
     setCreateForm({
       item_name: row.item_name ?? '',
@@ -1241,7 +1252,8 @@ const Stock: React.FC = () => {
       vinted_id: row.vinted_id ?? '',
       ebay_id: row.ebay_id ?? '',
       depop_id: row.depop_id ?? '',
-      brand_id: row.brand_id ? String(row.brand_id) : ''
+      brand_id: row.brand_id ? String(row.brand_id) : '',
+      projected_sale_price: row.projected_sale_price ? String(row.projected_sale_price) : ''
     });
     console.log('startEditingRow - row data:', row);
     console.log('startEditingRow - vinted_id:', row.vinted_id);
@@ -1287,7 +1299,8 @@ const Stock: React.FC = () => {
       vinted_id: '',
       ebay_id: '',
       depop_id: '',
-      brand_id: ''
+      brand_id: '',
+      projected_sale_price: ''
     });
   };
 
@@ -1303,6 +1316,10 @@ const Stock: React.FC = () => {
       setCreating(true);
       setError(null);
 
+      // Capture editingRowId at the start to prevent race conditions
+      // This ensures we use the correct ID even if state changes during async operations
+      const currentEditingId = editingRowId;
+
       const payload = {
         item_name: createForm.item_name,
         category_id: createForm.category_id ? Number(createForm.category_id) : null,
@@ -1314,17 +1331,21 @@ const Stock: React.FC = () => {
         vinted_id: createForm.vinted_id ? createForm.vinted_id.trim() : null,
         ebay_id: createForm.ebay_id ? createForm.ebay_id.trim() : null,
         depop_id: createForm.depop_id ? createForm.depop_id.trim() : null,
-        brand_id: createForm.brand_id ? Number(createForm.brand_id) : null
+        brand_id: createForm.brand_id ? Number(createForm.brand_id) : null,
+        projected_sale_price: createForm.projected_sale_price || null
       };
 
       console.log('Stock submit - Payload:', payload);
+      console.log('Stock submit - editingRowId:', currentEditingId);
       console.log('Stock submit - brand_id value:', createForm.brand_id);
       console.log('Stock submit - brand_id in payload:', payload.brand_id);
 
       // Check if we're editing or creating
-      const isEditing = editingRowId !== null;
-      const url = isEditing ? `${API_BASE}/api/stock/${editingRowId}` : `${API_BASE}/api/stock`;
+      const isEditing = currentEditingId !== null;
+      const url = isEditing ? `${API_BASE}/api/stock/${currentEditingId}` : `${API_BASE}/api/stock`;
       const method = isEditing ? 'PUT' : 'POST';
+      
+      console.log('Stock submit - Method:', method, 'URL:', url);
 
       const response = await fetch(url, {
         method,
@@ -1378,6 +1399,8 @@ const Stock: React.FC = () => {
       setEditingRowId(null);
       resetCreateForm();
       setSortConfig(null);
+      
+      console.log('Stock submit - Success:', isEditing ? 'Updated' : 'Created', 'ID:', updatedRow.id);
     } catch (err: any) {
       console.error('Stock create error:', err);
       setError(err.message || 'Unable to create stock record');
@@ -1552,28 +1575,160 @@ const Stock: React.FC = () => {
       {showNewEntry && (
         <div className="new-entry-card" ref={editFormRef}>
           <div className="new-entry-grid">
+            {/* First Row: SKU (edit only), Projected Sale Price, Profit Calculations, Remove Button (edit only) */}
             {editingRowId && (
-              <>
-                <div className="sku-button-container" style={{ width: '100%', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', width: '100%', marginBottom: '20px' }}>
+                {/* SKU Button */}
+                <div className="new-entry-field">
+                  <span>SKU</span>
                   <button
                     type="button"
-                    className="sku-add-to-orders-button"
+                    className="stock-sku-button"
                     onClick={handleAddToOrders}
                     disabled={creating || deleting}
                   >
                     {editingRowId}
                   </button>
+                </div>
+                
+                {/* Projected Sale Price */}
+                <label className="new-entry-field">
+                  <span>Projected Sale Price</span>
+                  <input
+                    type="text"
+                    value={createForm.projected_sale_price}
+                    onChange={(event) => handleCreateChange('projected_sale_price', event.target.value)}
+                    placeholder="0.00"
+                    style={{ textAlign: 'center' }}
+                  />
+                </label>
+                
+                {/* Profit Calculations */}
+                <div className="new-entry-field">
+                  <span>Projected Profit</span>
+                  <div style={{ 
+                    width: '100%',
+                    padding: '14px 18px',
+                    borderRadius: '16px',
+                    border: '1px solid rgba(255, 214, 91, 0.28)',
+                    background: 'rgba(255, 214, 91, 0.08)',
+                    boxSizing: 'border-box',
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    gap: '8px',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    textAlign: 'center',
+                    height: '48px',
+                    transition: 'all 0.3s ease'
+                  }}>
+                    {(() => {
+                      const hasProjectedPrice = createForm.projected_sale_price && createForm.projected_sale_price.trim() !== '';
+                      const hasPurchasePrice = createForm.purchase_price && createForm.purchase_price.trim() !== '';
+                      
+                      if (!hasProjectedPrice || !hasPurchasePrice) {
+                        return (
+                          <div style={{ 
+                            display: 'flex', 
+                            flexDirection: 'row',
+                            gap: '16px',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: 'rgba(255, 248, 226, 0.5)',
+                            fontSize: '0.9rem',
+                            width: '100%'
+                          }}>
+                            <div>Vinted: £0.00</div>
+                            <div>eBay: £0.00</div>
+                          </div>
+                        );
+                      }
+                      
+                      const item = parseFloat(createForm.purchase_price) || 0;
+                      const sale = parseFloat(createForm.projected_sale_price) || 0;
+                      const listingFees = 1.50;
+                      const promotedPercent = 10;
+                      const promotedFee = (sale * promotedPercent) / 100;
+                      
+                      // Vinted profit
+                      const vintedProfit = sale - item;
+                      const vintedProfitDisplay = vintedProfit >= 0 ? `£${vintedProfit.toFixed(2)}` : `-£${Math.abs(vintedProfit).toFixed(2)}`;
+                      const isVintedBuy = item > 0 && vintedProfit >= (item * 2);
+                      
+                      // eBay profit without promotion
+                      const ebayProfitWithoutPromo = sale - (item + listingFees);
+                      const ebayProfitWithoutPromoDisplay = ebayProfitWithoutPromo >= 0 ? `£${ebayProfitWithoutPromo.toFixed(2)}` : `-£${Math.abs(ebayProfitWithoutPromo).toFixed(2)}`;
+                      const isEbayBuyWithoutPromo = item > 0 && ebayProfitWithoutPromo >= (item * 2);
+                      
+                      // eBay profit with promotion
+                      const totalCosts = item + listingFees + promotedFee;
+                      const ebayProfitWithPromo = sale - totalCosts;
+                      const ebayProfitWithPromoDisplay = ebayProfitWithPromo >= 0 ? `£${ebayProfitWithPromo.toFixed(2)}` : `-£${Math.abs(ebayProfitWithPromo).toFixed(2)}`;
+                      const isEbayBuyWithPromo = item > 0 && ebayProfitWithPromo >= (item * 2);
+                      
+                      return (
+                        <div style={{ 
+                          display: 'flex', 
+                          flexDirection: 'row',
+                          gap: '16px',
+                          alignItems: 'flex-end',
+                          justifyContent: 'center',
+                          width: '100%',
+                          flexWrap: 'wrap'
+                        }}>
+                          <div style={{ 
+                            color: isVintedBuy ? '#8cffc3' : '#ff6b6b',
+                            fontWeight: 600,
+                            fontSize: '0.95rem',
+                            textAlign: 'center',
+                            paddingBottom: '14px'
+                          }}>
+                            Vinted: {vintedProfitDisplay}
+                          </div>
+                          <div style={{ 
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: '2px'
+                          }}>
+                            <div style={{ 
+                              color: isEbayBuyWithPromo ? '#8cffc3' : '#ff6b6b',
+                              fontWeight: 600,
+                              fontSize: '0.95rem',
+                              textAlign: 'center'
+                            }}>
+                              eBay: {ebayProfitWithPromoDisplay}
+                            </div>
+                            <div style={{ 
+                              fontSize: '0.75rem',
+                              color: 'rgba(255, 248, 226, 0.5)',
+                              textAlign: 'center'
+                            }}>
+                              (w/o promo: {ebayProfitWithoutPromoDisplay})
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+                
+                {/* Remove Button */}
+                <div className="new-entry-field">
+                  <span>&nbsp;</span>
                   <button
                     type="button"
-                    className="delete-button delete-button-desktop"
+                    className="delete-button"
                     onClick={handleDeleteClick}
                     disabled={creating || deleting}
+                    style={{ width: '100%' }}
                   >
-                    Delete Item
+                    Remove
                   </button>
                 </div>
-              </>
+              </div>
             )}
+            
             {/* Row 1: Name, Category, Purchase Price (£), Purchase Date */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', width: '100%' }}>
               <label className="new-entry-field">
@@ -1898,33 +2053,35 @@ const Stock: React.FC = () => {
                 />
               </label>
             </div>
-            {/* Row 3: Sale Price (£), Sale Date, Sold Platform, Update/Close buttons */}
+            {/* Row 3: Sale Price (£), Sale Date, Sold Platform (edit only) OR Projected Sale Price, Projected Profit, Empty, Save/Close (add only) */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', width: '100%' }}>
-              <label className="new-entry-field">
-              <span>Sale Price (£)</span>
-              <input
-                type="number"
-                step="0.01"
-                value={createForm.sale_price}
-                onChange={(event) => handleCreateChange('sale_price', event.target.value)}
-                placeholder="e.g. 95.00"
-              />
-            </label>
-            <label className="new-entry-field">
-              <span>Sale Date</span>
-              <DatePicker
-                selected={stringToDate(createForm.sale_date)}
-                onChange={(date) =>
-                  handleCreateChange('sale_date', dateToIsoString(date ?? null))
-                }
-                dateFormat="yyyy-MM-dd"
-                placeholderText="Select sale date"
-                className="date-picker-input"
-                calendarClassName="date-picker-calendar"
-                wrapperClassName="date-picker-wrapper"
-              />
-            </label>
-            <div className="new-entry-field" style={{ position: 'relative' }} ref={soldPlatformDropdownRef}>
+              {editingRowId ? (
+                <>
+                  <label className="new-entry-field">
+                    <span>Sale Price (£)</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={createForm.sale_price}
+                      onChange={(event) => handleCreateChange('sale_price', event.target.value)}
+                      placeholder="e.g. 95.00"
+                    />
+                  </label>
+                  <label className="new-entry-field">
+                    <span>Sale Date</span>
+                    <DatePicker
+                      selected={stringToDate(createForm.sale_date)}
+                      onChange={(date) =>
+                        handleCreateChange('sale_date', dateToIsoString(date ?? null))
+                      }
+                      dateFormat="yyyy-MM-dd"
+                      placeholderText="Select sale date"
+                      className="date-picker-input"
+                      calendarClassName="date-picker-calendar"
+                      wrapperClassName="date-picker-wrapper"
+                    />
+                  </label>
+                  <div className="new-entry-field" style={{ position: 'relative' }} ref={soldPlatformDropdownRef}>
               <label style={{ display: 'flex', flexDirection: 'column', gap: '8px', color: 'rgba(255, 248, 226, 0.7)', letterSpacing: '0.05rem' }}>
                 <span>Sold Platform</span>
                 <div
@@ -2068,7 +2225,7 @@ const Stock: React.FC = () => {
                   </div>
                 )}
               </label>
-            </div>
+              </div>
               <div className="new-entry-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <span style={{ color: 'rgba(255, 248, 226, 0.7)', letterSpacing: '0.05rem', fontSize: '0.85rem', textTransform: 'uppercase', height: '1.2rem' }}>&nbsp;</span>
                 <div className="update-close-buttons-container" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -2087,6 +2244,8 @@ const Stock: React.FC = () => {
                       className="cancel-button"
                       onClick={() => {
                         if (!creating && !deleting) {
+                          // Only reset editingRowId if we're not in the middle of a submit
+                          // This prevents race conditions where Close is clicked during submit
                           setShowNewEntry(false);
                           setEditingRowId(null);
                           resetCreateForm();
@@ -2099,20 +2258,186 @@ const Stock: React.FC = () => {
                       Close
                     </button>
                   </div>
-                  {editingRowId && (
-                    <button
-                      type="button"
-                      className="delete-button delete-button-mobile"
-                      onClick={handleDeleteClick}
-                      disabled={creating || deleting}
-                      style={{ width: '100%' }}
-                    >
-                      Delete Item
-                    </button>
-                  )}
                 </div>
               </div>
+                </>
+              ) : (
+                <>
+                  {/* Projected Sale Price */}
+                  <label className="new-entry-field">
+                    <span>Projected Sale Price</span>
+                    <input
+                      type="text"
+                      value={createForm.projected_sale_price}
+                      onChange={(event) => handleCreateChange('projected_sale_price', event.target.value)}
+                      placeholder="0.00"
+                      style={{ textAlign: 'center' }}
+                    />
+                  </label>
+                  
+                  {/* Profit Calculations */}
+                  <div className="new-entry-field">
+                    <span>Projected Profit</span>
+                    <div style={{ 
+                      width: '100%',
+                      padding: '14px 18px',
+                      borderRadius: '16px',
+                      border: '1px solid rgba(255, 214, 91, 0.28)',
+                      background: 'rgba(255, 214, 91, 0.08)',
+                      boxSizing: 'border-box',
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      gap: '8px',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      textAlign: 'center',
+                      height: '48px',
+                      transition: 'all 0.3s ease'
+                    }}>
+                      {(() => {
+                        const hasProjectedPrice = createForm.projected_sale_price && createForm.projected_sale_price.trim() !== '';
+                        const hasPurchasePrice = createForm.purchase_price && createForm.purchase_price.trim() !== '';
+                        
+                        if (!hasProjectedPrice || !hasPurchasePrice) {
+                          return (
+                            <div style={{ 
+                              display: 'flex', 
+                              flexDirection: 'row',
+                              gap: '16px',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: 'rgba(255, 248, 226, 0.5)',
+                              fontSize: '0.9rem',
+                              width: '100%'
+                            }}>
+                              <div>Vinted: £0.00</div>
+                              <div>eBay: £0.00</div>
+                            </div>
+                          );
+                        }
+                        
+                        const item = parseFloat(createForm.purchase_price) || 0;
+                        const sale = parseFloat(createForm.projected_sale_price) || 0;
+                        const listingFees = 1.50;
+                        const promotedPercent = 10;
+                        const promotedFee = (sale * promotedPercent) / 100;
+                        
+                        // Vinted profit
+                        const vintedProfit = sale - item;
+                        const vintedProfitDisplay = vintedProfit >= 0 ? `£${vintedProfit.toFixed(2)}` : `-£${Math.abs(vintedProfit).toFixed(2)}`;
+                        const isVintedBuy = item > 0 && vintedProfit >= (item * 2);
+                        
+                        // eBay profit without promotion
+                        const ebayProfitWithoutPromo = sale - (item + listingFees);
+                        const ebayProfitWithoutPromoDisplay = ebayProfitWithoutPromo >= 0 ? `£${ebayProfitWithoutPromo.toFixed(2)}` : `-£${Math.abs(ebayProfitWithoutPromo).toFixed(2)}`;
+                        const isEbayBuyWithoutPromo = item > 0 && ebayProfitWithoutPromo >= (item * 2);
+                        
+                        // eBay profit with promotion
+                        const totalCosts = item + listingFees + promotedFee;
+                        const ebayProfitWithPromo = sale - totalCosts;
+                        const ebayProfitWithPromoDisplay = ebayProfitWithPromo >= 0 ? `£${ebayProfitWithPromo.toFixed(2)}` : `-£${Math.abs(ebayProfitWithPromo).toFixed(2)}`;
+                        const isEbayBuyWithPromo = item > 0 && ebayProfitWithPromo >= (item * 2);
+                        
+                        return (
+                          <div style={{ 
+                            display: 'flex', 
+                            flexDirection: 'row',
+                            gap: '16px',
+                            alignItems: 'flex-end',
+                            justifyContent: 'center',
+                            width: '100%',
+                            flexWrap: 'wrap'
+                          }}>
+                            <div style={{ 
+                              color: isVintedBuy ? '#8cffc3' : '#ff6b6b',
+                              fontWeight: 600,
+                              fontSize: '0.95rem',
+                              textAlign: 'center',
+                              paddingBottom: '14px'
+                            }}>
+                              Vinted: {vintedProfitDisplay}
+                            </div>
+                            <div style={{ 
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              gap: '2px'
+                            }}>
+                              <div style={{ 
+                                color: isEbayBuyWithPromo ? '#8cffc3' : '#ff6b6b',
+                                fontWeight: 600,
+                                fontSize: '0.95rem',
+                                textAlign: 'center'
+                              }}>
+                                eBay: {ebayProfitWithPromoDisplay}
+                              </div>
+                              <div style={{ 
+                                fontSize: '0.75rem',
+                                color: 'rgba(255, 248, 226, 0.5)',
+                                textAlign: 'center'
+                              }}>
+                                (w/o promo: {ebayProfitWithoutPromoDisplay})
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                  
+                  {/* Empty Column */}
+                  <div className="new-entry-field">
+                    <span>&nbsp;</span>
+                    <div style={{ height: '48px' }}></div>
+                  </div>
+                  
+                  {/* Save and Close Buttons */}
+                  <div className="new-entry-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <span style={{ color: 'rgba(255, 248, 226, 0.7)', letterSpacing: '0.05rem', fontSize: '0.85rem', textTransform: 'uppercase', height: '1.2rem' }}>&nbsp;</span>
+                    <div className="update-close-buttons-container" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                        <button
+                          type="button"
+                          className="save-button"
+                          onClick={handleCreateSubmit}
+                          disabled={creating || deleting}
+                          style={{ flex: '1' }}
+                        >
+                          {creating ? 'Saving…' : 'Save'}
+                        </button>
+                        <button
+                          type="button"
+                          className="cancel-button"
+                          onClick={() => {
+                            if (!creating && !deleting) {
+                              setShowNewEntry(false);
+                              setEditingRowId(null);
+                              resetCreateForm();
+                              setShowDeleteConfirm(false);
+                            }
+                          }}
+                          disabled={creating || deleting}
+                          style={{ flex: '1' }}
+                        >
+                          Close
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
+            {editingRowId && (
+              <button
+                type="button"
+                className="delete-button delete-button-mobile"
+                onClick={handleDeleteClick}
+                disabled={creating || deleting}
+                style={{ width: '100%' }}
+              >
+                Delete Item
+              </button>
+            )}
           </div>
         </div>
       )}

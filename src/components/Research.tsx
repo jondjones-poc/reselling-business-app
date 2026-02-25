@@ -488,7 +488,6 @@ const Research: React.FC = () => {
   const [showTypeahead, setShowTypeahead] = useState(false);
   const [lookupBrands, setLookupBrands] = useState<string[]>([]);
   const [selectedLookupBrand, setSelectedLookupBrand] = useState('');
-  const [showLookupTool, setShowLookupTool] = useState(false);
 
   // AI Research state
   const [researchText, setResearchText] = useState('');
@@ -496,6 +495,10 @@ const Research: React.FC = () => {
   const [researchLoading, setResearchLoading] = useState(false);
   const [researchError, setResearchError] = useState<string | null>(null);
   const [researchResult, setResearchResult] = useState<string | null>(null);
+
+  // Brand Website state
+  const [brandsWithWebsites, setBrandsWithWebsites] = useState<Array<{ id: number; brand_name: string; brand_website: string | null }>>([]);
+  const [selectedBrandForWebsite, setSelectedBrandForWebsite] = useState<number | ''>('');
 
   const compressImage = (file: File, maxWidth: number = 1920, maxHeight: number = 1920, quality: number = 0.8): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -848,6 +851,8 @@ const Research: React.FC = () => {
       } catch (error) {
         console.warn('Failed to load mensResaleReference from API, using fallback:', error);
         // Use fallback array if API fails
+        mensResaleReference.length = 0;
+        mensResaleReference.push(...mensResaleReferenceFallback);
         const allBrandsList = mensResaleReferenceFallback
           .map(item => item.brand)
           .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
@@ -871,6 +876,43 @@ const Research: React.FC = () => {
     clearOnNavigation();
   }, [location.pathname]);
 
+  // Load brands with websites
+  useEffect(() => {
+    const loadBrandsWithWebsites = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/api/brands`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          console.log('Raw API response:', data);
+          const brands = Array.isArray(data.rows) ? data.rows : [];
+          console.log(`Loaded ${brands.length} brands from API`);
+          // Log a specific brand to check brand_website field
+          if (brands.length > 0) {
+            const firstBrand = brands[0];
+            console.log('First brand object:', firstBrand);
+            console.log('First brand keys:', Object.keys(firstBrand));
+            console.log('First brand brand_website:', firstBrand.brand_website);
+            // Check if it's a different case
+            console.log('First brand all properties:', JSON.stringify(firstBrand, null, 2));
+          }
+          setBrandsWithWebsites(brands);
+        } else {
+          console.error('Failed to load brands - response not OK:', response.status, response.statusText);
+        }
+      } catch (err) {
+        console.error('Failed to load brands with websites:', err);
+      }
+    };
+
+    loadBrandsWithWebsites();
+  }, []);
+
   const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setSearchText(event.target.value);
     setSelectedLookupBrand('');
@@ -889,12 +931,6 @@ const Research: React.FC = () => {
     }
   };
 
-  const handleClearBrandSearch = () => {
-    setSearchText('');
-    setSelectedLookupBrand('');
-    setTypeaheadResults([]);
-    setShowTypeahead(false);
-  };
 
   const handleCopyToClipboard = async (brandName: string, e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
@@ -1064,41 +1100,93 @@ const Research: React.FC = () => {
           </div>
         </div>
 
-        {showLookupTool && (
-          <div className="search-section">
-            <h2>Brands Lookup Tool</h2>
-            <div className="search-input-container">
-              {lookupBrands.length > 0 && (
-                <select
-                  value={selectedLookupBrand}
-                  onChange={handleLookupBrandChange}
-                  className="settings-brand-filter"
-                >
-                  <option value="">Brands Lookup Tool</option>
-                  {lookupBrands.map((brand) => (
-                    <option key={brand} value={brand}>
-                      {brand}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-          </div>
-        )}
       </div>
-      <div className="research-buttons-row">
-        <button
-          onClick={handleClearBrandSearch}
-          className="research-clear-button clear-red"
-        >
-          Clear
-        </button>
-        <button
-          onClick={() => setShowLookupTool(!showLookupTool)}
-          className="research-clear-button"
-        >
-          {showLookupTool ? 'Hide Brands Lookup Tool' : 'Show Brands Lookup Tool'}
-        </button>
+
+      {/* Brands Lookup Tool Section */}
+      <div className="brand-lookup-container">
+        <h2 className="brand-lookup-heading">Brands Lookup Tool</h2>
+        <div className="brand-lookup-form">
+          {lookupBrands.length > 0 && (
+            <select
+              value={selectedLookupBrand}
+              onChange={handleLookupBrandChange}
+              className="brand-lookup-select"
+            >
+              <option value="">Select a brand...</option>
+              {lookupBrands.map((brand) => (
+                <option key={brand} value={brand}>
+                  {brand}
+                </option>
+              ))}
+            </select>
+          )}
+          {selectedLookupBrand && (() => {
+            // Find brand in mensResaleReference for status, note, and categories
+            const brandData = mensResaleReference.find(item => 
+              item.brand.toLowerCase().trim() === selectedLookupBrand.toLowerCase().trim()
+            );
+            
+            // Find brand in brandsWithWebsites for website URL
+            const selectedBrand = brandsWithWebsites.find(b => 
+              b.brand_name.toLowerCase().trim() === selectedLookupBrand.toLowerCase().trim()
+            );
+            
+            if (!brandData) {
+              return null;
+            }
+            
+            const status = getStatusFromEmoji(brandData.status);
+            
+            return (
+              <div className="brand-lookup-result">
+                <div className={`brand-result-item ${status}`}>
+                  <div className="result-brand-header">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
+                      <span className="result-brand">{selectedLookupBrand}</span>
+                      <button
+                        type="button"
+                        onClick={(e) => handleCopyToClipboard(selectedLookupBrand, e)}
+                        className="copy-brand-button"
+                        title="Copy brand name to clipboard"
+                        aria-label={`Copy ${selectedLookupBrand} to clipboard`}
+                      >
+                        📋
+                      </button>
+                    </div>
+                    <span className={`result-status-tag ${status === 'good' ? 'good-tag' : status === 'warning' ? 'warning-tag' : 'avoid-tag'}`}>
+                      {status === 'good' ? 'Good' : status === 'warning' ? 'Warning' : 'Avoid'}
+                    </span>
+                  </div>
+                  {brandData.note && (
+                    <div className="result-note">{brandData.note}</div>
+                  )}
+                  {brandData.categories && brandData.categories.length > 0 && (
+                    <div className="result-categories-list">
+                      {brandData.categories.map((cat, catIndex) => (
+                        <div key={catIndex} className="result-category-row">
+                          <span className="category-item">{cat.item}</span>
+                          <span className="category-range">{cat.resaleRange}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {selectedBrand && selectedBrand.brand_website && (
+                    <div className="brand-website-link-container" style={{ marginTop: '12px' }}>
+                      <a
+                        href={selectedBrand.brand_website}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="brand-website-link"
+                      >
+                        {selectedBrand.brand_website}
+                      </a>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
       </div>
 
       {/* AI Research Section */}
@@ -1195,6 +1283,58 @@ const Research: React.FC = () => {
             </div>
           )}
         </form>
+      </div>
+
+      {/* Brand Website Section */}
+      <div className="brand-research-container">
+        <div className="brand-website-section">
+          <h3 className="brand-website-title">Brand Website</h3>
+          <div className="brand-website-form">
+            <div className="brand-website-dropdown-container">
+              <select
+                id="brand-website-select"
+                value={selectedBrandForWebsite}
+                onChange={(e) => setSelectedBrandForWebsite(e.target.value ? Number(e.target.value) : '')}
+                className="brand-website-select"
+              >
+                <option value="">-- Select a brand --</option>
+                {brandsWithWebsites.map((brand) => (
+                  <option key={brand.id} value={brand.id}>
+                    {brand.brand_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {selectedBrandForWebsite && (() => {
+              const selectedBrand = brandsWithWebsites.find(b => b.id === Number(selectedBrandForWebsite));
+              console.log('Selected brand:', selectedBrand);
+              console.log('Brand website value:', selectedBrand?.brand_website);
+              if (selectedBrand) {
+                const websiteUrl = selectedBrand.brand_website;
+                if (websiteUrl && typeof websiteUrl === 'string' && websiteUrl.trim() !== '') {
+                  const trimmedUrl = websiteUrl.trim();
+                  // Ensure URL has protocol
+                  const fullUrl = trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://') 
+                    ? trimmedUrl 
+                    : `https://${trimmedUrl}`;
+                  return (
+                    <div className="brand-website-link-container">
+                      <a
+                        href={fullUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="brand-website-link"
+                      >
+                        {trimmedUrl}
+                      </a>
+                    </div>
+                  );
+                }
+              }
+              return null;
+            })()}
+          </div>
+        </div>
       </div>
     </div>
   );
