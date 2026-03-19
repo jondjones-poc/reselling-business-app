@@ -97,6 +97,82 @@
   max-width: calc(25% - 16px);
 }
 
+.new-entry-field--actions {
+  max-width: 100%;
+  flex: 1 1 200px;
+  margin-left: auto;
+}
+
+@media (max-width: 768px) {
+  .new-entry-field--actions {
+    margin-left: 0;
+    flex: 1 1 100%;
+  }
+}
+
+/* Projected profit: full-width readout (not an input box) */
+.projected-profit-readout {
+  width: 100%;
+  flex: 1 1 100%;
+  max-width: 100%;
+  margin: 6px 0 12px;
+  padding: 14px 0 6px;
+  border-top: 1px solid rgba(255, 214, 91, 0.22);
+  box-sizing: border-box;
+}
+
+.projected-profit-readout-heading {
+  display: block;
+  margin-bottom: 10px;
+  color: rgba(255, 248, 226, 0.7);
+  letter-spacing: 0.05rem;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+}
+
+.projected-profit-readout-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 28px;
+  align-items: flex-start;
+}
+
+.projected-profit-readout-row--muted {
+  color: rgba(255, 248, 226, 0.5);
+  font-size: 0.95rem;
+}
+
+.projected-profit-readout-row--muted span {
+  white-space: nowrap;
+}
+
+.projected-profit-readout-stat {
+  font-weight: 600;
+  font-size: 0.98rem;
+  line-height: 1.35;
+}
+
+.projected-profit-readout-stat--buy {
+  color: #8cffc3;
+}
+
+.projected-profit-readout-stat--pass {
+  color: #ff6b6b;
+}
+
+.projected-profit-readout-ebay {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.projected-profit-readout-sub {
+  font-size: 0.78rem;
+  color: rgba(255, 248, 226, 0.5);
+  line-height: 1.3;
+}
+
 .new-entry-field input,
 .new-entry-field select,
 .new-entry-field .react-datepicker-wrapper,

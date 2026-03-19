@@ -9,6 +9,7 @@ import Orders from './components/Orders';
 import Sourcing from './components/Sourcing';
 import Config from './components/Config';
 import AuthGate from './components/AuthGate';
+import { pingDatabase } from './utils/dbPing';
 import './App.css';
 
 const navItems = [
@@ -27,6 +28,12 @@ function App() {
 
   useEffect(() => {
     setShowMobileMenu(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (location.pathname === '/') {
+      pingDatabase();
+    }
   }, [location.pathname]);
 
   const handleNavTitleDoubleClick = () => {

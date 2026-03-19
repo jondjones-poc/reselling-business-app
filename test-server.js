@@ -145,6 +145,20 @@ app.get('/api/test', (req, res) => {
   res.json({ message: 'Server is working!', timestamp: new Date().toISOString() });
 });
 
+app.get('/api/db-ping', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ ok: false, error: 'Database not configured' });
+    }
+    await pool.query('SELECT 1');
+    res.json({ ok: true, t: new Date().toISOString() });
+  } catch (error) {
+    console.error('db-ping failed:', error);
+    res.status(500).json({ ok: false, error: error?.message || 'ping failed' });
+  }
+});
+
 app.get('/api/settings', (req, res) => {
   res.json(loadSettings());
 });

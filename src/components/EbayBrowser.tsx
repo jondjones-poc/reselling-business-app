@@ -25,9 +25,9 @@ const EbayBrowser: React.FC = () => {
     const windowWidth = 800;
     const leftPosition = Math.max(0, (screenWidth - windowWidth * 2) / 2);
     
-    const activeWindow = window.open(
-      activeUrl, 
-      'ebay-active', 
+    void window.open(
+      activeUrl,
+      'ebay-active',
       `width=${windowWidth},height=600,left=${leftPosition + windowWidth},top=0`
     );
 
