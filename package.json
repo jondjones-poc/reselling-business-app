@@ -2,7 +2,9 @@
   "name": "reselling-business-app",
   "version": "0.1.0",
   "private": true,
+  "proxy": "http://localhost:5003",
   "dependencies": {
+    "@supabase/supabase-js": "^2.99.3",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
@@ -16,6 +18,7 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "multer": "^2.1.1",
     "node-fetch": "^3.3.2",
     "pg": "^8.16.3",
     "react": "^19.2.0",
@@ -36,7 +39,9 @@
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "server": "node server.js",
-    "dev": "concurrently \"npm run server\" \"npm start\""
+    "server:dev": "nodemon server.js",
+    "dev": "concurrently \"npm run server:dev\" \"npm start\"",
+    "verify:supabase": "node scripts/verify-supabase-env.js"
   },
   "eslintConfig": {
     "extends": [
@@ -57,7 +62,9 @@
     ]
   },
   "devDependencies": {
+    "@types/multer": "^2.1.0",
     "@types/xlsx": "^0.0.35",
-    "concurrently": "^9.2.1"
+    "concurrently": "^9.2.1",
+    "nodemon": "^3.1.14"
   }
 }

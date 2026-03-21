@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import BarcodeScanner from 'react-qr-barcode-scanner';
 import './EbaySearch.css';
 import './BrandResearch.css';
@@ -47,7 +47,6 @@ const EbaySearch: React.FC = () => {
   const [selectedGender, setSelectedGender] = useState(DEFAULT_GENDER);
   const [itemsSold, setItemsSold] = useState('');
   const [activeListings, setActiveListings] = useState('');
-  const [strRate, setStrRate] = useState<number | null>(null);
   const [ebayResearchLoading, setEbayResearchLoading] = useState(false);
   const [ebayResearchError, setEbayResearchError] = useState<string | null>(null);
   const [ebayResearchResult, setEbayResearchResult] = useState<ResearchResult | null>(null);
@@ -55,7 +54,7 @@ const EbaySearch: React.FC = () => {
   // Potential Profit Calculator state
   const [itemPrice, setItemPrice] = useState('');
   const [salePrice, setSalePrice] = useState('');
-  const [listingFees, setListingFees] = useState('1.50');
+  const [listingFees, setListingFees] = useState('0.10');
   const [promotedFees, setPromotedFees] = useState('10');
 
   const genderOptions = genders.length > 0 ? genders : [DEFAULT_GENDER];
@@ -126,7 +125,31 @@ const EbaySearch: React.FC = () => {
     return uniqueTokens;
   };
 
+  const SEARCH_TERM_STORAGE_KEY = 'searchTerm';
+  const SEARCH_COMBINED_STORAGE_KEY = 'saerch term';
+
+  const clearRelatedSearchPersistence = () => {
+    try {
+      window.localStorage.removeItem(SEARCH_TERM_STORAGE_KEY);
+      window.localStorage.removeItem(SEARCH_COMBINED_STORAGE_KEY);
+    } catch (err) {
+      console.warn('Unable to clear search localStorage:', err);
+    }
+    try {
+      document.cookie.split(';').forEach((raw) => {
+        const name = raw.split('=')[0]?.trim();
+        if (!name) return;
+        document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
+      });
+    } catch (err) {
+      console.warn('Unable to clear cookies:', err);
+    }
+  };
+
   const clearAll = () => {
+    clearRelatedSearchPersistence();
+    setItemsSold('');
+    setActiveListings('');
     setSearchTerm('');
     setSelectedCategory('');
     setSelectedMaterial('');
@@ -156,7 +179,7 @@ const EbaySearch: React.FC = () => {
   // Restore search term from localStorage on mount
   useEffect(() => {
     try {
-      const savedSearchTerm = window.localStorage.getItem('searchTerm');
+      const savedSearchTerm = window.localStorage.getItem(SEARCH_TERM_STORAGE_KEY);
       if (savedSearchTerm) {
         setSearchTerm(savedSearchTerm);
       }
@@ -322,24 +345,16 @@ const EbaySearch: React.FC = () => {
     setSelectedGender(value);
   };
 
-  const handleCalculateSTR = () => {
+  /** Same formula as former “Item Sell Through Rate” button: sold / (sold + active) × 100 */
+  const manualSellThroughPercent = useMemo(() => {
+    if (!itemsSold?.trim() || !activeListings?.trim()) return null;
     const sold = Number(itemsSold);
     const active = Number(activeListings);
-
-    if (isNaN(sold) || isNaN(active) || sold < 0 || active < 0) {
-      setStrRate(null);
-      return;
-    }
-
+    if (Number.isNaN(sold) || Number.isNaN(active) || sold < 0 || active < 0) return null;
     const totalInventory = sold + active;
-    if (totalInventory === 0) {
-      setStrRate(null);
-      return;
-    }
-
-    const rate = (sold / totalInventory) * 100;
-    setStrRate(rate);
-  };
+    if (totalInventory <= 0) return null;
+    return (sold / totalInventory) * 100;
+  }, [itemsSold, activeListings]);
 
   const getSTRColor = (rate: number | null): string => {
     if (rate === null) return '';
@@ -435,7 +450,7 @@ const EbaySearch: React.FC = () => {
 
     // Store only the actual searchTerm value, not the combined tokens
     try {
-      window.localStorage.setItem('searchTerm', searchTerm);
+      window.localStorage.setItem(SEARCH_TERM_STORAGE_KEY, searchTerm);
     } catch (storageError) {
       console.warn('Unable to persist search term to localStorage:', storageError);
     }
@@ -467,7 +482,7 @@ const EbaySearch: React.FC = () => {
     const combinedSearchTerm = searchTokens.join(' ');
 
     try {
-      window.localStorage.setItem('saerch term', combinedSearchTerm);
+      window.localStorage.setItem(SEARCH_COMBINED_STORAGE_KEY, combinedSearchTerm);
     } catch (storageError) {
       console.warn('Unable to persist search term to localStorage:', storageError);
     }
@@ -483,76 +498,6 @@ const EbaySearch: React.FC = () => {
     <>
     <div className="ebay-search-container">
       <form onSubmit={handleSubmit} className="ebay-search-form">
-        {!showScanner ? (
-          <>
-            <div className="search-bar-group">
-              <div className="search-input-wrapper">
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Enter search term (e.g., joop jumper, nike shoes)"
-                  className="ebay-search-input"
-                  autoComplete="off"
-                />
-                <button
-                  type="button"
-                  onClick={clearAll}
-                  className="reset-icon-button"
-                  disabled={!hasSearchableInput}
-                  title="Reset all fields"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-            <div className="primary-action-row">
-              <button
-                type="submit"
-                className="ebay-search-button"
-                disabled={!hasSearchableInput}
-              >
-                Search Solds
-              </button>
-              <button
-                type="button"
-                onClick={handleSearchActives}
-                className="ebay-search-button"
-                disabled={!hasSearchableInput}
-              >
-                Search Actives
-              </button>
-              <button
-                type="button"
-                onClick={handleCopyToClipboard}
-                className="copy-button"
-                disabled={!hasSearchableInput}
-              >
-                📋 Copy
-              </button>
-            </div>
-            {scannedData && (
-              <p className="scanned-info">Last scanned: {scannedData}</p>
-            )}
-          </>
-        ) : (
-          <div className="scanner-container">
-            <h3>Scan Barcode</h3>
-            <BarcodeScanner
-              onUpdate={handleBarcodeScan}
-              width={300}
-              height={200}
-            />
-            <button
-              type="button"
-              onClick={() => setShowScanner(false)}
-              className="close-scanner-button"
-            >
-              Close Scanner
-            </button>
-          </div>
-        )}
-
         <div className="category-section">
           <div className="category-control">
             <select
@@ -656,6 +601,75 @@ const EbaySearch: React.FC = () => {
           </div>
         </div>
 
+        {!showScanner ? (
+          <div className="ebay-search-query-block">
+            <div className="search-bar-group">
+              <div className="search-input-wrapper">
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Enter search term (e.g., joop jumper, nike shoes)"
+                  className="ebay-search-input"
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  onClick={clearAll}
+                  className="reset-icon-button"
+                  disabled={!hasSearchableInput}
+                  title="Reset all fields"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            <div className="primary-action-row">
+              <button
+                type="submit"
+                className="ebay-search-button"
+                disabled={!hasSearchableInput}
+              >
+                Search Solds
+              </button>
+              <button
+                type="button"
+                onClick={handleSearchActives}
+                className="ebay-search-button"
+                disabled={!hasSearchableInput}
+              >
+                Search Actives
+              </button>
+              <button
+                type="button"
+                onClick={handleCopyToClipboard}
+                className="copy-button"
+                disabled={!hasSearchableInput}
+              >
+                📋 Copy
+              </button>
+            </div>
+            {scannedData && (
+              <p className="scanned-info">Last scanned: {scannedData}</p>
+            )}
+          </div>
+        ) : (
+          <div className="scanner-container">
+            <h3>Scan Barcode</h3>
+            <BarcodeScanner
+              onUpdate={handleBarcodeScan}
+              width={300}
+              height={200}
+            />
+            <button
+              type="button"
+              onClick={() => setShowScanner(false)}
+              className="close-scanner-button"
+            >
+              Close Scanner
+            </button>
+          </div>
+        )}
 
         {settingsLoading && (
           <div className="settings-status">Loading settings...</div>
@@ -668,57 +682,35 @@ const EbaySearch: React.FC = () => {
     </div>
 
     <div className="ebay-search-container">
-      <div className="str-calculator-section">
-        <div className="str-calculator-inputs">
-          <div className="str-input-group">
-            <label htmlFor="items-sold" className="str-input-label">Sold Rate</label>
-            <input
-              id="items-sold"
-              type="number"
-              value={itemsSold}
-              onChange={(e) => setItemsSold(e.target.value)}
-              placeholder="0"
-              className="str-input"
-              min="0"
-            />
-          </div>
-          <div className="str-input-group">
-            <label htmlFor="active-listings" className="str-input-label">Active Listings</label>
-            <input
-              id="active-listings"
-              type="number"
-              value={activeListings}
-              onChange={(e) => setActiveListings(e.target.value)}
-              placeholder="0"
-              className="str-input"
-              min="0"
-            />
-          </div>
-          <button
-            type="button"
-            onClick={handleCalculateSTR}
-            className="str-calculate-button"
-            disabled={!itemsSold || !activeListings}
-          >
-            Item Sell Through Rate
-          </button>
-        </div>
-        {strRate !== null && (
-          <div className={`str-result ${getSTRColor(strRate)}`}>
-            <div className="str-rate-value">{strRate.toFixed(1)}%</div>
-            <div className="str-rate-label">{getSTRLabel(strRate)}</div>
-            <div className="str-rate-formula">
-              ({itemsSold} / ({itemsSold} + {activeListings})) × 100 = {strRate.toFixed(1)}%
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-
-    <div className="ebay-search-container">
       <div className="potential-profit-section">
         <h3 className="potential-profit-title">Potential Profit</h3>
         <div className="potential-profit-form">
+          <div className="potential-profit-str-inputs-row">
+            <div className="potential-profit-str-input-half">
+              <label htmlFor="items-sold" className="potential-profit-label">Sold Rate</label>
+              <input
+                id="items-sold"
+                type="number"
+                value={itemsSold}
+                onChange={(e) => setItemsSold(e.target.value)}
+                placeholder="0"
+                className="potential-profit-input"
+                min="0"
+              />
+            </div>
+            <div className="potential-profit-str-input-half">
+              <label htmlFor="active-listings" className="potential-profit-label">Active Listings</label>
+              <input
+                id="active-listings"
+                type="number"
+                value={activeListings}
+                onChange={(e) => setActiveListings(e.target.value)}
+                placeholder="0"
+                className="potential-profit-input"
+                min="0"
+              />
+            </div>
+          </div>
           <div className="potential-profit-inputs">
             <div className="potential-profit-input-group">
               <label htmlFor="item-price" className="potential-profit-label">Item Price</label>
@@ -753,7 +745,7 @@ const EbaySearch: React.FC = () => {
                 type="number"
                 value={listingFees}
                 onChange={(e) => setListingFees(e.target.value)}
-                placeholder="1.50"
+                placeholder="0.10"
                 className="potential-profit-input"
                 step="0.01"
                 min="0"
@@ -776,105 +768,174 @@ const EbaySearch: React.FC = () => {
           </div>
 
           <div className="potential-profit-results">
-            <div className="potential-profit-platform">
-              <div className="potential-profit-platform-label">Vinted</div>
-              <div className="potential-profit-platform-value">
-                {(() => {
-                  const hasBothPrices = itemPrice && salePrice && itemPrice.trim() !== '' && salePrice.trim() !== '';
-                  if (!hasBothPrices) {
-                    return '£0.00';
-                  }
-                  const item = parseFloat(itemPrice) || 0;
-                  const sale = parseFloat(salePrice) || 0;
-                  const profit = sale - item;
-                  return profit >= 0 ? `£${profit.toFixed(2)}` : `-£${Math.abs(profit).toFixed(2)}`;
-                })()}
-              </div>
-              {(() => {
-                const hasBothPrices = itemPrice && salePrice && itemPrice.trim() !== '' && salePrice.trim() !== '';
-                if (!hasBothPrices) {
-                  return null;
-                }
-                const item = parseFloat(itemPrice) || 0;
-                const sale = parseFloat(salePrice) || 0;
-                const profit = sale - item;
-                const isBuy = item > 0 && profit >= (item * 2);
-                return (
-                  <div className={`potential-profit-tag ${isBuy ? 'potential-profit-buy' : 'potential-profit-avoid'}`}>
-                    {isBuy ? 'Buy' : 'Avoid'}
+            {(() => {
+              const hasBothPrices =
+                itemPrice &&
+                salePrice &&
+                itemPrice.trim() !== '' &&
+                salePrice.trim() !== '';
+              const item = parseFloat(itemPrice) || 0;
+              const sale = parseFloat(salePrice) || 0;
+              const listing = parseFloat(listingFees) || 0;
+              const promotedPercent = parseFloat(promotedFees) || 0;
+              const promotedFee = hasBothPrices ? (sale * promotedPercent) / 100 : 0;
+
+              const fmtProfit = (profit: number) =>
+                profit >= 0 ? `£${profit.toFixed(2)}` : `-£${Math.abs(profit).toFixed(2)}`;
+
+              const profitMult = (profit: number) =>
+                item > 0 ? `${(profit / item).toFixed(2)}x` : '—';
+
+              let vintedProfit = 0;
+              let profitWithoutPromo = 0;
+              let profitWithPromo = 0;
+              if (hasBothPrices) {
+                vintedProfit = sale - item;
+                profitWithoutPromo = sale - (item + listing);
+                profitWithPromo = sale - (item + listing + promotedFee);
+              }
+
+              const vintedDisplay = hasBothPrices ? fmtProfit(vintedProfit) : '£0.00';
+              const ebayMainDisplay = hasBothPrices ? fmtProfit(profitWithoutPromo) : '£0.00';
+              const withPromoDisplay = hasBothPrices ? fmtProfit(profitWithPromo) : '£0.00';
+
+              const isVintedBuy = hasBothPrices && item > 0 && vintedProfit >= item * 2;
+              const isEbayBuyWithoutPromo =
+                hasBothPrices && item > 0 && profitWithoutPromo >= item * 2;
+
+              /** Same bands as STR UI: “skip” below 30; medium = risky+ */
+              const CTR_MEDIUM_OR_GOOD_MIN = 30;
+              const isClickthroughMediumOrGood =
+                manualSellThroughPercent !== null &&
+                manualSellThroughPercent >= CTR_MEDIUM_OR_GOOD_MIN;
+              const isOverallBuy =
+                hasBothPrices && isClickthroughMediumOrGood && isEbayBuyWithoutPromo;
+
+              return (
+                <div className="potential-profit-align-grid potential-profit-align-grid--four">
+                  <div className="potential-profit-platform-label">Click-through</div>
+                  <div className="potential-profit-platform-label">Vinted</div>
+                  <div className="potential-profit-platform-label">eBay</div>
+                  <div className="potential-profit-platform-label">Overall</div>
+
+                  <div className="potential-profit-cell-body potential-profit-cell-body--str">
+                    {manualSellThroughPercent !== null ? (
+                      <div
+                        className={`potential-profit-str-embed str-result ${getSTRColor(manualSellThroughPercent)}`}
+                      >
+                        <div className="str-rate-value">{manualSellThroughPercent.toFixed(1)}%</div>
+                        <div className="str-rate-label">{getSTRLabel(manualSellThroughPercent)}</div>
+                        <div className="str-rate-formula">
+                          ({itemsSold} / ({itemsSold} + {activeListings})) × 100 ={' '}
+                          {manualSellThroughPercent.toFixed(1)}%
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="potential-profit-str-embed potential-profit-str-embed--empty">
+                        <div className="potential-profit-str-placeholder-pct">—</div>
+                        <div className="potential-profit-str-placeholder-hint">
+                          Sold rate + active listings
+                        </div>
+                      </div>
+                    )}
                   </div>
-                );
-              })()}
-            </div>
-            <div className="potential-profit-platform">
-              <div className="potential-profit-platform-label">eBay</div>
-              <div className="potential-profit-platform-values">
-                {(() => {
-                  const hasBothPrices = itemPrice && salePrice && itemPrice.trim() !== '' && salePrice.trim() !== '';
-                  
-                  if (!hasBothPrices) {
-                    return (
-                      <>
-                        <div className="potential-profit-value-group">
-                          <div className="potential-profit-platform-value">£0.00</div>
-                        </div>
-                        <div className="potential-profit-separator">|</div>
-                        <div className="potential-profit-value-group">
-                          <div className="potential-profit-platform-value">£0.00</div>
-                        </div>
-                        <div className="potential-profit-promo-fee">(promotion fee: £0.00)</div>
-                      </>
-                    );
-                  }
-                  
-                  const item = parseFloat(itemPrice) || 0;
-                  const sale = parseFloat(salePrice) || 0;
-                  const listing = parseFloat(listingFees) || 0;
-                  const promotedPercent = parseFloat(promotedFees) || 0;
-                  const promotedFee = (sale * promotedPercent) / 100;
-                  
-                  // Profit without promotion
-                  const profitWithoutPromo = sale - (item + listing);
-                  const profitWithoutPromoDisplay = profitWithoutPromo >= 0 ? `£${profitWithoutPromo.toFixed(2)}` : `-£${Math.abs(profitWithoutPromo).toFixed(2)}`;
-                  
-                  // Profit with promotion
-                  const totalCosts = item + listing + promotedFee;
-                  const profitWithPromo = sale - totalCosts;
-                  const profitWithPromoDisplay = profitWithPromo >= 0 ? `£${profitWithPromo.toFixed(2)}` : `-£${Math.abs(profitWithPromo).toFixed(2)}`;
-                  
-                  const isBuyWithoutPromo = item > 0 && profitWithoutPromo >= (item * 2);
-                  const isBuyWithPromo = item > 0 && profitWithPromo >= (item * 2);
-                  
-                  return (
-                    <>
-                      <div className="potential-profit-value-group">
-                        <div className="potential-profit-platform-value">{profitWithoutPromoDisplay}</div>
-                        <div className={`potential-profit-tag ${isBuyWithoutPromo ? 'potential-profit-buy' : 'potential-profit-avoid'}`}>
-                          {isBuyWithoutPromo ? 'Buy' : 'Avoid'}
+
+                  <div className="potential-profit-cell-body">
+                    <div
+                      className={`potential-profit-platform-value potential-profit-value-row${
+                        !hasBothPrices
+                          ? ''
+                          : isVintedBuy
+                            ? ' potential-profit-value--buy'
+                            : ' potential-profit-value--pass'
+                      }`}
+                    >
+                      {vintedDisplay}
+                      <span className="potential-profit-mult">
+                        {' '}
+                        / {hasBothPrices ? profitMult(vintedProfit) : item > 0 ? '0.00x' : '—'}
+                      </span>
+                    </div>
+                    {hasBothPrices && (
+                      <div
+                        className={`potential-profit-tag ${isVintedBuy ? 'potential-profit-buy' : 'potential-profit-avoid'}`}
+                      >
+                        {isVintedBuy ? 'Buy' : 'Avoid'}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="potential-profit-cell-body potential-profit-cell-body--ebay">
+                    <div
+                      className={`potential-profit-platform-value potential-profit-value-row${
+                        !hasBothPrices
+                          ? ''
+                          : isEbayBuyWithoutPromo
+                            ? ' potential-profit-value--buy'
+                            : ' potential-profit-value--pass'
+                      }`}
+                    >
+                      {ebayMainDisplay}
+                      <span className="potential-profit-mult">
+                        {' '}
+                        / {hasBothPrices ? profitMult(profitWithoutPromo) : item > 0 ? '0.00x' : '—'}
+                      </span>
+                    </div>
+                    {hasBothPrices && (
+                      <div
+                        className={`potential-profit-tag ${isEbayBuyWithoutPromo ? 'potential-profit-buy' : 'potential-profit-avoid'}`}
+                      >
+                        {isEbayBuyWithoutPromo ? 'Buy' : 'Avoid'}
+                      </div>
+                    )}
+                    <div className="potential-profit-ebay-sub">
+                      <div className="potential-profit-with-promo-line">
+                        (with promo: {withPromoDisplay})
+                      </div>
+                      <div className="potential-profit-promo-fee">
+                        (promotion fee: £{hasBothPrices ? promotedFee.toFixed(2) : '0.00'})
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="potential-profit-cell-body potential-profit-cell-body--decision">
+                    {!hasBothPrices ? (
+                      <div className="potential-profit-decision-box potential-profit-decision-box--empty">
+                        <div className="potential-profit-decision-placeholder">—</div>
+                        <div className="potential-profit-decision-hint">Prices + CTR</div>
+                      </div>
+                    ) : (
+                      <div
+                        className={`potential-profit-decision-box ${
+                          isOverallBuy
+                            ? 'potential-profit-decision-box--buy'
+                            : 'potential-profit-decision-box--avoid'
+                        }`}
+                      >
+                        <div
+                          className={`potential-profit-tag potential-profit-decision-tag ${
+                            isOverallBuy ? 'potential-profit-buy' : 'potential-profit-avoid'
+                          }`}
+                        >
+                          {isOverallBuy ? 'Buy' : 'Avoid'}
                         </div>
                       </div>
-                      <div className="potential-profit-separator">|</div>
-                      <div className="potential-profit-value-group">
-                        <div className="potential-profit-platform-value">{profitWithPromoDisplay}</div>
-                        <div className={`potential-profit-tag ${isBuyWithPromo ? 'potential-profit-buy' : 'potential-profit-avoid'}`}>
-                          {isBuyWithPromo ? 'Buy' : 'Avoid'}
-                        </div>
-                      </div>
-                      <div className="potential-profit-promo-fee">(promotion fee: £{promotedFee.toFixed(2)})</div>
-                    </>
-                  );
-                })()}
-              </div>
-            </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           <div className="potential-profit-reset-container">
             <button
               type="button"
               onClick={() => {
+                setItemsSold('');
+                setActiveListings('');
                 setItemPrice('');
                 setSalePrice('');
-                setListingFees('1.50');
+                setListingFees('0.10');
                 setPromotedFees('10');
               }}
               className="potential-profit-reset-button"

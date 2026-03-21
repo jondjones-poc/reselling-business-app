@@ -1,19 +1,126 @@
 import React, { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import './BrandResearch.css';
 
-const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5003';
+/**
+ * API base for Research fetches (matches Stock, EbaySearch, etc.).
+ * - REACT_APP_API_BASE when set (build-time; production API or custom dev URL)
+ * - Development default: http://localhost:5003 (direct; avoids CRA proxy returning index.html for /api when backend is down)
+ * - Production build with no env: same-origin '' so `/api/...` goes to the host serving the SPA
+ */
+const getResearchApiBase = (): string => {
+  const fromEnv = (process.env.REACT_APP_API_BASE || '').trim().replace(/\/$/, '');
+  if (fromEnv) return fromEnv;
+  if (process.env.NODE_ENV === 'development') return 'http://localhost:5003';
+  return '';
+};
 
-// Load mensResaleReference from JSON file
-let mensResaleReference: Array<{
-  brand: string;
-  status: string;
-  note: string;
-  categories: Array<{ item: string; resaleRange: string }>;
-}> = [];
+const apiUrl = (path: string) => {
+  const base = getResearchApiBase();
+  return base ? `${base}${path}` : path;
+};
 
-// Fallback array (kept for reference)
+const friendlyApiUnreachableMessage = (err: unknown): string => {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (
+    msg === 'Failed to fetch' ||
+    msg.includes('NetworkError') ||
+    msg.includes('Load failed') ||
+    msg.includes('ECONNREFUSED')
+  ) {
+    return (
+      'Cannot reach the API (connection refused or network error). ' +
+      'Start the backend: npm run server (listens on port 5003) or npm run dev (frontend + API). ' +
+      'If the API is elsewhere, set REACT_APP_API_BASE in .env (no trailing slash).'
+    );
+  }
+  return msg;
+};
+
+function isUnreachableFetchError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    msg === 'Failed to fetch' ||
+    msg.includes('NetworkError') ||
+    msg.includes('Load failed') ||
+    msg.includes('ECONNREFUSED')
+  );
+}
+
+function isAbortError(err: unknown): boolean {
+  if (err instanceof DOMException && err.name === 'AbortError') return true;
+  return typeof err === 'object' && err !== null && (err as { name?: string }).name === 'AbortError';
+}
+
+type BrandWebsiteRow = { id: number; brand_name: string; brand_website: string | null };
+
+/** Normalize GET /api/brands payloads (handles string ids from pg, alternate keys, top-level array). */
+function parseBrandsApiPayload(data: unknown): BrandWebsiteRow[] {
+  let raw: unknown[] = [];
+  if (Array.isArray(data)) {
+    raw = data;
+  } else if (data && typeof data === 'object' && Array.isArray((data as { rows?: unknown }).rows)) {
+    raw = (data as { rows: unknown[] }).rows;
+  }
+  const out: BrandWebsiteRow[] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== 'object') continue;
+    const r = row as Record<string, unknown>;
+    const idRaw = r.id;
+    const idNum =
+      typeof idRaw === 'number' && Number.isFinite(idRaw)
+        ? Math.trunc(idRaw)
+        : parseInt(String(idRaw ?? '').trim(), 10);
+    if (!Number.isFinite(idNum) || idNum < 1) continue;
+    const nameRaw = r.brand_name ?? r.name;
+    const brand_name = (typeof nameRaw === 'string' ? nameRaw : String(nameRaw ?? '')).trim();
+    if (!brand_name) continue;
+    const bw = r.brand_website;
+    const brand_website = bw === null || bw === undefined ? null : String(bw);
+    out.push({ id: idNum, brand_name, brand_website });
+  }
+  return out;
+}
+
+/** When the dev server returns index.html (200) instead of proxying /api, response.json() throws on `<`. */
+async function readJsonResponse<T>(response: Response, context: string): Promise<T> {
+  const text = await response.text();
+  const trimmed = text.trim();
+
+  if (!response.ok) {
+    if (trimmed.startsWith('<')) {
+      throw new Error(
+        `${context}: HTTP ${response.status} — got HTML (API probably not reachable; start npm run server or check proxy).`
+      );
+    }
+    try {
+      const errObj = JSON.parse(trimmed) as { error?: string; details?: string };
+      const parts = [errObj.error, errObj.details].filter(Boolean);
+      throw new Error(parts.length ? parts.join(' — ') : `${context}: HTTP ${response.status}`);
+    } catch (e: unknown) {
+      if (e instanceof SyntaxError) {
+        throw new Error(`${context}: HTTP ${response.status} ${trimmed.slice(0, 120)}`);
+      }
+      throw e;
+    }
+  }
+
+  if (trimmed.startsWith('<')) {
+    throw new Error(
+      `${context}: received HTML instead of JSON (often CRA index.html when /api is not proxied to the backend). ` +
+        'Run npm run server on port 5003 alongside npm start, or set REACT_APP_API_BASE to your API URL.'
+    );
+  }
+
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    throw new Error(`${context}: invalid JSON`);
+  }
+}
+
+// Embedded default list; server `/api/mens-resale-reference` replaces when non-empty.
 const mensResaleReferenceFallback = [
   {
     brand: "AllSaints",
@@ -459,6 +566,43 @@ const mensResaleReferenceFallback = [
   }
 ];
 
+type MensResaleReferenceRow = {
+  brand: string;
+  status: string;
+  note: string;
+  categories: Array<{ item: string; resaleRange: string }>;
+};
+
+let mensResaleReference: MensResaleReferenceRow[] = mensResaleReferenceFallback.map((row) => ({ ...row }));
+
+function normalizeMensResaleApiPayload(data: unknown): MensResaleReferenceRow[] {
+  if (!Array.isArray(data)) return [];
+  const out: MensResaleReferenceRow[] = [];
+  for (const row of data) {
+    if (!row || typeof row !== 'object') continue;
+    const r = row as Record<string, unknown>;
+    const brand = typeof r.brand === 'string' ? r.brand.trim() : '';
+    if (!brand) continue;
+    const status = typeof r.status === 'string' ? r.status : '';
+    const note = typeof r.note === 'string' ? r.note : '';
+    const rawCats = r.categories;
+    const categories: Array<{ item: string; resaleRange: string }> = [];
+    if (Array.isArray(rawCats)) {
+      for (const c of rawCats) {
+        if (!c || typeof c !== 'object') continue;
+        const o = c as Record<string, unknown>;
+        const item = typeof o.item === 'string' ? o.item : '';
+        const resaleRange = typeof o.resaleRange === 'string' ? o.resaleRange : '';
+        if (item || resaleRange) {
+          categories.push({ item, resaleRange });
+        }
+      }
+    }
+    out.push({ brand, status, note, categories });
+  }
+  return out;
+}
+
 // Convert status emoji to status type
 const getStatusFromEmoji = (status: string): 'good' | 'bad' | 'warning' => {
   if (status === "✅") return 'good';
@@ -479,14 +623,53 @@ interface TypeaheadResult {
   categories?: CategoryItem[];
 }
 
+type BrandTagImageKind = 'tag' | 'fake_check';
+
+interface BrandTagImageRow {
+  id: number;
+  brand_id: number;
+  storage_path: string;
+  caption: string | null;
+  sort_order: number;
+  content_type: string | null;
+  image_kind: BrandTagImageKind;
+  created_at: string;
+  updated_at: string;
+  public_url: string | null;
+}
+
+function normalizeBrandTagImageRow(raw: unknown): BrandTagImageRow {
+  const r = raw as Record<string, unknown>;
+  const kindRaw = r.image_kind;
+  const image_kind: BrandTagImageKind =
+    kindRaw === 'fake_check' || kindRaw === 'fake' ? 'fake_check' : 'tag';
+  return {
+    ...(r as unknown as BrandTagImageRow),
+    image_kind,
+  };
+}
+
+function sortBrandTagImages(rows: BrandTagImageRow[]): BrandTagImageRow[] {
+  return [...rows].sort((a, b) => {
+    const fa = a.image_kind === 'fake_check' ? 1 : 0;
+    const fb = b.image_kind === 'fake_check' ? 1 : 0;
+    if (fa !== fb) return fa - fb;
+    if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+    return a.id - b.id;
+  });
+}
+
 const Research: React.FC = () => {
   const location = useLocation();
-  
+  const [searchParams, setSearchParams] = useSearchParams();
+  const brandQueryParam = searchParams.get('brand');
+
   // Offline/Brand search state
   const [searchText, setSearchText] = useState('');
   const [typeaheadResults, setTypeaheadResults] = useState<TypeaheadResult[]>([]);
   const [showTypeahead, setShowTypeahead] = useState(false);
-  const [lookupBrands, setLookupBrands] = useState<string[]>([]);
+  /** Bumps when offline reference data is replaced so typeahead recomputes from `mensResaleReference`. */
+  const [offlineReferenceTick, setOfflineReferenceTick] = useState(0);
   const [selectedLookupBrand, setSelectedLookupBrand] = useState('');
 
   // AI Research state
@@ -496,9 +679,27 @@ const Research: React.FC = () => {
   const [researchError, setResearchError] = useState<string | null>(null);
   const [researchResult, setResearchResult] = useState<string | null>(null);
 
-  // Brand Website state
   const [brandsWithWebsites, setBrandsWithWebsites] = useState<Array<{ id: number; brand_name: string; brand_website: string | null }>>([]);
-  const [selectedBrandForWebsite, setSelectedBrandForWebsite] = useState<number | ''>('');
+
+  const [brandTagBrandId, setBrandTagBrandId] = useState<number | ''>('');
+  const [brandTagImages, setBrandTagImages] = useState<BrandTagImageRow[]>([]);
+  const [brandTagLoading, setBrandTagLoading] = useState(false);
+  const [brandTagError, setBrandTagError] = useState<string | null>(null);
+  const [brandTagUploading, setBrandTagUploading] = useState(false);
+  const [brandTagCaption, setBrandTagCaption] = useState('');
+  const [brandTagNewImageKind, setBrandTagNewImageKind] = useState<BrandTagImageKind>('tag');
+  const [brandTagEditingId, setBrandTagEditingId] = useState<number | null>(null);
+  const [brandTagEditCaption, setBrandTagEditCaption] = useState('');
+  const [brandTagEditKind, setBrandTagEditKind] = useState<BrandTagImageKind>('tag');
+  const [brandTagSaving, setBrandTagSaving] = useState(false);
+  const [brandTagAddPanelOpen, setBrandTagAddPanelOpen] = useState(false);
+  const [brandWebsiteUrlEditing, setBrandWebsiteUrlEditing] = useState(false);
+  const [brandWebsiteUrlDraft, setBrandWebsiteUrlDraft] = useState('');
+  const [brandWebsiteUrlSaving, setBrandWebsiteUrlSaving] = useState(false);
+  const [brandsApiError, setBrandsApiError] = useState<string | null>(null);
+  const [brandsLoaded, setBrandsLoaded] = useState(false);
+  /** Shown at top when fetch fails (e.g. ERR_CONNECTION_REFUSED — backend not on :5003). */
+  const [researchApiOfflineMessage, setResearchApiOfflineMessage] = useState<string | null>(null);
 
   const compressImage = (file: File, maxWidth: number = 1920, maxHeight: number = 1920, quality: number = 0.8): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -755,7 +956,7 @@ const Research: React.FC = () => {
         imagesAreArray: Array.isArray(requestBody.images)
       });
 
-      const response = await fetch(`${API_BASE}/api/gemini/research`, {
+      const response = await fetch(apiUrl('/api/gemini/research'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -763,16 +964,11 @@ const Research: React.FC = () => {
         body: JSON.stringify(requestBody)
       });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Failed to process research request' }));
-        throw new Error(errorData.error || 'Failed to process research request');
-      }
-
-      const data = await response.json();
-      setResearchResult(data.result);
+      const data = await readJsonResponse<{ result?: string }>(response, 'gemini/research');
+      setResearchResult(data.result ?? '');
     } catch (err: any) {
       console.error('Gemini research error:', err);
-      setResearchError(err.message || 'Unable to process research request. Please try again later.');
+      setResearchError(friendlyApiUnreachableMessage(err));
     } finally {
       setResearchLoading(false);
     }
@@ -810,7 +1006,7 @@ const Research: React.FC = () => {
 
     setTypeaheadResults(results.slice(0, 10));
     setShowTypeahead(results.length > 0);
-  }, [searchText]);
+  }, [searchText, offlineReferenceTick]);
 
   // Handle Escape key to close typeahead and clear text
   useEffect(() => {
@@ -832,35 +1028,40 @@ const Research: React.FC = () => {
   }, [showTypeahead]);
 
   useEffect(() => {
-    // Load mensResaleReference from API
+    const ac = new AbortController();
+    let cancelled = false;
+
     const loadMensResaleReference = async () => {
-      try {
-        const response = await fetch(`${API_BASE}/api/mens-resale-reference`);
-        if (response.ok) {
-          const data = await response.json();
-          mensResaleReference.length = 0;
-          mensResaleReference.push(...data);
-          console.log(`Loaded ${mensResaleReference.length} brands from API`);
-          
-          // Populate lookup brands from mensResaleReference (all brands)
-          const allBrandsList = mensResaleReference
-            .map(item => item.brand)
-            .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-          setLookupBrands(allBrandsList);
-        }
-      } catch (error) {
-        console.warn('Failed to load mensResaleReference from API, using fallback:', error);
-        // Use fallback array if API fails
+      const applyRows = (rows: MensResaleReferenceRow[]) => {
         mensResaleReference.length = 0;
-        mensResaleReference.push(...mensResaleReferenceFallback);
-        const allBrandsList = mensResaleReferenceFallback
-          .map(item => item.brand)
-          .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-        setLookupBrands(allBrandsList);
+        mensResaleReference.push(...rows.map((r) => ({ ...r })));
+        setOfflineReferenceTick((t) => t + 1);
+      };
+
+      try {
+        const response = await fetch(apiUrl('/api/mens-resale-reference'), { signal: ac.signal });
+        const data = await readJsonResponse<unknown>(response, 'mens-resale-reference');
+        if (cancelled) return;
+        const normalized = normalizeMensResaleApiPayload(data);
+        const rows =
+          normalized.length > 0 ? normalized : mensResaleReferenceFallback.map((r) => ({ ...r }));
+        applyRows(rows);
+        console.log(`Loaded ${mensResaleReference.length} brands for offline research (API rows: ${normalized.length})`);
+      } catch (error) {
+        if (cancelled || isAbortError(error)) return;
+        console.warn('Failed to load mensResaleReference from API, using embedded fallback:', error);
+        if (isUnreachableFetchError(error)) {
+          setResearchApiOfflineMessage(friendlyApiUnreachableMessage(error));
+        }
+        applyRows(mensResaleReferenceFallback.map((r) => ({ ...r })));
       }
     };
 
     loadMensResaleReference();
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
   }, []);
 
   // Clear text box when navigating away or menu is clicked
@@ -876,42 +1077,396 @@ const Research: React.FC = () => {
     clearOnNavigation();
   }, [location.pathname]);
 
-  // Load brands with websites
+  // Load brands from DB (Brand Research: website + tag images)
   useEffect(() => {
+    const ac = new AbortController();
+    let cancelled = false;
+
     const loadBrandsWithWebsites = async () => {
+      setBrandsApiError(null);
+      setBrandsLoaded(false);
       try {
-        const response = await fetch(`${API_BASE}/api/brands`, {
+        const response = await fetch(apiUrl('/api/brands'), {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
           },
+          signal: ac.signal,
         });
 
-        if (response.ok) {
-          const data = await response.json();
-          console.log('Raw API response:', data);
-          const brands = Array.isArray(data.rows) ? data.rows : [];
-          console.log(`Loaded ${brands.length} brands from API`);
-          // Log a specific brand to check brand_website field
-          if (brands.length > 0) {
-            const firstBrand = brands[0];
-            console.log('First brand object:', firstBrand);
-            console.log('First brand keys:', Object.keys(firstBrand));
-            console.log('First brand brand_website:', firstBrand.brand_website);
-            // Check if it's a different case
-            console.log('First brand all properties:', JSON.stringify(firstBrand, null, 2));
-          }
-          setBrandsWithWebsites(brands);
-        } else {
-          console.error('Failed to load brands - response not OK:', response.status, response.statusText);
+        const data = await readJsonResponse<unknown>(response, '/api/brands');
+        if (cancelled) return;
+
+        const rawForCount = Array.isArray(data)
+          ? data
+          : data && typeof data === 'object' && Array.isArray((data as { rows?: unknown[] }).rows)
+            ? (data as { rows: unknown[] }).rows
+            : [];
+        const valid = parseBrandsApiPayload(data);
+        setBrandsWithWebsites(valid);
+        if (valid.length === 0 && rawForCount.length > 0) {
+          setBrandsApiError('Brands response had no valid rows (check id / brand_name).');
         }
       } catch (err) {
+        if (cancelled || isAbortError(err)) return;
         console.error('Failed to load brands with websites:', err);
+        setBrandsWithWebsites([]);
+        const friendly = friendlyApiUnreachableMessage(err);
+        if (isUnreachableFetchError(err)) {
+          setResearchApiOfflineMessage(friendly);
+          setBrandsApiError(null);
+        } else {
+          setBrandsApiError(friendly);
+        }
+      } finally {
+        if (!cancelled) {
+          setBrandsLoaded(true);
+        }
       }
     };
 
     loadBrandsWithWebsites();
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
   }, []);
+
+  // Brand Research: ?brand=<id> or ?brand=<encoded brand_name>
+  useEffect(() => {
+    if (!brandsLoaded) return;
+
+    const raw = brandQueryParam?.trim();
+    if (!raw) {
+      setBrandTagBrandId((prev) => (prev !== '' ? '' : prev));
+      return;
+    }
+
+    if (brandsWithWebsites.length === 0) return;
+
+    let decoded = raw;
+    try {
+      decoded = decodeURIComponent(raw);
+    } catch {
+      decoded = raw;
+    }
+
+    const trimmed = decoded.trim();
+    const asNum = parseInt(trimmed, 10);
+    const looksNumericId = !Number.isNaN(asNum) && /^\d+$/.test(trimmed);
+
+    let id: number | null = null;
+    if (looksNumericId && brandsWithWebsites.some((b) => b.id === asNum)) {
+      id = asNum;
+    } else {
+      const found = brandsWithWebsites.find(
+        (b) => b.brand_name.toLowerCase().trim() === trimmed.toLowerCase()
+      );
+      if (found) id = found.id;
+    }
+
+    if (id !== null) {
+      const selectedId = id;
+      setBrandTagBrandId((prev) => (prev !== selectedId ? selectedId : prev));
+    } else {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete('brand');
+          return next;
+        },
+        { replace: true }
+      );
+      setBrandTagBrandId((prev) => (prev !== '' ? '' : prev));
+    }
+  }, [brandsLoaded, brandsWithWebsites, brandQueryParam, setSearchParams]);
+
+  useEffect(() => {
+    setBrandTagEditingId(null);
+    setBrandTagEditCaption('');
+    setBrandTagEditKind('tag');
+    setBrandTagNewImageKind('tag');
+    setBrandTagAddPanelOpen(false);
+    setBrandWebsiteUrlEditing(false);
+    setBrandWebsiteUrlDraft('');
+  }, [brandTagBrandId]);
+
+  useEffect(() => {
+    if (!brandTagBrandId) {
+      setBrandTagImages([]);
+      setBrandTagError(null);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      setBrandTagLoading(true);
+      setBrandTagError(null);
+      try {
+        const response = await fetch(
+          apiUrl(`/api/brandTagImages?brandId=${encodeURIComponent(String(brandTagBrandId))}`)
+        );
+        const data = await readJsonResponse<{ rows?: unknown[] }>(response, 'brandTagImages');
+        if (!cancelled) {
+          const rows = Array.isArray(data.rows) ? data.rows.map(normalizeBrandTagImageRow) : [];
+          setBrandTagImages(sortBrandTagImages(rows));
+        }
+      } catch (err: unknown) {
+        if (!cancelled) {
+          setBrandTagImages([]);
+          setBrandTagError(friendlyApiUnreachableMessage(err));
+        }
+      } finally {
+        if (!cancelled) {
+          setBrandTagLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [brandTagBrandId]);
+
+  const handleSaveBrandWebsite = async () => {
+    if (brandTagBrandId === '') return;
+    const id = brandTagBrandId;
+    const trimmed = brandWebsiteUrlDraft.trim();
+    setBrandWebsiteUrlSaving(true);
+    setBrandTagError(null);
+    try {
+      const response = await fetch(apiUrl(`/api/brands/${id}`), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brand_website: trimmed ? trimmed.slice(0, 2048) : null }),
+      });
+      const data = await readJsonResponse<{
+        row?: { id: number; brand_name: string; brand_website: string | null };
+      }>(response, 'brand website update');
+      const row = data.row;
+      if (row) {
+        setBrandsWithWebsites((prev) =>
+          prev.map((br) => (br.id === row.id ? { ...br, brand_website: row.brand_website } : br))
+        );
+      }
+      setBrandWebsiteUrlEditing(false);
+      setBrandWebsiteUrlDraft('');
+    } catch (err: unknown) {
+      setBrandTagError(friendlyApiUnreachableMessage(err));
+    } finally {
+      setBrandWebsiteUrlSaving(false);
+    }
+  };
+
+  const handleBrandTagFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !brandTagBrandId) {
+      return;
+    }
+
+    setBrandTagUploading(true);
+    setBrandTagError(null);
+    try {
+      const formData = new FormData();
+      formData.append('brandId', String(brandTagBrandId));
+      formData.append('image', file);
+      const cap = brandTagCaption.trim();
+      if (cap) {
+        formData.append('caption', cap);
+      }
+      formData.append('imageKind', brandTagNewImageKind);
+
+      const response = await fetch(apiUrl('/api/brandTagImages'), {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await readJsonResponse<BrandTagImageRow & { error?: string }>(
+        response,
+        'brandTagImages upload'
+      );
+      setBrandTagImages((prev) =>
+        sortBrandTagImages([...prev, normalizeBrandTagImageRow(data)])
+      );
+      setBrandTagCaption('');
+      setBrandTagNewImageKind('tag');
+      setBrandTagAddPanelOpen(false);
+    } catch (err: unknown) {
+      setBrandTagError(friendlyApiUnreachableMessage(err));
+    } finally {
+      setBrandTagUploading(false);
+    }
+  };
+
+  const handleDeleteBrandTagImage = async (imageId: number) => {
+    if (!window.confirm('Remove this example tag image?')) {
+      return;
+    }
+    setBrandTagError(null);
+    try {
+      const response = await fetch(apiUrl(`/api/brandTagImages/${imageId}`), {
+        method: 'DELETE',
+      });
+      await readJsonResponse<{ ok?: boolean }>(response, 'brandTagImages delete');
+      setBrandTagImages((prev) => prev.filter((row) => row.id !== imageId));
+      setBrandTagEditingId((cur) => (cur === imageId ? null : cur));
+    } catch (err: unknown) {
+      setBrandTagError(friendlyApiUnreachableMessage(err));
+    }
+  };
+
+  const startEditBrandTagImage = (img: BrandTagImageRow) => {
+    setBrandTagEditingId(img.id);
+    setBrandTagEditCaption(img.caption ?? '');
+    setBrandTagEditKind(img.image_kind);
+  };
+
+  const cancelEditBrandTagImage = () => {
+    setBrandTagEditingId(null);
+    setBrandTagEditCaption('');
+    setBrandTagEditKind('tag');
+  };
+
+  const handleSaveBrandTagCaption = async () => {
+    if (brandTagEditingId === null) return;
+    const id = brandTagEditingId;
+    const trimmed = brandTagEditCaption.trim();
+    setBrandTagSaving(true);
+    setBrandTagError(null);
+    try {
+      const response = await fetch(apiUrl(`/api/brandTagImages/${id}`), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          caption: trimmed ? trimmed.slice(0, 500) : null,
+          imageKind: brandTagEditKind,
+        }),
+      });
+      const data = await readJsonResponse<BrandTagImageRow>(response, 'brandTagImages patch');
+      const normalized = normalizeBrandTagImageRow(data);
+      setBrandTagImages((prev) =>
+        sortBrandTagImages(prev.map((row) => (row.id === id ? { ...row, ...normalized } : row)))
+      );
+      setBrandTagEditingId(null);
+      setBrandTagEditCaption('');
+      setBrandTagEditKind('tag');
+    } catch (err: unknown) {
+      setBrandTagError(friendlyApiUnreachableMessage(err));
+    } finally {
+      setBrandTagSaving(false);
+    }
+  };
+
+  const renderBrandTagImageCard = (img: BrandTagImageRow) => {
+    const isEditing = brandTagEditingId === img.id;
+    const isFake = img.image_kind === 'fake_check';
+    return (
+      <li
+        key={img.id}
+        className={
+          'brand-tag-examples-card' + (isFake ? ' brand-tag-examples-card--fake' : '')
+        }
+      >
+        <div className="brand-tag-examples-card-row">
+          <div className="brand-tag-examples-card-media">
+            {img.public_url ? (
+              <a
+                href={img.public_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="brand-tag-examples-thumb-link"
+              >
+                <img
+                  src={img.public_url}
+                  alt={img.caption || (isFake ? 'Fake check reference' : 'Brand tag')}
+                  className="brand-tag-examples-thumb"
+                />
+              </a>
+            ) : (
+              <div className="brand-tag-examples-thumb-fallback" title={img.storage_path}>
+                No public URL (check Storage bucket / env)
+              </div>
+            )}
+          </div>
+          {isEditing ? (
+            <div className="brand-tag-examples-edit-panel brand-tag-examples-card-edit-span">
+              <label className="brand-tag-examples-edit-label" htmlFor={`brand-tag-kind-${img.id}`}>
+                Image type
+              </label>
+              <select
+                id={`brand-tag-kind-${img.id}`}
+                className="brand-tag-examples-select brand-tag-examples-kind-select"
+                value={brandTagEditKind}
+                onChange={(e) => setBrandTagEditKind(e.target.value as BrandTagImageKind)}
+                disabled={brandTagSaving}
+              >
+                <option value="tag">Tag</option>
+                <option value="fake_check">Fake Check</option>
+              </select>
+              <label className="brand-tag-examples-edit-label" htmlFor={`brand-tag-edit-${img.id}`}>
+                Description
+              </label>
+              <textarea
+                id={`brand-tag-edit-${img.id}`}
+                className="brand-tag-examples-edit-textarea"
+                value={brandTagEditCaption}
+                onChange={(e) => setBrandTagEditCaption(e.target.value)}
+                placeholder="e.g. SS19 neck label"
+                maxLength={500}
+                rows={4}
+                disabled={brandTagSaving}
+              />
+              <div className="brand-tag-examples-edit-actions">
+                <button
+                  type="button"
+                  className="brand-tag-examples-save"
+                  onClick={() => void handleSaveBrandTagCaption()}
+                  disabled={brandTagSaving}
+                >
+                  {brandTagSaving ? 'Saving…' : 'Save'}
+                </button>
+                <button
+                  type="button"
+                  className="brand-tag-examples-cancel"
+                  onClick={cancelEditBrandTagImage}
+                  disabled={brandTagSaving}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="brand-tag-examples-remove"
+                  onClick={() => void handleDeleteBrandTagImage(img.id)}
+                  disabled={brandTagSaving}
+                >
+                  Delete image
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="brand-tag-examples-caption-block">
+                {img.caption ? (
+                  <p className="brand-tag-examples-caption">{img.caption}</p>
+                ) : (
+                  <p className="brand-tag-examples-caption-placeholder">No description yet</p>
+                )}
+              </div>
+              <div className="brand-tag-examples-card-edit-col">
+                <button
+                  type="button"
+                  className="brand-tag-examples-edit-btn"
+                  onClick={() => startEditBrandTagImage(img)}
+                >
+                  Edit
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </li>
+    );
+  };
 
   const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setSearchText(event.target.value);
@@ -921,16 +1476,8 @@ const Research: React.FC = () => {
   const handleTypeaheadClick = (brandName: string) => {
     setSearchText(brandName);
     setShowTypeahead(false);
+    setSelectedLookupBrand(brandName);
   };
-
-  const handleLookupBrandChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const selected = event.target.value;
-    setSelectedLookupBrand(selected);
-    if (selected) {
-      setSearchText(selected);
-    }
-  };
-
 
   const handleCopyToClipboard = async (brandName: string, e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
@@ -998,11 +1545,282 @@ const Research: React.FC = () => {
 
   return (
     <div className="research-page-container">
-      {/* Brand Search Section */}
-      <div className="brand-research-container">
-        <div className="search-section">
-          <div className="search-input-container" style={{ position: 'relative' }}>
+      {researchApiOfflineMessage && (
+        <div className="research-api-offline-banner" role="alert">
+          {researchApiOfflineMessage}
+        </div>
+      )}
+      <div className="brand-tag-examples-container">
+        <h2 className="brand-tag-examples-heading">Brand research</h2>
+        <div
+          className={
+            'brand-tag-examples-form' +
+            (brandTagBrandId === '' ? ' brand-tag-examples-form--no-brand-selected' : '')
+          }
+        >
+          {!brandsLoaded && (
+            <div className="brand-tag-examples-muted" style={{ marginBottom: 8 }}>
+              Loading brands…
+            </div>
+          )}
+          {brandsApiError && (
+            <div className="brand-tag-examples-error" style={{ marginBottom: 12 }}>
+              {brandsApiError}
+            </div>
+          )}
+          {brandsLoaded &&
+            researchApiOfflineMessage &&
+            !brandsApiError &&
+            brandsWithWebsites.length === 0 && (
+              <div className="brand-tag-examples-muted" style={{ marginBottom: 12 }}>
+                Brand Research needs the API — see the notice at the top of this page.
+              </div>
+            )}
+          {brandsLoaded &&
+            !brandsApiError &&
+            !researchApiOfflineMessage &&
+            brandsWithWebsites.length === 0 && (
+            <div className="brand-tag-examples-muted" style={{ marginBottom: 12 }}>
+              No brands returned from the API. Add rows to the <code className="brand-tag-examples-code">brand</code>{' '}
+              table or check the server / database connection.
+            </div>
+          )}
+          <div className="brand-tag-examples-brand-stack">
+            <div
+              className={
+                'brand-tag-examples-brand-toolbar' +
+                (brandTagBrandId !== '' ? ' brand-tag-examples-brand-toolbar--split' : '')
+              }
+            >
+              <div className="brand-tag-examples-brand-select-wrap">
+                <select
+                  id="brand-tag-brand-select"
+                  className="brand-tag-examples-select"
+                  aria-label="Select brand"
+                  value={brandTagBrandId === '' ? '' : String(brandTagBrandId)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    const id = v ? Number(v) : '';
+                    setBrandTagBrandId(id);
+                    const next = new URLSearchParams(searchParams);
+                    if (id === '') {
+                      next.delete('brand');
+                    } else {
+                      next.set('brand', String(id));
+                    }
+                    setSearchParams(next, { replace: true });
+                  }}
+                  disabled={!brandsLoaded || brandsWithWebsites.length === 0}
+                >
+                  <option value="">Select a brand…</option>
+                  {brandsWithWebsites.map((b) => (
+                    <option key={b.id} value={String(b.id)}>
+                      {b.brand_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {brandTagBrandId !== '' && (
+                <div className="brand-tag-examples-brand-toolbar-actions">
+                  <button
+                    type="button"
+                    className="brand-tag-examples-add-info-btn brand-tag-examples-toolbar-btn"
+                    onClick={() => setBrandTagAddPanelOpen((o) => !o)}
+                    aria-expanded={brandTagAddPanelOpen}
+                  >
+                    {brandTagAddPanelOpen ? 'Hide add image' : 'Add info'}
+                  </button>
+                  {!brandWebsiteUrlEditing && (
+                    <button
+                      type="button"
+                      className="brand-tag-examples-edit-btn brand-tag-examples-toolbar-btn"
+                      onClick={() => {
+                        const br = brandsWithWebsites.find((x) => x.id === brandTagBrandId);
+                        if (br) {
+                          setBrandWebsiteUrlDraft(br.brand_website?.trim() ?? '');
+                          setBrandWebsiteUrlEditing(true);
+                        }
+                      }}
+                    >
+                      Edit
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+            {brandTagBrandId !== '' &&
+              (() => {
+                const b = brandsWithWebsites.find((x) => x.id === brandTagBrandId);
+                if (!b) return null;
+
+                const rawBrowse = b.brand_website?.trim() ?? '';
+                const fullUrlBrowse =
+                  rawBrowse &&
+                  (rawBrowse.startsWith('http://') || rawBrowse.startsWith('https://')
+                    ? rawBrowse
+                    : `https://${rawBrowse}`);
+
+                const addImagePanel = brandTagAddPanelOpen ? (
+                  <div className="brand-tag-examples-add-panel" id="brand-tag-add-panel">
+                    <label className="brand-tag-examples-label" htmlFor="brand-tag-new-kind">
+                      Image type
+                    </label>
+                    <select
+                      id="brand-tag-new-kind"
+                      className="brand-tag-examples-select brand-tag-examples-kind-select"
+                      value={brandTagNewImageKind}
+                      onChange={(e) => setBrandTagNewImageKind(e.target.value as BrandTagImageKind)}
+                      disabled={brandTagUploading}
+                    >
+                      <option value="tag">Tag</option>
+                      <option value="fake_check">Fake Check</option>
+                    </select>
+                    <label className="brand-tag-examples-label" htmlFor="brand-tag-caption">
+                      Caption (optional)
+                    </label>
+                    <input
+                      id="brand-tag-caption"
+                      type="text"
+                      className="brand-tag-examples-caption-input"
+                      value={brandTagCaption}
+                      onChange={(e) => setBrandTagCaption(e.target.value)}
+                      placeholder="e.g. SS19 neck label"
+                      maxLength={500}
+                    />
+                    <div className="brand-tag-examples-upload-row">
+                      <label htmlFor="brand-tag-file" className="brand-tag-examples-upload-button">
+                        {brandTagUploading ? 'Uploading…' : 'Upload image'}
+                      </label>
+                      <input
+                        id="brand-tag-file"
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/gif"
+                        className="brand-tag-examples-file-input"
+                        disabled={brandTagUploading}
+                        onChange={handleBrandTagFileChange}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="brand-tag-examples-add-panel-close"
+                      onClick={() => {
+                        setBrandTagAddPanelOpen(false);
+                        setBrandTagCaption('');
+                        setBrandTagNewImageKind('tag');
+                      }}
+                    >
+                      Close
+                    </button>
+                  </div>
+                ) : null;
+
+                return (
+                  <div className="brand-tag-examples-brand-website-below">
+                    {brandWebsiteUrlEditing ? (
+                      <div className="brand-tag-examples-website-edit brand-tag-examples-website-under-dropdown">
+                        <label className="brand-tag-examples-label" htmlFor="brand-research-website-url">
+                          Website URL
+                        </label>
+                        <div className="brand-tag-examples-website-edit-input-row">
+                          <input
+                            id="brand-research-website-url"
+                            type="text"
+                            className="brand-tag-examples-caption-input brand-tag-examples-website-url-input"
+                            value={brandWebsiteUrlDraft}
+                            onChange={(e) => setBrandWebsiteUrlDraft(e.target.value)}
+                            placeholder="https://…"
+                            maxLength={2048}
+                            disabled={brandWebsiteUrlSaving}
+                            autoComplete="url"
+                          />
+                          <button
+                            type="button"
+                            className="brand-tag-examples-save"
+                            onClick={() => void handleSaveBrandWebsite()}
+                            disabled={brandWebsiteUrlSaving}
+                          >
+                            {brandWebsiteUrlSaving ? 'Saving…' : 'Save'}
+                          </button>
+                          <button
+                            type="button"
+                            className="brand-tag-examples-cancel"
+                            onClick={() => {
+                              setBrandWebsiteUrlEditing(false);
+                              setBrandWebsiteUrlDraft('');
+                            }}
+                            disabled={brandWebsiteUrlSaving}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="brand-tag-examples-website-browse-below">
+                        {fullUrlBrowse ? (
+                          <div className="brand-visit-website-framed">
+                            <hr className="brand-visit-website-rule" aria-hidden="true" />
+                            <a
+                              href={fullUrlBrowse}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="brand-website-link brand-tag-examples-website-browse-link"
+                              title={rawBrowse}
+                            >
+                              Visit Website
+                            </a>
+                            <hr className="brand-visit-website-rule" aria-hidden="true" />
+                          </div>
+                        ) : (
+                          <span className="brand-tag-examples-muted brand-tag-examples-website-browse-empty">
+                            No website URL
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {addImagePanel}
+                  </div>
+                );
+              })()}
+          </div>
+        </div>
+        {brandTagError && <div className="brand-tag-examples-error">{brandTagError}</div>}
+        {brandTagBrandId !== '' && brandTagLoading && (
+          <div className="brand-tag-examples-muted">Loading…</div>
+        )}
+        {brandTagImages.length > 0 && (
+          <>
+            {(() => {
+              const tagRows = brandTagImages.filter((i) => i.image_kind !== 'fake_check');
+              const fakeRows = brandTagImages.filter((i) => i.image_kind === 'fake_check');
+              return (
+                <>
+                  {tagRows.length > 0 && (
+                    <div className="brand-tag-examples-image-section">
+                      <ul className="brand-tag-examples-grid">{tagRows.map(renderBrandTagImageCard)}</ul>
+                    </div>
+                  )}
+                  {fakeRows.length > 0 && (
+                    <div className="brand-tag-examples-image-section brand-tag-examples-image-section--fake">
+                      <h3 className="brand-tag-examples-fake-heading">Fake Warning Signals</h3>
+                      <ul className="brand-tag-examples-grid brand-tag-examples-grid--fake">
+                        {fakeRows.map(renderBrandTagImageCard)}
+                      </ul>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </>
+        )}
+      </div>
+
+      {/* Brand Offline Research (offline reference + lookup) */}
+      <div className="brand-lookup-container">
+        <h2 className="brand-lookup-heading">Brand Offline Research</h2>
+        <div className="brand-lookup-form">
+          <div className="search-input-container brand-lookup-quick-search" style={{ position: 'relative' }}>
             <input
+              id="brand-offline-search"
               type="text"
               value={searchText}
               onChange={handleSearchChange}
@@ -1014,14 +1832,15 @@ const Research: React.FC = () => {
               onBlur={() => {
                 setTimeout(() => setShowTypeahead(false), 200);
               }}
-              placeholder="Search brands..."
+              placeholder="Search brands…"
               className="brand-search-input"
               autoComplete="off"
+              aria-label="Search brands"
             />
             {showTypeahead && typeaheadResults.length > 0 && (
               <div className="brand-results-dropdown" onClick={() => setShowTypeahead(false)}>
-                <div 
-                  className="brand-results-dropdown-content" 
+                <div
+                  className="brand-results-dropdown-content"
                   onClick={(e) => {
                     if (window.innerWidth <= 768) {
                       setShowTypeahead(false);
@@ -1074,13 +1893,17 @@ const Research: React.FC = () => {
                               📋
                             </button>
                           </div>
-                          <span className={`result-status-tag ${result.status === 'good' ? 'good-tag' : result.status === 'warning' ? 'warning-tag' : 'avoid-tag'}`}>
-                            {result.status === 'good' ? 'Good' : result.status === 'warning' ? 'Warning' : 'Avoid'}
+                          <span
+                            className={`result-status-tag ${result.status === 'good' ? 'good-tag' : result.status === 'warning' ? 'warning-tag' : 'avoid-tag'}`}
+                          >
+                            {result.status === 'good'
+                              ? 'Good'
+                              : result.status === 'warning'
+                                ? 'Warning'
+                                : 'Avoid'}
                           </span>
                         </div>
-                        {result.note && (
-                          <div className="result-note">{result.note}</div>
-                        )}
+                        {result.note && <div className="result-note">{result.note}</div>}
                         {result.categories && result.categories.length > 0 && (
                           <div className="result-categories-list">
                             {result.categories.map((cat, catIndex) => (
@@ -1098,28 +1921,7 @@ const Research: React.FC = () => {
               </div>
             )}
           </div>
-        </div>
 
-      </div>
-
-      {/* Brands Lookup Tool Section */}
-      <div className="brand-lookup-container">
-        <h2 className="brand-lookup-heading">Brands Lookup Tool</h2>
-        <div className="brand-lookup-form">
-          {lookupBrands.length > 0 && (
-            <select
-              value={selectedLookupBrand}
-              onChange={handleLookupBrandChange}
-              className="brand-lookup-select"
-            >
-              <option value="">Select a brand...</option>
-              {lookupBrands.map((brand) => (
-                <option key={brand} value={brand}>
-                  {brand}
-                </option>
-              ))}
-            </select>
-          )}
           {selectedLookupBrand && (() => {
             // Find brand in mensResaleReference for status, note, and categories
             const brandData = mensResaleReference.find(item => 
@@ -1170,18 +1972,30 @@ const Research: React.FC = () => {
                       ))}
                     </div>
                   )}
-                  {selectedBrand && selectedBrand.brand_website && (
-                    <div className="brand-website-link-container" style={{ marginTop: '12px' }}>
-                      <a
-                        href={selectedBrand.brand_website}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="brand-website-link"
-                      >
-                        {selectedBrand.brand_website}
-                      </a>
-                    </div>
-                  )}
+                  {selectedBrand && selectedBrand.brand_website && (() => {
+                    const rawSite = selectedBrand.brand_website.trim();
+                    const hrefSite =
+                      rawSite.startsWith('http://') || rawSite.startsWith('https://')
+                        ? rawSite
+                        : `https://${rawSite}`;
+                    return (
+                      <div className="brand-visit-website-framed">
+                        <hr className="brand-visit-website-rule" aria-hidden="true" />
+                        <div className="brand-website-link-container">
+                          <a
+                            href={hrefSite}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="brand-website-link"
+                            title={rawSite}
+                          >
+                            Visit Website
+                          </a>
+                        </div>
+                        <hr className="brand-visit-website-rule" aria-hidden="true" />
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             );
@@ -1283,58 +2097,6 @@ const Research: React.FC = () => {
             </div>
           )}
         </form>
-      </div>
-
-      {/* Brand Website Section */}
-      <div className="brand-research-container">
-        <div className="brand-website-section">
-          <h3 className="brand-website-title">Brand Website</h3>
-          <div className="brand-website-form">
-            <div className="brand-website-dropdown-container">
-              <select
-                id="brand-website-select"
-                value={selectedBrandForWebsite}
-                onChange={(e) => setSelectedBrandForWebsite(e.target.value ? Number(e.target.value) : '')}
-                className="brand-website-select"
-              >
-                <option value="">-- Select a brand --</option>
-                {brandsWithWebsites.map((brand) => (
-                  <option key={brand.id} value={brand.id}>
-                    {brand.brand_name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {selectedBrandForWebsite && (() => {
-              const selectedBrand = brandsWithWebsites.find(b => b.id === Number(selectedBrandForWebsite));
-              console.log('Selected brand:', selectedBrand);
-              console.log('Brand website value:', selectedBrand?.brand_website);
-              if (selectedBrand) {
-                const websiteUrl = selectedBrand.brand_website;
-                if (websiteUrl && typeof websiteUrl === 'string' && websiteUrl.trim() !== '') {
-                  const trimmedUrl = websiteUrl.trim();
-                  // Ensure URL has protocol
-                  const fullUrl = trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://') 
-                    ? trimmedUrl 
-                    : `https://${trimmedUrl}`;
-                  return (
-                    <div className="brand-website-link-container">
-                      <a
-                        href={fullUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="brand-website-link"
-                      >
-                        {trimmedUrl}
-                      </a>
-                    </div>
-                  );
-                }
-              }
-              return null;
-            })()}
-          </div>
-        </div>
       </div>
     </div>
   );

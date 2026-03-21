@@ -135,10 +135,82 @@ interface TrailingInventoryPoint {
 }
 
 interface StockRowForSalesData {
+  id?: number;
+  item_name?: string | null;
   purchase_date: string | null;
   sale_date: string | null;
   purchase_price: number | string | null;
   sale_price: number | string | null;
+  sold_platform?: string | null;
+}
+
+type ItemAnalysisPreset = 'current-month' | 'last-month' | 'custom-month' | 'current-year' | 'last-3-years';
+
+const monthLabelsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+interface ItemAnalysisSoldRow {
+  id: number;
+  name: string;
+  purchase: number;
+  sale: number;
+  profit: number;
+  multiplier: number | null;
+}
+
+function parseStockNumber(value: number | string | null | undefined): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function getItemAnalysisRange(
+  preset: ItemAnalysisPreset,
+  customYear: number,
+  customMonth: number
+): { start: Date; end: Date; label: string } {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+
+  const sod = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+  const eod = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+
+  if (preset === 'current-month') {
+    const start = sod(new Date(y, m, 1));
+    const end = eod(new Date(y, m + 1, 0));
+    return { start, end, label: `${monthLabelsShort[m]} ${y}` };
+  }
+  if (preset === 'last-month') {
+    const start = sod(new Date(y, m - 1, 1));
+    const end = eod(new Date(y, m, 0));
+    const ly = m === 0 ? y - 1 : y;
+    const lm = m === 0 ? 11 : m - 1;
+    return { start, end, label: `${monthLabelsShort[lm]} ${ly}` };
+  }
+  if (preset === 'current-year') {
+    const start = sod(new Date(y, 0, 1));
+    const end = eod(new Date(y, 11, 31));
+    return { start, end, label: `${y}` };
+  }
+  if (preset === 'last-3-years') {
+    const startYear = y - 2;
+    const start = sod(new Date(startYear, 0, 1));
+    const end = eod(new Date(y, 11, 31));
+    return { start, end, label: `${startYear}–${y}` };
+  }
+  const start = sod(new Date(customYear, customMonth - 1, 1));
+  const end = eod(new Date(customYear, customMonth, 0));
+  return { start, end, label: `${monthLabelsShort[customMonth - 1]} ${customYear}` };
+}
+
+function soldPlatformIsEbay(p: string | null | undefined): boolean {
+  const t = p?.trim();
+  return t === 'eBay' || t?.toLowerCase() === 'ebay';
+}
+
+function soldPlatformIsVinted(p: string | null | undefined): boolean {
+  const t = p?.trim();
+  return t === 'Vinted' || t?.toLowerCase() === 'vinted';
 }
 
 interface ReportingResponse {
@@ -230,11 +302,55 @@ const chartOptions: ChartOptions<'bar'> = {
   },
 };
 
+const itemAnalysisChartOptions: ChartOptions<'bar'> = {
+  responsive: true,
+  maintainAspectRatio: false,
+  indexAxis: 'y',
+  plugins: {
+    legend: { display: false },
+    tooltip: {
+      callbacks: {
+        label(context) {
+          const value = context.raw as number;
+          return `Profit: ${formatCurrency(value || 0)}`;
+        },
+      },
+    },
+  },
+  scales: {
+    x: {
+      beginAtZero: true,
+      grid: { color: 'rgba(255, 214, 91, 0.12)' },
+      ticks: {
+        color: 'rgba(255, 248, 226, 0.75)',
+        callback(value) {
+          if (typeof value === 'number') {
+            return formatCurrency(value);
+          }
+          return value;
+        },
+      },
+    },
+    y: {
+      grid: { display: false },
+      ticks: {
+        color: 'rgba(255, 248, 226, 0.82)',
+        autoSkip: false,
+        font: { size: 11 },
+      },
+    },
+  },
+};
+
 const Reporting: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const tabFromUrl = searchParams.get('tab');
-  const initialViewMode: 'sales-data' | 'stock-analysis' =
-    tabFromUrl === 'stock-analysis' ? 'stock-analysis' : 'sales-data';
+  const initialViewMode: 'sales-data' | 'stock-analysis' | 'item-analysis' =
+    tabFromUrl === 'stock-analysis'
+      ? 'stock-analysis'
+      : tabFromUrl === 'item-analysis'
+        ? 'item-analysis'
+        : 'sales-data';
 
   const [availableYears, setAvailableYears] = useState<number[]>([]);
   const [selectedYear, setSelectedYear] = useState<number | 'all'>('all');
@@ -267,7 +383,10 @@ const Reporting: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   
   // Monthly view state
-  const [viewMode, setViewMode] = useState<'sales-data' | 'stock-analysis'>(initialViewMode);
+  const [viewMode, setViewMode] = useState<'sales-data' | 'stock-analysis' | 'item-analysis'>(initialViewMode);
+  const [itemAnalysisPreset, setItemAnalysisPreset] = useState<ItemAnalysisPreset>('current-month');
+  const [itemAnalysisCustomYear, setItemAnalysisCustomYear] = useState(() => new Date().getFullYear());
+  const [itemAnalysisCustomMonth, setItemAnalysisCustomMonth] = useState(() => new Date().getMonth() + 1);
   const [vintedData, setVintedData] = useState<{ purchases: number; sales: number; profit: number }>({ purchases: 0, sales: 0, profit: 0 });
   const [ebayData, setEbayData] = useState<{ purchases: number; sales: number; profit: number }>({ purchases: 0, sales: 0, profit: 0 });
   const [unsoldPurchases, setUnsoldPurchases] = useState<number>(0);
@@ -357,8 +476,9 @@ const Reporting: React.FC = () => {
   }, [selectedYear]);
 
   useEffect(() => {
-    const nextViewMode: 'sales-data' | 'stock-analysis' =
-      searchParams.get('tab') === 'stock-analysis' ? 'stock-analysis' : 'sales-data';
+    const t = searchParams.get('tab');
+    const nextViewMode: 'sales-data' | 'stock-analysis' | 'item-analysis' =
+      t === 'stock-analysis' ? 'stock-analysis' : t === 'item-analysis' ? 'item-analysis' : 'sales-data';
     setViewMode((prev) => (prev === nextViewMode ? prev : nextViewMode));
   }, [searchParams]);
 
@@ -1249,6 +1369,95 @@ const Reporting: React.FC = () => {
     };
   }, [stockRowsForSalesData, isDateInSalesRange, monthlyChartBuckets]);
 
+  const itemAnalysisRange = useMemo(
+    () => getItemAnalysisRange(itemAnalysisPreset, itemAnalysisCustomYear, itemAnalysisCustomMonth),
+    [itemAnalysisPreset, itemAnalysisCustomYear, itemAnalysisCustomMonth]
+  );
+
+  const { itemAnalysisEbayItems, itemAnalysisVintedItems } = useMemo(() => {
+    const { start, end } = itemAnalysisRange;
+    const build = (platformMatch: (row: StockRowForSalesData) => boolean): ItemAnalysisSoldRow[] => {
+      const out: ItemAnalysisSoldRow[] = [];
+      stockRowsForSalesData.forEach((row, idx) => {
+        if (!platformMatch(row)) return;
+        if (!row.sale_date) return;
+        const sd = new Date(row.sale_date);
+        if (Number.isNaN(sd.getTime())) return;
+        if (sd < start || sd > end) return;
+        const purchase = parseStockNumber(row.purchase_price);
+        const sale = parseStockNumber(row.sale_price);
+        if (purchase === null || sale === null) return;
+        const profit = sale - purchase;
+        const multiplier = purchase > 0 ? sale / purchase : null;
+        out.push({
+          id: typeof row.id === 'number' ? row.id : idx,
+          name: (row.item_name && row.item_name.trim()) || '—',
+          purchase,
+          sale,
+          profit,
+          multiplier,
+        });
+      });
+      out.sort((a, b) => b.profit - a.profit);
+      return out;
+    };
+    return {
+      itemAnalysisEbayItems: build((row) => soldPlatformIsEbay(row.sold_platform)),
+      itemAnalysisVintedItems: build((row) => soldPlatformIsVinted(row.sold_platform)),
+    };
+  }, [stockRowsForSalesData, itemAnalysisRange]);
+
+  const ITEM_ANALYSIS_CHART_TOP = 15;
+
+  const itemAnalysisEbayChart = useMemo(() => {
+    const top = itemAnalysisEbayItems.slice(0, ITEM_ANALYSIS_CHART_TOP);
+    const labelsFull = top.map((t) => t.name);
+    const labels = labelsFull.map((n) => (n.length > 40 ? `${n.slice(0, 38)}…` : n));
+    return {
+      labelsFull,
+      chartData: {
+        labels,
+        datasets: [
+          {
+            label: 'Profit',
+            data: top.map((t) => t.profit),
+            backgroundColor: 'rgba(140, 180, 255, 0.55)',
+            borderColor: 'rgba(140, 180, 255, 0.9)',
+            borderWidth: 1,
+            borderRadius: 6,
+          },
+        ],
+      },
+    };
+  }, [itemAnalysisEbayItems]);
+
+  const itemAnalysisVintedChart = useMemo(() => {
+    const top = itemAnalysisVintedItems.slice(0, ITEM_ANALYSIS_CHART_TOP);
+    const labelsFull = top.map((t) => t.name);
+    const labels = labelsFull.map((n) => (n.length > 40 ? `${n.slice(0, 38)}…` : n));
+    return {
+      labelsFull,
+      chartData: {
+        labels,
+        datasets: [
+          {
+            label: 'Profit',
+            data: top.map((t) => t.profit),
+            backgroundColor: 'rgba(195, 255, 140, 0.55)',
+            borderColor: 'rgba(195, 255, 140, 0.9)',
+            borderWidth: 1,
+            borderRadius: 6,
+          },
+        ],
+      },
+    };
+  }, [itemAnalysisVintedItems]);
+
+  const itemAnalysisYearOptions = useMemo(() => {
+    const y = new Date().getFullYear();
+    return Array.from({ length: 16 }, (_, i) => y - i);
+  }, []);
+
   return (
     <div className="reporting-container">
 
@@ -1268,6 +1477,12 @@ const Reporting: React.FC = () => {
           onClick={() => setViewMode('stock-analysis')}
         >
           Stock Analysis
+        </button>
+        <button
+          className={`view-toggle-button ${viewMode === 'item-analysis' ? 'active' : ''}`}
+          onClick={() => setViewMode('item-analysis')}
+        >
+          Item Analysis
         </button>
       </div>
 
@@ -2186,6 +2401,193 @@ const Reporting: React.FC = () => {
             )}
           </section>
 
+        </div>
+      </div>
+
+      <div className={`view-content ${viewMode === 'item-analysis' ? 'active' : ''}`}>
+        <div className="item-analysis-toolbar">
+          <div className="item-analysis-toolbar-row">
+            <label className="item-analysis-field">
+              <span>Period</span>
+              <select
+                className="item-analysis-select"
+                value={itemAnalysisPreset}
+                onChange={(e) => setItemAnalysisPreset(e.target.value as ItemAnalysisPreset)}
+              >
+                <option value="current-month">Current month</option>
+                <option value="last-month">Last month</option>
+                <option value="custom-month">Choose month…</option>
+                <option value="current-year">Current year</option>
+                <option value="last-3-years">Last 3 years</option>
+              </select>
+            </label>
+            {itemAnalysisPreset === 'custom-month' && (
+              <>
+                <label className="item-analysis-field">
+                  <span>Year</span>
+                  <select
+                    className="item-analysis-select"
+                    value={itemAnalysisCustomYear}
+                    onChange={(e) => setItemAnalysisCustomYear(Number(e.target.value))}
+                  >
+                    {itemAnalysisYearOptions.map((yr) => (
+                      <option key={yr} value={yr}>
+                        {yr}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="item-analysis-field">
+                  <span>Month</span>
+                  <select
+                    className="item-analysis-select"
+                    value={itemAnalysisCustomMonth}
+                    onChange={(e) => setItemAnalysisCustomMonth(Number(e.target.value))}
+                  >
+                    {monthLabelsShort.map((label, i) => (
+                      <option key={label} value={i + 1}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            )}
+          </div>
+          <p className="item-analysis-range-label">
+            Showing sales in <span className="item-analysis-range-em">{itemAnalysisRange.label}</span> (by sale date).
+            Sorted by profit (highest first). Price multiplier = sale ÷ purchase.
+          </p>
+        </div>
+
+        <div className="item-analysis-section">
+          <h2 className="item-analysis-heading">eBay</h2>
+          {itemAnalysisEbayChart.chartData.labels.length > 0 ? (
+            <div
+              className="chart-wrapper item-analysis-chart-wrap"
+              style={{
+                minHeight: Math.min(520, Math.max(200, itemAnalysisEbayChart.chartData.labels.length * 32)),
+              }}
+            >
+              <Bar
+                data={itemAnalysisEbayChart.chartData}
+                options={{
+                  ...itemAnalysisChartOptions,
+                  plugins: {
+                    ...itemAnalysisChartOptions.plugins,
+                    tooltip: {
+                      ...itemAnalysisChartOptions.plugins?.tooltip,
+                      callbacks: {
+                        ...itemAnalysisChartOptions.plugins?.tooltip?.callbacks,
+                        title(items) {
+                          const i = items[0]?.dataIndex;
+                          return i !== undefined ? itemAnalysisEbayChart.labelsFull[i] ?? '' : '';
+                        },
+                      },
+                    },
+                  },
+                }}
+              />
+            </div>
+          ) : (
+            <div className="reporting-empty">No eBay sales in this period.</div>
+          )}
+
+          <div className="item-analysis-table-wrap">
+            {itemAnalysisEbayItems.length > 0 ? (
+              <table className="item-analysis-table">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Price paid</th>
+                    <th>Sold price</th>
+                    <th>Price ×</th>
+                    <th>Profit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {itemAnalysisEbayItems.map((row) => (
+                    <tr key={`ebay-${row.id}-${row.name}`}>
+                      <td className="item-analysis-name">{row.name}</td>
+                      <td>{formatCurrency(row.purchase)}</td>
+                      <td>{formatCurrency(row.sale)}</td>
+                      <td>{row.multiplier !== null ? `${row.multiplier.toFixed(2)}×` : '—'}</td>
+                      <td className={row.profit >= 0 ? 'item-analysis-profit-pos' : 'item-analysis-profit-neg'}>
+                        {formatCurrency(row.profit)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="reporting-empty item-analysis-table-empty">No rows to show.</div>
+            )}
+          </div>
+        </div>
+
+        <div className="item-analysis-section item-analysis-section--vinted">
+          <h2 className="item-analysis-heading">Vinted</h2>
+          {itemAnalysisVintedChart.chartData.labels.length > 0 ? (
+            <div
+              className="chart-wrapper item-analysis-chart-wrap"
+              style={{
+                minHeight: Math.min(520, Math.max(200, itemAnalysisVintedChart.chartData.labels.length * 32)),
+              }}
+            >
+              <Bar
+                data={itemAnalysisVintedChart.chartData}
+                options={{
+                  ...itemAnalysisChartOptions,
+                  plugins: {
+                    ...itemAnalysisChartOptions.plugins,
+                    tooltip: {
+                      ...itemAnalysisChartOptions.plugins?.tooltip,
+                      callbacks: {
+                        ...itemAnalysisChartOptions.plugins?.tooltip?.callbacks,
+                        title(items) {
+                          const i = items[0]?.dataIndex;
+                          return i !== undefined ? itemAnalysisVintedChart.labelsFull[i] ?? '' : '';
+                        },
+                      },
+                    },
+                  },
+                }}
+              />
+            </div>
+          ) : (
+            <div className="reporting-empty">No Vinted sales in this period.</div>
+          )}
+
+          <div className="item-analysis-table-wrap">
+            {itemAnalysisVintedItems.length > 0 ? (
+              <table className="item-analysis-table">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Price paid</th>
+                    <th>Sold price</th>
+                    <th>Price ×</th>
+                    <th>Profit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {itemAnalysisVintedItems.map((row) => (
+                    <tr key={`vinted-${row.id}-${row.name}`}>
+                      <td className="item-analysis-name">{row.name}</td>
+                      <td>{formatCurrency(row.purchase)}</td>
+                      <td>{formatCurrency(row.sale)}</td>
+                      <td>{row.multiplier !== null ? `${row.multiplier.toFixed(2)}×` : '—'}</td>
+                      <td className={row.profit >= 0 ? 'item-analysis-profit-pos' : 'item-analysis-profit-neg'}>
+                        {formatCurrency(row.profit)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="reporting-empty item-analysis-table-empty">No rows to show.</div>
+            )}
+          </div>
         </div>
       </div>
     </div>

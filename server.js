@@ -5,6 +5,8 @@ const fs = require('fs');
 const path = require('path');
 const dns = require('dns');
 const { Pool } = require('pg');
+const multer = require('multer');
+const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
 const app = express();
@@ -655,6 +657,41 @@ const getDatabasePool = () => {
   return dbPool;
 };
 
+const BRAND_TAG_IMAGE_BUCKET = process.env.SUPABASE_STORAGE_BRAND_TAGS_BUCKET || 'brand-tag-images';
+
+let supabaseAdmin = null;
+const getSupabaseAdmin = () => {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    return null;
+  }
+  if (!supabaseAdmin) {
+    supabaseAdmin = createClient(url, key, { auth: { persistSession: false } });
+  }
+  return supabaseAdmin;
+};
+
+const brandTagImageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (allowed.includes(file.mimetype)) {
+      cb(null, true);
+      return;
+    }
+    cb(new Error('Only JPEG, PNG, WebP, or GIF images are allowed'));
+  },
+});
+
+const publicUrlForBrandTag = (storagePath) => {
+  const sb = getSupabaseAdmin();
+  if (!sb || !storagePath) return null;
+  const { data } = sb.storage.from(BRAND_TAG_IMAGE_BUCKET).getPublicUrl(storagePath);
+  return data?.publicUrl ?? null;
+};
+
 // Load settings at startup
 loadSettings();
 
@@ -695,6 +732,307 @@ app.get('/api/db-ping', async (req, res) => {
     res.status(500).json({ ok: false, error: error?.message || 'ping failed' });
   }
 });
+
+const runBrandTagPostMulter = (req, res, next) => {
+  brandTagImageUpload.single('image')(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({ error: err.message || 'Upload failed' });
+    }
+    next();
+  });
+};
+
+/** Safe filename segment from brand_name for Storage paths: `{brandId}/{slug}-{rowId}.ext`. */
+function slugForBrandTagStorage(brandName) {
+  let s = String(brandName ?? '').trim();
+  if (!s) return 'brand';
+  s = s
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase()
+    .slice(0, 72);
+  return s || 'brand';
+}
+
+const handleBrandTagImagesGet = async (req, res) => {
+  try {
+    const brandId = parseInt(String(req.query.brandId ?? ''), 10);
+    if (Number.isNaN(brandId)) {
+      return res.status(400).json({ error: 'Query parameter brandId is required (number)' });
+    }
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const result = await pool.query(
+      `SELECT id, brand_id, storage_path, caption, sort_order, content_type, image_kind, created_at, updated_at
+       FROM brand_tag_image
+       WHERE brand_id = $1
+       ORDER BY CASE WHEN image_kind = 'fake_check' THEN 1 ELSE 0 END, sort_order ASC, id ASC`,
+      [brandId]
+    );
+
+    const rows = (result.rows ?? []).map((row) => ({
+      ...row,
+      public_url: publicUrlForBrandTag(row.storage_path),
+    }));
+
+    res.json({
+      rows,
+      storageConfigured: !!getSupabaseAdmin(),
+      bucket: BRAND_TAG_IMAGE_BUCKET,
+    });
+  } catch (error) {
+    console.error('Brand tag images list failed:', error);
+    res.status(500).json({ error: 'Failed to load brand tag images', details: error.message });
+  }
+};
+
+const handleBrandTagImagesPost = async (req, res) => {
+  try {
+    const brandId = parseInt(String(req.body.brandId ?? ''), 10);
+    if (Number.isNaN(brandId)) {
+      return res.status(400).json({
+        error: 'Form field brandId is required',
+        hint: 'Send multipart field brandId (number) with file field image',
+      });
+    }
+
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ error: 'Missing image file (form field name: image)' });
+    }
+
+    const sb = getSupabaseAdmin();
+    if (!sb) {
+      return res.status(503).json({
+        error: 'Supabase Storage not configured',
+        hint: 'Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY on the server',
+      });
+    }
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const brandCheck = await pool.query('SELECT id, brand_name FROM brand WHERE id = $1', [brandId]);
+    if (!brandCheck.rowCount) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+
+    const brandNameForFile = brandCheck.rows[0].brand_name;
+
+    const seqResult = await pool.query(
+      "SELECT nextval(pg_get_serial_sequence('public.brand_tag_image', 'id'))::int AS id"
+    );
+    const imageRowId = seqResult.rows[0]?.id;
+    if (imageRowId == null || Number.isNaN(imageRowId)) {
+      return res.status(500).json({
+        error: 'Could not reserve brand_tag_image id',
+        hint: 'Ensure table public.brand_tag_image exists (run database/brand_tag_image.sql)',
+      });
+    }
+
+    const caption =
+      typeof req.body.caption === 'string' ? req.body.caption.trim().slice(0, 500) : null;
+
+    const kindRaw = req.body?.imageKind ?? req.body?.image_kind;
+    const imageKind =
+      typeof kindRaw === 'string' && kindRaw.trim() === 'fake_check' ? 'fake_check' : 'tag';
+
+    const ext =
+      req.file.mimetype === 'image/png'
+        ? 'png'
+        : req.file.mimetype === 'image/webp'
+          ? 'webp'
+          : req.file.mimetype === 'image/gif'
+            ? 'gif'
+            : 'jpg';
+    const slug = slugForBrandTagStorage(brandNameForFile);
+    const storagePath = `${brandId}/${slug}-${imageRowId}.${ext}`;
+
+    const { error: uploadError } = await sb.storage
+      .from(BRAND_TAG_IMAGE_BUCKET)
+      .upload(storagePath, req.file.buffer, {
+        contentType: req.file.mimetype,
+        upsert: false,
+      });
+
+    if (uploadError) {
+      console.error('Brand tag storage upload failed:', uploadError);
+      return res.status(500).json({
+        error: 'Storage upload failed',
+        details: uploadError.message,
+      });
+    }
+
+    try {
+      const insertResult = await pool.query(
+        `INSERT INTO brand_tag_image (id, brand_id, storage_path, caption, content_type, image_kind)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id, brand_id, storage_path, caption, sort_order, content_type, image_kind, created_at, updated_at`,
+        [imageRowId, brandId, storagePath, caption, req.file.mimetype, imageKind]
+      );
+
+      const row = insertResult.rows[0];
+      res.status(201).json({
+        ...row,
+        public_url: publicUrlForBrandTag(row.storage_path),
+      });
+    } catch (dbError) {
+      await sb.storage.from(BRAND_TAG_IMAGE_BUCKET).remove([storagePath]);
+      console.error('Brand tag DB insert failed:', dbError);
+      if (dbError.code === '42P01') {
+        return res.status(503).json({
+          error: 'Table brand_tag_image missing',
+          hint: 'Run database/brand_tag_image.sql in Supabase',
+        });
+      }
+      throw dbError;
+    }
+  } catch (error) {
+    console.error('Brand tag image upload failed:', error);
+    res.status(500).json({ error: 'Failed to save brand tag image', details: error.message });
+  }
+};
+
+const handleBrandTagImagesPatch = async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) {
+      return res.status(400).json({ error: 'Invalid id' });
+    }
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const hasCaptionKey = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'caption');
+    const captionRaw = req.body?.caption;
+    let caption = null;
+    let captionProvided = false;
+    if (hasCaptionKey) {
+      captionProvided = true;
+      if (captionRaw === null || captionRaw === undefined) {
+        caption = null;
+      } else if (typeof captionRaw === 'string') {
+        const t = captionRaw.trim();
+        caption = t ? t.slice(0, 500) : null;
+      } else {
+        return res.status(400).json({ error: 'caption must be a string or null' });
+      }
+    }
+
+    const hasKindKey =
+      Object.prototype.hasOwnProperty.call(req.body ?? {}, 'imageKind') ||
+      Object.prototype.hasOwnProperty.call(req.body ?? {}, 'image_kind');
+    const kindRaw = req.body?.imageKind ?? req.body?.image_kind;
+    let imageKind = null;
+    if (hasKindKey) {
+      if (kindRaw === null || kindRaw === undefined) {
+        return res.status(400).json({ error: 'imageKind cannot be null' });
+      }
+      const k = String(kindRaw).trim();
+      if (k !== 'tag' && k !== 'fake_check') {
+        return res.status(400).json({ error: 'imageKind must be "tag" or "fake_check"' });
+      }
+      imageKind = k;
+    }
+
+    if (!captionProvided && imageKind === null) {
+      return res.status(400).json({ error: 'Provide caption and/or imageKind' });
+    }
+
+    const sets = [];
+    const params = [];
+    let n = 1;
+    if (captionProvided) {
+      sets.push(`caption = $${n++}`);
+      params.push(caption);
+    }
+    if (imageKind !== null) {
+      sets.push(`image_kind = $${n++}`);
+      params.push(imageKind);
+    }
+    sets.push('updated_at = NOW()');
+    params.push(id);
+
+    const result = await pool.query(
+      `UPDATE brand_tag_image
+       SET ${sets.join(', ')}
+       WHERE id = $${n}
+       RETURNING id, brand_id, storage_path, caption, sort_order, content_type, image_kind, created_at, updated_at`,
+      params
+    );
+
+    if (!result.rowCount) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    const row = result.rows[0];
+    res.json({
+      ...row,
+      public_url: publicUrlForBrandTag(row.storage_path),
+    });
+  } catch (error) {
+    console.error('Brand tag image patch failed:', error);
+    res.status(500).json({ error: 'Failed to update brand tag image', details: error.message });
+  }
+};
+
+const handleBrandTagImagesDelete = async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) {
+      return res.status(400).json({ error: 'Invalid id' });
+    }
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const found = await pool.query(
+      'SELECT id, storage_path FROM brand_tag_image WHERE id = $1',
+      [id]
+    );
+    if (!found.rowCount) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    const storagePath = found.rows[0].storage_path;
+    const sb = getSupabaseAdmin();
+    if (sb) {
+      const { error: removeError } = await sb.storage.from(BRAND_TAG_IMAGE_BUCKET).remove([storagePath]);
+      if (removeError) {
+        console.warn('Storage remove warning:', removeError.message);
+      }
+    }
+
+    await pool.query('DELETE FROM brand_tag_image WHERE id = $1', [id]);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Brand tag image delete failed:', error);
+    res.status(500).json({ error: 'Failed to delete brand tag image', details: error.message });
+  }
+};
+
+['/api/brand-tag-images', '/api/brandTagImages'].forEach((tagPath) => {
+  app.get(tagPath, handleBrandTagImagesGet);
+  app.post(tagPath, runBrandTagPostMulter, handleBrandTagImagesPost);
+});
+app.patch('/api/brand-tag-images/:id', handleBrandTagImagesPatch);
+app.patch('/api/brandTagImages/:id', handleBrandTagImagesPatch);
+app.delete('/api/brand-tag-images/:id', handleBrandTagImagesDelete);
+app.delete('/api/brandTagImages/:id', handleBrandTagImagesDelete);
+console.log(
+  '[api] Brand tag routes registered: GET|POST /api/brand-tag-images and /api/brandTagImages; PATCH|DELETE …/:id'
+);
 
 app.get('/api/settings', async (req, res) => {
   try {
@@ -1504,11 +1842,11 @@ app.get('/api/brands', async (req, res) => {
     };
 
     // ALWAYS return all 5 columns - check if property exists in row object
-    const rows = result.rows.map(row => {
-      // Always create object with all 5 properties
-      // Use 'in' operator to check if property exists, not just undefined check
+    const rows = result.rows.map((row) => {
+      const idNum = row.id != null && row.id !== '' ? Number(row.id) : NaN;
+      const idOut = Number.isFinite(idNum) ? idNum : row.id;
       return {
-        id: row.id,
+        id: idOut,
         brand_name: row.brand_name,
         created_at: ('created_at' in row) ? row.created_at : null,
         updated_at: ('updated_at' in row) ? row.updated_at : null,
@@ -1517,15 +1855,20 @@ app.get('/api/brands', async (req, res) => {
     });
 
     const firstRowAfterMapping = rows.length > 0 ? rows[0] : null;
+    const showDiagnostic = req.query.debug === '1' || req.query.debug === 'true';
 
     res.json({
       rows: rows ?? [],
       count: result.rowCount ?? 0,
-      _diagnostic: {
-        ...diagnostic,
-        mappedRowKeys: firstRowAfterMapping ? Object.keys(firstRowAfterMapping) : [],
-        mappedRow: firstRowAfterMapping
-      }
+      ...(showDiagnostic
+        ? {
+            _diagnostic: {
+              ...diagnostic,
+              mappedRowKeys: firstRowAfterMapping ? Object.keys(firstRowAfterMapping) : [],
+              mappedRow: firstRowAfterMapping,
+            },
+          }
+        : {}),
     });
   } catch (error) {
     console.error('Brands query failed:', error);
@@ -1574,6 +1917,52 @@ app.post('/api/brands', async (req, res) => {
       return res.status(400).json({ error: 'Brand already exists' });
     }
     res.status(500).json({ error: 'Failed to create brand', details: error.message });
+  }
+});
+
+app.patch('/api/brands/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) {
+      return res.status(400).json({ error: 'Invalid id' });
+    }
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    if (!req.body || !Object.prototype.hasOwnProperty.call(req.body, 'brand_website')) {
+      return res.status(400).json({ error: 'brand_website is required (string or null)' });
+    }
+
+    const raw = req.body.brand_website;
+    let value = null;
+    if (raw === null || raw === undefined) {
+      value = null;
+    } else if (typeof raw === 'string') {
+      const t = raw.trim();
+      value = t ? t.slice(0, 2048) : null;
+    } else {
+      return res.status(400).json({ error: 'brand_website must be a string or null' });
+    }
+
+    const result = await pool.query(
+      `UPDATE brand
+       SET brand_website = $1, updated_at = NOW()
+       WHERE id = $2
+       RETURNING id, brand_name, created_at, updated_at, brand_website`,
+      [value, id]
+    );
+
+    if (!result.rowCount) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+
+    res.json({ row: result.rows[0] });
+  } catch (error) {
+    console.error('Brand patch failed:', error);
+    res.status(500).json({ error: 'Failed to update brand', details: error.message });
   }
 });
 
@@ -3283,9 +3672,12 @@ if (fs.existsSync(buildDirectory)) {
   // Serve the React app for any non-API route so that client-side routing works.
   // Use a regular expression here to avoid path-to-regexp wildcard issues in Express 5.
   app.get(/.*/, (req, res, next) => {
-    // Let API routes fall through to their handlers
     if (req.path.startsWith('/api')) {
-      return next();
+      return res.status(404).json({
+        error: 'Unknown API route',
+        method: req.method,
+        path: req.path,
+      });
     }
 
     return res.sendFile(path.join(buildDirectory, 'index.html'));

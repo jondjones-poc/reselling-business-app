@@ -491,6 +491,19 @@
   box-sizing: border-box;
 }
 
+.research-api-offline-banner {
+  margin: 0 0 24px 0;
+  padding: 16px 20px;
+  border-radius: 16px;
+  background: rgba(255, 120, 120, 0.14);
+  border: 1px solid rgba(255, 120, 120, 0.5);
+  color: #ffc8c8;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  text-align: left;
+  max-width: 720px;
+}
+
 @media (max-width: 768px) {
   .research-page-container {
     padding: 16px;
@@ -1158,7 +1171,7 @@ button.image-upload-label {
   }
 }
 
-/* Brands Lookup Tool Section */
+/* Brand Offline Research (under Brand Research on Research page) */
 .brand-lookup-container {
   max-width: 1000px;
   margin: 40px auto 0 auto;
@@ -1184,6 +1197,56 @@ button.image-upload-label {
   flex-direction: column;
   gap: 20px;
   width: 100%;
+}
+
+.brand-lookup-field-label {
+  color: rgba(255, 248, 226, 0.75);
+  font-size: 0.8rem;
+  letter-spacing: 0.06rem;
+  text-transform: uppercase;
+  margin: 0;
+  text-align: left;
+}
+
+.brand-lookup-text-input {
+  width: 100%;
+  padding: 14px 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 214, 91, 0.28);
+  background: rgba(255, 214, 91, 0.08);
+  color: var(--text-strong);
+  font-size: 0.95rem;
+  outline: none;
+  transition: all 0.3s ease;
+  box-sizing: border-box;
+}
+
+.brand-lookup-text-input::placeholder {
+  color: rgba(255, 248, 226, 0.45);
+}
+
+.brand-lookup-text-input:focus {
+  border-color: var(--neon-border-strong);
+  box-shadow: var(--neon-shadow);
+  background-color: rgba(255, 214, 91, 0.16);
+}
+
+.brand-lookup-text-input:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.brand-lookup-no-matches {
+  margin: 0;
+  font-size: 0.9rem;
+  color: rgba(255, 248, 226, 0.55);
+  text-align: left;
+}
+
+.brand-lookup-container .brand-lookup-quick-search.search-input-container {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
 }
 
 .brand-lookup-select {
@@ -1231,6 +1294,668 @@ button.image-upload-label {
 
 .brand-lookup-result .brand-result-item:hover {
   background: rgba(255, 214, 91, 0.08);
+}
+
+.brand-visit-website-framed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.85rem;
+  width: 100%;
+  max-width: 100%;
+}
+
+.brand-visit-website-rule {
+  border: 0;
+  margin: 0;
+  height: 0;
+  border-top: 1px solid rgba(255, 214, 91, 0.32);
+  width: 100%;
+  flex-shrink: 0;
+  align-self: stretch;
+}
+
+.brand-lookup-result .brand-visit-website-framed {
+  margin-top: 1.5rem;
+}
+
+.brand-lookup-result .brand-website-link-container {
+  margin-top: 0;
+  width: 100%;
+  justify-content: center;
+}
+
+.brand-lookup-result .brand-website-link {
+  font-size: 2.3rem;
+  font-weight: 700;
+  color: #ffffff;
+  text-decoration: none;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.brand-lookup-result .brand-website-link:hover {
+  color: rgba(255, 255, 255, 0.88);
+  text-decoration: underline;
+}
+
+/* Brand example tags (Supabase Storage) */
+.brand-tag-examples-container {
+  max-width: 1000px;
+  margin: 40px auto 0 auto;
+  padding: 40px;
+  background: var(--neon-surface);
+  border-radius: 28px;
+  border: 1px solid var(--neon-border);
+  box-shadow: 0 22px 48px rgba(0, 0, 0, 0.6), var(--neon-shadow);
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.brand-tag-examples-heading {
+  color: var(--neon-primary-strong);
+  font-size: 2.2rem;
+  letter-spacing: 0.02rem;
+  margin: 0 0 12px 0;
+  text-align: center;
+  text-transform: none;
+}
+
+.brand-tag-examples-code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.88em;
+  color: rgba(255, 248, 226, 0.85);
+}
+
+.brand-tag-examples-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 720px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* Full-width toolbar row before a brand is chosen (form is otherwise 720px). */
+.brand-tag-examples-form.brand-tag-examples-form--no-brand-selected {
+  max-width: 100%;
+}
+
+.brand-tag-examples-brand-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  width: 100%;
+}
+
+.brand-tag-examples-brand-toolbar {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  width: 100%;
+}
+
+.brand-tag-examples-brand-toolbar--split {
+  flex-wrap: nowrap;
+}
+
+.brand-tag-examples-brand-toolbar--split .brand-tag-examples-brand-select-wrap {
+  flex: 7 1 0%;
+  min-width: 0;
+}
+
+.brand-tag-examples-brand-toolbar:not(.brand-tag-examples-brand-toolbar--split) .brand-tag-examples-brand-select-wrap {
+  flex: 1 1 100%;
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+  align-self: stretch;
+}
+
+.brand-tag-examples-brand-toolbar-actions {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 10px;
+  flex: 3 1 0%;
+  min-width: 0;
+}
+
+.brand-tag-examples-brand-toolbar--split .brand-tag-examples-toolbar-btn {
+  flex: 0 1 auto;
+  white-space: nowrap;
+}
+
+.brand-tag-examples-brand-select-wrap .brand-tag-examples-select {
+  width: 100%;
+}
+
+.brand-tag-examples-brand-website-below {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.brand-tag-examples-website-under-dropdown {
+  width: 100%;
+  max-width: min(100%, 400px);
+  margin-bottom: 1.35rem;
+}
+
+.brand-tag-examples-website-browse-below {
+  width: 100%;
+  max-width: min(100%, 640px);
+  margin-bottom: 1.35rem;
+}
+
+.brand-tag-examples-website-browse-empty {
+  margin: 0;
+  font-size: 0.9rem;
+  display: inline-block;
+}
+
+.brand-tag-examples-brand-website-below .brand-tag-examples-add-panel {
+  width: 100%;
+  max-width: min(100%, 520px);
+  margin-top: 0;
+}
+
+.brand-tag-examples-label {
+  color: rgba(255, 248, 226, 0.75);
+  font-size: 0.8rem;
+  letter-spacing: 0.06rem;
+  text-transform: uppercase;
+}
+
+.brand-tag-examples-website-browse-link {
+  display: inline-block;
+  word-break: break-all;
+  margin: 0;
+  max-width: 100%;
+}
+
+.brand-tag-examples-website-edit {
+  margin-top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.brand-tag-examples-website-edit-input-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.brand-tag-examples-website-edit-input-row .brand-tag-examples-website-url-input {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.brand-tag-examples-website-edit-input-row .brand-tag-examples-save,
+.brand-tag-examples-website-edit-input-row .brand-tag-examples-cancel {
+  flex-shrink: 0;
+}
+
+.brand-tag-examples-add-info-btn {
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 214, 91, 0.5);
+  background: rgba(255, 214, 91, 0.14);
+  color: #ffe7a8;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.brand-tag-examples-add-info-btn:hover {
+  background: rgba(255, 214, 91, 0.26);
+  border-color: rgba(255, 214, 91, 0.75);
+}
+
+.brand-tag-examples-add-panel {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 16px 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 214, 91, 0.22);
+  background: rgba(0, 0, 0, 0.22);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.brand-tag-examples-add-panel-close {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 248, 226, 0.25);
+  background: transparent;
+  color: rgba(255, 248, 226, 0.75);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.brand-tag-examples-add-panel-close:hover {
+  background: rgba(255, 248, 226, 0.08);
+}
+
+.brand-tag-examples-select,
+.brand-tag-examples-caption-input {
+  width: 100%;
+  padding: 14px 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 214, 91, 0.28);
+  background: rgba(255, 214, 91, 0.08);
+  color: var(--text-strong);
+  font-size: 0.95rem;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.brand-tag-examples-select:focus,
+.brand-tag-examples-caption-input:focus {
+  border-color: var(--neon-border-strong);
+  box-shadow: var(--neon-shadow);
+}
+
+.brand-tag-examples-upload-row {
+  margin-top: 4px;
+}
+
+.brand-tag-examples-file-input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  overflow: hidden;
+}
+
+.brand-tag-examples-upload-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 28px;
+  border-radius: 999px;
+  border: 1px solid var(--neon-border);
+  background: rgba(255, 214, 91, 0.16);
+  color: var(--neon-primary-strong);
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.06rem;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.brand-tag-examples-upload-button:hover {
+  background: rgba(255, 214, 91, 0.28);
+  box-shadow: var(--neon-shadow);
+}
+
+.brand-tag-examples-error {
+  margin-top: 16px;
+  padding: 14px 18px;
+  border-radius: 16px;
+  background: rgba(255, 120, 120, 0.12);
+  border: 1px solid rgba(255, 120, 120, 0.45);
+  color: #ffb0b0;
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+.brand-tag-examples-muted {
+  text-align: center;
+  color: rgba(255, 248, 226, 0.5);
+  font-size: 0.95rem;
+  margin-top: 16px;
+}
+
+.brand-tag-examples-image-section {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.brand-tag-examples-image-section + .brand-tag-examples-image-section--fake {
+  margin-top: 32px;
+}
+
+.brand-tag-examples-fake-heading {
+  margin: 0 0 14px 0;
+  padding: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.06rem;
+  text-transform: uppercase;
+  color: #ffb38a;
+  text-align: left;
+  max-width: 720px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.brand-tag-examples-kind-select {
+  width: 100%;
+  max-width: min(100%, 320px);
+  margin-bottom: 2px;
+}
+
+.brand-tag-examples-grid {
+  list-style: none;
+  margin: 28px auto 0 auto;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 720px;
+}
+
+.brand-tag-examples-image-section .brand-tag-examples-grid {
+  margin-top: 0;
+}
+
+.brand-tag-examples-image-section:first-of-type .brand-tag-examples-grid {
+  margin-top: 28px;
+}
+
+.brand-tag-examples-grid--fake {
+  margin-top: 0;
+}
+
+.brand-tag-examples-card {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 214, 91, 0.2);
+  background: rgba(255, 214, 91, 0.04);
+}
+
+.brand-tag-examples-card--fake {
+  border-color: rgba(255, 120, 90, 0.45);
+  background: rgba(255, 100, 70, 0.07);
+}
+
+.brand-tag-examples-card-row {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 16px;
+}
+
+.brand-tag-examples-card-media {
+  grid-column: 1;
+  width: 140px;
+}
+
+.brand-tag-examples-caption-block {
+  grid-column: 2;
+  min-width: 0;
+  text-align: left;
+}
+
+.brand-tag-examples-caption-block .brand-tag-examples-caption {
+  margin: 0;
+  text-align: left;
+}
+
+.brand-tag-examples-caption-placeholder {
+  margin: 0;
+  font-size: 0.85rem;
+  color: rgba(255, 248, 226, 0.4);
+  font-style: italic;
+  line-height: 1.4;
+  text-align: left;
+}
+
+.brand-tag-examples-card-edit-col {
+  grid-column: 3;
+  justify-self: end;
+  align-self: start;
+  flex-shrink: 0;
+}
+
+.brand-tag-examples-card-edit-span {
+  grid-column: 2 / -1;
+  min-width: 0;
+}
+
+.brand-tag-examples-edit-btn {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 214, 91, 0.45);
+  background: rgba(255, 214, 91, 0.12);
+  color: #ffe7a8;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.brand-tag-examples-edit-btn:hover {
+  background: rgba(255, 214, 91, 0.22);
+  border-color: rgba(255, 214, 91, 0.65);
+}
+
+.brand-tag-examples-edit-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+
+.brand-tag-examples-edit-label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06rem;
+  color: rgba(255, 248, 226, 0.55);
+}
+
+.brand-tag-examples-edit-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 214, 91, 0.25);
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff8e2;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  resize: vertical;
+  min-height: 88px;
+  font-family: inherit;
+}
+
+.brand-tag-examples-edit-textarea:focus {
+  outline: none;
+  border-color: rgba(255, 214, 91, 0.55);
+  box-shadow: 0 0 0 2px rgba(255, 214, 91, 0.12);
+}
+
+.brand-tag-examples-edit-textarea:disabled {
+  opacity: 0.65;
+}
+
+.brand-tag-examples-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.brand-tag-examples-save {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 255, 180, 0.45);
+  background: rgba(120, 255, 180, 0.14);
+  color: #b8ffd4;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.brand-tag-examples-save:hover:not(:disabled) {
+  background: rgba(120, 255, 180, 0.24);
+}
+
+.brand-tag-examples-save:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.brand-tag-examples-cancel {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 248, 226, 0.25);
+  background: transparent;
+  color: rgba(255, 248, 226, 0.75);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.brand-tag-examples-cancel:hover:not(:disabled) {
+  background: rgba(255, 248, 226, 0.08);
+}
+
+.brand-tag-examples-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.brand-tag-examples-thumb-link {
+  display: block;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 214, 91, 0.15);
+}
+
+.brand-tag-examples-thumb {
+  width: 100%;
+  height: 120px;
+  object-fit: contain;
+  background: rgba(0, 0, 0, 0.35);
+  display: block;
+}
+
+.brand-tag-examples-thumb-fallback {
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 12px;
+  font-size: 0.75rem;
+  color: rgba(255, 248, 226, 0.55);
+  border-radius: 12px;
+  border: 1px dashed rgba(255, 214, 91, 0.25);
+}
+
+.brand-tag-examples-caption {
+  font-size: 0.88rem;
+  color: rgba(255, 248, 226, 0.82);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-align: left;
+}
+
+.brand-tag-examples-remove {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 120, 120, 0.45);
+  background: rgba(255, 120, 120, 0.12);
+  color: #ffb0b0;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.brand-tag-examples-remove:hover:not(:disabled) {
+  background: rgba(255, 120, 120, 0.22);
+}
+
+.brand-tag-examples-remove:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (max-width: 768px) {
+  .brand-tag-examples-brand-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .brand-tag-examples-brand-select-wrap {
+    flex: 1 1 auto;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .brand-tag-examples-brand-toolbar--split .brand-tag-examples-brand-select-wrap {
+    flex: 1 1 auto;
+  }
+
+  .brand-tag-examples-brand-toolbar--split .brand-tag-examples-brand-toolbar-actions {
+    flex: 1 1 auto;
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .brand-tag-examples-website-under-dropdown,
+  .brand-tag-examples-website-browse-below,
+  .brand-tag-examples-brand-website-below .brand-tag-examples-add-panel {
+    max-width: 100%;
+  }
+
+  .brand-tag-examples-card-row {
+    grid-template-columns: 1fr;
+  }
+
+  .brand-tag-examples-card-media {
+    grid-column: 1;
+    width: 100%;
+    max-width: 220px;
+  }
+
+  .brand-tag-examples-caption-block {
+    grid-column: 1;
+  }
+
+  .brand-tag-examples-card-edit-col {
+    grid-column: 1;
+    justify-self: start;
+  }
+
+  .brand-tag-examples-card-edit-span {
+    grid-column: 1;
+  }
+}
+
+@media (max-width: 768px) {
+  .brand-tag-examples-container {
+    padding: 24px 18px;
+  }
+
+  .brand-tag-examples-heading {
+    font-size: 1.6rem;
+  }
 }
 
 /* Brand Website Section */
@@ -1330,5 +2055,21 @@ button.image-upload-label {
 
 .brand-website-link:hover {
   color: #8cffc3;
+  text-decoration: underline;
+}
+
+/* Brand Research: URL below toolbar — h3-like size (wins over .brand-website-link above). */
+.brand-website-link.brand-tag-examples-website-browse-link {
+  font-size: 2.6rem;
+  font-weight: 600;
+  letter-spacing: 0.04rem;
+  line-height: 1.25;
+  text-align: center;
+  color: #ffffff;
+  text-decoration: none;
+}
+
+.brand-website-link.brand-tag-examples-website-browse-link:hover {
+  color: rgba(255, 255, 255, 0.88);
   text-decoration: underline;
 }

@@ -1,0 +1,6 @@
+{
+  "watch": ["server.js", ".env"],
+  "ext": "js,json,env",
+  "ignore": ["build/**", "node_modules/**", "src/**", "public/**"],
+  "delay": "500"
+}

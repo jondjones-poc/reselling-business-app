@@ -1599,7 +1599,7 @@ const Stock: React.FC = () => {
     }
   };
 
-  const renderProjectedProfitReadout = () => {
+  const renderProjectedProfitInline = () => {
     const hasProjectedPrice =
       !!createForm.projected_sale_price && createForm.projected_sale_price.trim() !== '';
     const hasPurchasePrice =
@@ -1607,16 +1607,27 @@ const Stock: React.FC = () => {
 
     let body: React.ReactNode;
     if (!hasProjectedPrice || !hasPurchasePrice) {
+      const itemPartial = hasPurchasePrice ? parseFloat(createForm.purchase_price) || 0 : 0;
+      const multPlaceholder =
+        itemPartial > 0 ? (
+          <span className="projected-profit-inline-mult"> / 0.00x</span>
+        ) : (
+          <span className="projected-profit-inline-mult"> / —</span>
+        );
       body = (
-        <div className="projected-profit-readout-row projected-profit-readout-row--muted">
-          <span>Vinted: £0.00</span>
-          <span>eBay: £0.00</span>
+        <div className="projected-profit-inline-row projected-profit-inline-row--muted">
+          <span className="projected-profit-inline-cell projected-profit-inline-stat projected-profit-inline-stat--muted">
+            Vinted: £0.00{multPlaceholder}
+          </span>
+          <span className="projected-profit-inline-cell projected-profit-inline-stat projected-profit-inline-stat--muted">
+            eBay: £0.00{multPlaceholder}
+          </span>
         </div>
       );
     } else {
       const item = parseFloat(createForm.purchase_price) || 0;
       const sale = parseFloat(createForm.projected_sale_price) || 0;
-      const listingFees = 1.5;
+      const listingFees = 0.1;
       const promotedPercent = 10;
       const promotedFee = (sale * promotedPercent) / 100;
 
@@ -1630,6 +1641,7 @@ const Stock: React.FC = () => {
         ebayProfitWithoutPromo >= 0
           ? `£${ebayProfitWithoutPromo.toFixed(2)}`
           : `-£${Math.abs(ebayProfitWithoutPromo).toFixed(2)}`;
+      const isEbayBuyWithoutPromo = item > 0 && ebayProfitWithoutPromo >= item * 2;
 
       const totalCosts = item + listingFees + promotedFee;
       const ebayProfitWithPromo = sale - totalCosts;
@@ -1637,35 +1649,55 @@ const Stock: React.FC = () => {
         ebayProfitWithPromo >= 0
           ? `£${ebayProfitWithPromo.toFixed(2)}`
           : `-£${Math.abs(ebayProfitWithPromo).toFixed(2)}`;
-      const isEbayBuyWithPromo = item > 0 && ebayProfitWithPromo >= item * 2;
+
+      const profitMult = (profit: number) =>
+        item > 0 ? `${(profit / item).toFixed(2)}x` : '—';
 
       body = (
-        <div className="projected-profit-readout-row">
+        <div className="projected-profit-inline-row">
           <div
-            className={`projected-profit-readout-stat${
-              isVintedBuy ? ' projected-profit-readout-stat--buy' : ' projected-profit-readout-stat--pass'
+            className={`projected-profit-inline-cell projected-profit-inline-stat${
+              isVintedBuy ? ' projected-profit-inline-stat--buy' : ' projected-profit-inline-stat--pass'
             }`}
           >
             Vinted: {vintedProfitDisplay}
+            <span className="projected-profit-inline-mult"> / {profitMult(vintedProfit)}</span>
           </div>
-          <div className="projected-profit-readout-ebay">
-            <div
-              className={`projected-profit-readout-stat${
-                isEbayBuyWithPromo ? ' projected-profit-readout-stat--buy' : ' projected-profit-readout-stat--pass'
-              }`}
-            >
-              eBay: {ebayProfitWithPromoDisplay}
-            </div>
-            <div className="projected-profit-readout-sub">(w/o promo: {ebayProfitWithoutPromoDisplay})</div>
+          <div
+            className={`projected-profit-inline-cell projected-profit-inline-stat${
+              isEbayBuyWithoutPromo ? ' projected-profit-inline-stat--buy' : ' projected-profit-inline-stat--pass'
+            }`}
+          >
+            eBay: {ebayProfitWithoutPromoDisplay}
+            <span className="projected-profit-inline-mult"> / {profitMult(ebayProfitWithoutPromo)}</span>
+          </div>
+          <div className="projected-profit-inline-sub">
+            (with promo: {ebayProfitWithPromoDisplay})
           </div>
         </div>
       );
     }
 
     return (
-      <div className="projected-profit-readout" role="region" aria-label="Projected profit">
-        <span className="projected-profit-readout-heading">Projected profit</span>
-        {body}
+      <div className="new-entry-field projected-profit-inline-field">
+        <span
+          style={{
+            color: 'rgba(255, 248, 226, 0.7)',
+            letterSpacing: '0.05rem',
+            fontSize: '0.85rem',
+            textTransform: 'uppercase',
+            height: '1.2rem',
+          }}
+        >
+          &nbsp;
+        </span>
+        <div
+          className="projected-profit-inline"
+          role="region"
+          aria-label="Projected profit by platform"
+        >
+          {body}
+        </div>
       </div>
     );
   };
@@ -1678,7 +1710,7 @@ const Stock: React.FC = () => {
       {showNewEntry && (
         <div className="new-entry-card" ref={editFormRef}>
           <div className="new-entry-grid">
-            {/* First Row: SKU (edit only), Projected Sale Price, Profit Calculations, Remove Button (edit only) */}
+            {/* First Row: SKU, Projected Sale Price, Vinted/eBay profit inline, Remove (edit only) */}
             {editingRowId && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', width: '100%', marginBottom: '20px' }}>
                 {/* SKU Button */}
@@ -1705,6 +1737,8 @@ const Stock: React.FC = () => {
                     style={{ textAlign: 'center' }}
                   />
                 </label>
+
+                {renderProjectedProfitInline()}
                 
                 {/* Remove Button */}
                 <div className="new-entry-field">
@@ -1721,7 +1755,6 @@ const Stock: React.FC = () => {
                 </div>
               </div>
             )}
-            {editingRowId && renderProjectedProfitReadout()}
             
             {/* Row 1: Name, Category, Purchase Price (£), Purchase Date */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', width: '100%' }}>
@@ -2272,6 +2305,8 @@ const Stock: React.FC = () => {
                       style={{ textAlign: 'center' }}
                     />
                   </label>
+
+                  {renderProjectedProfitInline()}
                   
                   {/* Save and Close Buttons */}
                   <div
@@ -2316,7 +2351,6 @@ const Stock: React.FC = () => {
                 </>
               )}
             </div>
-            {!editingRowId && renderProjectedProfitReadout()}
             {editingRowId && (
               <button
                 type="button"

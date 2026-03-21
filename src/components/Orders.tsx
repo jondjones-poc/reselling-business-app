@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { pingDatabase } from '../utils/dbPing';
 import './Orders.css';
 
 const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5003';
@@ -186,8 +187,9 @@ const Orders: React.FC = () => {
     }
   };
 
-  // Load stock and orders on mount
+  // Load stock and orders on mount; wake DB (free-tier cold start) before fetches
   useEffect(() => {
+    pingDatabase();
     loadStock();
     loadOrders();
   }, []);
