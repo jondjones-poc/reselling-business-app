@@ -305,18 +305,6 @@
   border-color: rgba(140, 255, 195, 0.65);
 }
 
-.config-clothing-help {
-  margin: 0 0 20px 0;
-  font-size: 0.88rem;
-  line-height: 1.5;
-  color: rgba(255, 248, 226, 0.55);
-}
-
-.config-clothing-help code {
-  font-size: 0.85em;
-  color: var(--neon-primary-strong);
-}
-
 .config-clothing-add-form {
   margin-bottom: 28px;
   padding: 20px;
@@ -432,4 +420,83 @@
   font-weight: 600;
   color: var(--neon-primary-strong);
   white-space: nowrap;
+}
+
+.config-clothing-th-actions {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.config-clothing-td-actions {
+  text-align: right;
+  vertical-align: middle;
+}
+
+.config-clothing-edit-name-button {
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 214, 91, 0.35);
+  background: rgba(255, 214, 91, 0.12);
+  color: var(--neon-primary-strong);
+  font-weight: 600;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.config-clothing-edit-name-button:hover:not(:disabled) {
+  background: rgba(255, 214, 91, 0.22);
+  border-color: rgba(255, 214, 91, 0.5);
+}
+
+.config-clothing-edit-name-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.config-clothing-row-edit td {
+  background: rgba(255, 214, 91, 0.06);
+  border-bottom: 1px solid rgba(255, 214, 91, 0.2);
+}
+
+.config-clothing-row-edit:hover td {
+  background: rgba(255, 214, 91, 0.08);
+}
+
+.config-clothing-inline-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 0;
+  max-width: 640px;
+}
+
+.config-clothing-inline-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.config-clothing-cancel-edit-button {
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 248, 226, 0.25);
+  background: transparent;
+  color: rgba(255, 248, 226, 0.65);
+  font-weight: 600;
+  font-size: 0.88rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.config-clothing-cancel-edit-button:hover:not(:disabled) {
+  color: var(--text-strong);
+  border-color: rgba(255, 214, 91, 0.35);
+}
+
+.config-clothing-cancel-edit-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }

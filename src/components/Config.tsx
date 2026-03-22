@@ -89,6 +89,11 @@ const Config: React.FC = () => {
   const [clothingAddDescription, setClothingAddDescription] = useState('');
   const [clothingAddNotes, setClothingAddNotes] = useState('');
   const [clothingAddSaving, setClothingAddSaving] = useState(false);
+  const [clothingEditingId, setClothingEditingId] = useState<number | null>(null);
+  const [clothingEditName, setClothingEditName] = useState('');
+  const [clothingEditDescription, setClothingEditDescription] = useState('');
+  const [clothingEditNotes, setClothingEditNotes] = useState('');
+  const [clothingEditSaving, setClothingEditSaving] = useState(false);
 
   const loadStock = async () => {
     try {
@@ -271,6 +276,62 @@ const Config: React.FC = () => {
       setClothingError(m);
     } finally {
       setClothingAddSaving(false);
+    }
+  };
+
+  const cancelClothingEdit = () => {
+    setClothingEditingId(null);
+    setClothingEditName('');
+    setClothingEditDescription('');
+    setClothingEditNotes('');
+  };
+
+  const startClothingEdit = (cat: ClothingCategoryRow) => {
+    setClothingAddOpen(false);
+    setClothingError(null);
+    setClothingEditingId(cat.id);
+    setClothingEditName(cat.name);
+    setClothingEditDescription(cat.description ?? '');
+    setClothingEditNotes(cat.notes ?? '');
+  };
+
+  const handleClothingEditSave = async () => {
+    if (clothingEditingId == null) return;
+    const name = clothingEditName.trim();
+    if (!name) {
+      setClothingError('Name is required.');
+      return;
+    }
+    try {
+      setClothingEditSaving(true);
+      setClothingError(null);
+      const response = await fetch(`${API_BASE}/api/menswear-categories/${clothingEditingId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          description: clothingEditDescription.trim() || null,
+          notes: clothingEditNotes.trim() || null,
+        }),
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        let msg = text || 'Failed to update category';
+        try {
+          const j = JSON.parse(text) as { error?: string; details?: string };
+          msg = [j.error, j.details].filter(Boolean).join(' — ') || msg;
+        } catch {
+          /* keep msg */
+        }
+        throw new Error(msg);
+      }
+      cancelClothingEdit();
+      await loadClothingCategories();
+    } catch (err: unknown) {
+      const m = err instanceof Error ? err.message : 'Unable to update category';
+      setClothingError(m);
+    } finally {
+      setClothingEditSaving(false);
     }
   };
 
@@ -515,6 +576,7 @@ const Config: React.FC = () => {
                   className="config-clothing-add-button"
                   onClick={() => {
                     setClothingError(null);
+                    cancelClothingEdit();
                     setClothingAddOpen((o) => !o);
                   }}
                 >
@@ -531,11 +593,6 @@ const Config: React.FC = () => {
                   </svg>
                 </button>
               </div>
-
-              <p className="config-clothing-help">
-                Categories are stored in <code>menswear_category</code> (used by Research → Menswear categories).
-                Adding a category creates the table if it does not exist yet, then inserts the row.
-              </p>
 
               {clothingAddOpen && (
                 <form className="config-clothing-add-form" onSubmit={handleClothingAddSubmit}>
@@ -591,16 +648,84 @@ const Config: React.FC = () => {
                         <th>Name</th>
                         <th>Description</th>
                         <th>Notes</th>
+                        <th className="config-clothing-th-actions" scope="col">
+                          Actions
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
-                      {clothingCategories.map((cat) => (
-                        <tr key={cat.id}>
-                          <td className="config-clothing-td-name">{cat.name}</td>
-                          <td>{cat.description?.trim() ? cat.description : '—'}</td>
-                          <td>{cat.notes?.trim() ? cat.notes : '—'}</td>
-                        </tr>
-                      ))}
+                      {clothingCategories.map((cat) =>
+                        clothingEditingId === cat.id ? (
+                          <tr key={cat.id} className="config-clothing-row-edit">
+                            <td colSpan={4}>
+                              <div className="config-clothing-inline-edit">
+                                <label className="config-clothing-field">
+                                  <span>Name *</span>
+                                  <input
+                                    type="text"
+                                    value={clothingEditName}
+                                    onChange={(ev) => setClothingEditName(ev.target.value)}
+                                    maxLength={500}
+                                    disabled={clothingEditSaving}
+                                  />
+                                </label>
+                                <label className="config-clothing-field">
+                                  <span>Description</span>
+                                  <textarea
+                                    value={clothingEditDescription}
+                                    onChange={(ev) => setClothingEditDescription(ev.target.value)}
+                                    rows={2}
+                                    disabled={clothingEditSaving}
+                                  />
+                                </label>
+                                <label className="config-clothing-field">
+                                  <span>Notes</span>
+                                  <textarea
+                                    value={clothingEditNotes}
+                                    onChange={(ev) => setClothingEditNotes(ev.target.value)}
+                                    rows={2}
+                                    disabled={clothingEditSaving}
+                                  />
+                                </label>
+                                <div className="config-clothing-inline-edit-actions">
+                                  <button
+                                    type="button"
+                                    className="config-clothing-save-button"
+                                    onClick={() => void handleClothingEditSave()}
+                                    disabled={clothingEditSaving || !clothingEditName.trim()}
+                                  >
+                                    {clothingEditSaving ? 'Saving…' : 'Save'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="config-clothing-cancel-edit-button"
+                                    onClick={cancelClothingEdit}
+                                    disabled={clothingEditSaving}
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : (
+                          <tr key={cat.id}>
+                            <td className="config-clothing-td-name">{cat.name}</td>
+                            <td>{cat.description?.trim() ? cat.description : '—'}</td>
+                            <td>{cat.notes?.trim() ? cat.notes : '—'}</td>
+                            <td className="config-clothing-td-actions">
+                              <button
+                                type="button"
+                                className="config-clothing-edit-name-button"
+                                onClick={() => startClothingEdit(cat)}
+                                disabled={clothingEditSaving || clothingAddSaving}
+                              >
+                                Edit
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      )}
                     </tbody>
                   </table>
                 </div>

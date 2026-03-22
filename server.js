@@ -2364,6 +2364,82 @@ app.post('/api/menswear-categories', async (req, res) => {
 });
 
 /**
+ * Update a clothing (menswear) category.
+ * PATCH /api/menswear-categories/:id  body: { name, description?, notes? }
+ */
+app.patch('/api/menswear-categories/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id) || id < 1) {
+      return res.status(400).json({ error: 'Invalid category id' });
+    }
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    await ensureMenswearCategoryTable(pool);
+
+    const body = req.body ?? {};
+    const cur = await pool.query(
+      'SELECT name, description, notes FROM menswear_category WHERE id = $1',
+      [id]
+    );
+    if (!cur.rowCount) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+    const prev = cur.rows[0];
+
+    const nameRaw = body.name;
+    if (typeof nameRaw !== 'string' || !nameRaw.trim()) {
+      return res.status(400).json({ error: 'name is required (non-empty string)' });
+    }
+    const name = nameRaw.trim().slice(0, 500);
+
+    let description = prev.description;
+    if (Object.prototype.hasOwnProperty.call(body, 'description')) {
+      const raw = body.description;
+      if (raw === null || raw === '') {
+        description = null;
+      } else if (typeof raw === 'string') {
+        const t = raw.trim();
+        description = t ? t.slice(0, 8000) : null;
+      } else {
+        return res.status(400).json({ error: 'description must be a string, null, or omitted' });
+      }
+    }
+
+    let notes = prev.notes;
+    if (Object.prototype.hasOwnProperty.call(body, 'notes')) {
+      const raw = body.notes;
+      if (raw === null || raw === '') {
+        notes = null;
+      } else if (typeof raw === 'string') {
+        const t = raw.trim();
+        notes = t ? t.slice(0, 8000) : null;
+      } else {
+        return res.status(400).json({ error: 'notes must be a string, null, or omitted' });
+      }
+    }
+
+    const result = await pool.query(
+      `UPDATE menswear_category
+       SET name = $1, description = $2, notes = $3, updated_at = NOW()
+       WHERE id = $4
+       RETURNING id, name, description, notes, created_at, updated_at`,
+      [name, description, notes, id]
+    );
+
+    res.json({ row: result.rows[0] });
+  } catch (error) {
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'A category with this name already exists' });
+    }
+    console.error('menswear-categories patch failed:', error);
+    res.status(500).json({ error: 'Failed to update category', details: error.message });
+  }
+});
+
+/**
  * Brands in a menswear category, with total sold revenue (sum of sale_price where sold).
  * GET /api/menswear-categories/:id/brands?sort=name|total_sales
  */
