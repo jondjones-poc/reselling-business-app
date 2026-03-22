@@ -177,6 +177,12 @@ type BrandStockSummaryPayload = {
   totalItems: number;
   soldCount: number;
   unsoldCount: number;
+  /** Sum of purchase_price for all rows with a purchase price recorded. */
+  totalPurchaseSpend: number;
+  /** Sum of sale_price for sold rows (sale_price > 0). */
+  totalSoldRevenue: number;
+  /** totalSoldRevenue − totalPurchaseSpend (sales vs all buy-in for the brand). */
+  brandNetPosition: number;
   topSoldItems: BrandStockTopItem[];
   longestUnsoldItems: BrandStockLongestUnsoldItem[];
 };
@@ -220,6 +226,9 @@ function parseBrandStockSummaryPayload(data: unknown): BrandStockSummaryPayload 
     totalItems: Number(d.totalItems) || 0,
     soldCount: Number(d.soldCount) || 0,
     unsoldCount: Number(d.unsoldCount) || 0,
+    totalPurchaseSpend: Number(d.totalPurchaseSpend) || 0,
+    totalSoldRevenue: Number(d.totalSoldRevenue) || 0,
+    brandNetPosition: Number(d.brandNetPosition) || 0,
     topSoldItems,
     longestUnsoldItems,
   };
@@ -887,6 +896,8 @@ const Research: React.FC = () => {
   const [brandTagImages, setBrandTagImages] = useState<BrandTagImageRow[]>([]);
   const [brandTagLoading, setBrandTagLoading] = useState(false);
   const [brandTagError, setBrandTagError] = useState<string | null>(null);
+  /** Set when API reports storageConfigured: false (usually missing Supabase env on production API). */
+  const [brandTagStorageWarning, setBrandTagStorageWarning] = useState<string | null>(null);
   const [brandTagUploading, setBrandTagUploading] = useState(false);
   const [brandTagCaption, setBrandTagCaption] = useState('');
   const [brandTagNewImageKind, setBrandTagNewImageKind] = useState<BrandTagImageKind>('tag');
@@ -1413,6 +1424,7 @@ const Research: React.FC = () => {
     if (!brandTagBrandId) {
       setBrandTagImages([]);
       setBrandTagError(null);
+      setBrandTagStorageWarning(null);
       return;
     }
 
@@ -1420,18 +1432,28 @@ const Research: React.FC = () => {
     (async () => {
       setBrandTagLoading(true);
       setBrandTagError(null);
+      setBrandTagStorageWarning(null);
       try {
         const response = await fetch(
           apiUrl(`/api/brandTagImages?brandId=${encodeURIComponent(String(brandTagBrandId))}`)
         );
-        const data = await readJsonResponse<{ rows?: unknown[] }>(response, 'brandTagImages');
+        const data = await readJsonResponse<{
+          rows?: unknown[];
+          storageConfigured?: boolean;
+        }>(response, 'brandTagImages');
         if (!cancelled) {
+          if (data.storageConfigured === false) {
+            setBrandTagStorageWarning(
+              'Brand tag images need SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY on your API server (where Node runs in production), not only in the frontend build.'
+            );
+          }
           const rows = Array.isArray(data.rows) ? data.rows.map(normalizeBrandTagImageRow) : [];
           setBrandTagImages(sortBrandTagImages(rows));
         }
       } catch (err: unknown) {
         if (!cancelled) {
           setBrandTagImages([]);
+          setBrandTagStorageWarning(null);
           setBrandTagError(friendlyApiUnreachableMessage(err));
         }
       } finally {
@@ -1815,8 +1837,9 @@ const Research: React.FC = () => {
                 />
               </a>
             ) : (
-              <div className="brand-tag-examples-thumb-fallback" title={img.storage_path}>
-                No public URL (check Storage bucket / env)
+              <div className="brand-tag-examples-thumb-fallback" title={img.storage_path ?? undefined}>
+                No image URL — API needs Supabase env (see warning above) or check bucket
+                SUPABASE_STORAGE_BRAND_TAGS_BUCKET.
               </div>
             )}
           </div>
@@ -2382,6 +2405,11 @@ const Research: React.FC = () => {
               })()}
           </div>
         </div>
+        {brandTagStorageWarning && (
+          <div className="brand-tag-examples-error" role="alert">
+            {brandTagStorageWarning}
+          </div>
+        )}
         {brandTagError && <div className="brand-tag-examples-error">{brandTagError}</div>}
         {brandTagBrandId !== '' && brandTagLoading && (
           <div className="brand-tag-examples-muted">Loading…</div>
@@ -2449,6 +2477,45 @@ const Research: React.FC = () => {
                     </div>
                   </div>
                 )}
+                <div className="brand-research-brand-totals" aria-label="Brand spend and sales totals">
+                  <div className="brand-research-brand-totals-col">
+                    <span className="brand-research-brand-totals-label">Total spent</span>
+                    <span className="brand-research-brand-totals-value">
+                      {formatResearchCurrency(brandStockSummary.totalPurchaseSpend)}
+                    </span>
+                    <span className="brand-research-brand-totals-hint">All items with a purchase price</span>
+                  </div>
+                  <div className="brand-research-brand-totals-col">
+                    <span className="brand-research-brand-totals-label">Total sold</span>
+                    <span className="brand-research-brand-totals-value">
+                      {formatResearchCurrency(brandStockSummary.totalSoldRevenue)}
+                    </span>
+                    <span className="brand-research-brand-totals-hint">Sale prices for sold items</span>
+                  </div>
+                  <div className="brand-research-brand-totals-col">
+                    <span className="brand-research-brand-totals-label">Net</span>
+                    <span
+                      className={
+                        'brand-research-brand-totals-value brand-research-brand-totals-value--net ' +
+                        (brandStockSummary.brandNetPosition > 0
+                          ? 'brand-research-brand-totals-value--profit'
+                          : brandStockSummary.brandNetPosition < 0
+                            ? 'brand-research-brand-totals-value--loss'
+                            : 'brand-research-brand-totals-value--even')
+                      }
+                    >
+                      {brandStockSummary.brandNetPosition > 0
+                        ? `Profit ${formatResearchCurrency(brandStockSummary.brandNetPosition)}`
+                        : brandStockSummary.brandNetPosition < 0
+                          ? `£-${new Intl.NumberFormat('en-GB', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            }).format(Math.abs(brandStockSummary.brandNetPosition))}`
+                          : formatResearchCurrency(0)}
+                    </span>
+                    <span className="brand-research-brand-totals-hint">Sold revenue − all spend</span>
+                  </div>
+                </div>
                 {brandStockSummary.topSoldItems.length > 0 ? (
                   <div className="brand-research-sales-table-block">
                     <h4 className="brand-research-sales-subheading">Best sold items</h4>

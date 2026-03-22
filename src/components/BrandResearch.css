@@ -2075,6 +2075,69 @@ button.image-upload-label {
   max-height: 180px;
 }
 
+.brand-research-brand-totals {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px 24px;
+  max-width: 720px;
+  margin: 28px auto 0;
+  padding: 20px 0 8px;
+  border-top: 1px solid rgba(255, 214, 91, 0.15);
+  text-align: left;
+}
+
+.brand-research-brand-totals-col {
+  min-width: 0;
+}
+
+.brand-research-brand-totals-label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(255, 248, 226, 0.5);
+  margin-bottom: 6px;
+}
+
+.brand-research-brand-totals-value {
+  display: block;
+  font-size: 1.32rem;
+  font-weight: 700;
+  color: rgba(255, 248, 226, 0.92);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+}
+
+.brand-research-brand-totals-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: rgba(255, 248, 226, 0.4);
+}
+
+.brand-research-brand-totals-value--profit {
+  color: #8cffc3;
+  text-shadow: 0 0 10px rgba(140, 255, 195, 0.35);
+}
+
+.brand-research-brand-totals-value--loss {
+  color: #ff9a9a;
+  text-shadow: 0 0 10px rgba(255, 154, 154, 0.35);
+}
+
+.brand-research-brand-totals-value--even {
+  color: rgba(255, 248, 226, 0.72);
+}
+
+@media (max-width: 640px) {
+  .brand-research-brand-totals {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+}
+
 .brand-research-sales-table-block {
   margin-top: 32px;
 }

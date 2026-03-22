@@ -685,12 +685,26 @@ const brandTagImageUpload = multer({
   },
 });
 
-const publicUrlForBrandTag = (storagePath) => {
+/**
+ * URL for browser <img src> / links. Prefer signed URLs so private buckets work; fall back to public URL.
+ * Returns null only if Supabase admin is not configured, path is empty, or both signed + public fail.
+ */
+async function resolveBrandTagImageUrl(storagePath) {
   const sb = getSupabaseAdmin();
-  if (!sb || !storagePath) return null;
-  const { data } = sb.storage.from(BRAND_TAG_IMAGE_BUCKET).getPublicUrl(storagePath);
-  return data?.publicUrl ?? null;
-};
+  const path = storagePath != null ? String(storagePath).trim() : '';
+  if (!sb || !path) return null;
+
+  const bucket = sb.storage.from(BRAND_TAG_IMAGE_BUCKET);
+  const { data: signed, error: signErr } = await bucket.createSignedUrl(path, 60 * 60 * 24 * 30); // 30 days
+  if (!signErr && signed?.signedUrl) {
+    return signed.signedUrl;
+  }
+  if (signErr) {
+    console.warn('Brand tag createSignedUrl failed (falling back to public URL):', path, signErr.message);
+  }
+  const { data: pub } = bucket.getPublicUrl(path);
+  return pub?.publicUrl ?? null;
+}
 
 // Load settings at startup
 loadSettings();
@@ -776,10 +790,12 @@ const handleBrandTagImagesGet = async (req, res) => {
       [brandId]
     );
 
-    const rows = (result.rows ?? []).map((row) => ({
-      ...row,
-      public_url: publicUrlForBrandTag(row.storage_path),
-    }));
+    const rows = await Promise.all(
+      (result.rows ?? []).map(async (row) => ({
+        ...row,
+        public_url: await resolveBrandTagImageUrl(row.storage_path),
+      }))
+    );
 
     res.json({
       rows,
@@ -881,7 +897,7 @@ const handleBrandTagImagesPost = async (req, res) => {
       const row = insertResult.rows[0];
       res.status(201).json({
         ...row,
-        public_url: publicUrlForBrandTag(row.storage_path),
+        public_url: await resolveBrandTagImageUrl(row.storage_path),
       });
     } catch (dbError) {
       await sb.storage.from(BRAND_TAG_IMAGE_BUCKET).remove([storagePath]);
@@ -977,7 +993,7 @@ const handleBrandTagImagesPatch = async (req, res) => {
     const row = result.rows[0];
     res.json({
       ...row,
-      public_url: publicUrlForBrandTag(row.storage_path),
+      public_url: await resolveBrandTagImageUrl(row.storage_path),
     });
   } catch (error) {
     console.error('Brand tag image patch failed:', error);
@@ -2244,6 +2260,29 @@ app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
     const soldCount = Number(countsRow.sold_count) || 0;
     const unsoldCount = Number(countsRow.unsold_count) || 0;
 
+    const moneyResult = await pool.query(
+      `
+        SELECT
+          COALESCE(
+            SUM(s.purchase_price::numeric) FILTER (WHERE s.purchase_price IS NOT NULL),
+            0
+          )::numeric AS total_purchase_spend,
+          COALESCE(
+            SUM(s.sale_price::numeric) FILTER (
+              WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+            ),
+            0
+          )::numeric AS total_sold_revenue
+        FROM stock s
+        WHERE s.brand_id = $1
+      `,
+      [brandId]
+    );
+    const moneyRow = moneyResult.rows[0] || {};
+    const totalPurchaseSpend = Number(moneyRow.total_purchase_spend) || 0;
+    const totalSoldRevenue = Number(moneyRow.total_sold_revenue) || 0;
+    const brandNetPosition = totalSoldRevenue - totalPurchaseSpend;
+
     const topResult = await pool.query(
       `
         SELECT
@@ -2319,6 +2358,9 @@ app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
       totalItems,
       soldCount,
       unsoldCount,
+      totalPurchaseSpend,
+      totalSoldRevenue,
+      brandNetPosition,
       topSoldItems,
       longestUnsoldItems,
     });
