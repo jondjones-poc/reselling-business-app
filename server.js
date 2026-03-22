@@ -1174,11 +1174,14 @@ const getAccessToken = async (appId, certId) => {
 };
 
 /**
- * Builds Browse `q`: phrase in double quotes so multi-word brands match as a phrase (AND-style),
- * not loose keywords — e.g. "All Saints mens" avoids YSL listings that only share the token "All".
- * Appends mens when missing. Strips stray quotes inside the phrase.
+ * @param {object} [opts]
+ * @param {boolean} [opts.phraseWrap] — wrap full query in quotes (brand research / sold comps only).
+ * @param {boolean} [opts.appendMens] — append `mens` when not already present (default true).
  */
-function augmentEbaySearchQuery(raw) {
+function augmentEbaySearchQuery(raw, opts = {}) {
+  const phraseWrap = opts.phraseWrap === true;
+  const appendMens = opts.appendMens !== false;
+
   let q = typeof raw === 'string' ? raw.trim() : String(raw ?? '').trim();
   if (!q) return q;
   if (q.length >= 2 && q.startsWith('"') && q.endsWith('"')) {
@@ -1186,10 +1189,21 @@ function augmentEbaySearchQuery(raw) {
   }
   q = q.replace(/"/g, ' ').replace(/\s+/g, ' ').trim();
   if (!q) return '';
-  if (!/\bmen'?s\b|\bmens\b/i.test(q)) {
+  if (appendMens && !/\bmen'?s\b|\bmens\b/i.test(q)) {
     q = `${q} mens`;
   }
-  return `"${q}"`;
+  if (phraseWrap) {
+    return `"${q}"`;
+  }
+  return q;
+}
+
+function parseEbayQueryBool(val, defaultValue) {
+  if (val === undefined || val === null || val === '') return defaultValue;
+  const s = String(val).toLowerCase();
+  if (s === '0' || s === 'false' || s === 'no') return false;
+  if (s === '1' || s === 'true' || s === 'yes') return true;
+  return defaultValue;
 }
 
 /** eBay UK Men's Clothing — same as ebay.co.uk/sch/260012. Override with EBAY_BROWSE_CATEGORY_IDS (single id). */
@@ -1353,7 +1367,9 @@ app.get('/api/ebay/search', async (req, res) => {
 
     try {
       const accessToken = await getAccessToken(appId, certId);
-      const qAugmented = augmentEbaySearchQuery(q);
+      const phraseWrap = parseEbayQueryBool(req.query.phraseWrap, false);
+      const appendMens = parseEbayQueryBool(req.query.appendMens, true);
+      const qAugmented = augmentEbaySearchQuery(q, { phraseWrap, appendMens });
       const data = await getBrowseSearch({ query: qAugmented, accessToken, limit, sort });
       res.json(data);
     } catch (error) {
@@ -1384,7 +1400,9 @@ app.get('/api/ebay/research', async (req, res) => {
 
   try {
     const accessToken = await getAccessToken(appId, certId);
-    const qAugmented = augmentEbaySearchQuery(q);
+    const phraseWrap = parseEbayQueryBool(req.query.phraseWrap, false);
+    const appendMens = parseEbayQueryBool(req.query.appendMens, true);
+    const qAugmented = augmentEbaySearchQuery(q, { phraseWrap, appendMens });
     // Get active listings from last month
     // For research, always filter to last 30 days
     const browseData = await getBrowseSearch({ 
@@ -1502,7 +1520,10 @@ async function fetchEbaySoldItemsFromBrowse(brandName, limit, days) {
     throw err;
   }
   const accessToken = await getAccessToken(appId, certId);
-  const qAugmented = augmentEbaySearchQuery(String(brandName).trim());
+  const qAugmented = augmentEbaySearchQuery(String(brandName).trim(), {
+    phraseWrap: true,
+    appendMens: true
+  });
   const data = await getBrowseSearch({
     query: qAugmented,
     accessToken,

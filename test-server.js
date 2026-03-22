@@ -186,7 +186,10 @@ const getAccessToken = async (appId, certId) => {
   return oauthData.access_token;
 };
 
-function augmentEbaySearchQuery(raw) {
+function augmentEbaySearchQuery(raw, opts = {}) {
+  const phraseWrap = opts.phraseWrap === true;
+  const appendMens = opts.appendMens !== false;
+
   let q = typeof raw === 'string' ? raw.trim() : String(raw ?? '').trim();
   if (!q) return q;
   if (q.length >= 2 && q.startsWith('"') && q.endsWith('"')) {
@@ -194,10 +197,21 @@ function augmentEbaySearchQuery(raw) {
   }
   q = q.replace(/"/g, ' ').replace(/\s+/g, ' ').trim();
   if (!q) return '';
-  if (!/\bmen'?s\b|\bmens\b/i.test(q)) {
+  if (appendMens && !/\bmen'?s\b|\bmens\b/i.test(q)) {
     q = `${q} mens`;
   }
-  return `"${q}"`;
+  if (phraseWrap) {
+    return `"${q}"`;
+  }
+  return q;
+}
+
+function parseEbayQueryBool(val, defaultValue) {
+  if (val === undefined || val === null || val === '') return defaultValue;
+  const s = String(val).toLowerCase();
+  if (s === '0' || s === 'false' || s === 'no') return false;
+  if (s === '1' || s === 'true' || s === 'yes') return true;
+  return defaultValue;
 }
 
 /** eBay UK Men's Clothing (matches ebay.co.uk/sch/260012). Override: EBAY_BROWSE_CATEGORY_IDS */
@@ -291,7 +305,9 @@ app.get('/api/ebay/search', async (req, res) => {
 
     try {
       const accessToken = await getAccessToken(appId, process.env.REACT_APP_EBAY_CERT_ID);
-      const qAugmented = augmentEbaySearchQuery(q);
+      const phraseWrap = parseEbayQueryBool(req.query.phraseWrap, false);
+      const appendMens = parseEbayQueryBool(req.query.appendMens, true);
+      const qAugmented = augmentEbaySearchQuery(q, { phraseWrap, appendMens });
       const data = await getBrowseSearch({ query: qAugmented, accessToken, limit, sort });
       res.json(data);
     } catch (err) {
@@ -324,7 +340,9 @@ app.get('/api/ebay/research', async (req, res) => {
 
   try {
     const accessToken = await getAccessToken(appId, certId);
-    const qAugmented = augmentEbaySearchQuery(q);
+    const phraseWrap = parseEbayQueryBool(req.query.phraseWrap, false);
+    const appendMens = parseEbayQueryBool(req.query.appendMens, true);
+    const qAugmented = augmentEbaySearchQuery(q, { phraseWrap, appendMens });
     const browseData = await getBrowseSearch({ query: qAugmented, accessToken, limit: '50' });
     const activeCount = typeof browseData.total === 'number'
       ? browseData.total

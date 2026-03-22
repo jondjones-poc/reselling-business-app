@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Chart as ChartJS,
@@ -145,6 +145,8 @@ interface StockRowForSalesData {
 }
 
 type ItemAnalysisPreset = 'current-month' | 'last-month' | 'custom-month' | 'current-year' | 'last-3-years';
+
+type ItemAnalysisPlatformTab = 'vinted' | 'ebay';
 
 const monthLabelsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -387,6 +389,12 @@ const Reporting: React.FC = () => {
   const [itemAnalysisPreset, setItemAnalysisPreset] = useState<ItemAnalysisPreset>('current-month');
   const [itemAnalysisCustomYear, setItemAnalysisCustomYear] = useState(() => new Date().getFullYear());
   const [itemAnalysisCustomMonth, setItemAnalysisCustomMonth] = useState(() => new Date().getMonth() + 1);
+  const [itemAnalysisPlatform, setItemAnalysisPlatform] = useState<ItemAnalysisPlatformTab>(() => {
+    if (typeof window === 'undefined') return 'vinted';
+    const q = new URLSearchParams(window.location.search);
+    if (q.get('tab') !== 'item-analysis') return 'vinted';
+    return q.get('platform') === 'ebay' ? 'ebay' : 'vinted';
+  });
   const [vintedData, setVintedData] = useState<{ purchases: number; sales: number; profit: number }>({ purchases: 0, sales: 0, profit: 0 });
   const [ebayData, setEbayData] = useState<{ purchases: number; sales: number; profit: number }>({ purchases: 0, sales: 0, profit: 0 });
   const [unsoldPurchases, setUnsoldPurchases] = useState<number>(0);
@@ -491,6 +499,12 @@ const Reporting: React.FC = () => {
     nextParams.set('tab', viewMode);
     setSearchParams(nextParams, { replace: true });
   }, [viewMode, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (searchParams.get('tab') !== 'item-analysis') return;
+    const p = searchParams.get('platform');
+    setItemAnalysisPlatform(p === 'ebay' ? 'ebay' : 'vinted');
+  }, [searchParams]);
 
   useEffect(() => {
     const fetchStockRows = async () => {
@@ -1408,6 +1422,27 @@ const Reporting: React.FC = () => {
   }, [stockRowsForSalesData, itemAnalysisRange]);
 
   const ITEM_ANALYSIS_CHART_TOP = 15;
+  const ITEM_ANALYSIS_WORST_CHART_TOP = 10;
+
+  const itemAnalysisWorstEbayItems = useMemo(
+    () => [...itemAnalysisEbayItems].sort((a, b) => a.profit - b.profit),
+    [itemAnalysisEbayItems]
+  );
+
+  const itemAnalysisWorstVintedItems = useMemo(
+    () => [...itemAnalysisVintedItems].sort((a, b) => a.profit - b.profit),
+    [itemAnalysisVintedItems]
+  );
+
+  const itemAnalysisWorstEbayTop = useMemo(
+    () => itemAnalysisWorstEbayItems.slice(0, ITEM_ANALYSIS_WORST_CHART_TOP),
+    [itemAnalysisWorstEbayItems]
+  );
+
+  const itemAnalysisWorstVintedTop = useMemo(
+    () => itemAnalysisWorstVintedItems.slice(0, ITEM_ANALYSIS_WORST_CHART_TOP),
+    [itemAnalysisWorstVintedItems]
+  );
 
   const itemAnalysisEbayChart = useMemo(() => {
     const top = itemAnalysisEbayItems.slice(0, ITEM_ANALYSIS_CHART_TOP);
@@ -1453,10 +1488,65 @@ const Reporting: React.FC = () => {
     };
   }, [itemAnalysisVintedItems]);
 
+  const itemAnalysisWorstEbayChart = useMemo(() => {
+    const worst = itemAnalysisWorstEbayTop;
+    const labelsFull = worst.map((t) => t.name);
+    const labels = labelsFull.map((n) => (n.length > 40 ? `${n.slice(0, 38)}…` : n));
+    return {
+      labelsFull,
+      chartData: {
+        labels,
+        datasets: [
+          {
+            label: 'Profit',
+            data: worst.map((t) => t.profit),
+            backgroundColor: 'rgba(255, 120, 100, 0.55)',
+            borderColor: 'rgba(255, 120, 100, 0.95)',
+            borderWidth: 1,
+            borderRadius: 6,
+          },
+        ],
+      },
+    };
+  }, [itemAnalysisWorstEbayTop]);
+
+  const itemAnalysisWorstVintedChart = useMemo(() => {
+    const worst = itemAnalysisWorstVintedTop;
+    const labelsFull = worst.map((t) => t.name);
+    const labels = labelsFull.map((n) => (n.length > 40 ? `${n.slice(0, 38)}…` : n));
+    return {
+      labelsFull,
+      chartData: {
+        labels,
+        datasets: [
+          {
+            label: 'Profit',
+            data: worst.map((t) => t.profit),
+            backgroundColor: 'rgba(255, 160, 90, 0.5)',
+            borderColor: 'rgba(255, 160, 90, 0.95)',
+            borderWidth: 1,
+            borderRadius: 6,
+          },
+        ],
+      },
+    };
+  }, [itemAnalysisWorstVintedTop]);
+
   const itemAnalysisYearOptions = useMemo(() => {
     const y = new Date().getFullYear();
     return Array.from({ length: 16 }, (_, i) => y - i);
   }, []);
+
+  const setItemAnalysisPlatformTab = useCallback(
+    (p: ItemAnalysisPlatformTab) => {
+      setItemAnalysisPlatform(p);
+      const next = new URLSearchParams(searchParams);
+      next.set('tab', 'item-analysis');
+      next.set('platform', p);
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams]
+  );
 
   return (
     <div className="reporting-container">
@@ -2454,141 +2544,316 @@ const Reporting: React.FC = () => {
               </>
             )}
           </div>
-          <p className="item-analysis-range-label">
-            Showing sales in <span className="item-analysis-range-em">{itemAnalysisRange.label}</span> (by sale date).
-            Sorted by profit (highest first). Price multiplier = sale ÷ purchase.
-          </p>
         </div>
 
-        <div className="item-analysis-section">
-          <h2 className="item-analysis-heading">eBay</h2>
-          {itemAnalysisEbayChart.chartData.labels.length > 0 ? (
-            <div
-              className="chart-wrapper item-analysis-chart-wrap"
-              style={{
-                minHeight: Math.min(520, Math.max(200, itemAnalysisEbayChart.chartData.labels.length * 32)),
-              }}
-            >
-              <Bar
-                data={itemAnalysisEbayChart.chartData}
-                options={{
-                  ...itemAnalysisChartOptions,
-                  plugins: {
-                    ...itemAnalysisChartOptions.plugins,
-                    tooltip: {
-                      ...itemAnalysisChartOptions.plugins?.tooltip,
-                      callbacks: {
-                        ...itemAnalysisChartOptions.plugins?.tooltip?.callbacks,
-                        title(items) {
-                          const i = items[0]?.dataIndex;
-                          return i !== undefined ? itemAnalysisEbayChart.labelsFull[i] ?? '' : '';
+        <div className="item-analysis-platform-tabs" role="tablist" aria-label="Item analysis platform">
+          <button
+            type="button"
+            role="tab"
+            id="item-analysis-tab-vinted"
+            aria-selected={itemAnalysisPlatform === 'vinted'}
+            aria-controls="item-analysis-panel-vinted"
+            className={`item-analysis-platform-tab${itemAnalysisPlatform === 'vinted' ? ' item-analysis-platform-tab--active' : ''}`}
+            onClick={() => setItemAnalysisPlatformTab('vinted')}
+          >
+            Vinted
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="item-analysis-tab-ebay"
+            aria-selected={itemAnalysisPlatform === 'ebay'}
+            aria-controls="item-analysis-panel-ebay"
+            className={`item-analysis-platform-tab${itemAnalysisPlatform === 'ebay' ? ' item-analysis-platform-tab--active' : ''}`}
+            onClick={() => setItemAnalysisPlatformTab('ebay')}
+          >
+            eBay
+          </button>
+        </div>
+
+        {itemAnalysisPlatform === 'ebay' && (
+          <div
+            id="item-analysis-panel-ebay"
+            role="tabpanel"
+            aria-labelledby="item-analysis-tab-ebay"
+            className="item-analysis-platform-panel"
+          >
+            <div className="item-analysis-section">
+              <h2 className="item-analysis-heading">eBay — best profit</h2>
+              {itemAnalysisEbayChart.chartData.labels.length > 0 ? (
+                <div
+                  className="chart-wrapper item-analysis-chart-wrap"
+                  style={{
+                    minHeight: Math.min(520, Math.max(200, itemAnalysisEbayChart.chartData.labels.length * 32)),
+                  }}
+                >
+                  <Bar
+                    data={itemAnalysisEbayChart.chartData}
+                    options={{
+                      ...itemAnalysisChartOptions,
+                      plugins: {
+                        ...itemAnalysisChartOptions.plugins,
+                        tooltip: {
+                          ...itemAnalysisChartOptions.plugins?.tooltip,
+                          callbacks: {
+                            ...itemAnalysisChartOptions.plugins?.tooltip?.callbacks,
+                            title(items) {
+                              const i = items[0]?.dataIndex;
+                              return i !== undefined ? itemAnalysisEbayChart.labelsFull[i] ?? '' : '';
+                            },
+                          },
                         },
                       },
-                    },
-                  },
-                }}
-              />
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="reporting-empty">No eBay sales in this period.</div>
+              )}
+
+              <div className="item-analysis-table-wrap">
+                {itemAnalysisEbayItems.length > 0 ? (
+                  <table className="item-analysis-table">
+                    <thead>
+                      <tr>
+                        <th>Item</th>
+                        <th>Price paid</th>
+                        <th>Sold price</th>
+                        <th>Price ×</th>
+                        <th>Profit</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {itemAnalysisEbayItems.map((row) => (
+                        <tr key={`ebay-${row.id}-${row.name}`}>
+                          <td className="item-analysis-name">{row.name}</td>
+                          <td>{formatCurrency(row.purchase)}</td>
+                          <td>{formatCurrency(row.sale)}</td>
+                          <td>{row.multiplier !== null ? `${row.multiplier.toFixed(2)}×` : '—'}</td>
+                          <td className={row.profit >= 0 ? 'item-analysis-profit-pos' : 'item-analysis-profit-neg'}>
+                            {formatCurrency(row.profit)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="reporting-empty item-analysis-table-empty">No rows to show.</div>
+                )}
+              </div>
             </div>
-          ) : (
-            <div className="reporting-empty">No eBay sales in this period.</div>
-          )}
 
-          <div className="item-analysis-table-wrap">
-            {itemAnalysisEbayItems.length > 0 ? (
-              <table className="item-analysis-table">
-                <thead>
-                  <tr>
-                    <th>Item</th>
-                    <th>Price paid</th>
-                    <th>Sold price</th>
-                    <th>Price ×</th>
-                    <th>Profit</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {itemAnalysisEbayItems.map((row) => (
-                    <tr key={`ebay-${row.id}-${row.name}`}>
-                      <td className="item-analysis-name">{row.name}</td>
-                      <td>{formatCurrency(row.purchase)}</td>
-                      <td>{formatCurrency(row.sale)}</td>
-                      <td>{row.multiplier !== null ? `${row.multiplier.toFixed(2)}×` : '—'}</td>
-                      <td className={row.profit >= 0 ? 'item-analysis-profit-pos' : 'item-analysis-profit-neg'}>
-                        {formatCurrency(row.profit)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <div className="reporting-empty item-analysis-table-empty">No rows to show.</div>
-            )}
-          </div>
-        </div>
-
-        <div className="item-analysis-section item-analysis-section--vinted">
-          <h2 className="item-analysis-heading">Vinted</h2>
-          {itemAnalysisVintedChart.chartData.labels.length > 0 ? (
-            <div
-              className="chart-wrapper item-analysis-chart-wrap"
-              style={{
-                minHeight: Math.min(520, Math.max(200, itemAnalysisVintedChart.chartData.labels.length * 32)),
-              }}
-            >
-              <Bar
-                data={itemAnalysisVintedChart.chartData}
-                options={{
-                  ...itemAnalysisChartOptions,
-                  plugins: {
-                    ...itemAnalysisChartOptions.plugins,
-                    tooltip: {
-                      ...itemAnalysisChartOptions.plugins?.tooltip,
-                      callbacks: {
-                        ...itemAnalysisChartOptions.plugins?.tooltip?.callbacks,
-                        title(items) {
-                          const i = items[0]?.dataIndex;
-                          return i !== undefined ? itemAnalysisVintedChart.labelsFull[i] ?? '' : '';
+            <div className="item-analysis-section item-analysis-section--worst">
+              <h2 className="item-analysis-heading">eBay — lowest profit (10)</h2>
+              {itemAnalysisWorstEbayChart.chartData.labels.length > 0 ? (
+                <div
+                  className="chart-wrapper item-analysis-chart-wrap"
+                  style={{
+                    minHeight: Math.min(
+                      400,
+                      Math.max(200, itemAnalysisWorstEbayChart.chartData.labels.length * 32)
+                    ),
+                  }}
+                >
+                  <Bar
+                    data={itemAnalysisWorstEbayChart.chartData}
+                    options={{
+                      ...itemAnalysisChartOptions,
+                      plugins: {
+                        ...itemAnalysisChartOptions.plugins,
+                        tooltip: {
+                          ...itemAnalysisChartOptions.plugins?.tooltip,
+                          callbacks: {
+                            ...itemAnalysisChartOptions.plugins?.tooltip?.callbacks,
+                            title(items) {
+                              const i = items[0]?.dataIndex;
+                              return i !== undefined ? itemAnalysisWorstEbayChart.labelsFull[i] ?? '' : '';
+                            },
+                          },
                         },
                       },
-                    },
-                  },
-                }}
-              />
-            </div>
-          ) : (
-            <div className="reporting-empty">No Vinted sales in this period.</div>
-          )}
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="reporting-empty">No eBay sales in this period.</div>
+              )}
 
-          <div className="item-analysis-table-wrap">
-            {itemAnalysisVintedItems.length > 0 ? (
-              <table className="item-analysis-table">
-                <thead>
-                  <tr>
-                    <th>Item</th>
-                    <th>Price paid</th>
-                    <th>Sold price</th>
-                    <th>Price ×</th>
-                    <th>Profit</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {itemAnalysisVintedItems.map((row) => (
-                    <tr key={`vinted-${row.id}-${row.name}`}>
-                      <td className="item-analysis-name">{row.name}</td>
-                      <td>{formatCurrency(row.purchase)}</td>
-                      <td>{formatCurrency(row.sale)}</td>
-                      <td>{row.multiplier !== null ? `${row.multiplier.toFixed(2)}×` : '—'}</td>
-                      <td className={row.profit >= 0 ? 'item-analysis-profit-pos' : 'item-analysis-profit-neg'}>
-                        {formatCurrency(row.profit)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <div className="reporting-empty item-analysis-table-empty">No rows to show.</div>
-            )}
+              <div className="item-analysis-table-wrap">
+                {itemAnalysisWorstEbayTop.length > 0 ? (
+                  <table className="item-analysis-table">
+                    <thead>
+                      <tr>
+                        <th>Item</th>
+                        <th>Price paid</th>
+                        <th>Sold price</th>
+                        <th>Price ×</th>
+                        <th>Profit</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {itemAnalysisWorstEbayTop.map((row) => (
+                        <tr key={`ebay-worst-${row.id}-${row.name}`}>
+                          <td className="item-analysis-name">{row.name}</td>
+                          <td>{formatCurrency(row.purchase)}</td>
+                          <td>{formatCurrency(row.sale)}</td>
+                          <td>{row.multiplier !== null ? `${row.multiplier.toFixed(2)}×` : '—'}</td>
+                          <td className={row.profit >= 0 ? 'item-analysis-profit-pos' : 'item-analysis-profit-neg'}>
+                            {formatCurrency(row.profit)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="reporting-empty item-analysis-table-empty">No rows to show.</div>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
+        )}
+
+        {itemAnalysisPlatform === 'vinted' && (
+          <div
+            id="item-analysis-panel-vinted"
+            role="tabpanel"
+            aria-labelledby="item-analysis-tab-vinted"
+            className="item-analysis-platform-panel item-analysis-platform-panel--vinted"
+          >
+            <div className="item-analysis-section item-analysis-section--vinted">
+              <h2 className="item-analysis-heading">Vinted — best profit</h2>
+              {itemAnalysisVintedChart.chartData.labels.length > 0 ? (
+                <div
+                  className="chart-wrapper item-analysis-chart-wrap"
+                  style={{
+                    minHeight: Math.min(520, Math.max(200, itemAnalysisVintedChart.chartData.labels.length * 32)),
+                  }}
+                >
+                  <Bar
+                    data={itemAnalysisVintedChart.chartData}
+                    options={{
+                      ...itemAnalysisChartOptions,
+                      plugins: {
+                        ...itemAnalysisChartOptions.plugins,
+                        tooltip: {
+                          ...itemAnalysisChartOptions.plugins?.tooltip,
+                          callbacks: {
+                            ...itemAnalysisChartOptions.plugins?.tooltip?.callbacks,
+                            title(items) {
+                              const i = items[0]?.dataIndex;
+                              return i !== undefined ? itemAnalysisVintedChart.labelsFull[i] ?? '' : '';
+                            },
+                          },
+                        },
+                      },
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="reporting-empty">No Vinted sales in this period.</div>
+              )}
+
+              <div className="item-analysis-table-wrap">
+                {itemAnalysisVintedItems.length > 0 ? (
+                  <table className="item-analysis-table">
+                    <thead>
+                      <tr>
+                        <th>Item</th>
+                        <th>Price paid</th>
+                        <th>Sold price</th>
+                        <th>Price ×</th>
+                        <th>Profit</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {itemAnalysisVintedItems.map((row) => (
+                        <tr key={`vinted-${row.id}-${row.name}`}>
+                          <td className="item-analysis-name">{row.name}</td>
+                          <td>{formatCurrency(row.purchase)}</td>
+                          <td>{formatCurrency(row.sale)}</td>
+                          <td>{row.multiplier !== null ? `${row.multiplier.toFixed(2)}×` : '—'}</td>
+                          <td className={row.profit >= 0 ? 'item-analysis-profit-pos' : 'item-analysis-profit-neg'}>
+                            {formatCurrency(row.profit)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="reporting-empty item-analysis-table-empty">No rows to show.</div>
+                )}
+              </div>
+            </div>
+
+            <div className="item-analysis-section item-analysis-section--vinted item-analysis-section--worst">
+              <h2 className="item-analysis-heading">Vinted — lowest profit (10)</h2>
+              {itemAnalysisWorstVintedChart.chartData.labels.length > 0 ? (
+                <div
+                  className="chart-wrapper item-analysis-chart-wrap"
+                  style={{
+                    minHeight: Math.min(
+                      400,
+                      Math.max(200, itemAnalysisWorstVintedChart.chartData.labels.length * 32)
+                    ),
+                  }}
+                >
+                  <Bar
+                    data={itemAnalysisWorstVintedChart.chartData}
+                    options={{
+                      ...itemAnalysisChartOptions,
+                      plugins: {
+                        ...itemAnalysisChartOptions.plugins,
+                        tooltip: {
+                          ...itemAnalysisChartOptions.plugins?.tooltip,
+                          callbacks: {
+                            ...itemAnalysisChartOptions.plugins?.tooltip?.callbacks,
+                            title(items) {
+                              const i = items[0]?.dataIndex;
+                              return i !== undefined ? itemAnalysisWorstVintedChart.labelsFull[i] ?? '' : '';
+                            },
+                          },
+                        },
+                      },
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="reporting-empty">No Vinted sales in this period.</div>
+              )}
+
+              <div className="item-analysis-table-wrap">
+                {itemAnalysisWorstVintedTop.length > 0 ? (
+                  <table className="item-analysis-table">
+                    <thead>
+                      <tr>
+                        <th>Item</th>
+                        <th>Price paid</th>
+                        <th>Sold price</th>
+                        <th>Price ×</th>
+                        <th>Profit</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {itemAnalysisWorstVintedTop.map((row) => (
+                        <tr key={`vinted-worst-${row.id}-${row.name}`}>
+                          <td className="item-analysis-name">{row.name}</td>
+                          <td>{formatCurrency(row.purchase)}</td>
+                          <td>{formatCurrency(row.sale)}</td>
+                          <td>{row.multiplier !== null ? `${row.multiplier.toFixed(2)}×` : '—'}</td>
+                          <td className={row.profit >= 0 ? 'item-analysis-profit-pos' : 'item-analysis-profit-neg'}>
+                            {formatCurrency(row.profit)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="reporting-empty item-analysis-table-empty">No rows to show.</div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

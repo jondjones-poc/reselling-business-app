@@ -234,6 +234,81 @@ function parseBrandStockSummaryPayload(data: unknown): BrandStockSummaryPayload 
   };
 }
 
+/** Clipboard prompt for ChatGPT: stuck inventory vs sold winners, blunt data-led analysis. */
+function buildLongestUnsoldAskAiPrompt(brandName: string, summary: BrandStockSummaryPayload): string {
+  const st =
+    summary.soldCount + summary.unsoldCount > 0
+      ? ((summary.soldCount / (summary.soldCount + summary.unsoldCount)) * 100).toFixed(1)
+      : 'n/a';
+
+  const lines: string[] = [
+    'I run a UK resale business. Below is **real data exported from my stock system** for one brand. Do not flatter me or hedge with generic encouragement. Ground every claim in the numbers or item facts given; say when you are inferring vs when something is factual.',
+    '',
+    `## Brand`,
+    `- Name: ${brandName}`,
+    `- Brand id (internal): ${summary.brandId}`,
+    '',
+    '## Portfolio snapshot (this brand in my inventory)',
+    `- Total line items: ${summary.totalItems}`,
+    `- Sold (with positive sale recorded): ${summary.soldCount}`,
+    `- Still unsold / not sold through: ${summary.unsoldCount}`,
+    `- Approx. sell-through of recorded items: ${st}%`,
+    `- Total purchase spend (rows with a buy price): ${formatResearchCurrency(summary.totalPurchaseSpend)}`,
+    `- Total sold revenue: ${formatResearchCurrency(summary.totalSoldRevenue)}`,
+    `- Net (sold revenue − all buy-in for brand): ${formatResearchCurrency(summary.brandNetPosition)}`,
+    '',
+    '## Longest-unsold lines (oldest purchase first — from DB query; these are still not sold)',
+    'Each row: item title, category, buy price, purchase date, days since purchase (age in stock).',
+    '',
+  ];
+
+  summary.longestUnsoldItems.forEach((row, i) => {
+    const days = daysSincePurchase(row.purchase_date);
+    const price =
+      row.purchase_price != null && Number.isFinite(row.purchase_price)
+        ? formatResearchCurrency(row.purchase_price)
+        : '—';
+    lines.push(
+      `${i + 1}. **${(row.item_name || '—').trim() || '—'}**`,
+      `   - Category: ${row.category_name ?? '—'}`,
+      `   - Purchase price: ${price}`,
+      `   - Purchase date: ${formatResearchShortDate(row.purchase_date)}`,
+      `   - Days in stock (from purchase date): ${days != null ? `${days}d` : '—'}`
+    );
+  });
+
+  if (summary.topSoldItems.length > 0) {
+    lines.push(
+      '',
+      '## Contrast — top sold performers in this brand (by profit multiple, from same system)',
+      'Use this only to compare what *did* move vs what is stuck (category, price point, multiple).',
+      ''
+    );
+    summary.topSoldItems.slice(0, 5).forEach((row, i) => {
+      const mult =
+        row.profit_multiple != null && Number.isFinite(row.profit_multiple)
+          ? `${row.profit_multiple.toFixed(2)}×`
+          : '—';
+      lines.push(
+        `${i + 1}. ${(row.item_name || '—').trim() || '—'} | cat: ${row.category_name ?? '—'} | buy ${row.purchase_price != null ? formatResearchCurrency(row.purchase_price) : '—'} → sold ${row.sale_price != null ? formatResearchCurrency(row.sale_price) : '—'} | profit ${row.profit != null ? formatResearchCurrency(row.profit) : '—'} | mult ${mult}`
+      );
+    });
+  }
+
+  lines.push(
+    '',
+    '## What I want from you',
+    '1. **Why might these specific unsold lines still be sitting?** Tie hypotheses to the data (purchase price vs typical band, category mix, age, anything obvious from names).',
+    '2. **What mistakes might I have made** buying or pricing these (be direct)?',
+    '3. **Should I buy this brand again?** Under what strict rules (categories, max buy price, avoid list), or should I pause the brand?',
+    '4. **Concrete next steps** (e.g. reprice band, bundle, move platform, donate/write-off) where justified.',
+    '',
+    'Tone: concise, blunt, unsentimental. If the data is thin, say so and still answer from what exists. No “great job” or empty reassurance.'
+  );
+
+  return lines.join('\n');
+}
+
 function parseOptionalBrandText(v: unknown): string | null {
   if (v === null || v === undefined) return null;
   if (typeof v === 'string') return v;
@@ -1605,6 +1680,19 @@ const Research: React.FC = () => {
     }
   };
 
+  const handleCopyLongestUnsoldAskAi = async () => {
+    if (!brandStockSummary || brandStockSummary.longestUnsoldItems.length === 0) return;
+    const br = brandsWithWebsites.find((b) => b.id === brandTagBrandId);
+    const brandName =
+      br?.brand_name?.trim() || `Brand id ${brandStockSummary.brandId}`;
+    const text = buildLongestUnsoldAskAiPrompt(brandName, brandStockSummary);
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (err) {
+      console.warn('Ask AI clipboard write failed:', err);
+    }
+  };
+
   const brandStockBarChartData = useMemo(() => {
     const s = brandStockSummary;
     if (!s) return null;
@@ -2590,6 +2678,21 @@ const Research: React.FC = () => {
                           })}
                         </tbody>
                       </table>
+                    </div>
+                    <div className="brand-research-unsold-ask-ai-wrap">
+                      <button
+                        type="button"
+                        className="brand-research-unsold-ask-ai-button"
+                        onClick={() => void handleCopyLongestUnsoldAskAi()}
+                        title="Copy a blunt, data-based prompt for ChatGPT about these stuck lines"
+                        aria-label="Copy Ask AI prompt for longest unsold items to clipboard"
+                      >
+                        Ask AI
+                      </button>
+                      <p className="brand-research-unsold-ask-ai-hint">
+                        Copies a prompt with this table plus brand totals and top sold lines—paste into ChatGPT.
+                        Asks for direct feedback, not reassurance.
+                      </p>
                     </div>
                   </div>
                 ) : null}

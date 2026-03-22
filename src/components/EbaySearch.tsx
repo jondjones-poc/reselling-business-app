@@ -26,7 +26,6 @@ interface ResearchResult {
 }
 
 const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5003';
-const DEFAULT_GENDER = 'Mens';
 
 const EbaySearch: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -37,7 +36,6 @@ const EbaySearch: React.FC = () => {
   const [colors, setColors] = useState<string[]>([]);
   const [patterns, setPatterns] = useState<string[]>([]);
   const [brands, setBrands] = useState<string[]>([]);
-  const [genders, setGenders] = useState<string[]>([]);
   const [settingsLoading, setSettingsLoading] = useState(true);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState('');
@@ -45,7 +43,8 @@ const EbaySearch: React.FC = () => {
   const [selectedColor, setSelectedColor] = useState('');
   const [selectedPattern, setSelectedPattern] = useState('');
   const [selectedBrand, setSelectedBrand] = useState('');
-  const [selectedGender, setSelectedGender] = useState(DEFAULT_GENDER);
+  /** Homepage eBay: when on, append `mens` to the query (server + site search). Default on. */
+  const [includeMens, setIncludeMens] = useState(true);
   const [itemsSold, setItemsSold] = useState('');
   const [activeListings, setActiveListings] = useState('');
   const [ebayResearchLoading, setEbayResearchLoading] = useState(false);
@@ -58,8 +57,6 @@ const EbaySearch: React.FC = () => {
   const [listingFees, setListingFees] = useState('0.10');
   const [promotedFees, setPromotedFees] = useState('10');
 
-  const genderOptions = genders.length > 0 ? genders : [DEFAULT_GENDER];
-
   const hasSearchableInput = [
     searchTerm,
     selectedCategory,
@@ -70,23 +67,10 @@ const EbaySearch: React.FC = () => {
     scannedData ?? ''
   ].some((value) => value.trim().length > 0);
 
-  const resolveDefaultGender = (availableGenders: string[]) => {
-    if (!availableGenders || availableGenders.length === 0) {
-      return DEFAULT_GENDER;
-    }
-
-    const matchedDefault = availableGenders.find(
-      (gender) => gender.toLowerCase() === DEFAULT_GENDER.toLowerCase()
-    );
-
-    return matchedDefault ?? availableGenders[0];
-  };
-
   const buildSearchTokens = () => {
     const tokens: string[] = [];
 
     const trimmedSearch = searchTerm.trim();
-    const trimmedGender = selectedGender.trim();
     const trimmedCategory = selectedCategory.trim();
     const trimmedMaterial = selectedMaterial.trim();
     const trimmedColor = selectedColor.trim();
@@ -95,10 +79,6 @@ const EbaySearch: React.FC = () => {
 
     if (trimmedSearch) {
       tokens.push(trimmedSearch);
-    }
-
-    if (trimmedGender && trimmedGender.toLowerCase() !== 'none') {
-      tokens.push(trimmedGender);
     }
 
     if (trimmedCategory) {
@@ -157,7 +137,7 @@ const EbaySearch: React.FC = () => {
     setSelectedColor('');
     setSelectedPattern('');
     setSelectedBrand('');
-    setSelectedGender(resolveDefaultGender(genders));
+    setIncludeMens(true);
     setScannedData(null);
     setShowScanner(false);
   };
@@ -168,7 +148,10 @@ const EbaySearch: React.FC = () => {
       return;
     }
 
-    const combined = tokens.join(' ');
+    const combined = augmentEbaySearchQuery(tokens.join(' '), {
+      phraseWrap: false,
+      appendMens: includeMens,
+    });
 
     try {
       await navigator.clipboard.writeText(combined);
@@ -224,38 +207,19 @@ const EbaySearch: React.FC = () => {
         const sortedBrands = [...(data.brands ?? [])].sort((a, b) =>
           a.localeCompare(b, undefined, { sensitivity: 'base' })
         );
-        const sanitizedGenders = Array.from(
-          new Set(
-            (data.gender ?? [])
-              .filter((item): item is string => typeof item === 'string')
-              .map((item) => item.trim())
-              .filter((item) => item.length > 0)
-          )
-        );
-
-        if (sanitizedGenders.length === 0) {
-          sanitizedGenders.push(DEFAULT_GENDER);
-        }
-
-        const defaultGenderValue = resolveDefaultGender(sanitizedGenders);
 
         setCategories(sanitizedCategories);
         setMaterials(sortedMaterials);
         setColors(sortedColors);
         setPatterns(sortedPatterns);
         setBrands(sortedBrands);
-        setGenders(sanitizedGenders);
-        setSelectedGender((previous) =>
-          sanitizedGenders.includes(previous) ? previous : defaultGenderValue
-        );
 
         return (
           sanitizedCategories.length > 0 ||
           sortedColors.length > 0 ||
           sortedMaterials.length > 0 ||
           sortedBrands.length > 0 ||
-          sortedPatterns.length > 0 ||
-          sanitizedGenders.length > 0
+          sortedPatterns.length > 0
         );
       };
 
@@ -337,15 +301,6 @@ const EbaySearch: React.FC = () => {
     setSelectedBrand(value);
   };
 
-  const handleGenderSelect = (value: string) => {
-    if (!value) {
-      setSelectedGender(resolveDefaultGender(genders));
-      return;
-    }
-
-    setSelectedGender(value);
-  };
-
   /** Same formula as former “Item Sell Through Rate” button: sold / (sold + active) × 100 */
   const manualSellThroughPercent = useMemo(() => {
     if (!itemsSold?.trim() || !activeListings?.trim()) return null;
@@ -356,6 +311,122 @@ const EbaySearch: React.FC = () => {
     if (totalInventory <= 0) return null;
     return (sold / totalInventory) * 100;
   }, [itemsSold, activeListings]);
+
+  const hasMeaningfulProfitInput =
+    itemsSold.trim().length > 0 ||
+    activeListings.trim().length > 0 ||
+    itemPrice.trim().length > 0 ||
+    salePrice.trim().length > 0 ||
+    (listingFees.trim() !== '' && listingFees.trim() !== '0.10') ||
+    (promotedFees.trim() !== '' && promotedFees.trim() !== '10');
+
+  const hasAskAiContent = hasSearchableInput || hasMeaningfulProfitInput;
+
+  const buildAskAiPrompt = (): string => {
+    const tokens = buildSearchTokens();
+    const ebayQuery =
+      tokens.length > 0
+        ? augmentEbaySearchQuery(tokens.join(' '), {
+            phraseWrap: false,
+            appendMens: includeMens,
+          })
+        : '';
+
+    const lines: string[] = [
+      "I'm at a charity shop or boot sale in the UK and need a quick resale opinion before I buy.",
+      '',
+      '## Item / search',
+    ];
+
+    if (searchTerm.trim()) {
+      lines.push(`- Keywords typed: ${searchTerm.trim()}`);
+    }
+    if (ebayQuery) {
+      lines.push(`- Full eBay-style search string (filters combined): ${ebayQuery}`);
+    } else {
+      lines.push('- (no search keywords or filters combined yet)');
+    }
+    lines.push(`- Mens terms appended to search: ${includeMens ? 'Yes' : 'No'}`);
+
+    lines.push('', '## Filters selected');
+    const filterLines = [
+      selectedBrand.trim() && `Brand: ${selectedBrand.trim()}`,
+      selectedCategory.trim() && `Category: ${selectedCategory.trim()}`,
+      selectedPattern.trim() && `Pattern: ${selectedPattern.trim()}`,
+      selectedColor.trim() && `Colour: ${selectedColor.trim()}`,
+      selectedMaterial.trim() && `Material: ${selectedMaterial.trim()}`,
+    ].filter(Boolean) as string[];
+    if (filterLines.length) {
+      filterLines.forEach((f) => lines.push(`- ${f}`));
+    } else {
+      lines.push('- (none)');
+    }
+
+    lines.push('', '## Demand / comps (from my quick notes)');
+    if (itemsSold.trim()) {
+      lines.push(`- Sold count (period I used): ${itemsSold.trim()}`);
+    }
+    if (activeListings.trim()) {
+      lines.push(`- Active listings: ${activeListings.trim()}`);
+    }
+    if (manualSellThroughPercent !== null) {
+      lines.push(
+        `- Estimated sell-through: (${itemsSold} / (${itemsSold} + ${activeListings})) × 100 ≈ ${manualSellThroughPercent.toFixed(1)}%`
+      );
+    }
+    if (!itemsSold.trim() && !activeListings.trim() && manualSellThroughPercent === null) {
+      lines.push('- (not filled in)');
+    }
+
+    lines.push('', '## Potential profit inputs (£ / %, from the app form)');
+    const profitLines: string[] = [];
+    if (itemPrice.trim()) profitLines.push(`- Item / buy price: £${itemPrice.trim()}`);
+    if (salePrice.trim()) profitLines.push(`- Expected sale price: £${salePrice.trim()}`);
+    if (listingFees.trim()) profitLines.push(`- Listing fees: £${listingFees.trim()}`);
+    if (promotedFees.trim()) profitLines.push(`- Promoted listing fee: ${promotedFees.trim()}%`);
+    if (profitLines.length) {
+      lines.push(...profitLines);
+    } else {
+      lines.push('- (not filled in)');
+    }
+
+    if (ebayResearchResult) {
+      lines.push(
+        '',
+        '## eBay research snapshot (from app)',
+        `- Active listings (sample): ${ebayResearchResult.activeCount}`,
+        `- Sold / completed (sample): ${ebayResearchResult.soldCount}`,
+        ebayResearchResult.sellThroughRatio !== null
+          ? `- Sell-through ratio (app): ${(ebayResearchResult.sellThroughRatio * 100).toFixed(1)}%`
+          : '- Sell-through ratio (app): n/a'
+      );
+    }
+
+    lines.push(
+      '',
+      '## What I need from you',
+      '1. Does this look like a good buy at the buy price? What would make you say yes or no?',
+      '2. What might stop it selling or kill margin (condition, seasonality, fees, competition, fakes, sizing, trends, etc.)?',
+      '3. Anything else I should check or ask before I hand over cash?',
+      '',
+      '## Format for your reply',
+      'Answer in exactly 7 paragraphs. Each paragraph should be a few sentences and one main idea—no bullet lists or numbered lists as the backbone of the answer. Cover the three questions above across those paragraphs, and end paragraph 7 with a clear buy / pass / negotiate stance. Keep it practical—I am still in the shop.'
+    );
+
+    return lines.join('\n');
+  };
+
+  const handleAskAiClipboard = async () => {
+    if (!hasAskAiContent) {
+      return;
+    }
+    const text = buildAskAiPrompt();
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (err) {
+      console.warn('Clipboard write failed:', err);
+    }
+  };
 
   const getSTRColor = (rate: number | null): string => {
     if (rate === null) return '';
@@ -398,7 +469,11 @@ const EbaySearch: React.FC = () => {
     setEbayResearchResult(null);
 
     try {
-      const params = new URLSearchParams({ q: queryToUse });
+      const params = new URLSearchParams({
+        q: queryToUse,
+        phraseWrap: '0',
+        appendMens: includeMens ? '1' : '0',
+      });
       const response = await fetch(`${API_BASE}/api/ebay/research?${params.toString()}`);
 
       if (!response.ok) {
@@ -447,7 +522,10 @@ const EbaySearch: React.FC = () => {
     // Using .ebay.co.uk domain ensures UK marketplace
     // Adding LH_PrefLoc=1 for UK preferred location
     
-    const combinedSearchTerm = augmentEbaySearchQuery(searchTokens.join(' '));
+    const combinedSearchTerm = augmentEbaySearchQuery(searchTokens.join(' '), {
+      phraseWrap: false,
+      appendMens: includeMens,
+    });
 
     // Store only the actual searchTerm value, not the combined tokens
     try {
@@ -480,7 +558,10 @@ const EbaySearch: React.FC = () => {
     // Using .ebay.co.uk domain ensures UK marketplace
     // Adding LH_PrefLoc=1 for UK preferred location
     
-    const combinedSearchTerm = augmentEbaySearchQuery(searchTokens.join(' '));
+    const combinedSearchTerm = augmentEbaySearchQuery(searchTokens.join(' '), {
+      phraseWrap: false,
+      appendMens: includeMens,
+    });
 
     try {
       window.localStorage.setItem(SEARCH_COMBINED_STORAGE_KEY, combinedSearchTerm);
@@ -499,109 +580,6 @@ const EbaySearch: React.FC = () => {
     <>
     <div className="ebay-search-container">
       <form onSubmit={handleSubmit} className="ebay-search-form">
-        <div className="category-section">
-          <div className="category-control">
-            <select
-              id="color-select"
-              value={selectedColor}
-              onChange={(e) => handleColorSelect(e.target.value)}
-              className="dropdown-select"
-              disabled={colors.length === 0}
-            >
-              <option value="">Colors</option>
-              {colors.map((colorName) => (
-                <option key={colorName} value={colorName}>
-                  {colorName}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="category-control">
-            <select
-              id="material-select"
-              value={selectedMaterial}
-              onChange={(e) => handleMaterialSelect(e.target.value)}
-              className="dropdown-select"
-              disabled={materials.length === 0}
-            >
-              <option value="">Materials</option>
-              {materials.map((materialName) => (
-                <option key={materialName} value={materialName}>
-                  {materialName}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="category-control">
-            <select
-              id="pattern-select"
-              value={selectedPattern}
-              onChange={(e) => handlePatternSelect(e.target.value)}
-              className="dropdown-select"
-              disabled={patterns.length === 0}
-            >
-              <option value="">Patterns</option>
-              {patterns.map((patternName) => (
-                <option key={patternName} value={patternName}>
-                  {patternName}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="category-control">
-            <select
-              id="category-select"
-              value={selectedCategory}
-              onChange={(e) => handleCategorySelect(e.target.value)}
-              className="dropdown-select"
-              disabled={settingsLoading || categories.length === 0}
-            >
-              <option value="">Categories</option>
-              {categories.map((category) => (
-                <option key={category} value={category}>
-                  {category}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="category-control">
-            <select
-              id="brand-select"
-              value={selectedBrand}
-              onChange={(e) => handleBrandSelect(e.target.value)}
-              className="dropdown-select"
-              disabled={brands.length === 0}
-            >
-              <option value="">Brands</option>
-              {brands.map((brandName) => (
-                <option key={brandName} value={brandName}>
-                  {brandName}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="category-control">
-            <select
-              id="gender-select"
-              value={selectedGender}
-              onChange={(e) => handleGenderSelect(e.target.value)}
-              className="dropdown-select"
-              disabled={genderOptions.length === 0}
-            >
-              {genderOptions.map((gender) => (
-                <option key={gender} value={gender}>
-                  {gender}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
         {!showScanner ? (
           <div className="ebay-search-query-block">
             <div className="search-bar-group">
@@ -610,7 +588,7 @@ const EbaySearch: React.FC = () => {
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Enter search term (e.g., joop jumper, nike shoes)"
+                  placeholder="Enter search term..."
                   className="ebay-search-input"
                   autoComplete="off"
                 />
@@ -641,14 +619,28 @@ const EbaySearch: React.FC = () => {
               >
                 Search Actives
               </button>
-              <button
-                type="button"
-                onClick={handleCopyToClipboard}
-                className="copy-button"
-                disabled={!hasSearchableInput}
-              >
-                📋 Copy
-              </button>
+              <div className="primary-action-row__duo">
+                <button
+                  type="button"
+                  onClick={handleCopyToClipboard}
+                  className="copy-button copy-button--icon-only"
+                  disabled={!hasSearchableInput}
+                  title="Copy eBay search query"
+                  aria-label="Copy eBay search query to clipboard"
+                >
+                  <span aria-hidden>📋</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAskAiClipboard}
+                  className="ask-ai-button"
+                  disabled={!hasAskAiContent}
+                  title="Copy a research prompt for AI (charity shop / boot sale)"
+                  aria-label="Copy Ask AI research prompt to clipboard"
+                >
+                  Ask AI
+                </button>
+              </div>
             </div>
             {scannedData && (
               <p className="scanned-info">Last scanned: {scannedData}</p>
@@ -672,6 +664,118 @@ const EbaySearch: React.FC = () => {
           </div>
         )}
 
+        <div className="category-section">
+          {/* Row 1: Brands, Categories, Patterns */}
+          <div className="category-filter-row">
+            <div className="category-control">
+              <select
+                id="brand-select"
+                value={selectedBrand}
+                onChange={(e) => handleBrandSelect(e.target.value)}
+                className="dropdown-select"
+                disabled={brands.length === 0}
+              >
+                <option value="">Brands</option>
+                {brands.map((brandName) => (
+                  <option key={brandName} value={brandName}>
+                    {brandName}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="category-control">
+              <select
+                id="category-select"
+                value={selectedCategory}
+                onChange={(e) => handleCategorySelect(e.target.value)}
+                className="dropdown-select"
+                disabled={settingsLoading || categories.length === 0}
+              >
+                <option value="">Categories</option>
+                {categories.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="category-control">
+              <select
+                id="pattern-select"
+                value={selectedPattern}
+                onChange={(e) => handlePatternSelect(e.target.value)}
+                className="dropdown-select"
+                disabled={patterns.length === 0}
+              >
+                <option value="">Patterns</option>
+                {patterns.map((patternName) => (
+                  <option key={patternName} value={patternName}>
+                    {patternName}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Row 2: Colors, Materials, Apply Mens Filter */}
+          <div className="category-filter-row">
+            <div className="category-control">
+              <select
+                id="color-select"
+                value={selectedColor}
+                onChange={(e) => handleColorSelect(e.target.value)}
+                className="dropdown-select"
+                disabled={colors.length === 0}
+              >
+                <option value="">Colors</option>
+                {colors.map((colorName) => (
+                  <option key={colorName} value={colorName}>
+                    {colorName}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="category-control">
+              <select
+                id="material-select"
+                value={selectedMaterial}
+                onChange={(e) => handleMaterialSelect(e.target.value)}
+                className="dropdown-select"
+                disabled={materials.length === 0}
+              >
+                <option value="">Materials</option>
+                {materials.map((materialName) => (
+                  <option key={materialName} value={materialName}>
+                    {materialName}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="category-control category-control--toggle">
+              <button
+                type="button"
+                id="include-mens-toggle"
+                className={
+                  'ebay-include-mens-toggle' + (includeMens ? ' ebay-include-mens-toggle--on' : '')
+                }
+                onClick={() => setIncludeMens((v) => !v)}
+                aria-pressed={includeMens}
+                aria-label={
+                  includeMens
+                    ? 'Mens filter applied to search, press to turn off'
+                    : 'Mens filter not applied, press to turn on'
+                }
+              >
+                {includeMens ? 'Apply Mens Filter' : 'Off'}
+              </button>
+            </div>
+          </div>
+        </div>
+
         {settingsLoading && (
           <div className="settings-status">Loading settings...</div>
         )}
@@ -684,10 +788,9 @@ const EbaySearch: React.FC = () => {
 
     <div className="ebay-search-container">
       <div className="potential-profit-section">
-        <h3 className="potential-profit-title">Potential Profit</h3>
         <div className="potential-profit-form">
           <div className="potential-profit-str-inputs-row">
-            <div className="potential-profit-str-input-half">
+            <div className="potential-profit-input-group">
               <label htmlFor="items-sold" className="potential-profit-label">Sold Rate</label>
               <input
                 id="items-sold"
@@ -699,7 +802,7 @@ const EbaySearch: React.FC = () => {
                 min="0"
               />
             </div>
-            <div className="potential-profit-str-input-half">
+            <div className="potential-profit-input-group">
               <label htmlFor="active-listings" className="potential-profit-label">Active Listings</label>
               <input
                 id="active-listings"

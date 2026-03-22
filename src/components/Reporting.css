@@ -629,20 +629,56 @@
   cursor: pointer;
 }
 
-.item-analysis-range-label {
-  margin: 14px 0 0 0;
-  color: rgba(255, 248, 226, 0.72);
-  font-size: 0.88rem;
-  line-height: 1.45;
+.item-analysis-platform-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 20px;
 }
 
-.item-analysis-range-em {
+.item-analysis-platform-tab {
+  padding: 10px 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 214, 91, 0.32);
+  background: rgba(255, 214, 91, 0.07);
+  color: rgba(255, 248, 226, 0.82);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08rem;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.item-analysis-platform-tab:hover {
+  background: rgba(255, 214, 91, 0.14);
+  border-color: rgba(255, 214, 91, 0.45);
+}
+
+.item-analysis-platform-tab--active {
+  background: rgba(255, 214, 91, 0.22);
+  border-color: rgba(255, 214, 91, 0.55);
   color: var(--neon-primary-strong);
-  font-weight: 600;
+  box-shadow: 0 0 14px rgba(255, 214, 91, 0.18);
+}
+
+.item-analysis-platform-panel > .item-analysis-section--vinted:first-child {
+  border-top: none;
+  padding-top: 0;
 }
 
 .item-analysis-section {
   margin-bottom: 40px;
+}
+
+.item-analysis-section--worst {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid rgba(255, 214, 91, 0.18);
 }
 
 .item-analysis-section--vinted {
