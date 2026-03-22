@@ -39,37 +39,27 @@ body {
 }
 
 .nav-container {
-  max-width: 1200px;
+  max-width: 100%;
   margin: 0 auto;
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
-  gap: 24px;
-  padding: 18px 0;
+  gap: 16px;
+  padding: 14px 20px;
   box-sizing: border-box;
   width: 100%;
 }
 
-.nav-title {
-  font-size: 1.8rem;
-  margin: 0;
-  text-transform: uppercase;
-  letter-spacing: 0.2rem;
-  color: var(--neon-primary);
-  text-shadow: 0 0 18px rgba(255, 214, 91, 0.8);
-  padding-left: 32px;
-  box-sizing: border-box;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex-shrink: 0;
-}
-
 .nav-menu {
   display: flex;
-  gap: 14px;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  justify-content: center;
   align-items: center;
-  padding-right: 32px;
+  gap: 10px 12px;
+  padding: 0;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .nav-settings-icon {
@@ -532,47 +522,36 @@ body {
   }
 
   .nav-container {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 12px;
-    padding: 16px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 8px 6px;
+    padding: 12px 10px;
     width: 100%;
     max-width: 100%;
     box-sizing: border-box;
-  }
-
-  .nav-title {
-    cursor: pointer;
-    padding-left: 0;
-    font-size: 1.5rem;
-    letter-spacing: 0.15rem;
-    width: 100%;
-    max-width: 100%;
   }
 
   .nav-menu {
-    display: none;
-    width: 100%;
-    flex-direction: column;
-    gap: 10px;
+    flex: 1 1 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px 6px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
     box-sizing: border-box;
-    overflow-x: hidden;
-  }
-
-  .nav-menu.show-mobile {
-    display: flex;
+    padding-bottom: 2px;
   }
 
   .nav-button {
-    width: 100%;
-    max-width: 100%;
+    flex: 0 1 auto;
     justify-content: center;
     box-sizing: border-box;
-    padding: 10px 20px;
-    font-size: 14px;
+    padding: 8px 14px;
+    font-size: 12px;
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
 
   .nav-settings-icon-desktop {

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { NavLink, Route, Routes, Navigate, useLocation } from 'react-router-dom';
 import EbaySearch from './components/EbaySearch';
 import Research from './components/Research';
@@ -23,12 +23,7 @@ const navItems = [
 ];
 
 function App() {
-  const [showMobileMenu, setShowMobileMenu] = useState(false);
   const location = useLocation();
-
-  useEffect(() => {
-    setShowMobileMenu(false);
-  }, [location.pathname]);
 
   useEffect(() => {
     if (location.pathname === '/') {
@@ -36,31 +31,12 @@ function App() {
     }
   }, [location.pathname]);
 
-  const handleNavTitleDoubleClick = () => {
-    setShowMobileMenu((prev) => !prev);
-  };
-
   return (
     <AuthGate>
     <div className="App">
-        <nav className="navigation">
+        <nav className="navigation" aria-label="Main">
           <div className="nav-container">
-            <h1
-              className="nav-title"
-              onDoubleClick={handleNavTitleDoubleClick}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  handleNavTitleDoubleClick();
-                }
-              }}
-            >
-              Gents Rail
-            </h1>
-            <div
-              className={`nav-menu${showMobileMenu ? ' show-mobile' : ''}`}
-            >
+            <div id="primary-nav-menu" className="nav-menu">
               {navItems.map((item) => (
                 <NavLink
                   key={item.to}
@@ -69,7 +45,6 @@ function App() {
                   className={({ isActive }) =>
                     `nav-button${isActive ? ' active' : ''}`
                   }
-                  onClick={() => setShowMobileMenu(false)}
                 >
                   {item.label}
                 </NavLink>
@@ -80,7 +55,6 @@ function App() {
                 className={({ isActive }) =>
                   `nav-button${isActive ? ' active' : ''} nav-button-mobile-only`
                 }
-                onClick={() => setShowMobileMenu(false)}
               >
                 Settings
               </NavLink>

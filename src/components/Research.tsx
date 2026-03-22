@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BarElement,
   CategoryScale,
@@ -96,6 +96,43 @@ function buildMenswearCategoryAskAiPrompt(args: {
   );
 
   return header.join('\n');
+}
+
+/** Prompt for the global menswear category list (no single category selected). */
+function buildMenswearAllCategoriesAskAiPrompt(
+  categories: { name: string; description: string | null; notes: string | null }[]
+): string {
+  const lines: string[] = [
+    `I'm a UK menswear reseller (second-hand / resale). I organise stock using internal **menswear category** labels in my app.`,
+    ``,
+    `Below is my **full current list** of categories (name, description, and my notes where I have them).`,
+    ``,
+  ];
+
+  if (categories.length === 0) {
+    lines.push(`*(I don’t have any categories defined in the system yet.)*`, ``);
+  } else {
+    lines.push(`## My categories (${categories.length})`, ``);
+    categories.forEach((c, i) => {
+      lines.push(`### ${i + 1}. ${c.name}`);
+      if (c.description?.trim()) lines.push(c.description.trim());
+      if (c.notes?.trim()) lines.push(`**My notes:** ${c.notes.trim()}`);
+      lines.push(``);
+    });
+  }
+
+  lines.push(
+    `## What I need from you`,
+    `1. **Taxonomy review** — Am I missing important menswear buckets a UK reseller would typically split out? Any overlaps where two of my categories should merge?`,
+    `2. **Naming** — Are any names ambiguous or easy to confuse? Suggest clearer labels if needed.`,
+    `3. **Gaps** — For resale sourcing (Vinted, eBay, charity shops), what adjacent categories or sub-themes might I want to track separately?`,
+    `4. **Optional** — If useful, suggest a short **priority order** for which gaps to fix first.`,
+    ``,
+    `Tone: direct, practical. Work from the list above; don’t invent categories I already listed under different wording.`,
+    `Today’s date context: ${new Date().toISOString().slice(0, 10)}.`
+  );
+
+  return lines.join('\n');
 }
 
 function formatResearchShortDate(isoOrDate: string | null): string {
@@ -1117,6 +1154,8 @@ const Research: React.FC = () => {
   const [brandsWithWebsites, setBrandsWithWebsites] = useState<BrandRow[]>([]);
 
   const [brandTagBrandId, setBrandTagBrandId] = useState<number | ''>('');
+  const [brandTabQuery, setBrandTabQuery] = useState('');
+  const [brandTabTypeaheadOpen, setBrandTabTypeaheadOpen] = useState(false);
   const [brandTagImages, setBrandTagImages] = useState<BrandTagImageRow[]>([]);
   const [brandTagLoading, setBrandTagLoading] = useState(false);
   const [brandTagError, setBrandTagError] = useState<string | null>(null);
@@ -1753,6 +1792,24 @@ const Research: React.FC = () => {
     []
   );
 
+  const runMenswearAllCategoriesAskAi = useCallback(async () => {
+    setMenswearAskAiBusy(true);
+    setMenswearAskAiHint(null);
+    try {
+      const sorted = [...menswearCategories].sort((a, b) =>
+        a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+      );
+      const text = buildMenswearAllCategoriesAskAiPrompt(sorted);
+      await copyResearchTextToClipboard(text);
+      setMenswearAskAiHint('Copied to clipboard — paste into ChatGPT.');
+    } catch (e) {
+      setMenswearAskAiHint(friendlyApiUnreachableMessage(e));
+    } finally {
+      setMenswearAskAiBusy(false);
+      window.setTimeout(() => setMenswearAskAiHint(null), 5000);
+    }
+  }, [menswearCategories]);
+
   // Brand Research: ?brand=<id> or ?brand=<encoded brand_name>
   useEffect(() => {
     if (!brandsLoaded) return;
@@ -1801,6 +1858,71 @@ const Research: React.FC = () => {
       setBrandTagBrandId((prev) => (prev !== '' ? '' : prev));
     }
   }, [brandsLoaded, brandsWithWebsites, brandQueryParam, setSearchParams]);
+
+  const prevBrandTagBrandIdRef = useRef<number | ''>(brandTagBrandId);
+  const brandTabInputUserEditRef = useRef(false);
+  useEffect(() => {
+    if (!brandsLoaded) return;
+    if (prevBrandTagBrandIdRef.current === brandTagBrandId) return;
+    const prev = prevBrandTagBrandIdRef.current;
+    prevBrandTagBrandIdRef.current = brandTagBrandId;
+    if (brandTagBrandId === '') {
+      if (prev !== '' && !brandTabInputUserEditRef.current) {
+        setBrandTabQuery('');
+      }
+      brandTabInputUserEditRef.current = false;
+      return;
+    }
+    const b = brandsWithWebsites.find((x) => x.id === brandTagBrandId);
+    if (b) setBrandTabQuery(b.brand_name);
+  }, [brandsLoaded, brandTagBrandId, brandsWithWebsites]);
+
+  const brandTabTypeaheadList = useMemo(() => {
+    const list = brandsWithWebsites;
+    const q = brandTabQuery.trim().toLowerCase();
+    const filtered = !q ? list : list.filter((br) => br.brand_name.toLowerCase().includes(q));
+    return [...filtered].sort((a, b) =>
+      a.brand_name.localeCompare(b.brand_name, undefined, { sensitivity: 'base' })
+    );
+  }, [brandsWithWebsites, brandTabQuery]);
+
+  const selectBrandFromBrandTabTypeahead = useCallback(
+    (b: BrandRow) => {
+      brandTabInputUserEditRef.current = false;
+      setBrandTabQuery(b.brand_name);
+      setBrandTagBrandId(b.id);
+      setBrandTabTypeaheadOpen(false);
+      const next = new URLSearchParams(searchParams);
+      next.set('brand', String(b.id));
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams]
+  );
+
+  const clearBrandTabSelection = useCallback(() => {
+    brandTabInputUserEditRef.current = false;
+    setBrandTagBrandId('');
+    setBrandTabQuery('');
+    setBrandTabTypeaheadOpen(false);
+    const next = new URLSearchParams(searchParams);
+    next.delete('brand');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (researchTab !== 'brand') {
+      setBrandTabTypeaheadOpen(false);
+    }
+  }, [researchTab]);
+
+  useEffect(() => {
+    if (researchTab !== 'brand' || !brandTabTypeaheadOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setBrandTabTypeaheadOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [researchTab, brandTabTypeaheadOpen]);
 
   useEffect(() => {
     setBrandTagEditingId(null);
@@ -2499,6 +2621,17 @@ const Research: React.FC = () => {
     [menswearCategories, menswearCategoryIdFromUrl]
   );
 
+  const speakMenswearCategoryAloud = useCallback((cat: MenswearCategoryRow) => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const parts = [cat.name.trim()];
+    if (cat.description?.trim()) parts.push(cat.description.trim());
+    if (cat.notes?.trim()) parts.push(cat.notes.trim());
+    const u = new SpeechSynthesisUtterance(parts.join('. '));
+    u.rate = 0.92;
+    window.speechSynthesis.speak(u);
+  }, []);
+
   return (
     <div className="research-page-container">
       {researchApiOfflineMessage && (
@@ -2560,7 +2693,6 @@ const Research: React.FC = () => {
           className="research-tab-panel"
         >
       <div className="brand-tag-examples-container">
-        <h2 className="brand-tag-examples-heading">Brand research</h2>
         <div
           className={
             'brand-tag-examples-form' +
@@ -2601,33 +2733,72 @@ const Research: React.FC = () => {
                 (brandTagBrandId !== '' ? ' brand-tag-examples-brand-toolbar--split' : '')
               }
             >
-              <div className="brand-tag-examples-brand-select-wrap">
-                <select
-                  id="brand-tag-brand-select"
-                  className="brand-tag-examples-select"
-                  aria-label="Select brand"
-                  value={brandTagBrandId === '' ? '' : String(brandTagBrandId)}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    const id = v ? Number(v) : '';
-                    setBrandTagBrandId(id);
-                    const next = new URLSearchParams(searchParams);
-                    if (id === '') {
-                      next.delete('brand');
-                    } else {
-                      next.set('brand', String(id));
-                    }
-                    setSearchParams(next, { replace: true });
-                  }}
-                  disabled={!brandsLoaded || brandsWithWebsites.length === 0}
-                >
-                  <option value="">Select a brand…</option>
-                  {brandsWithWebsites.map((b) => (
-                    <option key={b.id} value={String(b.id)}>
-                      {b.brand_name}
-                    </option>
-                  ))}
-                </select>
+              <div className="brand-tag-examples-brand-select-wrap brand-research-brand-typeahead-wrap">
+                <div className="brand-research-brand-typeahead-inner">
+                  <input
+                    id="brand-tag-brand-select"
+                    type="text"
+                    role="combobox"
+                    aria-expanded={brandTabTypeaheadOpen}
+                    aria-controls="brand-research-brand-typeahead-listbox"
+                    aria-autocomplete="list"
+                    autoComplete="off"
+                    aria-label="Search or select brand"
+                    className="brand-tag-examples-select brand-research-brand-typeahead-input"
+                    placeholder="Search or select a brand…"
+                    value={brandTabQuery}
+                    disabled={!brandsLoaded || brandsWithWebsites.length === 0}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setBrandTabQuery(v);
+                      setBrandTabTypeaheadOpen(true);
+                      if (v.trim() === '') {
+                        clearBrandTabSelection();
+                        return;
+                      }
+                      const selected = brandsWithWebsites.find((br) => br.id === brandTagBrandId);
+                      if (brandTagBrandId !== '' && selected && v !== selected.brand_name) {
+                        brandTabInputUserEditRef.current = true;
+                        setBrandTagBrandId('');
+                        const next = new URLSearchParams(searchParams);
+                        next.delete('brand');
+                        setSearchParams(next, { replace: true });
+                      }
+                    }}
+                    onFocus={() => setBrandTabTypeaheadOpen(true)}
+                    onBlur={() => {
+                      window.setTimeout(() => setBrandTabTypeaheadOpen(false), 120);
+                    }}
+                  />
+                  {brandTabTypeaheadOpen && brandsLoaded && brandsWithWebsites.length > 0 && (
+                    <ul
+                      id="brand-research-brand-typeahead-listbox"
+                      role="listbox"
+                      className="brand-research-typeahead-dropdown"
+                    >
+                      {brandTabTypeaheadList.length === 0 ? (
+                        <li className="brand-research-typeahead-empty" role="presentation">
+                          No matching brands
+                        </li>
+                      ) : (
+                        brandTabTypeaheadList.map((b) => (
+                          <li
+                            key={b.id}
+                            role="option"
+                            aria-selected={brandTagBrandId === b.id}
+                            className="brand-research-typeahead-option"
+                            onMouseDown={(ev) => {
+                              ev.preventDefault();
+                              selectBrandFromBrandTabTypeahead(b);
+                            }}
+                          >
+                            {b.brand_name}
+                          </li>
+                        ))
+                      )}
+                    </ul>
+                  )}
+                </div>
               </div>
               {brandTagBrandId !== '' && (
                 <div className="brand-tag-examples-brand-toolbar-actions">
@@ -3610,8 +3781,13 @@ const Research: React.FC = () => {
           aria-labelledby="research-tab-menswear-categories"
           className="research-tab-panel"
         >
-          <div className="menswear-categories-page">
-            {menswearCategoryIdFromUrl != null && menswearAskAiHint ? (
+          <div
+            className={
+              'menswear-categories-page' +
+              (selectedMenswearCategory ? ' menswear-categories-page--category-dock' : '')
+            }
+          >
+            {menswearAskAiHint ? (
               <p
                 className={`menswear-categories-ask-ai-hint${menswearAskAiHint.startsWith('Copied') ? '' : ' menswear-categories-ask-ai-hint--error'}`}
                 role="status"
@@ -3631,26 +3807,49 @@ const Research: React.FC = () => {
             )}
 
             {!menswearCategoriesLoading && !menswearCategoriesError && menswearCategoryIdFromUrl === null && (
-              <ul className="menswear-categories-list">
+              <>
+                <ul className="menswear-categories-list">
                 {menswearCategories.length === 0 ? (
                   <li className="menswear-categories-empty">No categories found.</li>
                 ) : (
                   menswearCategories.map((cat) => (
-                    <li key={cat.id}>
-                      <button
-                        type="button"
-                        className="menswear-categories-card"
-                        onClick={() => openMenswearCategoryInUrl(cat.id)}
-                      >
-                        <span className="menswear-categories-card-name">{cat.name}</span>
-                        {cat.description ? (
-                          <span className="menswear-categories-card-desc">{cat.description}</span>
-                        ) : null}
-                      </button>
+                    <li key={cat.id} className="menswear-categories-list-item">
+                      <div className="menswear-categories-list-item-row">
+                        <button
+                          type="button"
+                          className="menswear-categories-card"
+                          onClick={() => openMenswearCategoryInUrl(cat.id)}
+                        >
+                          <span className="menswear-categories-card-name">{cat.name}</span>
+                          {cat.description ? (
+                            <span className="menswear-categories-card-desc">{cat.description}</span>
+                          ) : null}
+                        </button>
+                        <button
+                          type="button"
+                          className="menswear-categories-ask-ai-btn menswear-categories-list-ask-ai-btn"
+                          disabled={menswearAskAiBusy}
+                          onClick={() => void runMenswearAskAi({ cat })}
+                        >
+                          Ask AI
+                        </button>
+                      </div>
                     </li>
                   ))
                 )}
-              </ul>
+                </ul>
+                <div className="menswear-categories-global-ask-ai">
+                  <button
+                    type="button"
+                    className="menswear-categories-ask-ai-btn menswear-categories-global-ask-ai-btn"
+                    disabled={menswearAskAiBusy}
+                    onClick={() => void runMenswearAllCategoriesAskAi()}
+                    aria-label="Copy Ask AI prompt for all menswear categories to clipboard"
+                  >
+                    Ask AI — all categories
+                  </button>
+                </div>
+              </>
             )}
 
             {!menswearCategoriesLoading && menswearCategoryIdFromUrl !== null && selectedMenswearCategory && (
@@ -3778,52 +3977,54 @@ const Research: React.FC = () => {
                 )}
 
                 {!menswearCategoryBrandsLoading && !menswearCategoryBrandsError && (
-                  <>
-                    <ul className="menswear-categories-brands">
-                      {menswearCategoryBrands.length === 0 ? (
-                        <li className="menswear-categories-empty">No brands in this category yet.</li>
-                      ) : (
-                        menswearCategoryBrands.map((b) => {
-                          const salesNum =
-                            typeof b.total_sales === 'number'
-                              ? b.total_sales
-                              : parseFloat(String(b.total_sales)) || 0;
-                          return (
-                            <li key={b.id} className="menswear-categories-brand-row">
-                              <Link
-                                className="menswear-categories-brand-link"
-                                to={`/research?brand=${encodeURIComponent(String(b.id))}`}
-                              >
-                                {b.brand_name || '—'}
-                              </Link>
-                              {menswearBrandSort === 'total_sales' && (
-                                <span className="menswear-categories-brand-sales">
-                                  {formatResearchCurrency(salesNum)}
-                                </span>
-                              )}
-                            </li>
-                          );
-                        })
-                      )}
-                    </ul>
-                    <div className="menswear-categories-brands-footer">
-                      <button
-                        type="button"
-                        className="menswear-categories-ask-ai-btn"
-                        disabled={menswearAskAiBusy || !selectedMenswearCategory}
-                        onClick={() =>
-                          selectedMenswearCategory &&
-                          void runMenswearAskAi({
-                            cat: selectedMenswearCategory,
-                            brands: menswearCategoryBrands,
-                          })
-                        }
-                      >
-                        Ask AI
-                      </button>
-                    </div>
-                  </>
+                  <ul className="menswear-categories-brands">
+                    {menswearCategoryBrands.length === 0 ? (
+                      <li className="menswear-categories-empty">No brands in this category yet.</li>
+                    ) : (
+                      menswearCategoryBrands.map((b) => {
+                        const salesNum =
+                          typeof b.total_sales === 'number'
+                            ? b.total_sales
+                            : parseFloat(String(b.total_sales)) || 0;
+                        return (
+                          <li key={b.id} className="menswear-categories-brand-row">
+                            <Link
+                              className="menswear-categories-brand-link"
+                              to={`/research?brand=${encodeURIComponent(String(b.id))}`}
+                            >
+                              {b.brand_name || '—'}
+                            </Link>
+                            {menswearBrandSort === 'total_sales' && (
+                              <span className="menswear-categories-brand-sales">
+                                {formatResearchCurrency(salesNum)}
+                              </span>
+                            )}
+                          </li>
+                        );
+                      })
+                    )}
+                  </ul>
                 )}
+
+                <div className="menswear-categories-brands-footer">
+                  <button
+                    type="button"
+                    className="menswear-categories-ask-ai-btn"
+                    disabled={menswearAskAiBusy}
+                    onClick={() =>
+                      selectedMenswearCategory &&
+                      void runMenswearAskAi({
+                        cat: selectedMenswearCategory,
+                        brands:
+                          !menswearCategoryBrandsLoading && !menswearCategoryBrandsError
+                            ? menswearCategoryBrands
+                            : undefined,
+                      })
+                    }
+                  >
+                    Ask AI
+                  </button>
+                </div>
               </div>
             )}
 
@@ -3836,6 +4037,24 @@ const Research: React.FC = () => {
                   </p>
                 </div>
               )}
+
+            {selectedMenswearCategory && (
+              <div className="menswear-categories-category-dock" role="region" aria-label="Current category">
+                <div className="menswear-categories-category-dock-inner">
+                  <p className="menswear-categories-category-dock-current">
+                    <span className="menswear-categories-category-dock-label">Current category</span>
+                    <span className="menswear-categories-category-dock-name">{selectedMenswearCategory.name}</span>
+                  </p>
+                  <button
+                    type="button"
+                    className="menswear-categories-read-aloud-btn"
+                    onClick={() => speakMenswearCategoryAloud(selectedMenswearCategory)}
+                  >
+                    Read aloud
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
