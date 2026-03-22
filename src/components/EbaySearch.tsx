@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import BarcodeScanner from 'react-qr-barcode-scanner';
+import { augmentEbaySearchQuery } from '../utils/augmentEbaySearchQuery';
 import './EbaySearch.css';
 import './BrandResearch.css';
 
@@ -446,7 +447,7 @@ const EbaySearch: React.FC = () => {
     // Using .ebay.co.uk domain ensures UK marketplace
     // Adding LH_PrefLoc=1 for UK preferred location
     
-    const combinedSearchTerm = searchTokens.join(' ');
+    const combinedSearchTerm = augmentEbaySearchQuery(searchTokens.join(' '));
 
     // Store only the actual searchTerm value, not the combined tokens
     try {
@@ -479,7 +480,7 @@ const EbaySearch: React.FC = () => {
     // Using .ebay.co.uk domain ensures UK marketplace
     // Adding LH_PrefLoc=1 for UK preferred location
     
-    const combinedSearchTerm = searchTokens.join(' ');
+    const combinedSearchTerm = augmentEbaySearchQuery(searchTokens.join(' '));
 
     try {
       window.localStorage.setItem(SEARCH_COMBINED_STORAGE_KEY, combinedSearchTerm);

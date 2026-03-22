@@ -186,11 +186,29 @@ const getAccessToken = async (appId, certId) => {
   return oauthData.access_token;
 };
 
+function augmentEbaySearchQuery(raw) {
+  let q = typeof raw === 'string' ? raw.trim() : String(raw ?? '').trim();
+  if (!q) return q;
+  if (q.length >= 2 && q.startsWith('"') && q.endsWith('"')) {
+    q = q.slice(1, -1).trim();
+  }
+  q = q.replace(/"/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!q) return '';
+  if (!/\bmen'?s\b|\bmens\b/i.test(q)) {
+    q = `${q} mens`;
+  }
+  return `"${q}"`;
+}
+
+/** eBay UK Men's Clothing (matches ebay.co.uk/sch/260012). Override: EBAY_BROWSE_CATEGORY_IDS */
+const EBAY_GB_MENS_CLOTHING_CATEGORY_ID = (process.env.EBAY_BROWSE_CATEGORY_IDS || '260012').trim();
+
 const getBrowseSearch = async ({ query, accessToken, limit = '5', sort = '-price' }) => {
   const params = new URLSearchParams({
     q: query,
     limit,
     sort,
+    category_ids: EBAY_GB_MENS_CLOTHING_CATEGORY_ID,
     filter: 'conditionIds:{3000},deliveryCountry:GB',
     'X-EBAY-C-MARKETPLACE-ID': 'EBAY-GB'
   });
@@ -273,7 +291,8 @@ app.get('/api/ebay/search', async (req, res) => {
 
     try {
       const accessToken = await getAccessToken(appId, process.env.REACT_APP_EBAY_CERT_ID);
-      const data = await getBrowseSearch({ query: q, accessToken, limit, sort });
+      const qAugmented = augmentEbaySearchQuery(q);
+      const data = await getBrowseSearch({ query: qAugmented, accessToken, limit, sort });
       res.json(data);
     } catch (err) {
       console.error('Browse API error:', err);
@@ -305,7 +324,8 @@ app.get('/api/ebay/research', async (req, res) => {
 
   try {
     const accessToken = await getAccessToken(appId, certId);
-    const browseData = await getBrowseSearch({ query: q, accessToken, limit: '50' });
+    const qAugmented = augmentEbaySearchQuery(q);
+    const browseData = await getBrowseSearch({ query: qAugmented, accessToken, limit: '50' });
     const activeCount = typeof browseData.total === 'number'
       ? browseData.total
       : Array.isArray(browseData.itemSummaries)
@@ -317,7 +337,7 @@ app.get('/api/ebay/research', async (req, res) => {
     let completedError = null;
 
     try {
-      const completedData = await getCompletedItems(q, appId);
+      const completedData = await getCompletedItems(qAugmented, appId);
       const completedResponse = completedData?.findCompletedItemsResponse?.[0];
       const paginationOutput = completedResponse?.paginationOutput?.[0];
       const rawTotalEntries = paginationOutput?.totalEntries?.[0] ?? '0';
@@ -340,7 +360,7 @@ app.get('/api/ebay/research', async (req, res) => {
     const sellThroughRatio = activeCount > 0 ? soldCount / activeCount : null;
 
     res.json({
-      query: q,
+      query: qAugmented,
       activeCount,
       soldCount,
       sellThroughRatio,

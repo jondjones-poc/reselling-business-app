@@ -1157,7 +1157,51 @@ const getAccessToken = async (appId, certId) => {
   return oauthData.access_token;
 };
 
-const getBrowseSearch = async ({ query, accessToken, limit = '5', sort = '-price', soldOnly = false, lastMonthOnly = false }) => {
+/**
+ * Builds Browse `q`: phrase in double quotes so multi-word brands match as a phrase (AND-style),
+ * not loose keywords — e.g. "All Saints mens" avoids YSL listings that only share the token "All".
+ * Appends mens when missing. Strips stray quotes inside the phrase.
+ */
+function augmentEbaySearchQuery(raw) {
+  let q = typeof raw === 'string' ? raw.trim() : String(raw ?? '').trim();
+  if (!q) return q;
+  if (q.length >= 2 && q.startsWith('"') && q.endsWith('"')) {
+    q = q.slice(1, -1).trim();
+  }
+  q = q.replace(/"/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!q) return '';
+  if (!/\bmen'?s\b|\bmens\b/i.test(q)) {
+    q = `${q} mens`;
+  }
+  return `"${q}"`;
+}
+
+/** eBay UK Men's Clothing — same as ebay.co.uk/sch/260012. Override with EBAY_BROWSE_CATEGORY_IDS (single id). */
+const EBAY_GB_MENS_CLOTHING_CATEGORY_ID = (process.env.EBAY_BROWSE_CATEGORY_IDS || '260012').trim();
+
+/**
+ * @param {object} opts
+ * @param {string} opts.query
+ * @param {string} opts.accessToken
+ * @param {string} [opts.limit='5']
+ * @param {string} [opts.sort='-price']
+ * @param {boolean} [opts.soldOnly=false]
+ * @param {boolean} [opts.lastMonthOnly=false]
+ * @param {number|null} [opts.soldDateRangeDays] — if set with soldOnly, soldDate window in days (overrides lastMonthOnly for sold)
+ * @param {boolean} [opts.requireUsedCondition=true] — if false, omit Used-only filter (more sold comps)
+ * @param {string|null} [opts.categoryIds] — Browse `category_ids` (single ID). Default men's clothing UK; `null` to omit.
+ */
+const getBrowseSearch = async ({
+  query,
+  accessToken,
+  limit = '5',
+  sort = '-price',
+  soldOnly = false,
+  lastMonthOnly = false,
+  soldDateRangeDays = null,
+  requireUsedCondition = true,
+  categoryIds = EBAY_GB_MENS_CLOTHING_CATEGORY_ID
+}) => {
   const params = new URLSearchParams({
     q: query,
     limit,
@@ -1165,36 +1209,38 @@ const getBrowseSearch = async ({ query, accessToken, limit = '5', sort = '-price
     marketplaceId: 'EBAY_GB'
   });
 
-  // Build filter string
-  let filterParts = [];
-  
-  // Add delivery country filter (UK only) - applies to both active and sold
+  if (categoryIds != null && String(categoryIds).trim() !== '') {
+    params.set('category_ids', String(categoryIds).trim());
+  }
+
+  const filterParts = [];
+
   filterParts.push('deliveryCountry:GB');
-  
-  // Add condition filter for Used items - applies to both active and sold
-  filterParts.push('conditionIds:{3000}'); // 3000 = Used condition
-  
-  // Add date filter for last month if requested
-  if (lastMonthOnly) {
+
+  if (requireUsedCondition !== false) {
+    filterParts.push('conditionIds:{3000}');
+  }
+
+  if (soldOnly) {
+    let rangeDays = null;
+    if (soldDateRangeDays != null && Number.isFinite(Number(soldDateRangeDays))) {
+      rangeDays = Math.min(365, Math.max(7, Math.trunc(Number(soldDateRangeDays))));
+    } else if (lastMonthOnly) {
+      rangeDays = 30;
+    }
+    if (rangeDays != null) {
+      const today = new Date();
+      const start = new Date();
+      start.setDate(today.getDate() - rangeDays);
+      filterParts.push(`soldDate:[${start.toISOString()}..${today.toISOString()}]`);
+    } else {
+      filterParts.push('conditions:SOLD');
+    }
+  } else if (lastMonthOnly) {
     const today = new Date();
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(today.getDate() - 30);
-    
-    // Format dates as ISO 8601 (YYYY-MM-DDTHH:MM:SSZ) in UTC
-    const endDate = today.toISOString();
-    const startDate = thirtyDaysAgo.toISOString();
-    
-    if (soldOnly) {
-      // For sold items: use soldDate filter (this automatically filters to sold items)
-      filterParts.push(`soldDate:[${startDate}..${endDate}]`);
-    } else {
-      // For active items: filter by itemStartDate (when item was listed)
-      filterParts.push(`itemStartDate:[${startDate}..${endDate}]`);
-    }
-  } else if (soldOnly) {
-    // If soldOnly but no date filter, we still need to indicate sold items
-    // Note: soldDate without a range might not work, so we'll use conditions:SOLD as fallback
-    filterParts.push('conditions:SOLD');
+    filterParts.push(`itemStartDate:[${thirtyDaysAgo.toISOString()}..${today.toISOString()}]`);
   }
   
   // Join all filter parts with commas
@@ -1291,7 +1337,8 @@ app.get('/api/ebay/search', async (req, res) => {
 
     try {
       const accessToken = await getAccessToken(appId, certId);
-      const data = await getBrowseSearch({ query: q, accessToken, limit, sort });
+      const qAugmented = augmentEbaySearchQuery(q);
+      const data = await getBrowseSearch({ query: qAugmented, accessToken, limit, sort });
       res.json(data);
     } catch (error) {
       return res.status(500).json({ error: 'Internal server error', details: error.message });
@@ -1321,10 +1368,11 @@ app.get('/api/ebay/research', async (req, res) => {
 
   try {
     const accessToken = await getAccessToken(appId, certId);
+    const qAugmented = augmentEbaySearchQuery(q);
     // Get active listings from last month
     // For research, always filter to last 30 days
     const browseData = await getBrowseSearch({ 
-      query: q, 
+      query: qAugmented, 
       accessToken, 
       limit: '50',
       lastMonthOnly: true // Always filter to last 30 days for research
@@ -1340,12 +1388,12 @@ app.get('/api/ebay/research', async (req, res) => {
     let completedError = null;
 
     // Attempt to fetch sold listings using Browse API - if it fails, we'll still return browse data
-    console.log(`[${new Date().toISOString()}] eBay Research API called for query: "${q}"`);
+    console.log(`[${new Date().toISOString()}] eBay Research API called for query: "${qAugmented}"`);
     try {
       console.log(`[${new Date().toISOString()}] Calling Browse API for sold items (last 30 days)...`);
       // For research, always filter to last 30 days
       const soldBrowseData = await getBrowseSearch({ 
-        query: q, 
+        query: qAugmented, 
         accessToken, 
         limit: '50',
         sort: '-price',
@@ -1374,7 +1422,7 @@ app.get('/api/ebay/research', async (req, res) => {
     const sellThroughRatio = activeCount > 0 ? soldCount / activeCount : null;
 
     res.json({
-      query: q,
+      query: qAugmented,
       activeCount,
       soldCount,
       sellThroughRatio,
@@ -1387,6 +1435,148 @@ app.get('/api/ebay/research', async (req, res) => {
   } catch (error) {
     console.error('Research endpoint error:', error);
     res.status(500).json({ error: 'Failed to fetch research data', details: error.message });
+  }
+});
+
+function ebayConditionLabelFromSummary(s) {
+  if (typeof s.condition === 'string' && s.condition.trim()) {
+    return s.condition.trim();
+  }
+  const id = s.conditionId != null ? String(s.conditionId) : '';
+  if (id === '1000') return 'New';
+  if (id === '3000') return 'Used';
+  if (id === '2000' || id === '2500') return 'Refurbished';
+  if (id === '1500' || id === '1750') return 'New other';
+  if (id === '4000') return 'Very good';
+  if (id === '5000') return 'Good';
+  if (id === '6000') return 'Acceptable';
+  return null;
+}
+
+/** Map Browse API item summary to a small JSON shape for the UI. */
+function normalizeEbaySoldItemSummary(s) {
+  const rawId = s.itemId != null ? String(s.itemId) : '';
+  const parts = rawId.split('|');
+  const legacyId =
+    parts.length >= 2 ? String(parts[1]).replace(/\D/g, '') : rawId.replace(/\D/g, '');
+  let href = typeof s.itemWebUrl === 'string' && s.itemWebUrl.trim() ? s.itemWebUrl.trim() : null;
+  if (!href && legacyId) {
+    href = `https://www.ebay.co.uk/itm/${legacyId}`;
+  }
+  const price = s.price && typeof s.price === 'object' ? s.price : {};
+  return {
+    itemId: legacyId || rawId,
+    title: typeof s.title === 'string' ? s.title : '',
+    priceValue: price.value != null ? String(price.value) : null,
+    priceCurrency: typeof price.currency === 'string' ? price.currency : 'GBP',
+    imageUrl: s.image && typeof s.image.imageUrl === 'string' ? s.image.imageUrl : null,
+    itemWebUrl: href,
+    conditionLabel: ebayConditionLabelFromSummary(s)
+  };
+}
+
+async function fetchEbaySoldItemsFromBrowse(brandName, limit, days) {
+  const appId = process.env.REACT_APP_EBAY_APP_ID || process.env.EBAY_APP;
+  const certId = process.env.REACT_APP_EBAY_CERT_ID;
+  if (!appId || !certId) {
+    const err = new Error(
+      'Set REACT_APP_EBAY_APP_ID (or EBAY_APP) and REACT_APP_EBAY_CERT_ID from your eBay Developer app (Client ID + Client Secret).'
+    );
+    err.code = 'EBAY_CREDS_MISSING';
+    throw err;
+  }
+  const accessToken = await getAccessToken(appId, certId);
+  const qAugmented = augmentEbaySearchQuery(String(brandName).trim());
+  const data = await getBrowseSearch({
+    query: qAugmented,
+    accessToken,
+    limit: String(limit),
+    sort: 'newlyListed',
+    soldOnly: true,
+    soldDateRangeDays: days,
+    requireUsedCondition: false
+  });
+  const summaries = Array.isArray(data.itemSummaries) ? data.itemSummaries : [];
+  const items = summaries.map(normalizeEbaySoldItemSummary);
+  return {
+    items,
+    qAugmented,
+    total: typeof data.total === 'number' ? data.total : null
+  };
+}
+
+function mapEbaySoldCacheRow(row) {
+  return {
+    itemId: row.ebay_item_id != null ? String(row.ebay_item_id) : '',
+    title: row.title != null ? String(row.title) : '',
+    priceValue: row.price_value != null ? String(row.price_value) : null,
+    priceCurrency: row.price_currency != null ? String(row.price_currency) : 'GBP',
+    imageUrl: row.image_url != null ? String(row.image_url) : null,
+    itemWebUrl: row.item_web_url != null ? String(row.item_web_url) : null,
+    conditionLabel:
+      row.condition_label != null && String(row.condition_label).trim()
+        ? String(row.condition_label).trim()
+        : null
+  };
+}
+
+async function resolveBrandTagImageIdForCache(db, brandId) {
+  const r = await db.query(
+    `SELECT id FROM brand_tag_image
+     WHERE brand_id = $1
+     ORDER BY
+       CASE WHEN image_kind = 'fake_check' THEN 1 ELSE 0 END,
+       sort_order ASC NULLS LAST,
+       id ASC
+     LIMIT 1`,
+    [brandId]
+  );
+  const id = r.rows[0]?.id;
+  return id != null ? Number(id) : null;
+}
+
+/**
+ * Recent sold listings on eBay UK (Browse API — marketplace keyword search, not “your account only”).
+ * GET /api/ebay/sold-recent?q=Brand+Name&limit=20&days=120
+ * Auth: Application OAuth (Client ID + Client Secret from developer.ebay.com) — same as /api/ebay/search.
+ */
+app.get('/api/ebay/sold-recent', async (req, res) => {
+  const qRaw = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+  if (!qRaw) {
+    return res.status(400).json({ error: 'Query parameter "q" is required' });
+  }
+
+  let limit = parseInt(String(req.query.limit ?? '20'), 10);
+  if (Number.isNaN(limit)) limit = 20;
+  limit = Math.min(50, Math.max(1, limit));
+
+  let days = parseInt(String(req.query.days ?? '120'), 10);
+  if (Number.isNaN(days)) days = 120;
+  days = Math.min(365, Math.max(14, days));
+
+  try {
+    const { items, qAugmented, total } = await fetchEbaySoldItemsFromBrowse(qRaw, limit, days);
+    res.json({
+      query: qAugmented,
+      marketplaceId: 'EBAY_GB',
+      categoryId: EBAY_GB_MENS_CLOTHING_CATEGORY_ID,
+      total,
+      days,
+      limit,
+      items
+    });
+  } catch (error) {
+    if (error && error.code === 'EBAY_CREDS_MISSING') {
+      return res.status(503).json({
+        error: 'eBay credentials not configured',
+        details: error.message
+      });
+    }
+    console.error('eBay sold-recent error:', error);
+    res.status(500).json({
+      error: 'Failed to fetch sold listings from eBay',
+      details: error instanceof Error ? error.message : String(error)
+    });
   }
 });
 
@@ -1824,7 +2014,7 @@ app.get('/api/brands', async (req, res) => {
 
     // Query all columns explicitly
     const result = await pool.query(
-      'SELECT id, brand_name, created_at, updated_at, brand_website FROM public.brand ORDER BY brand_name ASC'
+      'SELECT id, brand_name, created_at, updated_at, brand_website, things_to_buy, things_to_avoid FROM public.brand ORDER BY brand_name ASC'
     );
 
     // Diagnostic: Check what the database actually returned
@@ -1850,7 +2040,9 @@ app.get('/api/brands', async (req, res) => {
         brand_name: row.brand_name,
         created_at: ('created_at' in row) ? row.created_at : null,
         updated_at: ('updated_at' in row) ? row.updated_at : null,
-        brand_website: ('brand_website' in row) ? row.brand_website : null
+        brand_website: ('brand_website' in row) ? row.brand_website : null,
+        things_to_buy: ('things_to_buy' in row) ? row.things_to_buy : null,
+        things_to_avoid: ('things_to_avoid' in row) ? row.things_to_avoid : null,
       };
     });
 
@@ -1932,27 +2124,71 @@ app.patch('/api/brands/:id', async (req, res) => {
       return res.status(500).json({ error: 'Database connection not configured' });
     }
 
-    if (!req.body || !Object.prototype.hasOwnProperty.call(req.body, 'brand_website')) {
-      return res.status(400).json({ error: 'brand_website is required (string or null)' });
+    const body = req.body ?? {};
+    const sets = [];
+    const vals = [];
+    let n = 1;
+
+    if (Object.prototype.hasOwnProperty.call(body, 'brand_website')) {
+      const raw = body.brand_website;
+      let value = null;
+      if (raw === null || raw === undefined) {
+        value = null;
+      } else if (typeof raw === 'string') {
+        const t = raw.trim();
+        value = t ? t.slice(0, 2048) : null;
+      } else {
+        return res.status(400).json({ error: 'brand_website must be a string or null' });
+      }
+      sets.push(`brand_website = $${n++}`);
+      vals.push(value);
     }
 
-    const raw = req.body.brand_website;
-    let value = null;
-    if (raw === null || raw === undefined) {
-      value = null;
-    } else if (typeof raw === 'string') {
-      const t = raw.trim();
-      value = t ? t.slice(0, 2048) : null;
-    } else {
-      return res.status(400).json({ error: 'brand_website must be a string or null' });
+    if (Object.prototype.hasOwnProperty.call(body, 'things_to_buy')) {
+      const raw = body.things_to_buy;
+      let value = null;
+      if (raw === null || raw === undefined) {
+        value = null;
+      } else if (typeof raw === 'string') {
+        const t = raw.trim();
+        value = t ? t.slice(0, 8000) : null;
+      } else {
+        return res.status(400).json({ error: 'things_to_buy must be a string or null' });
+      }
+      sets.push(`things_to_buy = $${n++}`);
+      vals.push(value);
     }
+
+    if (Object.prototype.hasOwnProperty.call(body, 'things_to_avoid')) {
+      const raw = body.things_to_avoid;
+      let value = null;
+      if (raw === null || raw === undefined) {
+        value = null;
+      } else if (typeof raw === 'string') {
+        const t = raw.trim();
+        value = t ? t.slice(0, 8000) : null;
+      } else {
+        return res.status(400).json({ error: 'things_to_avoid must be a string or null' });
+      }
+      sets.push(`things_to_avoid = $${n++}`);
+      vals.push(value);
+    }
+
+    if (sets.length === 0) {
+      return res.status(400).json({
+        error: 'Provide at least one of: brand_website, things_to_buy, things_to_avoid',
+      });
+    }
+
+    sets.push('updated_at = NOW()');
+    vals.push(id);
 
     const result = await pool.query(
       `UPDATE brand
-       SET brand_website = $1, updated_at = NOW()
-       WHERE id = $2
-       RETURNING id, brand_name, created_at, updated_at, brand_website`,
-      [value, id]
+       SET ${sets.join(', ')}
+       WHERE id = $${n}
+       RETURNING id, brand_name, created_at, updated_at, brand_website, things_to_buy, things_to_avoid`,
+      vals
     );
 
     if (!result.rowCount) {
@@ -1963,6 +2199,337 @@ app.patch('/api/brands/:id', async (req, res) => {
   } catch (error) {
     console.error('Brand patch failed:', error);
     res.status(500).json({ error: 'Failed to update brand', details: error.message });
+  }
+});
+
+/**
+ * Brand research: stock sold vs unsold (by sale_price), top sold lines, longest-unsold by purchase_date.
+ * GET /api/brands/:brandId/stock-summary
+ */
+app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
+  try {
+    const brandId = parseInt(req.params.brandId, 10);
+    if (Number.isNaN(brandId) || brandId < 1) {
+      return res.status(400).json({ error: 'Invalid brand id' });
+    }
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const brandCheck = await pool.query('SELECT id FROM brand WHERE id = $1', [brandId]);
+    if (!brandCheck.rowCount) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+
+    const countsResult = await pool.query(
+      `
+        SELECT
+          COUNT(*)::int AS total_items,
+          COUNT(*) FILTER (
+            WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+          )::int AS sold_count,
+          COUNT(*) FILTER (
+            WHERE NOT (s.sale_price IS NOT NULL AND s.sale_price::numeric > 0)
+          )::int AS unsold_count
+        FROM stock s
+        WHERE s.brand_id = $1
+      `,
+      [brandId]
+    );
+
+    const countsRow = countsResult.rows[0] || {};
+    const totalItems = Number(countsRow.total_items) || 0;
+    const soldCount = Number(countsRow.sold_count) || 0;
+    const unsoldCount = Number(countsRow.unsold_count) || 0;
+
+    const topResult = await pool.query(
+      `
+        SELECT
+          s.id,
+          s.item_name,
+          s.purchase_price,
+          s.sale_price,
+          s.sale_date,
+          c.category_name,
+          (s.sale_price::numeric - s.purchase_price::numeric) AS profit,
+          CASE
+            WHEN COALESCE(s.purchase_price::numeric, 0) > 0
+            THEN (s.sale_price::numeric / s.purchase_price::numeric)
+            ELSE NULL
+          END AS profit_multiple
+        FROM stock s
+        LEFT JOIN category c ON c.id = s.category_id
+        WHERE s.brand_id = $1
+          AND s.sale_price IS NOT NULL
+          AND s.sale_price::numeric > 0
+          AND s.purchase_price IS NOT NULL
+          AND s.purchase_price::numeric > 0
+        ORDER BY
+          profit_multiple DESC NULLS LAST,
+          profit DESC NULLS LAST,
+          s.sale_date DESC NULLS LAST,
+          s.id DESC
+        LIMIT 30
+      `,
+      [brandId]
+    );
+
+    const topSoldItems = topResult.rows.map((row) => ({
+      id: row.id != null ? Number(row.id) : null,
+      item_name: row.item_name != null ? String(row.item_name) : '',
+      category_name: row.category_name != null ? String(row.category_name) : null,
+      purchase_price: row.purchase_price != null ? Number(row.purchase_price) : null,
+      sale_price: row.sale_price != null ? Number(row.sale_price) : null,
+      sale_date: row.sale_date != null ? row.sale_date : null,
+      profit: row.profit != null ? Number(row.profit) : null,
+      profit_multiple: row.profit_multiple != null ? Number(row.profit_multiple) : null,
+    }));
+
+    const longestUnsoldResult = await pool.query(
+      `
+        SELECT
+          s.id,
+          s.item_name,
+          s.purchase_price,
+          s.purchase_date,
+          c.category_name
+        FROM stock s
+        LEFT JOIN category c ON c.id = s.category_id
+        WHERE s.brand_id = $1
+          AND s.purchase_date IS NOT NULL
+          AND NOT (s.sale_price IS NOT NULL AND s.sale_price::numeric > 0)
+        ORDER BY s.purchase_date ASC NULLS LAST, s.id ASC
+        LIMIT 5
+      `,
+      [brandId]
+    );
+
+    const longestUnsoldItems = longestUnsoldResult.rows.map((row) => ({
+      id: row.id != null ? Number(row.id) : null,
+      item_name: row.item_name != null ? String(row.item_name) : '',
+      category_name: row.category_name != null ? String(row.category_name) : null,
+      purchase_price: row.purchase_price != null ? Number(row.purchase_price) : null,
+      purchase_date: row.purchase_date != null ? row.purchase_date : null,
+    }));
+
+    res.json({
+      brandId,
+      totalItems,
+      soldCount,
+      unsoldCount,
+      topSoldItems,
+      longestUnsoldItems,
+    });
+  } catch (error) {
+    console.error('Brand stock summary failed:', error);
+    res.status(500).json({ error: 'Failed to load brand stock summary', details: error.message });
+  }
+});
+
+/**
+ * eBay sold comps cache (24h validity). Rows for a brand share the same fetched_at from the last sync.
+ * GET /api/brands/:brandId/ebay-sold-cache?limit=20&days=120
+ */
+app.get('/api/brands/:brandId/ebay-sold-cache', async (req, res) => {
+  try {
+    const brandId = parseInt(req.params.brandId, 10);
+    if (Number.isNaN(brandId) || brandId < 1) {
+      return res.status(400).json({ error: 'Invalid brand id' });
+    }
+
+    let limit = parseInt(String(req.query.limit ?? '20'), 10);
+    if (Number.isNaN(limit)) limit = 20;
+    limit = Math.min(50, Math.max(1, limit));
+
+    let days = parseInt(String(req.query.days ?? '120'), 10);
+    if (Number.isNaN(days)) days = 120;
+    days = Math.min(365, Math.max(14, days));
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const brandCheck = await pool.query('SELECT id FROM brand WHERE id = $1', [brandId]);
+    if (!brandCheck.rowCount) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+
+    const result = await pool.query(
+      `SELECT ebay_item_id, title, image_url, item_web_url, price_value, price_currency, condition_label, fetched_at
+       FROM ebay_sold_listing_cache
+       WHERE brand_id = $1
+         AND fetched_at >= NOW() - INTERVAL '24 hours'
+       ORDER BY id ASC`,
+      [brandId]
+    );
+
+    if (result.rowCount === 0) {
+      return res.json({
+        cached: false,
+        message: 'No Cached data',
+        items: [],
+        fetchedAt: null,
+        limit,
+        days
+      });
+    }
+
+    let maxTs = 0;
+    for (const row of result.rows) {
+      if (row.fetched_at) {
+        const t = new Date(row.fetched_at).getTime();
+        if (t > maxTs) maxTs = t;
+      }
+    }
+
+    res.json({
+      cached: true,
+      items: result.rows.map(mapEbaySoldCacheRow),
+      fetchedAt: maxTs ? new Date(maxTs).toISOString() : null,
+      limit,
+      days
+    });
+  } catch (error) {
+    if (error.code === '42P01') {
+      return res.status(503).json({
+        error: 'ebay_sold_listing_cache table missing',
+        details: 'Run database/ebay_sold_listing_cache.sql in your database.'
+      });
+    }
+    if (error.code === '42703') {
+      return res.status(503).json({
+        error: 'ebay_sold_listing_cache schema out of date',
+        details:
+          'Run database/ebay_sold_listing_cache_add_condition_label.sql in your database (adds condition_label). No server reboot required after migrating.'
+      });
+    }
+    console.error('eBay sold cache GET failed:', error);
+    return res.status(500).json({ error: 'Failed to read eBay sold cache', details: error.message });
+  }
+});
+
+/**
+ * DELETE this brand's cache rows, fetch from eBay, re-insert.
+ * POST /api/brands/:brandId/ebay-sold-cache/sync
+ * Body: { limit?: number, days?: number }
+ */
+app.post('/api/brands/:brandId/ebay-sold-cache/sync', async (req, res) => {
+  const brandId = parseInt(req.params.brandId, 10);
+  if (Number.isNaN(brandId) || brandId < 1) {
+    return res.status(400).json({ error: 'Invalid brand id' });
+  }
+
+  let limit = parseInt(String(req.body?.limit ?? '20'), 10);
+  if (Number.isNaN(limit)) limit = 20;
+  limit = Math.min(50, Math.max(1, limit));
+
+  let days = parseInt(String(req.body?.days ?? '120'), 10);
+  if (Number.isNaN(days)) days = 120;
+  days = Math.min(365, Math.max(14, days));
+
+  const pool = getDatabasePool();
+  if (!pool) {
+    return res.status(500).json({ error: 'Database connection not configured' });
+  }
+
+  const brandRow = await pool.query('SELECT id, brand_name FROM brand WHERE id = $1', [brandId]);
+  if (!brandRow.rowCount) {
+    return res.status(404).json({ error: 'Brand not found' });
+  }
+
+  const brandName =
+    typeof brandRow.rows[0].brand_name === 'string' ? brandRow.rows[0].brand_name.trim() : '';
+  if (!brandName) {
+    return res.status(400).json({ error: 'Brand has no name' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM ebay_sold_listing_cache WHERE brand_id = $1', [brandId]);
+
+    let items;
+    let qAugmented;
+    let total;
+    try {
+      const out = await fetchEbaySoldItemsFromBrowse(brandName, limit, days);
+      items = out.items;
+      qAugmented = out.qAugmented;
+      total = out.total;
+    } catch (e) {
+      await client.query('ROLLBACK');
+      if (e && e.code === 'EBAY_CREDS_MISSING') {
+        return res.status(503).json({
+          error: 'eBay credentials not configured',
+          details: e.message
+        });
+      }
+      throw e;
+    }
+
+    const tagImageId = await resolveBrandTagImageIdForCache(client, brandId);
+    const fetchedAt = new Date();
+    for (const item of items) {
+      await client.query(
+        `INSERT INTO ebay_sold_listing_cache
+          (brand_id, brand_tag_image_id, ebay_item_id, title, image_url, item_web_url, price_value, price_currency, condition_label, fetched_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          brandId,
+          tagImageId,
+          item.itemId || '',
+          item.title || '',
+          item.imageUrl,
+          item.itemWebUrl,
+          item.priceValue,
+          item.priceCurrency || 'GBP',
+          item.conditionLabel != null ? String(item.conditionLabel) : null,
+          fetchedAt
+        ]
+      );
+    }
+
+    await client.query('COMMIT');
+    res.json({
+      cached: false,
+      query: qAugmented,
+      marketplaceId: 'EBAY_GB',
+      categoryId: EBAY_GB_MENS_CLOTHING_CATEGORY_ID,
+      total,
+      days,
+      limit,
+      items,
+      fetchedAt: fetchedAt.toISOString()
+    });
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (_) {
+      /* no transaction */
+    }
+    if (error.code === '42P01') {
+      return res.status(503).json({
+        error: 'ebay_sold_listing_cache table missing',
+        details: 'Run database/ebay_sold_listing_cache.sql in your database.'
+      });
+    }
+    if (error.code === '42703') {
+      return res.status(503).json({
+        error: 'ebay_sold_listing_cache schema out of date',
+        details:
+          'Run database/ebay_sold_listing_cache_add_condition_label.sql in your database (adds condition_label). No server reboot required after migrating.'
+      });
+    }
+    console.error('eBay sold cache sync failed:', error);
+    return res.status(500).json({
+      error: 'Failed to sync eBay sold cache',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  } finally {
+    client.release();
   }
 });
 
@@ -3687,7 +4254,7 @@ if (fs.existsSync(buildDirectory)) {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Settings endpoint: http://localhost:${PORT}/api/settings`);
-  console.log(`eBay API proxy available at: http://localhost:${PORT}/api/ebay/search`);
+  console.log(`eBay API: http://localhost:${PORT}/api/ebay/search | sold-recent: /api/ebay/sold-recent?q=...`);
 });
 
 
