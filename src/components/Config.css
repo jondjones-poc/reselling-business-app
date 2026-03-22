@@ -275,3 +275,161 @@
     grid-template-columns: 1fr;
   }
 }
+
+.config-error--inline {
+  margin-bottom: 16px;
+}
+
+.config-clothing-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  gap: 12px;
+}
+
+.config-clothing-add-button {
+  padding: 10px 20px;
+  border-radius: 12px;
+  border: 1px solid rgba(140, 255, 195, 0.45);
+  background: rgba(140, 255, 195, 0.12);
+  color: #8cffc3;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.config-clothing-add-button:hover {
+  background: rgba(140, 255, 195, 0.2);
+  border-color: rgba(140, 255, 195, 0.65);
+}
+
+.config-clothing-help {
+  margin: 0 0 20px 0;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: rgba(255, 248, 226, 0.55);
+}
+
+.config-clothing-help code {
+  font-size: 0.85em;
+  color: var(--neon-primary-strong);
+}
+
+.config-clothing-add-form {
+  margin-bottom: 28px;
+  padding: 20px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 214, 91, 0.22);
+  background: rgba(255, 214, 91, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.config-clothing-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.config-clothing-field span {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05rem;
+  color: rgba(255, 248, 226, 0.65);
+}
+
+.config-clothing-field input,
+.config-clothing-field textarea {
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 214, 91, 0.28);
+  background: rgba(5, 4, 3, 0.85);
+  color: var(--text-strong);
+  font-size: 0.95rem;
+  font-family: inherit;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.config-clothing-field input:focus,
+.config-clothing-field textarea:focus {
+  outline: none;
+  border-color: var(--neon-border-strong);
+  box-shadow: 0 0 0 2px rgba(255, 214, 91, 0.15);
+}
+
+.config-clothing-add-actions {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 4px;
+}
+
+.config-clothing-save-button {
+  padding: 10px 22px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 214, 91, 0.4);
+  background: rgba(255, 214, 91, 0.18);
+  color: var(--neon-primary-strong);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.config-clothing-save-button:hover:not(:disabled) {
+  background: rgba(255, 214, 91, 0.28);
+}
+
+.config-clothing-save-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.config-clothing-table-wrap {
+  overflow-x: auto;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 214, 91, 0.2);
+}
+
+.config-clothing-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.config-clothing-table th {
+  text-align: left;
+  padding: 12px 14px;
+  background: rgba(255, 214, 91, 0.1);
+  color: var(--neon-primary-strong);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04rem;
+  font-size: 0.75rem;
+  border-bottom: 1px solid rgba(255, 214, 91, 0.25);
+}
+
+.config-clothing-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255, 214, 91, 0.1);
+  color: var(--text-strong);
+  vertical-align: top;
+  line-height: 1.45;
+}
+
+.config-clothing-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.config-clothing-table tbody tr:hover td {
+  background: rgba(255, 214, 91, 0.04);
+}
+
+.config-clothing-td-name {
+  font-weight: 600;
+  color: var(--neon-primary-strong);
+  white-space: nowrap;
+}

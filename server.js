@@ -2051,7 +2051,10 @@ app.get('/api/brands', async (req, res) => {
 
     // Query all columns explicitly
     const result = await pool.query(
-      'SELECT id, brand_name, created_at, updated_at, brand_website, things_to_buy, things_to_avoid FROM public.brand ORDER BY brand_name ASC'
+      `SELECT id, brand_name, created_at, updated_at, brand_website, things_to_buy, things_to_avoid,
+              menswear_category_id
+       FROM public.brand
+       ORDER BY brand_name ASC`
     );
 
     // Diagnostic: Check what the database actually returned
@@ -2080,6 +2083,10 @@ app.get('/api/brands', async (req, res) => {
         brand_website: ('brand_website' in row) ? row.brand_website : null,
         things_to_buy: ('things_to_buy' in row) ? row.things_to_buy : null,
         things_to_avoid: ('things_to_avoid' in row) ? row.things_to_avoid : null,
+        menswear_category_id:
+          row.menswear_category_id != null && row.menswear_category_id !== ''
+            ? Number(row.menswear_category_id)
+            : null,
       };
     });
 
@@ -2211,9 +2218,29 @@ app.patch('/api/brands/:id', async (req, res) => {
       vals.push(value);
     }
 
+    if (Object.prototype.hasOwnProperty.call(body, 'menswear_category_id')) {
+      const raw = body.menswear_category_id;
+      if (raw === null || raw === undefined || raw === '') {
+        sets.push(`menswear_category_id = $${n++}`);
+        vals.push(null);
+      } else {
+        const cid = Number(raw);
+        if (!Number.isFinite(cid) || cid < 1) {
+          return res.status(400).json({ error: 'menswear_category_id must be a positive integer or null' });
+        }
+        const catCheck = await pool.query('SELECT id FROM menswear_category WHERE id = $1', [cid]);
+        if (!catCheck.rowCount) {
+          return res.status(400).json({ error: 'menswear_category_id not found' });
+        }
+        sets.push(`menswear_category_id = $${n++}`);
+        vals.push(cid);
+      }
+    }
+
     if (sets.length === 0) {
       return res.status(400).json({
-        error: 'Provide at least one of: brand_website, things_to_buy, things_to_avoid',
+        error:
+          'Provide at least one of: brand_website, things_to_buy, things_to_avoid, menswear_category_id',
       });
     }
 
@@ -2224,7 +2251,7 @@ app.patch('/api/brands/:id', async (req, res) => {
       `UPDATE brand
        SET ${sets.join(', ')}
        WHERE id = $${n}
-       RETURNING id, brand_name, created_at, updated_at, brand_website, things_to_buy, things_to_avoid`,
+       RETURNING id, brand_name, created_at, updated_at, brand_website, things_to_buy, things_to_avoid, menswear_category_id`,
       vals
     );
 
@@ -2236,6 +2263,269 @@ app.patch('/api/brands/:id', async (req, res) => {
   } catch (error) {
     console.error('Brand patch failed:', error);
     res.status(500).json({ error: 'Failed to update brand', details: error.message });
+  }
+});
+
+/**
+ * Idempotent DDL for Research / Config → clothing (menswear) categories.
+ * Safe to call on every list/create so a fresh DB works without manual migration.
+ */
+async function ensureMenswearCategoryTable(pool) {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS public.menswear_category (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      notes TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT menswear_category_name_key UNIQUE (name)
+    );
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_menswear_category_name_lower
+      ON public.menswear_category (LOWER(name));
+  `);
+}
+
+/**
+ * Menswear category taxonomy (optional brand mapping via brand.menswear_category_id).
+ * GET /api/menswear-categories
+ */
+app.get('/api/menswear-categories', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    await ensureMenswearCategoryTable(pool);
+    const result = await pool.query(
+      `SELECT id, name, description, notes, created_at, updated_at
+       FROM menswear_category
+       ORDER BY name ASC`
+    );
+    res.json({ rows: result.rows });
+  } catch (error) {
+    console.error('menswear-categories list failed:', error);
+    res.status(500).json({ error: 'Failed to load menswear categories', details: error.message });
+  }
+});
+
+/**
+ * Create a clothing (menswear) category row. Ensures table exists (CREATE IF NOT EXISTS).
+ * POST /api/menswear-categories  body: { name, description?, notes? }
+ */
+app.post('/api/menswear-categories', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    await ensureMenswearCategoryTable(pool);
+
+    const body = req.body ?? {};
+    const nameRaw = body.name;
+    if (typeof nameRaw !== 'string' || !nameRaw.trim()) {
+      return res.status(400).json({ error: 'name is required (non-empty string)' });
+    }
+    const name = nameRaw.trim().slice(0, 500);
+    let description = null;
+    if (body.description != null && body.description !== '') {
+      if (typeof body.description !== 'string') {
+        return res.status(400).json({ error: 'description must be a string or omitted' });
+      }
+      const t = body.description.trim();
+      description = t ? t.slice(0, 8000) : null;
+    }
+    let notes = null;
+    if (body.notes != null && body.notes !== '') {
+      if (typeof body.notes !== 'string') {
+        return res.status(400).json({ error: 'notes must be a string or omitted' });
+      }
+      const t = body.notes.trim();
+      notes = t ? t.slice(0, 8000) : null;
+    }
+
+    const result = await pool.query(
+      `INSERT INTO menswear_category (name, description, notes)
+       VALUES ($1, $2, $3)
+       RETURNING id, name, description, notes, created_at, updated_at`,
+      [name, description, notes]
+    );
+
+    res.status(201).json({ row: result.rows[0] });
+  } catch (error) {
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'A category with this name already exists' });
+    }
+    console.error('menswear-categories create failed:', error);
+    res.status(500).json({ error: 'Failed to create category', details: error.message });
+  }
+});
+
+/**
+ * Brands in a menswear category, with total sold revenue (sum of sale_price where sold).
+ * GET /api/menswear-categories/:id/brands?sort=name|total_sales
+ */
+app.get('/api/menswear-categories/:id/brands', async (req, res) => {
+  try {
+    const categoryId = parseInt(req.params.id, 10);
+    if (Number.isNaN(categoryId) || categoryId < 1) {
+      return res.status(400).json({ error: 'Invalid category id' });
+    }
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const catCheck = await pool.query('SELECT id FROM menswear_category WHERE id = $1', [categoryId]);
+    if (!catCheck.rowCount) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+
+    const sort = req.query.sort === 'total_sales' ? 'total_sales' : 'name';
+    const orderSql =
+      sort === 'total_sales'
+        ? 'ORDER BY total_sales DESC NULLS LAST, brand_name ASC'
+        : 'ORDER BY brand_name ASC';
+
+    const result = await pool.query(
+      `WITH agg AS (
+         SELECT b.id,
+                b.brand_name,
+                COALESCE(SUM(
+                  CASE
+                    WHEN s.sale_price IS NOT NULL
+                     AND TRIM(s.sale_price::text) <> ''
+                     AND (s.sale_price::numeric > 0)
+                    THEN s.sale_price::numeric
+                    ELSE 0
+                  END
+                ), 0)::numeric AS total_sales
+         FROM brand b
+         LEFT JOIN stock s ON s.brand_id = b.id
+         WHERE b.menswear_category_id = $1
+         GROUP BY b.id, b.brand_name
+       )
+       SELECT id, brand_name, total_sales
+       FROM agg
+       ${orderSql}`,
+      [categoryId]
+    );
+
+    res.json({ rows: result.rows, sort });
+  } catch (error) {
+    console.error('menswear-categories brands failed:', error);
+    res.status(500).json({ error: 'Failed to load brands for category', details: error.message });
+  }
+});
+
+async function ensureBrandLinksTable(pool) {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS public.brand_links (
+      id SERIAL PRIMARY KEY,
+      brand_id INTEGER NOT NULL REFERENCES public.brand (id) ON DELETE CASCADE,
+      url TEXT NOT NULL,
+      link_text TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_brand_links_brand_id ON public.brand_links (brand_id);
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_brand_links_created_at ON public.brand_links (brand_id, created_at DESC);
+  `);
+}
+
+/**
+ * Saved reference links for a brand (Research).
+ * GET /api/brands/:brandId/links
+ */
+app.get('/api/brands/:brandId/links', async (req, res) => {
+  try {
+    const brandId = parseInt(req.params.brandId, 10);
+    if (Number.isNaN(brandId) || brandId < 1) {
+      return res.status(400).json({ error: 'Invalid brand id' });
+    }
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    await ensureBrandLinksTable(pool);
+    const brandCheck = await pool.query('SELECT id FROM brand WHERE id = $1', [brandId]);
+    if (!brandCheck.rowCount) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+    const result = await pool.query(
+      `SELECT id, brand_id, url, link_text, created_at
+       FROM brand_links
+       WHERE brand_id = $1
+       ORDER BY created_at DESC, id DESC`,
+      [brandId]
+    );
+    res.json({ rows: result.rows });
+  } catch (error) {
+    console.error('brand links list failed:', error);
+    res.status(500).json({ error: 'Failed to load brand links', details: error.message });
+  }
+});
+
+/**
+ * POST /api/brands/:brandId/links  body: { url, linkText? }  (linkText stored as link_text)
+ */
+app.post('/api/brands/:brandId/links', async (req, res) => {
+  try {
+    const brandId = parseInt(req.params.brandId, 10);
+    if (Number.isNaN(brandId) || brandId < 1) {
+      return res.status(400).json({ error: 'Invalid brand id' });
+    }
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    await ensureBrandLinksTable(pool);
+    const brandCheck = await pool.query('SELECT id FROM brand WHERE id = $1', [brandId]);
+    if (!brandCheck.rowCount) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+
+    const body = req.body ?? {};
+    const urlRaw = body.url;
+    if (typeof urlRaw !== 'string' || !urlRaw.trim()) {
+      return res.status(400).json({ error: 'url is required' });
+    }
+    let url = urlRaw.trim().slice(0, 2048);
+    if (!/^https?:\/\//i.test(url)) {
+      url = `https://${url}`;
+    }
+    let linkText = null;
+    if (body.linkText != null && body.linkText !== '') {
+      if (typeof body.linkText !== 'string') {
+        return res.status(400).json({ error: 'linkText must be a string or omitted' });
+      }
+      const t = body.linkText.trim();
+      linkText = t ? t.slice(0, 500) : null;
+    }
+    if (body.link_text != null && body.link_text !== '' && linkText == null) {
+      if (typeof body.link_text !== 'string') {
+        return res.status(400).json({ error: 'link_text must be a string or omitted' });
+      }
+      const t = body.link_text.trim();
+      linkText = t ? t.slice(0, 500) : null;
+    }
+
+    const result = await pool.query(
+      `INSERT INTO brand_links (brand_id, url, link_text)
+       VALUES ($1, $2, $3)
+       RETURNING id, brand_id, url, link_text, created_at`,
+      [brandId, url, linkText]
+    );
+    res.status(201).json({ row: result.rows[0] });
+  } catch (error) {
+    console.error('brand links create failed:', error);
+    res.status(500).json({ error: 'Failed to save link', details: error.message });
   }
 });
 

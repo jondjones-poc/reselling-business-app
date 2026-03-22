@@ -10,13 +10,92 @@ import {
 } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
 import ReactMarkdown from 'react-markdown';
-import { useLocation, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import './BrandResearch.css';
 
 ChartJS.register(BarElement, CategoryScale, LinearScale, Tooltip, Legend);
 
 function formatResearchCurrency(value: number): string {
   return new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(value);
+}
+
+async function copyResearchTextToClipboard(text: string): Promise<void> {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand('copy');
+  } finally {
+    document.body.removeChild(ta);
+  }
+}
+
+type MenswearAskAiBrandLine = { brand_name: string; total_sales?: string | number | null };
+
+function buildMenswearCategoryAskAiPrompt(args: {
+  categoryName: string;
+  categoryDescription: string | null;
+  categoryNotes: string | null;
+  brands: MenswearAskAiBrandLine[];
+}): string {
+  const { categoryName, categoryDescription, categoryNotes, brands } = args;
+
+  const brandLines = brands.map((b, i) => {
+    const name = (b.brand_name || '—').trim() || '—';
+    const raw = b.total_sales;
+    const salesNum = typeof raw === 'number' ? raw : parseFloat(String(raw ?? ''));
+    const salesOk = Number.isFinite(salesNum) && salesNum > 0;
+    const salesBit = salesOk
+      ? ` — recorded sold revenue in my stock system for this brand: ${formatResearchCurrency(salesNum)}`
+      : '';
+    return `${i + 1}. **${name}**${salesBit}`;
+  });
+
+  const header: string[] = [
+    `I'm a UK menswear reseller (second-hand / resale). I group inventory with an internal **menswear category** label.`,
+    ``,
+    `## Category`,
+    `**${categoryName}**`,
+  ];
+  if (categoryDescription?.trim()) header.push(categoryDescription.trim());
+  if (categoryNotes?.trim()) header.push(`My notes for this bucket: ${categoryNotes.trim()}`);
+  header.push(``);
+
+  if (brandLines.length > 0) {
+    header.push(
+      `## Brands that are performing well for me here`,
+      `These are brands I’ve linked to this category in my system — they’re good sellers / core to how I trade this niche:`,
+      ``,
+      ...brandLines,
+      ``
+    );
+  } else {
+    header.push(
+      `## Brands in this category (in my system)`,
+      `I don’t have any brands mapped to this category yet. Still use the category definition above when answering.`,
+      ``
+    );
+  }
+
+  header.push(
+    `## What I need from you`,
+    `1. **Suggest other brands** that fit this same category and resale profile (UK sourcing). Do not repeat my list. Prioritise realistic second-hand flip potential.`,
+    `2. **Validate against recent fashion / market news** — for each brand ${brandLines.length ? 'in my list above' : 'that fits this category'}, summarise what recent coverage, drops, or sentiment suggest (momentum, fatigue, quality perception, controversies). **Cite or describe sources where you can; if you don’t know, say you don’t know** — don’t invent headlines.`,
+    `3. **Buying recommendations** — for each brand ${brandLines.length ? 'I listed' : 'you discussed'}, what **models, product lines, eras, fabrics, or silhouettes** should I prioritise vs avoid when sourcing? Be specific enough that I can search listings (e.g. diffusion vs mainline, outerwear vs basics, vintage periods).`,
+    ``,
+    `Tone: direct, resale-first, UK-relevant where it matters.`,
+    `Today’s date context for your news scan: ${new Date().toISOString().slice(0, 10)}.`
+  );
+
+  return header.join('\n');
 }
 
 function formatResearchShortDate(isoOrDate: string | null): string {
@@ -151,6 +230,16 @@ type BrandRow = {
   brand_website: string | null;
   things_to_buy: string | null;
   things_to_avoid: string | null;
+  /** From GET /api/brands when column exists. */
+  menswear_category_id: number | null;
+};
+
+type BrandRefLinkRow = {
+  id: number;
+  brand_id: number;
+  url: string;
+  link_text: string | null;
+  created_at: string;
 };
 
 type BrandStockTopItem = {
@@ -340,7 +429,13 @@ function parseBrandsApiPayload(data: unknown): BrandRow[] {
     const brand_website = bw === null || bw === undefined ? null : String(bw);
     const things_to_buy = parseOptionalBrandText(r.things_to_buy);
     const things_to_avoid = parseOptionalBrandText(r.things_to_avoid);
-    out.push({ id: idNum, brand_name, brand_website, things_to_buy, things_to_avoid });
+    const mcRaw = r.menswear_category_id;
+    let menswear_category_id: number | null = null;
+    if (mcRaw !== null && mcRaw !== undefined && mcRaw !== '') {
+      const n = typeof mcRaw === 'number' ? mcRaw : parseInt(String(mcRaw).trim(), 10);
+      if (Number.isFinite(n) && n >= 1) menswear_category_id = n;
+    }
+    out.push({ id: idNum, brand_name, brand_website, things_to_buy, things_to_avoid, menswear_category_id });
   }
   return out;
 }
@@ -926,14 +1021,23 @@ const Research: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const brandQueryParam = searchParams.get('brand');
 
-  const researchTab = useMemo<'brand' | 'offline' | 'ai'>(() => {
+  const researchTab = useMemo<'brand' | 'offline' | 'ai' | 'menswear-categories'>(() => {
     const t = searchParams.get('tab');
-    if (t === 'offline' || t === 'ai') return t;
+    if (t === 'offline' || t === 'ai' || t === 'menswear-categories') return t;
     return 'brand';
   }, [searchParams]);
 
+  /** When on menswear tab, category detail comes from `?menswearCategoryId=` (full reload on list pick). */
+  const menswearCategoryIdFromUrl = useMemo(() => {
+    if (researchTab !== 'menswear-categories') return null;
+    const raw = searchParams.get('menswearCategoryId')?.trim();
+    if (!raw) return null;
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) && n >= 1 ? n : null;
+  }, [researchTab, searchParams]);
+
   const setResearchTab = useCallback(
-    (tab: 'brand' | 'offline' | 'ai') => {
+    (tab: 'brand' | 'offline' | 'ai' | 'menswear-categories') => {
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -950,6 +1054,23 @@ const Research: React.FC = () => {
     [setSearchParams]
   );
 
+  /** Full navigation: drops `brand`, `menswearCategoryId`, etc. — menswear category list only. */
+  const goToMenswearCategoriesTab = useCallback(() => {
+    const qs = new URLSearchParams();
+    qs.set('tab', 'menswear-categories');
+    window.location.assign(`${location.pathname}?${qs.toString()}`);
+  }, [location.pathname]);
+
+  const openMenswearCategoryInUrl = useCallback(
+    (categoryId: number) => {
+      const qs = new URLSearchParams();
+      qs.set('tab', 'menswear-categories');
+      qs.set('menswearCategoryId', String(categoryId));
+      window.location.assign(`${location.pathname}?${qs.toString()}`);
+    },
+    [location.pathname]
+  );
+
   // Offline/Brand search state
   const [searchText, setSearchText] = useState('');
   const [typeaheadResults, setTypeaheadResults] = useState<TypeaheadResult[]>([]);
@@ -964,6 +1085,34 @@ const Research: React.FC = () => {
   const [researchLoading, setResearchLoading] = useState(false);
   const [researchError, setResearchError] = useState<string | null>(null);
   const [researchResult, setResearchResult] = useState<string | null>(null);
+
+  type MenswearCategoryRow = {
+    id: number;
+    name: string;
+    description: string | null;
+    notes: string | null;
+  };
+
+  type MenswearCategoryBrandRow = {
+    id: number;
+    brand_name: string;
+    total_sales: string | number;
+  };
+
+  const [menswearCategories, setMenswearCategories] = useState<MenswearCategoryRow[]>([]);
+  const [menswearCategoriesLoading, setMenswearCategoriesLoading] = useState(false);
+  const [menswearCategoriesError, setMenswearCategoriesError] = useState<string | null>(null);
+  const [menswearCategoryBrands, setMenswearCategoryBrands] = useState<MenswearCategoryBrandRow[]>([]);
+  const [menswearCategoryBrandsLoading, setMenswearCategoryBrandsLoading] = useState(false);
+  const [menswearCategoryBrandsError, setMenswearCategoryBrandsError] = useState<string | null>(null);
+  const [menswearBrandSort, setMenswearBrandSort] = useState<'name' | 'total_sales'>('total_sales');
+  const [menswearCategoryBrandsRefreshTick, setMenswearCategoryBrandsRefreshTick] = useState(0);
+  const [menswearAddBrandOpen, setMenswearAddBrandOpen] = useState(false);
+  const [menswearAddBrandSearch, setMenswearAddBrandSearch] = useState('');
+  const [menswearAddBrandSaving, setMenswearAddBrandSaving] = useState(false);
+  const [menswearAddBrandError, setMenswearAddBrandError] = useState<string | null>(null);
+  const [menswearAskAiBusy, setMenswearAskAiBusy] = useState(false);
+  const [menswearAskAiHint, setMenswearAskAiHint] = useState<string | null>(null);
 
   const [brandsWithWebsites, setBrandsWithWebsites] = useState<BrandRow[]>([]);
 
@@ -987,6 +1136,13 @@ const Research: React.FC = () => {
   const [brandBuyingNotesBuyDraft, setBrandBuyingNotesBuyDraft] = useState('');
   const [brandBuyingNotesAvoidDraft, setBrandBuyingNotesAvoidDraft] = useState('');
   const [brandBrandInfoSaving, setBrandBrandInfoSaving] = useState(false);
+  const [brandRefLinks, setBrandRefLinks] = useState<BrandRefLinkRow[]>([]);
+  const [brandRefLinksLoading, setBrandRefLinksLoading] = useState(false);
+  const [brandRefLinksError, setBrandRefLinksError] = useState<string | null>(null);
+  const [brandRefLinksAddOpen, setBrandRefLinksAddOpen] = useState(false);
+  const [brandRefLinkUrlDraft, setBrandRefLinkUrlDraft] = useState('');
+  const [brandRefLinkTextDraft, setBrandRefLinkTextDraft] = useState('');
+  const [brandRefLinksSaving, setBrandRefLinksSaving] = useState(false);
   const [brandsApiError, setBrandsApiError] = useState<string | null>(null);
   const [brandsLoaded, setBrandsLoaded] = useState(false);
   /** Shown at top when fetch fails (e.g. ERR_CONNECTION_REFUSED — backend not on :5003). */
@@ -1434,6 +1590,169 @@ const Research: React.FC = () => {
     };
   }, []);
 
+  useEffect(() => {
+    if (researchTab !== 'menswear-categories') {
+      setMenswearBrandSort('total_sales');
+      setMenswearAddBrandOpen(false);
+      setMenswearAddBrandSearch('');
+      setMenswearAddBrandError(null);
+      setMenswearAskAiHint(null);
+      setMenswearAskAiBusy(false);
+    }
+  }, [researchTab]);
+
+  useEffect(() => {
+    if (menswearCategoryIdFromUrl === null) {
+      setMenswearAddBrandOpen(false);
+      setMenswearAddBrandSearch('');
+      setMenswearAddBrandError(null);
+    }
+  }, [menswearCategoryIdFromUrl]);
+
+  useEffect(() => {
+    if (researchTab !== 'menswear-categories') return;
+    const ac = new AbortController();
+    let cancelled = false;
+    const load = async () => {
+      setMenswearCategoriesLoading(true);
+      setMenswearCategoriesError(null);
+      try {
+        const res = await fetch(apiUrl('/api/menswear-categories'), { signal: ac.signal });
+        const data = await readJsonResponse<{ rows?: MenswearCategoryRow[] }>(res, 'menswear-categories');
+        if (cancelled) return;
+        const rows = Array.isArray(data.rows) ? data.rows : [];
+        setMenswearCategories(
+          rows.map((r) => ({
+            id: Number(r.id),
+            name: String(r.name ?? ''),
+            description: r.description != null ? String(r.description) : null,
+            notes: r.notes != null ? String(r.notes) : null,
+          }))
+        );
+      } catch (e) {
+        if (cancelled || isAbortError(e)) return;
+        setMenswearCategories([]);
+        setMenswearCategoriesError(friendlyApiUnreachableMessage(e));
+      } finally {
+        if (!cancelled) setMenswearCategoriesLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [researchTab]);
+
+  useEffect(() => {
+    if (researchTab !== 'menswear-categories' || menswearCategoryIdFromUrl == null) {
+      setMenswearCategoryBrands([]);
+      return;
+    }
+    const ac = new AbortController();
+    let cancelled = false;
+    const load = async () => {
+      setMenswearCategoryBrandsLoading(true);
+      setMenswearCategoryBrandsError(null);
+      try {
+        const params = new URLSearchParams({ sort: menswearBrandSort });
+        const res = await fetch(
+          apiUrl(`/api/menswear-categories/${menswearCategoryIdFromUrl}/brands?${params}`),
+          { signal: ac.signal }
+        );
+        const data = await readJsonResponse<{ rows?: MenswearCategoryBrandRow[] }>(
+          res,
+          'menswear-category-brands'
+        );
+        if (cancelled) return;
+        setMenswearCategoryBrands(Array.isArray(data.rows) ? data.rows : []);
+      } catch (e) {
+        if (cancelled || isAbortError(e)) return;
+        setMenswearCategoryBrands([]);
+        setMenswearCategoryBrandsError(friendlyApiUnreachableMessage(e));
+      } finally {
+        if (!cancelled) setMenswearCategoryBrandsLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [researchTab, menswearCategoryIdFromUrl, menswearBrandSort, menswearCategoryBrandsRefreshTick]);
+
+  const menswearAddBrandCandidates = useMemo(() => {
+    const q = menswearAddBrandSearch.trim().toLowerCase();
+    const rows = [...brandsWithWebsites];
+    rows.sort((a, b) => a.brand_name.localeCompare(b.brand_name, undefined, { sensitivity: 'base' }));
+    if (!q) return rows;
+    return rows.filter((b) => b.brand_name.toLowerCase().includes(q));
+  }, [brandsWithWebsites, menswearAddBrandSearch]);
+
+  const assignBrandToMenswearCategory = useCallback(
+    async (brandId: number) => {
+      if (menswearCategoryIdFromUrl == null) return;
+      setMenswearAddBrandSaving(true);
+      setMenswearAddBrandError(null);
+      try {
+        const res = await fetch(apiUrl(`/api/brands/${brandId}`), {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ menswear_category_id: menswearCategoryIdFromUrl }),
+        });
+        await readJsonResponse<{ row?: BrandRow }>(res, 'brand menswear category');
+        setBrandsWithWebsites((prev) =>
+          prev.map((b) =>
+            b.id === brandId ? { ...b, menswear_category_id: menswearCategoryIdFromUrl } : b
+          )
+        );
+        setMenswearCategoryBrandsRefreshTick((n) => n + 1);
+        setMenswearAddBrandOpen(false);
+        setMenswearAddBrandSearch('');
+      } catch (e) {
+        setMenswearAddBrandError(friendlyApiUnreachableMessage(e));
+      } finally {
+        setMenswearAddBrandSaving(false);
+      }
+    },
+    [menswearCategoryIdFromUrl]
+  );
+
+  const runMenswearAskAi = useCallback(
+    async (opts: { cat: MenswearCategoryRow; brands?: MenswearCategoryBrandRow[] }) => {
+      setMenswearAskAiBusy(true);
+      setMenswearAskAiHint(null);
+      try {
+        let brands = opts.brands;
+        if (!brands) {
+          const params = new URLSearchParams({ sort: 'total_sales' });
+          const res = await fetch(
+            apiUrl(`/api/menswear-categories/${opts.cat.id}/brands?${params}`)
+          );
+          const data = await readJsonResponse<{ rows?: MenswearCategoryBrandRow[] }>(
+            res,
+            'menswear-ask-ai-brands'
+          );
+          brands = Array.isArray(data.rows) ? data.rows : [];
+        }
+        const text = buildMenswearCategoryAskAiPrompt({
+          categoryName: opts.cat.name,
+          categoryDescription: opts.cat.description,
+          categoryNotes: opts.cat.notes,
+          brands,
+        });
+        await copyResearchTextToClipboard(text);
+        setMenswearAskAiHint('Copied to clipboard — paste into ChatGPT.');
+      } catch (e) {
+        setMenswearAskAiHint(friendlyApiUnreachableMessage(e));
+      } finally {
+        setMenswearAskAiBusy(false);
+        window.setTimeout(() => setMenswearAskAiHint(null), 5000);
+      }
+    },
+    []
+  );
+
   // Brand Research: ?brand=<id> or ?brand=<encoded brand_name>
   useEffect(() => {
     if (!brandsLoaded) return;
@@ -1493,7 +1812,56 @@ const Research: React.FC = () => {
     setBrandWebsiteUrlDraft('');
     setBrandBuyingNotesBuyDraft('');
     setBrandBuyingNotesAvoidDraft('');
+    setBrandRefLinksAddOpen(false);
+    setBrandRefLinkUrlDraft('');
+    setBrandRefLinkTextDraft('');
   }, [brandTagBrandId]);
+
+  useEffect(() => {
+    if (researchTab !== 'brand' || brandTagBrandId === '') {
+      setBrandRefLinks([]);
+      setBrandRefLinksError(null);
+      setBrandRefLinksLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const id = Number(brandTagBrandId);
+
+    (async () => {
+      setBrandRefLinksLoading(true);
+      setBrandRefLinksError(null);
+      try {
+        const res = await fetch(apiUrl(`/api/brands/${id}/links`));
+        const data = await readJsonResponse<{ rows?: BrandRefLinkRow[] }>(res, 'brand links');
+        if (!cancelled) {
+          const raw = Array.isArray(data.rows) ? data.rows : [];
+          setBrandRefLinks(
+            raw.map((r) => ({
+              id: Number(r.id),
+              brand_id: Number(r.brand_id),
+              url: String(r.url ?? ''),
+              link_text: r.link_text != null ? String(r.link_text) : null,
+              created_at: String(r.created_at ?? ''),
+            }))
+          );
+        }
+      } catch (err: unknown) {
+        if (!cancelled) {
+          setBrandRefLinks([]);
+          setBrandRefLinksError(friendlyApiUnreachableMessage(err));
+        }
+      } finally {
+        if (!cancelled) {
+          setBrandRefLinksLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [researchTab, brandTagBrandId]);
 
   useEffect(() => {
     if (!brandTagBrandId) {
@@ -1677,6 +2045,47 @@ const Research: React.FC = () => {
       setEbaySoldError(friendlyApiUnreachableMessage(err));
     } finally {
       setEbaySoldRefreshing(false);
+    }
+  };
+
+  const handleSaveBrandRefLink = async () => {
+    if (brandTagBrandId === '') return;
+    const id = Number(brandTagBrandId);
+    const url = brandRefLinkUrlDraft.trim();
+    if (!url) {
+      setBrandRefLinksError('Enter a URL.');
+      return;
+    }
+    setBrandRefLinksSaving(true);
+    setBrandRefLinksError(null);
+    try {
+      const res = await fetch(apiUrl(`/api/brands/${id}/links`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url,
+          linkText: brandRefLinkTextDraft.trim() || undefined,
+        }),
+      });
+      const data = await readJsonResponse<{ row?: BrandRefLinkRow }>(res, 'brand link save');
+      const row = data.row;
+      if (row) {
+        const normalized: BrandRefLinkRow = {
+          id: Number(row.id),
+          brand_id: Number(row.brand_id),
+          url: String(row.url ?? ''),
+          link_text: row.link_text != null ? String(row.link_text) : null,
+          created_at: String(row.created_at ?? ''),
+        };
+        setBrandRefLinks((prev) => [normalized, ...prev]);
+      }
+      setBrandRefLinkUrlDraft('');
+      setBrandRefLinkTextDraft('');
+      setBrandRefLinksAddOpen(false);
+    } catch (err: unknown) {
+      setBrandRefLinksError(friendlyApiUnreachableMessage(err));
+    } finally {
+      setBrandRefLinksSaving(false);
     }
   };
 
@@ -2085,6 +2494,10 @@ const Research: React.FC = () => {
     }
   }, []);
 
+  const selectedMenswearCategory = useMemo(
+    () => menswearCategories.find((c) => c.id === menswearCategoryIdFromUrl) ?? null,
+    [menswearCategories, menswearCategoryIdFromUrl]
+  );
 
   return (
     <div className="research-page-container">
@@ -2104,6 +2517,17 @@ const Research: React.FC = () => {
           onClick={() => setResearchTab('brand')}
         >
           Brand research
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="research-tab-menswear-categories"
+          aria-selected={researchTab === 'menswear-categories'}
+          aria-controls="research-panel-menswear-categories"
+          className={`research-tab${researchTab === 'menswear-categories' ? ' active' : ''}`}
+          onClick={goToMenswearCategoriesTab}
+        >
+          Menswear categories
         </button>
         <button
           type="button"
@@ -2689,10 +3113,6 @@ const Research: React.FC = () => {
                       >
                         Ask AI
                       </button>
-                      <p className="brand-research-unsold-ask-ai-hint">
-                        Copies a prompt with this table plus brand totals and top sold lines—paste into ChatGPT.
-                        Asks for direct feedback, not reassurance.
-                      </p>
                     </div>
                   </div>
                 ) : null}
@@ -2784,6 +3204,95 @@ const Research: React.FC = () => {
                   {ebaySoldRefreshing ? 'Refreshing…' : 'Refresh from eBay'}
                 </button>
               </div>
+            )}
+          </section>
+        )}
+        {brandTagBrandId !== '' && (
+          <section
+            className="brand-research-reference-links"
+            aria-labelledby="brand-research-useful-links-title"
+          >
+            <div className="brand-research-reference-links-header">
+              <h3 id="brand-research-useful-links-title" className="brand-research-sales-heading">
+                Useful Links
+              </h3>
+              <button
+                type="button"
+                className="brand-research-reference-links-add-btn"
+                onClick={() => {
+                  setBrandRefLinksError(null);
+                  setBrandRefLinksAddOpen((o) => !o);
+                }}
+                aria-expanded={brandRefLinksAddOpen}
+              >
+                {brandRefLinksAddOpen ? 'Cancel' : 'Add link'}
+              </button>
+            </div>
+            {brandRefLinksError && (
+              <div className="brand-tag-examples-error brand-research-reference-links-error" role="alert">
+                {brandRefLinksError}
+              </div>
+            )}
+            {brandRefLinksAddOpen && (
+              <div className="brand-research-reference-links-form">
+                <label className="brand-research-reference-links-field">
+                  <span>URL</span>
+                  <input
+                    type="text"
+                    inputMode="url"
+                    value={brandRefLinkUrlDraft}
+                    onChange={(e) => setBrandRefLinkUrlDraft(e.target.value)}
+                    placeholder="https://…"
+                    autoComplete="off"
+                    disabled={brandRefLinksSaving}
+                  />
+                </label>
+                <label className="brand-research-reference-links-field">
+                  <span>Link text</span>
+                  <input
+                    type="text"
+                    value={brandRefLinkTextDraft}
+                    onChange={(e) => setBrandRefLinkTextDraft(e.target.value)}
+                    placeholder="Optional label (shown instead of URL)"
+                    maxLength={500}
+                    autoComplete="off"
+                    disabled={brandRefLinksSaving}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="brand-research-reference-links-save"
+                  onClick={() => void handleSaveBrandRefLink()}
+                  disabled={brandRefLinksSaving || !brandRefLinkUrlDraft.trim()}
+                >
+                  {brandRefLinksSaving ? 'Saving…' : 'Save link'}
+                </button>
+              </div>
+            )}
+            {brandRefLinksLoading && (
+              <p className="brand-tag-examples-muted">Loading links…</p>
+            )}
+            {!brandRefLinksLoading && brandRefLinks.length === 0 && !brandRefLinksAddOpen && (
+              <p className="brand-research-sales-empty">No saved links yet.</p>
+            )}
+            {!brandRefLinksLoading && brandRefLinks.length > 0 && (
+              <ul className="brand-research-reference-links-list">
+                {brandRefLinks.map((link) => (
+                  <li key={link.id} className="brand-research-reference-links-item">
+                    <a
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="brand-research-reference-links-anchor"
+                    >
+                      {link.link_text?.trim() ? link.link_text.trim() : link.url}
+                    </a>
+                    <span className="brand-research-reference-links-date">
+                      {formatResearchShortDate(link.created_at)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             )}
           </section>
         )}
@@ -3091,6 +3600,243 @@ const Research: React.FC = () => {
           )}
         </form>
       </div>
+        </div>
+      )}
+
+      {researchTab === 'menswear-categories' && (
+        <div
+          id="research-panel-menswear-categories"
+          role="tabpanel"
+          aria-labelledby="research-tab-menswear-categories"
+          className="research-tab-panel"
+        >
+          <div className="menswear-categories-page">
+            {menswearCategoryIdFromUrl != null && menswearAskAiHint ? (
+              <p
+                className={`menswear-categories-ask-ai-hint${menswearAskAiHint.startsWith('Copied') ? '' : ' menswear-categories-ask-ai-hint--error'}`}
+                role="status"
+              >
+                {menswearAskAiHint}
+              </p>
+            ) : null}
+
+            {menswearCategoriesError && (
+              <div className="menswear-categories-error" role="alert">
+                {menswearCategoriesError}
+              </div>
+            )}
+
+            {menswearCategoriesLoading && (
+              <div className="menswear-categories-muted">Loading categories…</div>
+            )}
+
+            {!menswearCategoriesLoading && !menswearCategoriesError && menswearCategoryIdFromUrl === null && (
+              <ul className="menswear-categories-list">
+                {menswearCategories.length === 0 ? (
+                  <li className="menswear-categories-empty">No categories found.</li>
+                ) : (
+                  menswearCategories.map((cat) => (
+                    <li key={cat.id}>
+                      <button
+                        type="button"
+                        className="menswear-categories-card"
+                        onClick={() => openMenswearCategoryInUrl(cat.id)}
+                      >
+                        <span className="menswear-categories-card-name">{cat.name}</span>
+                        {cat.description ? (
+                          <span className="menswear-categories-card-desc">{cat.description}</span>
+                        ) : null}
+                      </button>
+                    </li>
+                  ))
+                )}
+              </ul>
+            )}
+
+            {!menswearCategoriesLoading && menswearCategoryIdFromUrl !== null && selectedMenswearCategory && (
+              <div className="menswear-categories-detail">
+                <h3 className="menswear-categories-detail-title">{selectedMenswearCategory.name}</h3>
+                {selectedMenswearCategory.description ? (
+                  <p className="menswear-categories-detail-desc">{selectedMenswearCategory.description}</p>
+                ) : null}
+                {selectedMenswearCategory.notes ? (
+                  <p className="menswear-categories-detail-notes">
+                    <strong>Notes:</strong> {selectedMenswearCategory.notes}
+                  </p>
+                ) : null}
+
+                <div className="menswear-categories-sort-bar">
+                  <div className="menswear-categories-sort-left" role="group" aria-label="Sort brands">
+                    <button
+                      type="button"
+                      className={`menswear-categories-sort-btn${menswearBrandSort === 'total_sales' ? ' menswear-categories-sort-btn--active' : ''}`}
+                      onClick={() => setMenswearBrandSort('total_sales')}
+                    >
+                      By total sales
+                    </button>
+                    <button
+                      type="button"
+                      className={`menswear-categories-sort-btn${menswearBrandSort === 'name' ? ' menswear-categories-sort-btn--active' : ''}`}
+                      onClick={() => setMenswearBrandSort('name')}
+                    >
+                      Alphabetical
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    className="menswear-categories-add-btn"
+                    onClick={() => {
+                      setMenswearAddBrandError(null);
+                      setMenswearAddBrandOpen((o) => !o);
+                    }}
+                    aria-expanded={menswearAddBrandOpen}
+                  >
+                    Add
+                  </button>
+                </div>
+
+                {menswearAddBrandOpen && (
+                  <div className="menswear-categories-add-panel">
+                    <label className="menswear-categories-add-label" htmlFor="menswear-add-brand-search">
+                      Choose a brand
+                    </label>
+                    <input
+                      id="menswear-add-brand-search"
+                      type="search"
+                      className="menswear-categories-add-search"
+                      placeholder="Search brands…"
+                      value={menswearAddBrandSearch}
+                      onChange={(e) => setMenswearAddBrandSearch(e.target.value)}
+                      autoComplete="off"
+                      disabled={menswearAddBrandSaving}
+                    />
+                    {!brandsLoaded && (
+                      <p className="menswear-categories-muted">Loading brands…</p>
+                    )}
+                    {brandsLoaded && brandsApiError && (
+                      <p className="menswear-categories-error menswear-categories-error--inline" role="alert">
+                        {brandsApiError}
+                      </p>
+                    )}
+                    {menswearAddBrandError && (
+                      <p className="menswear-categories-error menswear-categories-error--inline" role="alert">
+                        {menswearAddBrandError}
+                      </p>
+                    )}
+                    {brandsLoaded && !brandsApiError && (
+                      <ul className="menswear-categories-add-list" role="listbox" aria-label="Brands">
+                        {menswearAddBrandCandidates.length === 0 ? (
+                          <li className="menswear-categories-empty">No matching brands.</li>
+                        ) : (
+                          menswearAddBrandCandidates.map((b) => {
+                            const inCategory =
+                              b.menswear_category_id != null &&
+                              b.menswear_category_id === menswearCategoryIdFromUrl;
+                            return (
+                              <li key={b.id}>
+                                <button
+                                  type="button"
+                                  role="option"
+                                  aria-selected={false}
+                                  className={`menswear-categories-add-row${inCategory ? ' menswear-categories-add-row--current' : ''}`}
+                                  disabled={menswearAddBrandSaving || inCategory}
+                                  onClick={() => void assignBrandToMenswearCategory(b.id)}
+                                >
+                                  <span>{b.brand_name}</span>
+                                  {inCategory ? (
+                                    <span className="menswear-categories-add-row-hint">In this category</span>
+                                  ) : null}
+                                </button>
+                              </li>
+                            );
+                          })
+                        )}
+                      </ul>
+                    )}
+                    <button
+                      type="button"
+                      className="menswear-categories-add-cancel"
+                      onClick={() => {
+                        setMenswearAddBrandOpen(false);
+                        setMenswearAddBrandSearch('');
+                        setMenswearAddBrandError(null);
+                      }}
+                      disabled={menswearAddBrandSaving}
+                    >
+                      Close
+                    </button>
+                  </div>
+                )}
+
+                {menswearCategoryBrandsError && (
+                  <div className="menswear-categories-error" role="alert">
+                    {menswearCategoryBrandsError}
+                  </div>
+                )}
+                {menswearCategoryBrandsLoading && (
+                  <div className="menswear-categories-muted">Loading brands…</div>
+                )}
+
+                {!menswearCategoryBrandsLoading && !menswearCategoryBrandsError && (
+                  <>
+                    <ul className="menswear-categories-brands">
+                      {menswearCategoryBrands.length === 0 ? (
+                        <li className="menswear-categories-empty">No brands in this category yet.</li>
+                      ) : (
+                        menswearCategoryBrands.map((b) => {
+                          const salesNum =
+                            typeof b.total_sales === 'number'
+                              ? b.total_sales
+                              : parseFloat(String(b.total_sales)) || 0;
+                          return (
+                            <li key={b.id} className="menswear-categories-brand-row">
+                              <Link
+                                className="menswear-categories-brand-link"
+                                to={`/research?brand=${encodeURIComponent(String(b.id))}`}
+                              >
+                                {b.brand_name || '—'}
+                              </Link>
+                              {menswearBrandSort === 'total_sales' && (
+                                <span className="menswear-categories-brand-sales">
+                                  {formatResearchCurrency(salesNum)}
+                                </span>
+                              )}
+                            </li>
+                          );
+                        })
+                      )}
+                    </ul>
+                    <div className="menswear-categories-brands-footer">
+                      <button
+                        type="button"
+                        className="menswear-categories-ask-ai-btn"
+                        disabled={menswearAskAiBusy || !selectedMenswearCategory}
+                        onClick={() =>
+                          selectedMenswearCategory &&
+                          void runMenswearAskAi({
+                            cat: selectedMenswearCategory,
+                            brands: menswearCategoryBrands,
+                          })
+                        }
+                      >
+                        Ask AI
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {!menswearCategoriesLoading &&
+              menswearCategoryIdFromUrl !== null &&
+              !selectedMenswearCategory && (
+                <div className="menswear-categories-detail">
+                  <p className="menswear-categories-muted">
+                    That category is no longer in the list. Choose another or refresh.
+                  </p>
+                </div>
+              )}
+          </div>
         </div>
       )}
     </div>
