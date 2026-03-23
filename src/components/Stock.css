@@ -103,6 +103,44 @@
   margin-left: auto;
 }
 
+/* First edit row: delete (x) + Instagram caption AI prompt */
+.stock-edit-actions-field {
+  flex: 1 1 200px;
+  max-width: min(100%, 280px);
+}
+
+.stock-edit-row-action-buttons {
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  width: 100%;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+/* Slot width unchanged: Instagram grows, delete stays a compact circle */
+.stock-edit-row-action-buttons .stock-instagram-ai-button {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 14px 18px;
+  font-size: 0.8rem;
+}
+
+.stock-edit-row-action-buttons .delete-button {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  padding: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
 @media (max-width: 768px) {
   .new-entry-field--actions {
     margin-left: 0;
@@ -763,6 +801,30 @@
   background: rgba(255, 120, 120, 0.3);
   transform: translateY(-1px);
   box-shadow: var(--neon-shadow);
+}
+
+.stock-instagram-ai-button {
+  padding: 16px 24px;
+  border-radius: 999px;
+  border: 1px solid rgba(140, 200, 255, 0.32);
+  background: rgba(140, 200, 255, 0.14);
+  color: #b8deff;
+  font-weight: 600;
+  letter-spacing: 0.06rem;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.stock-instagram-ai-button:hover:not(:disabled) {
+  background: rgba(140, 200, 255, 0.26);
+  transform: translateY(-1px);
+  box-shadow: var(--neon-shadow);
+}
+
+.stock-instagram-ai-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .add-to-orders-button {

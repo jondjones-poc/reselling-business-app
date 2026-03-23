@@ -1156,6 +1156,10 @@ const Research: React.FC = () => {
   const [brandTagBrandId, setBrandTagBrandId] = useState<number | ''>('');
   const [brandTabQuery, setBrandTabQuery] = useState('');
   const [brandTabTypeaheadOpen, setBrandTabTypeaheadOpen] = useState(false);
+  const [brandCreateOpen, setBrandCreateOpen] = useState(false);
+  const [brandCreateName, setBrandCreateName] = useState('');
+  const [brandCreateBusy, setBrandCreateBusy] = useState(false);
+  const [brandCreateError, setBrandCreateError] = useState<string | null>(null);
   const [brandTagImages, setBrandTagImages] = useState<BrandTagImageRow[]>([]);
   const [brandTagLoading, setBrandTagLoading] = useState(false);
   const [brandTagError, setBrandTagError] = useState<string | null>(null);
@@ -1877,6 +1881,13 @@ const Research: React.FC = () => {
     if (b) setBrandTabQuery(b.brand_name);
   }, [brandsLoaded, brandTagBrandId, brandsWithWebsites]);
 
+  useEffect(() => {
+    if (brandTagBrandId !== '') {
+      setBrandCreateOpen(false);
+      setBrandCreateError(null);
+    }
+  }, [brandTagBrandId]);
+
   const brandTabTypeaheadList = useMemo(() => {
     const list = brandsWithWebsites;
     const q = brandTabQuery.trim().toLowerCase();
@@ -1909,9 +1920,61 @@ const Research: React.FC = () => {
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
 
+  const handleCreateBrandSubmit = useCallback(async () => {
+    const name = brandCreateName.trim();
+    if (!name) {
+      setBrandCreateError('Enter a brand name');
+      return;
+    }
+    setBrandCreateBusy(true);
+    setBrandCreateError(null);
+    try {
+      const response = await fetch(apiUrl('/api/brands'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brand_name: name }),
+      });
+      const data = await readJsonResponse<{ row?: { id: number; brand_name: string } }>(
+        response,
+        'create brand'
+      );
+      const row = data.row;
+      if (!row || typeof row.id !== 'number') {
+        throw new Error('Invalid response from server');
+      }
+      const newRow: BrandRow = {
+        id: row.id,
+        brand_name: row.brand_name.trim(),
+        brand_website: null,
+        things_to_buy: null,
+        things_to_avoid: null,
+        menswear_category_id: null,
+      };
+      setBrandsWithWebsites((prev) =>
+        [...prev, newRow].sort((a, b) =>
+          a.brand_name.localeCompare(b.brand_name, undefined, { sensitivity: 'base' })
+        )
+      );
+      brandTabInputUserEditRef.current = false;
+      setBrandTagBrandId(newRow.id);
+      setBrandTabQuery(newRow.brand_name);
+      const next = new URLSearchParams(searchParams);
+      next.set('brand', String(newRow.id));
+      setSearchParams(next, { replace: true });
+      setBrandCreateOpen(false);
+      setBrandCreateName('');
+      setBrandTabTypeaheadOpen(false);
+    } catch (err: unknown) {
+      setBrandCreateError(err instanceof Error ? err.message : 'Could not create brand');
+    } finally {
+      setBrandCreateBusy(false);
+    }
+  }, [brandCreateName, searchParams, setSearchParams]);
+
   useEffect(() => {
     if (researchTab !== 'brand') {
       setBrandTabTypeaheadOpen(false);
+      setBrandCreateOpen(false);
     }
   }, [researchTab]);
 
@@ -2727,102 +2790,182 @@ const Research: React.FC = () => {
             </div>
           )}
           <div className="brand-tag-examples-brand-stack">
-            <div
-              className={
-                'brand-tag-examples-brand-toolbar' +
-                (brandTagBrandId !== '' ? ' brand-tag-examples-brand-toolbar--split' : '')
-              }
-            >
-              <div className="brand-tag-examples-brand-select-wrap brand-research-brand-typeahead-wrap">
-                <div className="brand-research-brand-typeahead-inner">
-                  <input
-                    id="brand-tag-brand-select"
-                    type="text"
-                    role="combobox"
-                    aria-expanded={brandTabTypeaheadOpen}
-                    aria-controls="brand-research-brand-typeahead-listbox"
-                    aria-autocomplete="list"
-                    autoComplete="off"
-                    aria-label="Search or select brand"
-                    className="brand-tag-examples-select brand-research-brand-typeahead-input"
-                    placeholder="Search or select a brand…"
-                    value={brandTabQuery}
-                    disabled={!brandsLoaded || brandsWithWebsites.length === 0}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setBrandTabQuery(v);
-                      setBrandTabTypeaheadOpen(true);
-                      if (v.trim() === '') {
-                        clearBrandTabSelection();
-                        return;
-                      }
-                      const selected = brandsWithWebsites.find((br) => br.id === brandTagBrandId);
-                      if (brandTagBrandId !== '' && selected && v !== selected.brand_name) {
-                        brandTabInputUserEditRef.current = true;
-                        setBrandTagBrandId('');
-                        const next = new URLSearchParams(searchParams);
-                        next.delete('brand');
-                        setSearchParams(next, { replace: true });
-                      }
-                    }}
-                    onFocus={() => setBrandTabTypeaheadOpen(true)}
-                    onBlur={() => {
-                      window.setTimeout(() => setBrandTabTypeaheadOpen(false), 120);
-                    }}
-                  />
-                  {brandTabTypeaheadOpen && brandsLoaded && brandsWithWebsites.length > 0 && (
-                    <ul
-                      id="brand-research-brand-typeahead-listbox"
-                      role="listbox"
-                      className="brand-research-typeahead-dropdown"
-                    >
-                      {brandTabTypeaheadList.length === 0 ? (
-                        <li className="brand-research-typeahead-empty" role="presentation">
-                          No matching brands
-                        </li>
-                      ) : (
-                        brandTabTypeaheadList.map((b) => (
-                          <li
-                            key={b.id}
-                            role="option"
-                            aria-selected={brandTagBrandId === b.id}
-                            className="brand-research-typeahead-option"
-                            onMouseDown={(ev) => {
-                              ev.preventDefault();
-                              selectBrandFromBrandTabTypeahead(b);
-                            }}
-                          >
-                            {b.brand_name}
+            <div className="brand-tag-examples-brand-toolbar brand-tag-examples-brand-toolbar--split">
+              <div className="brand-research-brand-toolbar-row">
+                <div className="brand-tag-examples-brand-select-wrap brand-research-brand-typeahead-wrap">
+                  <div className="brand-research-brand-typeahead-inner">
+                    <input
+                      id="brand-tag-brand-select"
+                      type="text"
+                      role="combobox"
+                      aria-expanded={brandTabTypeaheadOpen}
+                      aria-controls="brand-research-brand-typeahead-listbox"
+                      aria-autocomplete="list"
+                      autoComplete="off"
+                      aria-label="Search or select brand"
+                      className="brand-tag-examples-select brand-research-brand-typeahead-input"
+                      placeholder="Search or select a brand…"
+                      value={brandTabQuery}
+                      disabled={!brandsLoaded}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setBrandTabQuery(v);
+                        setBrandTabTypeaheadOpen(true);
+                        if (v.trim() === '') {
+                          clearBrandTabSelection();
+                          return;
+                        }
+                        const selected = brandsWithWebsites.find((br) => br.id === brandTagBrandId);
+                        if (brandTagBrandId !== '' && selected && v !== selected.brand_name) {
+                          brandTabInputUserEditRef.current = true;
+                          setBrandTagBrandId('');
+                          const next = new URLSearchParams(searchParams);
+                          next.delete('brand');
+                          setSearchParams(next, { replace: true });
+                        }
+                      }}
+                      onFocus={() => setBrandTabTypeaheadOpen(true)}
+                      onBlur={() => {
+                        window.setTimeout(() => setBrandTabTypeaheadOpen(false), 120);
+                      }}
+                    />
+                    {brandTabTypeaheadOpen && brandsLoaded && (
+                      <ul
+                        id="brand-research-brand-typeahead-listbox"
+                        role="listbox"
+                        className="brand-research-typeahead-dropdown"
+                      >
+                        {brandsWithWebsites.length === 0 ? (
+                          <li className="brand-research-typeahead-empty" role="presentation">
+                            No brands yet — use + to add one
                           </li>
-                        ))
-                      )}
-                    </ul>
-                  )}
+                        ) : brandTabTypeaheadList.length === 0 ? (
+                          <li className="brand-research-typeahead-empty" role="presentation">
+                            No matching brands
+                          </li>
+                        ) : (
+                          brandTabTypeaheadList.map((b) => (
+                            <li
+                              key={b.id}
+                              role="option"
+                              aria-selected={brandTagBrandId === b.id}
+                              className="brand-research-typeahead-option"
+                              onMouseDown={(ev) => {
+                                ev.preventDefault();
+                                selectBrandFromBrandTabTypeahead(b);
+                              }}
+                            >
+                              {b.brand_name}
+                            </li>
+                          ))
+                        )}
+                      </ul>
+                    )}
+                  </div>
                 </div>
-              </div>
-              {brandTagBrandId !== '' && (
-                <div className="brand-tag-examples-brand-toolbar-actions">
+                {brandTagBrandId === '' && (
                   <button
                     type="button"
-                    className="brand-tag-examples-add-info-btn brand-tag-examples-toolbar-btn"
+                    className="brand-research-new-brand-icon-btn"
+                    aria-label="Create new brand"
+                    title="New brand"
+                    disabled={!brandsLoaded}
                     onClick={() => {
-                      setBrandTagAddPanelOpen((open) => {
-                        if (open) {
-                          setBrandTagAddSubMode('pick');
-                          setBrandWebsiteUrlDraft('');
-                          setBrandBuyingNotesBuyDraft('');
-                          setBrandBuyingNotesAvoidDraft('');
-                          setBrandTagCaption('');
-                          setBrandTagNewImageKind('tag');
-                        }
-                        return !open;
-                      });
+                      setBrandCreateOpen((o) => !o);
+                      setBrandCreateError(null);
                     }}
-                    aria-expanded={brandTagAddPanelOpen}
-                    aria-controls="brand-tag-add-panel"
                   >
-                    {brandTagAddPanelOpen ? 'Close' : 'Add info'}
+                    <svg
+                      width="22"
+                      height="22"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                      aria-hidden
+                    >
+                      <path
+                        d="M12 5v14M5 12h14"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                      />
+                    </svg>
                   </button>
+                )}
+                {brandTagBrandId !== '' && (
+                  <div className="brand-tag-examples-brand-toolbar-actions">
+                    <button
+                      type="button"
+                      className="brand-tag-examples-add-info-btn brand-tag-examples-toolbar-btn"
+                      onClick={() => {
+                        setBrandTagAddPanelOpen((open) => {
+                          if (open) {
+                            setBrandTagAddSubMode('pick');
+                            setBrandWebsiteUrlDraft('');
+                            setBrandBuyingNotesBuyDraft('');
+                            setBrandBuyingNotesAvoidDraft('');
+                            setBrandTagCaption('');
+                            setBrandTagNewImageKind('tag');
+                          }
+                          return !open;
+                        });
+                      }}
+                      aria-expanded={brandTagAddPanelOpen}
+                      aria-controls="brand-tag-add-panel"
+                    >
+                      {brandTagAddPanelOpen ? 'Close' : 'Add info'}
+                    </button>
+                  </div>
+                )}
+              </div>
+              {brandCreateOpen && brandTagBrandId === '' && (
+                <div className="brand-research-create-brand-panel">
+                  <label className="brand-tag-examples-label" htmlFor="brand-research-new-brand-name">
+                    New brand name
+                  </label>
+                  <input
+                    id="brand-research-new-brand-name"
+                    type="text"
+                    className="brand-tag-examples-caption-input"
+                    value={brandCreateName}
+                    onChange={(e) => setBrandCreateName(e.target.value)}
+                    placeholder="e.g. Acme Co"
+                    maxLength={200}
+                    disabled={brandCreateBusy}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void handleCreateBrandSubmit();
+                      }
+                    }}
+                  />
+                  <div className="brand-research-create-brand-actions">
+                    <button
+                      type="button"
+                      className="brand-tag-examples-save"
+                      onClick={() => void handleCreateBrandSubmit()}
+                      disabled={brandCreateBusy}
+                    >
+                      {brandCreateBusy ? 'Creating…' : 'Create'}
+                    </button>
+                    <button
+                      type="button"
+                      className="brand-tag-examples-cancel"
+                      onClick={() => {
+                        setBrandCreateOpen(false);
+                        setBrandCreateName('');
+                        setBrandCreateError(null);
+                      }}
+                      disabled={brandCreateBusy}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  {brandCreateError && (
+                    <p className="brand-tag-examples-error brand-research-create-brand-error" role="alert">
+                      {brandCreateError}
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -2968,14 +3111,15 @@ const Research: React.FC = () => {
                         <label className="brand-tag-examples-label" htmlFor="brand-tag-caption">
                           Caption (optional)
                         </label>
-                        <input
+                        <textarea
                           id="brand-tag-caption"
-                          type="text"
-                          className="brand-tag-examples-caption-input"
+                          className="brand-tag-examples-edit-textarea"
                           value={brandTagCaption}
                           onChange={(e) => setBrandTagCaption(e.target.value)}
                           placeholder="e.g. SS19 neck label"
                           maxLength={500}
+                          rows={4}
+                          disabled={brandTagUploading}
                         />
                         <div className="brand-tag-examples-upload-row">
                           <label htmlFor="brand-tag-file" className="brand-tag-examples-upload-button">

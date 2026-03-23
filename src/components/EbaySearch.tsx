@@ -1,8 +1,32 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import BarcodeScanner from 'react-qr-barcode-scanner';
 import { augmentEbaySearchQuery } from '../utils/augmentEbaySearchQuery';
+import { apiUrl } from '../utils/apiBase';
+import { pingDatabase } from '../utils/dbPing';
 import './EbaySearch.css';
 import './BrandResearch.css';
+
+type HomeBrandTagRow = {
+  id: number;
+  public_url: string | null;
+  caption: string | null;
+  image_kind: 'tag' | 'fake_check';
+};
+
+function normalizeHomeTagImage(raw: unknown): HomeBrandTagRow | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const id = typeof r.id === 'number' ? r.id : parseInt(String(r.id ?? ''), 10);
+  if (!Number.isFinite(id)) return null;
+  const kindRaw = r.image_kind;
+  const image_kind: 'tag' | 'fake_check' =
+    kindRaw === 'fake_check' || kindRaw === 'fake' ? 'fake_check' : 'tag';
+  const public_url =
+    r.public_url === null || r.public_url === undefined ? null : String(r.public_url);
+  const cap = r.caption;
+  const caption = cap === null || cap === undefined ? null : String(cap);
+  return { id, public_url, caption, image_kind };
+}
 
 interface AppSettings {
   categories: string[];
@@ -36,6 +60,11 @@ const EbaySearch: React.FC = () => {
   const [colors, setColors] = useState<string[]>([]);
   const [patterns, setPatterns] = useState<string[]>([]);
   const [brands, setBrands] = useState<string[]>([]);
+  /** Resolved from GET /api/brands — used for tag image brandId. */
+  const [dbBrandRows, setDbBrandRows] = useState<{ id: number; brand_name: string }[]>([]);
+  const [homeTagRows, setHomeTagRows] = useState<HomeBrandTagRow[]>([]);
+  const [homeTagsLoading, setHomeTagsLoading] = useState(false);
+  const [homeTagsError, setHomeTagsError] = useState<string | null>(null);
   const [settingsLoading, setSettingsLoading] = useState(true);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState('');
@@ -172,6 +201,11 @@ const EbaySearch: React.FC = () => {
     }
   }, []);
 
+  /** Wake DB / warm pool (App.tsx also pings on `/` route). */
+  useEffect(() => {
+    pingDatabase();
+  }, []);
+
   useEffect(() => {
     const sanitizeCategories = (rawCategories: unknown): string[] => {
       if (!Array.isArray(rawCategories)) {
@@ -186,6 +220,37 @@ const EbaySearch: React.FC = () => {
       return Array.from(new Set(sanitized)).sort((a, b) =>
         a.localeCompare(b, undefined, { sensitivity: 'base' })
       );
+    };
+
+    const loadBrandsFromDatabase = async () => {
+      try {
+        const brRes = await fetch(`${API_BASE}/api/brands`);
+        if (!brRes.ok) return;
+        const data = (await brRes.json()) as { rows?: unknown[] };
+        const raw = Array.isArray(data?.rows) ? data.rows : [];
+        const mapped: { id: number; brand_name: string }[] = [];
+        for (const row of raw) {
+          if (!row || typeof row !== 'object') continue;
+          const r = row as Record<string, unknown>;
+          const idNum =
+            typeof r.id === 'number' && Number.isFinite(r.id)
+              ? Math.trunc(r.id)
+              : parseInt(String(r.id ?? '').trim(), 10);
+          const nameRaw = r.brand_name ?? r.name;
+          const brand_name = (typeof nameRaw === 'string' ? nameRaw : String(nameRaw ?? '')).trim();
+          if (!Number.isFinite(idNum) || idNum < 1 || !brand_name) continue;
+          mapped.push({ id: idNum, brand_name });
+        }
+        mapped.sort((a, b) =>
+          a.brand_name.localeCompare(b.brand_name, undefined, { sensitivity: 'base' })
+        );
+        if (mapped.length > 0) {
+          setDbBrandRows(mapped);
+          setBrands(mapped.map((m) => m.brand_name));
+        }
+      } catch {
+        /* keep brands from settings / fallback */
+      }
     };
 
     const fetchSettings = async () => {
@@ -227,17 +292,16 @@ const EbaySearch: React.FC = () => {
         setSettingsLoading(true);
         setSettingsError(null);
 
-        // Try API fetch with timeout to prevent hanging on mobile
         let apiSuccess = false;
         try {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout for mobile
+          const timeoutId = setTimeout(() => controller.abort(), 3000);
 
           const apiResponse = await fetch(`${API_BASE}/api/settings`, {
-            signal: controller.signal
+            signal: controller.signal,
           });
           clearTimeout(timeoutId);
-          
+
           if (apiResponse.ok) {
             const apiData: AppSettings = await apiResponse.json();
             const applied = applySettings(apiData);
@@ -245,36 +309,32 @@ const EbaySearch: React.FC = () => {
               apiSuccess = true;
             }
           }
-        } catch (apiError: any) {
-          // If it's an abort (timeout) or network error, log and continue to fallback
-          if (apiError.name === 'AbortError') {
+        } catch (apiError: unknown) {
+          const name = apiError && typeof apiError === 'object' && 'name' in apiError ? (apiError as { name?: string }).name : '';
+          if (name === 'AbortError') {
             console.warn('API request timed out, using fallback settings');
           } else {
             console.warn('API request failed, using fallback settings:', apiError);
           }
         }
 
-        // If API succeeded, we're done
-        if (apiSuccess) {
-          setSettingsLoading(false);
-          return;
-        }
-
-        // Otherwise, try fallback (this will always run if API fails or times out)
-        const fallbackResponse = await fetch('/app-settings.json');
-        if (!fallbackResponse.ok) {
-          throw new Error(`Fallback settings not found: ${fallbackResponse.status}`);
-        }
-        const fallbackData: AppSettings = await fallbackResponse.json();
-        const appliedFallback = applySettings(fallbackData);
-        if (!appliedFallback) {
-          throw new Error('Fallback settings did not contain usable data');
+        if (!apiSuccess) {
+          const fallbackResponse = await fetch('/app-settings.json');
+          if (!fallbackResponse.ok) {
+            throw new Error(`Fallback settings not found: ${fallbackResponse.status}`);
+          }
+          const fallbackData: AppSettings = await fallbackResponse.json();
+          const appliedFallback = applySettings(fallbackData);
+          if (!appliedFallback) {
+            throw new Error('Fallback settings did not contain usable data');
+          }
         }
       } catch (fallbackError) {
         console.error('Error loading fallback settings:', fallbackError);
         setSettingsError('Unable to load configuration settings.');
       } finally {
         setSettingsLoading(false);
+        await loadBrandsFromDatabase();
       }
     };
 
@@ -299,6 +359,56 @@ const EbaySearch: React.FC = () => {
 
   const handleBrandSelect = (value: string) => {
     setSelectedBrand(value);
+  };
+
+  const handleLoadTags = async () => {
+    const name = selectedBrand.trim();
+    if (!name) {
+      setHomeTagsError('Select a brand in the Brands dropdown first.');
+      return;
+    }
+    const found = dbBrandRows.find((b) => b.brand_name === name);
+    if (!found) {
+      setHomeTagsError(
+        'Could not match that brand to the database list. Reload the page or pick another brand.'
+      );
+      return;
+    }
+    setHomeTagsLoading(true);
+    setHomeTagsError(null);
+    try {
+      const res = await fetch(
+        apiUrl(`/api/brandTagImages?brandId=${encodeURIComponent(String(found.id))}`)
+      );
+      const text = await res.text();
+      if (!res.ok) {
+        throw new Error(text.slice(0, 200) || `HTTP ${res.status}`);
+      }
+      let data: { rows?: unknown[] };
+      try {
+        data = JSON.parse(text) as { rows?: unknown[] };
+      } catch {
+        throw new Error('Invalid JSON from tag images API');
+      }
+      const raw = Array.isArray(data?.rows) ? data.rows : [];
+      const out: HomeBrandTagRow[] = [];
+      for (const item of raw) {
+        const n = normalizeHomeTagImage(item);
+        if (n) out.push(n);
+      }
+      out.sort((a, b) => {
+        const fa = a.image_kind === 'fake_check' ? 1 : 0;
+        const fb = b.image_kind === 'fake_check' ? 1 : 0;
+        if (fa !== fb) return fa - fb;
+        return a.id - b.id;
+      });
+      setHomeTagRows(out);
+    } catch (e) {
+      setHomeTagsError(e instanceof Error ? e.message : 'Failed to load tag images');
+      setHomeTagRows([]);
+    } finally {
+      setHomeTagsLoading(false);
+    }
   };
 
   /** Same formula as former “Item Sell Through Rate” button: sold / (sold + active) × 100 */
@@ -1054,16 +1164,141 @@ const EbaySearch: React.FC = () => {
       </div>
     </div>
 
-    <div className="ebay-search-container">
-      <div className="ebay-research-section">
+    <section
+      className="ebay-search-container homepage-brand-tags-section"
+      aria-labelledby="homepage-brand-research-heading"
+    >
+        <h3 id="homepage-brand-research-heading" className="homepage-section-title">
+          Brand Research
+        </h3>
+        <div className="homepage-brand-tags-actions">
+          <button
+            type="button"
+            className="homepage-load-tags-button"
+            onClick={() => void handleLoadTags()}
+            disabled={homeTagsLoading || settingsLoading || !selectedBrand.trim()}
+          >
+            {homeTagsLoading ? 'Loading…' : 'Load...'}
+          </button>
+        </div>
+        {homeTagsError && (
+          <div className="settings-error homepage-brand-tags-error" role="alert">
+            {homeTagsError}
+          </div>
+        )}
+        {homeTagRows.length > 0 && (
+          <div className="homepage-brand-tags-results">
+            {(() => {
+              const tagRows = homeTagRows.filter((i) => i.image_kind !== 'fake_check');
+              const fakeRows = homeTagRows.filter((i) => i.image_kind === 'fake_check');
+              return (
+                <>
+                  {tagRows.length > 0 && (
+                    <div className="homepage-brand-tags-group">
+                      <ul className="brand-tag-examples-grid">
+                        {tagRows.map((img) => (
+                          <li
+                            key={img.id}
+                            className="brand-tag-examples-card"
+                          >
+                            <div className="brand-tag-examples-card-row">
+                              <div className="brand-tag-examples-card-media">
+                                {img.public_url ? (
+                                  <a
+                                    href={img.public_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="brand-tag-examples-thumb-link"
+                                  >
+                                    <img
+                                      src={img.public_url}
+                                      alt={img.caption || 'Brand tag'}
+                                      className="brand-tag-examples-thumb"
+                                    />
+                                  </a>
+                                ) : (
+                                  <div className="brand-tag-examples-thumb-fallback">No image URL</div>
+                                )}
+                              </div>
+                              <div className="brand-tag-examples-caption-block">
+                                {img.caption ? (
+                                  <p className="brand-tag-examples-caption">{img.caption}</p>
+                                ) : (
+                                  <p className="brand-tag-examples-caption-placeholder">No description</p>
+                                )}
+                              </div>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {fakeRows.length > 0 && (
+                    <div className="homepage-brand-tags-group brand-tag-examples-image-section--fake">
+                      <h4 className="homepage-brand-tags-subheading brand-tag-examples-fake-heading">
+                        Fake warning signals
+                      </h4>
+                      <ul className="brand-tag-examples-grid brand-tag-examples-grid--fake">
+                        {fakeRows.map((img) => (
+                          <li
+                            key={img.id}
+                            className="brand-tag-examples-card brand-tag-examples-card--fake"
+                          >
+                            <div className="brand-tag-examples-card-row">
+                              <div className="brand-tag-examples-card-media">
+                                {img.public_url ? (
+                                  <a
+                                    href={img.public_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="brand-tag-examples-thumb-link"
+                                  >
+                                    <img
+                                      src={img.public_url}
+                                      alt={img.caption || 'Fake check reference'}
+                                      className="brand-tag-examples-thumb"
+                                    />
+                                  </a>
+                                ) : (
+                                  <div className="brand-tag-examples-thumb-fallback">No image URL</div>
+                                )}
+                              </div>
+                              <div className="brand-tag-examples-caption-block">
+                                {img.caption ? (
+                                  <p className="brand-tag-examples-caption">{img.caption}</p>
+                                ) : (
+                                  <p className="brand-tag-examples-caption-placeholder">No description</p>
+                                )}
+                              </div>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+        )}
+    </section>
+
+    <section
+      className="ebay-search-container homepage-ctr-research-section"
+      aria-labelledby="homepage-ctr-heading"
+    >
+        <h3 id="homepage-ctr-heading" className="homepage-section-title">
+          Search Click-Through Rate
+        </h3>
         <form onSubmit={handleEbayResearchSubmit} className="ebay-search-form">
           <div className="primary-action-row research-action-row" style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
             <button
               type="submit"
               className="ebay-search-button"
               disabled={ebayResearchLoading || !hasSearchableInput}
+              aria-label="Search click-through rate"
             >
-              {ebayResearchLoading ? 'Searching...' : 'Search Click-Through Rate'}
+              {ebayResearchLoading ? 'Searching...' : 'Search'}
             </button>
             {ebayResearchResult && (
               <button
@@ -1116,8 +1351,7 @@ const EbaySearch: React.FC = () => {
             );
           })()}
         </form>
-      </div>
-    </div>
+    </section>
     </>
   );
 };

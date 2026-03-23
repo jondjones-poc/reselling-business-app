@@ -125,6 +125,66 @@ const dateToIsoString = (value: Date | null) => {
   return iso.slice(0, 10);
 };
 
+/** Prefer Vinted when an ID is present; otherwise eBay (UK storefront URLs). */
+function buildStockListingUrl(vintedId: Nullable<string>, ebayId: Nullable<string>): string | null {
+  const v = vintedId?.trim();
+  const e = ebayId?.trim();
+  if (v) {
+    if (/^https?:\/\//i.test(v)) {
+      return v;
+    }
+    const id = v.replace(/\D/g, '') || v;
+    return `https://www.vinted.co.uk/items/${id}`;
+  }
+  if (e) {
+    if (/^https?:\/\//i.test(e)) {
+      return e;
+    }
+    const id = e.replace(/\D/g, '') || e;
+    return `https://www.ebay.co.uk/itm/${id}`;
+  }
+  return null;
+}
+
+function buildStockInstagramAskAiPrompt(input: {
+  itemName: string;
+  brandName: string;
+  categoryName: string;
+  listingUrl: string | null;
+  sku: number | null;
+}): string {
+  const lines = [
+    'You are helping write an Instagram post for a second-hand / resale fashion listing (UK).',
+    '',
+    'Use the following facts only — do not invent materials, defects, measurements, or authenticity details not clearly implied by the title.',
+    '',
+    `- Title: ${input.itemName}`,
+    `- Brand: ${input.brandName}`,
+    `- Category: ${input.categoryName}`,
+  ];
+  if (input.sku !== null) {
+    lines.push(`- Internal SKU / stock ID: ${input.sku}`);
+  }
+  if (input.listingUrl) {
+    lines.push(
+      `- Listing URL (include this as a single clickable link in the caption where appropriate): ${input.listingUrl}`
+    );
+  } else {
+    lines.push(
+      '- Listing URL: (none — write the caption without a shopping link; do not invent a URL.)'
+    );
+  }
+  lines.push(
+    '',
+    'Please produce:',
+    '1. **Caption** — Engaging Instagram caption ready to paste: short hook, friendly resale tone, UK English, tasteful line breaks; optional relevant emojis.',
+    '2. **Hashtags** — A separate block at the end with 18–28 Instagram hashtags for discoverability and SEO: mix brand-specific, category, style (e.g. #vintage #preloved #menswear as relevant), platform tags (#vinted / #ebay only if they match the listing URL above), and niche long-tail tags. No spaces inside tags; avoid spammy repetition.',
+    '',
+    'Output format: caption first, then a blank line, then hashtags as a single space-separated line.'
+  );
+  return lines.join('\n');
+}
+
 const Stock: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -1566,6 +1626,33 @@ const Stock: React.FC = () => {
     setShowDeleteConfirm(false);
   };
 
+  const handleInstagramAskAi = useCallback(async () => {
+    if (!editingRowId) return;
+    setError(null);
+    const brandName =
+      brands.find((b) => String(b.id) === String(createForm.brand_id))?.brand_name?.trim() ||
+      '(not set)';
+    const categoryName =
+      categories.find((c) => String(c.id) === String(createForm.category_id))?.category_name?.trim() ||
+      '(not set)';
+    const itemName = createForm.item_name.trim() || '(no title)';
+    const listingUrl = buildStockListingUrl(createForm.vinted_id, createForm.ebay_id);
+    const text = buildStockInstagramAskAiPrompt({
+      itemName,
+      brandName,
+      categoryName,
+      listingUrl,
+      sku: editingRowId,
+    });
+    try {
+      await navigator.clipboard.writeText(text);
+      setSuccessMessage('Instagram AI prompt copied — paste into ChatGPT or your AI tool.');
+      window.setTimeout(() => setSuccessMessage(null), 5000);
+    } catch {
+      setError('Could not copy to clipboard.');
+    }
+  }, [editingRowId, brands, categories, createForm]);
+
   const handleAddToOrders = async () => {
     if (!editingRowId) return;
 
@@ -1740,18 +1827,31 @@ const Stock: React.FC = () => {
 
                 {renderProjectedProfitInline()}
                 
-                {/* Remove Button */}
-                <div className="new-entry-field">
+                {/* Remove + Instagram AI prompt */}
+                <div className="new-entry-field stock-edit-actions-field">
                   <span>&nbsp;</span>
-                  <button
-                    type="button"
-                    className="delete-button"
-                    onClick={handleDeleteClick}
-                    disabled={creating || deleting}
-                    style={{ width: '100%' }}
-                  >
-                    Remove
-                  </button>
+                  <div className="stock-edit-row-action-buttons">
+                    <button
+                      type="button"
+                      className="stock-instagram-ai-button"
+                      onClick={handleInstagramAskAi}
+                      disabled={creating || deleting}
+                      aria-label="Copy AI prompt for Instagram caption and hashtags"
+                      title="Copy prompt for AI: Instagram caption and SEO hashtags"
+                    >
+                      Instagram
+                    </button>
+                    <button
+                      type="button"
+                      className="delete-button"
+                      onClick={handleDeleteClick}
+                      disabled={creating || deleting}
+                      aria-label="Remove item"
+                      title="Remove this stock record"
+                    >
+                      x
+                    </button>
+                  </div>
                 </div>
               </div>
             )}

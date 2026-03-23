@@ -1783,6 +1783,89 @@ button.image-upload-label {
   width: 100%;
 }
 
+.brand-research-brand-toolbar-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px 12px;
+  width: 100%;
+}
+
+/* Typeahead fills remaining row space; + and “Add info” stay right, same row on desktop */
+.brand-research-brand-toolbar-row .brand-tag-examples-brand-select-wrap {
+  flex: 1 1 0%;
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .brand-research-brand-toolbar-row {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .brand-research-brand-toolbar-row .brand-tag-examples-brand-select-wrap {
+    flex: 1 1 100%;
+    max-width: 100%;
+  }
+}
+
+.brand-research-brand-toolbar-row .brand-tag-examples-brand-toolbar-actions {
+  flex: 0 1 auto;
+  margin-left: auto;
+}
+
+.brand-research-new-brand-icon-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  border-radius: 12px;
+  border: 1px solid var(--neon-border);
+  background: rgba(255, 214, 91, 0.12);
+  color: var(--neon-primary-strong);
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.brand-research-new-brand-icon-btn:hover:not(:disabled) {
+  background: rgba(255, 214, 91, 0.22);
+  box-shadow: var(--neon-shadow);
+}
+
+.brand-research-new-brand-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.brand-research-create-brand-panel {
+  width: 100%;
+  margin-top: 12px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 214, 91, 0.25);
+  background: rgba(0, 0, 0, 0.25);
+  box-sizing: border-box;
+  text-align: left;
+}
+
+.brand-research-create-brand-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.brand-research-create-brand-error {
+  margin: 10px 0 0 0;
+  font-size: 0.88rem;
+}
+
 .brand-research-brand-typeahead-wrap {
   position: relative;
   z-index: 5;

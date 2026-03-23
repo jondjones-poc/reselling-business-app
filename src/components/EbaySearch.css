@@ -671,8 +671,118 @@
   font-family: 'Courier New', monospace;
 }
 
-.ebay-research-section {
+/* Brand Research: same yellow treatment as CTR; pairs with .ebay-search-container for layout */
+.homepage-brand-tags-section {
+  margin-bottom: 28px;
+  text-align: center;
+  box-sizing: border-box;
+  border-radius: 28px;
+  border: 1px solid rgba(255, 214, 91, 0.35);
+  background: rgba(255, 214, 91, 0.06);
+}
+
+/* Matches .str-calculator-title — shared section titles on Price / homepage */
+.homepage-section-title {
+  color: var(--neon-primary-strong);
+  font-size: 1.4rem;
+  margin-bottom: 20px;
   margin-top: 0;
+  text-align: center;
+  letter-spacing: 0.08rem;
+  text-transform: uppercase;
+}
+
+.homepage-brand-tags-results,
+.homepage-brand-tags-group {
+  text-align: left;
+}
+
+.homepage-brand-tags-actions {
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.homepage-load-tags-button {
+  padding: 10px 22px;
+  border-radius: 999px;
+  border: 1px solid var(--neon-border);
+  background: rgba(255, 214, 91, 0.18);
+  color: var(--neon-primary-strong);
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.05rem;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.homepage-load-tags-button:hover:not(:disabled) {
+  background: rgba(255, 214, 91, 0.28);
+  box-shadow: var(--neon-shadow);
+}
+
+.homepage-load-tags-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.homepage-brand-tags-error {
+  margin-top: 10px;
+}
+
+.homepage-brand-tags-results {
+  margin-top: 18px;
+  width: 100%;
+  max-width: 100%;
+  margin-left: 0;
+  margin-right: 0;
+  box-sizing: border-box;
+}
+
+/* Override BrandResearch.css: grids default to max-width 720px + centered — use full section width */
+.homepage-brand-tags-section .homepage-brand-tags-group {
+  width: 100%;
+  max-width: 100%;
+}
+
+.homepage-brand-tags-section .brand-tag-examples-grid {
+  max-width: none;
+  width: 100%;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.homepage-brand-tags-section .brand-tag-examples-fake-heading {
+  max-width: none;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.homepage-brand-tags-group {
+  margin-bottom: 22px;
+}
+
+.homepage-brand-tags-group:last-child {
+  margin-bottom: 0;
+}
+
+.homepage-brand-tags-subheading {
+  margin: 0 0 12px 0;
+  font-size: 1rem;
+  color: var(--text-strong);
+  letter-spacing: 0.04rem;
+}
+
+.homepage-ctr-research-section {
+  margin-top: 0;
+  margin-bottom: 28px;
+  box-sizing: border-box;
+  border-radius: 28px;
+  border: 1px solid rgba(255, 214, 91, 0.35);
+  background: rgba(255, 214, 91, 0.06);
 }
 
 .listings-container {
