@@ -2412,6 +2412,110 @@ button.image-upload-label {
   text-align: center;
 }
 
+.brand-research-sales-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px 18px;
+  margin-bottom: 22px;
+  text-align: left;
+}
+
+.brand-research-sales-header .brand-research-sales-heading {
+  margin-bottom: 0;
+  flex: 1 1 200px;
+  min-width: 0;
+  text-align: left;
+}
+
+.brand-research-sales-period-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.brand-research-sales-period-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 214, 91, 0.45);
+  background: rgba(255, 214, 91, 0.1);
+  color: var(--neon-primary-strong, #ffd65b);
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    color 0.2s ease;
+  box-shadow: inset 0 0 12px rgba(255, 214, 91, 0.08);
+}
+
+.brand-research-sales-period-trigger:hover {
+  background: rgba(255, 214, 91, 0.18);
+  border-color: rgba(255, 214, 91, 0.65);
+  color: #fff3c4;
+}
+
+.brand-research-sales-period-trigger--open {
+  background: rgba(255, 214, 91, 0.22);
+  border-color: rgba(255, 214, 91, 0.75);
+  box-shadow: 0 0 0 1px rgba(255, 214, 91, 0.25);
+}
+
+.brand-research-sales-period-trigger-icon {
+  display: block;
+  flex-shrink: 0;
+}
+
+.brand-research-sales-period-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 40;
+  margin: 0;
+  padding: 6px 0;
+  list-style: none;
+  min-width: 200px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 214, 91, 0.28);
+  background: rgba(22, 18, 14, 0.98);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.brand-research-sales-period-menu li {
+  margin: 0;
+  padding: 0;
+}
+
+.brand-research-sales-period-option {
+  display: block;
+  width: 100%;
+  padding: 11px 18px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 248, 226, 0.88);
+  font-size: 0.88rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.brand-research-sales-period-option:hover,
+.brand-research-sales-period-option:focus-visible {
+  background: rgba(255, 214, 91, 0.12);
+  outline: none;
+}
+
+.brand-research-sales-period-option--active {
+  color: var(--neon-primary-strong, #ffd65b);
+  font-weight: 600;
+  background: rgba(255, 214, 91, 0.08);
+}
+
 .brand-research-sales-heading,
 .brand-research-sales-subheading {
   margin: 0 0 22px 0;
@@ -2555,6 +2659,32 @@ button.image-upload-label {
   position: relative;
 }
 
+.brand-research-category-stack-block {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 214, 91, 0.12);
+  text-align: left;
+  max-width: 720px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.brand-research-category-stack-heading {
+  margin: 0 0 14px 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.03rem;
+  color: rgba(255, 248, 226, 0.9);
+  text-align: center;
+}
+
+.brand-research-category-stack-chart-inner {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  position: relative;
+}
+
 .brand-research-brand-totals-value--profit {
   color: #8cffc3;
   text-shadow: 0 0 10px rgba(140, 255, 195, 0.35);
@@ -2574,6 +2704,7 @@ button.image-upload-label {
     grid-template-columns: 1fr;
     gap: 20px;
   }
+
 }
 
 .brand-research-sales-table-block {
@@ -3789,4 +3920,64 @@ button.image-upload-label {
   color: var(--text-muted);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+.menswear-categories-sales-pie {
+  margin-top: 28px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(255, 214, 91, 0.14);
+}
+
+.menswear-categories-sales-pie-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.menswear-categories-sales-pie-title {
+  margin: 0;
+  font-size: 1.02rem;
+  letter-spacing: 0.03rem;
+  color: var(--text-strong);
+}
+
+.menswear-categories-sales-pie-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.menswear-categories-sales-pie-filter-btn {
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 214, 91, 0.35);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.03rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.menswear-categories-sales-pie-filter-btn:hover {
+  border-color: rgba(255, 214, 91, 0.55);
+  background: rgba(255, 214, 91, 0.08);
+  color: var(--text-strong);
+}
+
+.menswear-categories-sales-pie-filter-btn--active {
+  border-color: rgba(140, 180, 255, 0.65);
+  background: rgba(59, 130, 246, 0.2);
+  color: #dbeafe;
+  box-shadow: inset 0 0 10px rgba(59, 130, 246, 0.22);
+}
+
+.menswear-categories-sales-pie-chart-wrap {
+  margin-top: 6px;
+  height: 340px;
+  max-width: 760px;
 }

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ArcElement,
   BarElement,
   CategoryScale,
   Chart as ChartJS,
@@ -8,12 +9,12 @@ import {
   Tooltip,
   type ChartOptions,
 } from 'chart.js';
-import { Bar } from 'react-chartjs-2';
+import { Bar, Pie } from 'react-chartjs-2';
 import ReactMarkdown from 'react-markdown';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import './BrandResearch.css';
 
-ChartJS.register(BarElement, CategoryScale, LinearScale, Tooltip, Legend);
+ChartJS.register(ArcElement, BarElement, CategoryScale, LinearScale, Tooltip, Legend);
 
 function formatResearchCurrency(value: number): string {
   return new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(value);
@@ -33,18 +34,6 @@ function formatSoldMultipleDisplay(n: number): string {
     return `${Math.round(rounded)}×`;
   }
   return `${rounded.toFixed(1)}×`;
-}
-
-/** Heat colour for category sell frequency: cool (low) → hot (high). */
-function categorySellHeatColor(value: number, min: number, max: number): string {
-  if (!Number.isFinite(value)) return 'rgba(120, 160, 220, 0.85)';
-  if (max <= min) return 'rgba(255, 180, 80, 0.9)';
-  const t = Math.min(1, Math.max(0, (value - min) / (max - min)));
-  const r = Math.round(60 + t * 195);
-  const g = Math.round(140 + (1 - t) * 70);
-  const b = Math.round(220 - t * 185);
-  const a = 0.88 + t * 0.1;
-  return `rgba(${r},${g},${b},${a})`;
 }
 
 async function copyResearchTextToClipboard(text: string): Promise<void> {
@@ -334,15 +323,33 @@ type BrandStockLongestUnsoldItem = {
   purchase_date: string | null;
 };
 
-type BrandCategorySellHeatRow = {
+type BrandCategorySoldUnsoldRow = {
   category_id: number;
   category_name: string;
   sold_count: number;
-  tier: 'top' | 'worst';
+  unsold_count: number;
 };
+
+type BrandStockSummaryPeriod = 'all' | 'last_12_months' | '2026' | '2025';
+
+function brandStockPeriodMenuLabel(period: BrandStockSummaryPeriod): string {
+  switch (period) {
+    case 'last_12_months':
+      return 'Last 12 months';
+    case '2026':
+      return '2026';
+    case '2025':
+      return '2025';
+    default:
+      return 'All time';
+  }
+}
 
 type BrandStockSummaryPayload = {
   brandId: number;
+  period: BrandStockSummaryPeriod;
+  /** Stock rows for this brand ignoring period filter (empty-state messaging). */
+  stockRowCountLifetime: number;
   totalItems: number;
   soldCount: number;
   unsoldCount: number;
@@ -360,8 +367,8 @@ type BrandStockSummaryPayload = {
   avgSoldProfitMultiple: number | null;
   topSoldItems: BrandStockTopItem[];
   longestUnsoldItems: BrandStockLongestUnsoldItem[];
-  /** Top 5 categories by sold count + 3 lowest (excluding those top 5). */
-  categorySellHeatMap: BrandCategorySellHeatRow[];
+  /** Per inventory category: sold vs not-sold counts for this brand. */
+  categorySoldUnsold: BrandCategorySoldUnsoldRow[];
 };
 
 function parseBrandStockSummaryPayload(data: unknown): BrandStockSummaryPayload {
@@ -398,17 +405,22 @@ function parseBrandStockSummaryPayload(data: unknown): BrandStockSummaryPayload 
         };
       })
     : [];
-  const heatRaw = d.categorySellHeatMap;
-  const categorySellHeatGuard = (t: unknown): t is 'top' | 'worst' => t === 'top' || t === 'worst';
-  const categorySellHeatMap: BrandCategorySellHeatRow[] = Array.isArray(heatRaw)
-    ? heatRaw.map((row) => {
+  const periodRaw = d.period;
+  const period: BrandStockSummaryPeriod =
+    periodRaw === 'last_12_months' || periodRaw === '2026' || periodRaw === '2025'
+      ? periodRaw
+      : 'all';
+  const stockRowCountLifetime =
+    d.stockRowCountLifetime != null ? Number(d.stockRowCountLifetime) : 0;
+  const suRaw = d.categorySoldUnsold;
+  const categorySoldUnsold: BrandCategorySoldUnsoldRow[] = Array.isArray(suRaw)
+    ? suRaw.map((row) => {
         const r = row as Record<string, unknown>;
-        const tierRaw = r.tier;
         return {
           category_id: r.category_id != null ? Number(r.category_id) : 0,
           category_name: r.category_name != null ? String(r.category_name) : 'Uncategorized',
           sold_count: r.sold_count != null ? Number(r.sold_count) : 0,
-          tier: categorySellHeatGuard(tierRaw) ? tierRaw : 'top',
+          unsold_count: r.unsold_count != null ? Number(r.unsold_count) : 0,
         };
       })
     : [];
@@ -424,6 +436,8 @@ function parseBrandStockSummaryPayload(data: unknown): BrandStockSummaryPayload 
 
   return {
     brandId: Number(d.brandId) || 0,
+    period,
+    stockRowCountLifetime: Number.isFinite(stockRowCountLifetime) ? stockRowCountLifetime : 0,
     totalItems: Number(d.totalItems) || 0,
     soldCount: Number(d.soldCount) || 0,
     unsoldCount: Number(d.unsoldCount) || 0,
@@ -435,7 +449,7 @@ function parseBrandStockSummaryPayload(data: unknown): BrandStockSummaryPayload 
     avgSoldProfitMultiple,
     topSoldItems,
     longestUnsoldItems,
-    categorySellHeatMap,
+    categorySoldUnsold,
   };
 }
 
@@ -1286,6 +1300,14 @@ const Research: React.FC = () => {
     total_sales: string | number;
   };
 
+  type MenswearCategorySalesRow = {
+    category_id: number;
+    category_name: string;
+    total_sales: string | number;
+  };
+
+  type MenswearSalesPeriod = 'last_12_months' | '2026' | '2025';
+
   const [menswearCategories, setMenswearCategories] = useState<MenswearCategoryRow[]>([]);
   const [menswearCategoriesLoading, setMenswearCategoriesLoading] = useState(false);
   const [menswearCategoriesError, setMenswearCategoriesError] = useState<string | null>(null);
@@ -1300,6 +1322,14 @@ const Research: React.FC = () => {
   const [menswearAddBrandError, setMenswearAddBrandError] = useState<string | null>(null);
   const [menswearAskAiBusy, setMenswearAskAiBusy] = useState(false);
   const [menswearAskAiHint, setMenswearAskAiHint] = useState<string | null>(null);
+  const [menswearSalesPeriod, setMenswearSalesPeriod] = useState<MenswearSalesPeriod>('last_12_months');
+  const [menswearCategorySalesRows, setMenswearCategorySalesRows] = useState<MenswearCategorySalesRow[]>(
+    []
+  );
+  /** Period-filtered sold revenue by brand when a menswear category is selected (pie chart). */
+  const [menswearBrandSalesRows, setMenswearBrandSalesRows] = useState<MenswearCategoryBrandRow[]>([]);
+  const [menswearCategorySalesLoading, setMenswearCategorySalesLoading] = useState(false);
+  const [menswearCategorySalesError, setMenswearCategorySalesError] = useState<string | null>(null);
 
   const [brandsWithWebsites, setBrandsWithWebsites] = useState<BrandRow[]>([]);
 
@@ -1348,6 +1378,10 @@ const Research: React.FC = () => {
   const [brandStockSummary, setBrandStockSummary] = useState<BrandStockSummaryPayload | null>(null);
   const [brandStockSummaryLoading, setBrandStockSummaryLoading] = useState(false);
   const [brandStockSummaryError, setBrandStockSummaryError] = useState<string | null>(null);
+  const [brandStockSummaryPeriod, setBrandStockSummaryPeriod] =
+    useState<BrandStockSummaryPeriod>('all');
+  const [brandStockPeriodMenuOpen, setBrandStockPeriodMenuOpen] = useState(false);
+  const brandStockPeriodMenuRef = useRef<HTMLDivElement>(null);
 
   const [ebaySoldItems, setEbaySoldItems] = useState<EbaySoldItemRow[]>([]);
   const [ebaySoldLoading, setEbaySoldLoading] = useState(false);
@@ -1887,6 +1921,110 @@ const Research: React.FC = () => {
     };
   }, [researchTab, menswearCategoryIdFromUrl, menswearBrandSort, menswearCategoryBrandsRefreshTick]);
 
+  useEffect(() => {
+    if (researchTab !== 'menswear-categories') {
+      setMenswearCategorySalesRows([]);
+      setMenswearBrandSalesRows([]);
+      return;
+    }
+    const ac = new AbortController();
+    let cancelled = false;
+    const load = async () => {
+      setMenswearCategorySalesLoading(true);
+      setMenswearCategorySalesError(null);
+      try {
+        const params = new URLSearchParams({ period: menswearSalesPeriod });
+        if (menswearCategoryIdFromUrl == null) {
+          setMenswearBrandSalesRows([]);
+          const res = await fetch(apiUrl(`/api/menswear-categories/sales-by-category?${params}`), {
+            signal: ac.signal,
+          });
+          const data = await readJsonResponse<{ rows?: MenswearCategorySalesRow[] }>(
+            res,
+            'menswear-category-sales'
+          );
+          if (cancelled) return;
+          setMenswearCategorySalesRows(Array.isArray(data.rows) ? data.rows : []);
+        } else {
+          setMenswearCategorySalesRows([]);
+          const res = await fetch(
+            apiUrl(`/api/menswear-categories/${menswearCategoryIdFromUrl}/sales-by-brand?${params}`),
+            { signal: ac.signal }
+          );
+          const data = await readJsonResponse<{ rows?: MenswearCategoryBrandRow[] }>(
+            res,
+            'menswear-category-brand-sales'
+          );
+          if (cancelled) return;
+          setMenswearBrandSalesRows(Array.isArray(data.rows) ? data.rows : []);
+        }
+      } catch (e) {
+        if (cancelled || isAbortError(e)) return;
+        setMenswearCategorySalesRows([]);
+        setMenswearBrandSalesRows([]);
+        setMenswearCategorySalesError(friendlyApiUnreachableMessage(e));
+      } finally {
+        if (!cancelled) setMenswearCategorySalesLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [
+    researchTab,
+    menswearSalesPeriod,
+    menswearCategoryIdFromUrl,
+    menswearCategoryBrandsRefreshTick,
+  ]);
+
+  const menswearSalesPieData = useMemo(() => {
+    const sliceRows =
+      menswearCategoryIdFromUrl == null
+        ? menswearCategorySalesRows.map((r) => {
+            const n =
+              typeof r.total_sales === 'number' ? r.total_sales : parseFloat(String(r.total_sales));
+            return {
+              label: String(r.category_name ?? '—'),
+              totalSales: Number.isFinite(n) && n > 0 ? n : 0,
+            };
+          })
+        : menswearBrandSalesRows.map((b) => {
+            const n =
+              typeof b.total_sales === 'number' ? b.total_sales : parseFloat(String(b.total_sales));
+            return {
+              label: String(b.brand_name ?? '—'),
+              totalSales: Number.isFinite(n) && n > 0 ? n : 0,
+            };
+          });
+    const rows = sliceRows.filter((r) => r.totalSales > 0);
+    if (rows.length === 0) return null;
+    const palette = [
+      'rgba(59, 130, 246, 0.86)',
+      'rgba(16, 185, 129, 0.86)',
+      'rgba(245, 158, 11, 0.86)',
+      'rgba(236, 72, 153, 0.86)',
+      'rgba(139, 92, 246, 0.86)',
+      'rgba(239, 68, 68, 0.86)',
+      'rgba(14, 165, 233, 0.86)',
+      'rgba(34, 197, 94, 0.86)',
+      'rgba(250, 204, 21, 0.86)',
+      'rgba(244, 114, 182, 0.86)',
+    ];
+    return {
+      labels: rows.map((r) => r.label),
+      datasets: [
+        {
+          data: rows.map((r) => r.totalSales),
+          backgroundColor: rows.map((_, i) => palette[i % palette.length]),
+          borderColor: 'rgba(14, 18, 26, 0.9)',
+          borderWidth: 1.5,
+        },
+      ],
+    };
+  }, [menswearCategoryIdFromUrl, menswearCategorySalesRows, menswearBrandSalesRows]);
+
   const menswearAddBrandCandidates = useMemo(() => {
     const q = menswearAddBrandSearch.trim().toLowerCase();
     const rows = [...brandsWithWebsites];
@@ -2342,11 +2480,47 @@ const Research: React.FC = () => {
   }, [brandTagQualityMenuOpen]);
 
   useEffect(() => {
+    if (!brandStockPeriodMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const el = brandStockPeriodMenuRef.current;
+      if (el && !el.contains(e.target as Node)) {
+        setBrandStockPeriodMenuOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setBrandStockPeriodMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [brandStockPeriodMenuOpen]);
+
+  const prevBrandStockSummaryBrandRef = useRef<number | ''>('');
+
+  useEffect(() => {
     if (brandTagBrandId === '') {
+      prevBrandStockSummaryBrandRef.current = '';
       setBrandStockSummary(null);
       setBrandStockSummaryError(null);
       setBrandStockSummaryLoading(false);
+      setBrandStockSummaryPeriod('all');
+      setBrandStockPeriodMenuOpen(false);
       return;
+    }
+
+    const brandSwitched = prevBrandStockSummaryBrandRef.current !== brandTagBrandId;
+    if (brandSwitched) {
+      prevBrandStockSummaryBrandRef.current = brandTagBrandId;
+      setBrandStockPeriodMenuOpen(false);
+      if (brandStockSummaryPeriod !== 'all') {
+        setBrandStockSummaryPeriod('all');
+        return;
+      }
     }
 
     let cancelled = false;
@@ -2356,7 +2530,16 @@ const Research: React.FC = () => {
       setBrandStockSummaryLoading(true);
       setBrandStockSummaryError(null);
       try {
-        const response = await fetch(apiUrl(`/api/brands/${id}/stock-summary`));
+        const params = new URLSearchParams();
+        if (brandStockSummaryPeriod !== 'all') {
+          params.set('period', brandStockSummaryPeriod);
+        }
+        const qs = params.toString();
+        const path =
+          qs.length > 0
+            ? `/api/brands/${id}/stock-summary?${qs}`
+            : `/api/brands/${id}/stock-summary`;
+        const response = await fetch(apiUrl(path));
         const raw = await readJsonResponse<unknown>(response, 'brand stock summary');
         if (!cancelled) {
           setBrandStockSummary(parseBrandStockSummaryPayload(raw));
@@ -2376,7 +2559,7 @@ const Research: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [brandTagBrandId]);
+  }, [brandTagBrandId, brandStockSummaryPeriod]);
 
   useEffect(() => {
     if (researchTab !== 'brand' || brandTagBrandId === '') {
@@ -2679,92 +2862,95 @@ const Research: React.FC = () => {
     []
   );
 
-  const categoryHeatMapChartData = useMemo(() => {
-    const rows = brandStockSummary?.categorySellHeatMap;
+  const categorySoldUnsoldStackData = useMemo(() => {
+    const rows = brandStockSummary?.categorySoldUnsold;
     if (!rows?.length) return null;
-    const counts = rows.map((r) => r.sold_count);
-    const minC = Math.min(...counts);
-    const maxC = Math.max(...counts);
     const labelMax = 34;
+    const labels = rows.map((r) => {
+      let label = r.category_name || 'Uncategorized';
+      if (label.length > labelMax) label = `${label.slice(0, labelMax - 1)}…`;
+      return label;
+    });
     return {
-      labels: rows.map((r) => {
-        let label = r.category_name || 'Uncategorized';
-        if (r.tier === 'worst') label = `${label} (slowest)`;
-        if (label.length > labelMax) label = `${label.slice(0, labelMax - 1)}…`;
-        return label;
-      }),
+      labels,
       datasets: [
         {
-          label: 'Sold in category',
-          data: counts,
-          backgroundColor: counts.map((c) => categorySellHeatColor(c, minC, maxC)),
-          borderColor: 'rgba(255, 214, 91, 0.15)',
+          label: 'Sold',
+          data: rows.map((r) => r.sold_count),
+          backgroundColor: 'rgba(130, 210, 155, 0.78)',
+          borderColor: 'rgba(255, 214, 91, 0.45)',
           borderWidth: 1,
-          borderRadius: 4,
-          barPercentage: 0.82,
-          categoryPercentage: 0.88,
+          stack: 'cat',
+        },
+        {
+          label: 'Unsold',
+          data: rows.map((r) => r.unsold_count),
+          backgroundColor: 'rgba(255, 165, 120, 0.72)',
+          borderColor: 'rgba(255, 214, 91, 0.45)',
+          borderWidth: 1,
+          stack: 'cat',
         },
       ],
     };
-  }, [brandStockSummary?.categorySellHeatMap]);
+  }, [brandStockSummary?.categorySoldUnsold]);
 
-  const categoryHeatMapBarOptions = useMemo<ChartOptions<'bar'>>(
-    () => {
-      const rows = brandStockSummary?.categorySellHeatMap ?? [];
-      return {
-        indexAxis: 'y',
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false },
+  const categorySoldUnsoldStackOptions = useMemo<ChartOptions<'bar'>>(
+    () => ({
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: true,
+          position: 'bottom',
+          labels: {
+            color: 'rgba(255, 248, 226, 0.85)',
+            boxWidth: 12,
+            boxHeight: 12,
+            padding: 16,
+          },
+        },
+        tooltip: {
+          callbacks: {
+            footer: (items) => {
+              if (!items.length) return '';
+              const i = items[0].dataIndex;
+              const rows = brandStockSummary?.categorySoldUnsold ?? [];
+              const row = rows[i];
+              if (!row) return '';
+              const t = row.sold_count + row.unsold_count;
+              return `Total in category: ${t}`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          stacked: true,
+          beginAtZero: true,
           title: {
             display: true,
-            text: 'Category sell frequency (heat)',
-            color: 'rgba(255, 248, 226, 0.92)',
-            font: { size: 15, weight: 600 },
-            padding: { bottom: 8 },
+            text: 'Items (count)',
+            color: 'rgba(255, 248, 226, 0.65)',
+            font: { size: 12 },
           },
-          tooltip: {
-            callbacks: {
-              label: (ctx) => {
-                const i = ctx.dataIndex;
-                const row = rows[i];
-                const n = typeof ctx.raw === 'number' ? ctx.raw : Number(ctx.raw);
-                const tierNote =
-                  row?.tier === 'worst'
-                    ? ' — among slower categories for this brand'
-                    : ' — top seller';
-                return `${n} sold${tierNote}`;
-              },
-            },
+          ticks: {
+            color: 'rgba(255, 248, 226, 0.8)',
+            precision: 0,
           },
+          grid: { color: 'rgba(255, 214, 91, 0.1)' },
         },
-        scales: {
-          x: {
-            beginAtZero: true,
-            title: {
-              display: true,
-              text: 'Sold items (count)',
-              color: 'rgba(255, 248, 226, 0.65)',
-              font: { size: 12 },
-            },
-            ticks: {
-              color: 'rgba(255, 248, 226, 0.8)',
-              precision: 0,
-            },
-            grid: { color: 'rgba(255, 214, 91, 0.1)' },
+        y: {
+          stacked: true,
+          ticks: {
+            color: 'rgba(255, 248, 226, 0.88)',
+            font: { size: 12 },
           },
-          y: {
-            ticks: {
-              color: 'rgba(255, 248, 226, 0.88)',
-              font: { size: 12 },
-            },
-            grid: { display: false },
-          },
+          grid: { display: false },
         },
-      };
-    },
-    [brandStockSummary?.categorySellHeatMap]
+      },
+    }),
+    [brandStockSummary?.categorySoldUnsold]
   );
 
   const handleSaveBrandInfo = async () => {
@@ -3779,9 +3965,78 @@ const Research: React.FC = () => {
         )}
         {brandTagBrandId !== '' && (
           <section className="brand-research-sales-section" aria-labelledby="brand-research-sales-title">
-            <h3 id="brand-research-sales-title" className="brand-research-sales-heading">
-              Sales Data
-            </h3>
+            <div className="brand-research-sales-header">
+              <h3 id="brand-research-sales-title" className="brand-research-sales-heading">
+                Sales Data
+              </h3>
+              <div
+                className="brand-research-sales-period-wrap"
+                ref={brandStockPeriodMenuRef}
+              >
+                <button
+                  type="button"
+                  className={`brand-research-sales-period-trigger${brandStockPeriodMenuOpen ? ' brand-research-sales-period-trigger--open' : ''}`}
+                  aria-expanded={brandStockPeriodMenuOpen}
+                  aria-haspopup="listbox"
+                  aria-label={`Sales period: ${brandStockPeriodMenuLabel(brandStockSummaryPeriod)}. Change period`}
+                  onClick={() => setBrandStockPeriodMenuOpen((open) => !open)}
+                >
+                  <svg
+                    className="brand-research-sales-period-trigger-icon"
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    aria-hidden
+                  >
+                    <path
+                      d="M5 5h14l-5 7.5V18l-4 2v-7.5L5 5z"
+                      stroke="currentColor"
+                      strokeWidth="1.85"
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
+                {brandStockPeriodMenuOpen ? (
+                  <ul
+                    className="brand-research-sales-period-menu"
+                    role="listbox"
+                    aria-label="Sales period"
+                  >
+                    {(
+                      [
+                        { value: 'all' as const, label: 'All time' },
+                        { value: 'last_12_months' as const, label: 'Last 12 months' },
+                        { value: '2026' as const, label: '2026' },
+                        { value: '2025' as const, label: '2025' },
+                      ] as const
+                    ).map((opt) => (
+                      <li key={opt.value} role="presentation">
+                        <button
+                          type="button"
+                          role="option"
+                          className={
+                            'brand-research-sales-period-option' +
+                            (brandStockSummaryPeriod === opt.value
+                              ? ' brand-research-sales-period-option--active'
+                              : '')
+                          }
+                          aria-selected={brandStockSummaryPeriod === opt.value}
+                          onClick={() => {
+                            setBrandStockSummaryPeriod(opt.value);
+                            setBrandStockPeriodMenuOpen(false);
+                          }}
+                        >
+                          {opt.label}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            </div>
             {brandStockSummaryLoading && (
               <div className="brand-tag-examples-muted brand-research-sales-loading">Loading sales data…</div>
             )}
@@ -3794,8 +4049,11 @@ const Research: React.FC = () => {
               <>
                 {!brandStockBarChartData ? (
                   <p className="brand-research-sales-empty">
-                    No stock rows are linked to this brand yet. Assign a brand on the Stock page to see
-                    charts here.
+                    {brandStockSummary.stockRowCountLifetime === 0
+                      ? 'No stock rows are linked to this brand yet. Assign a brand on the Stock page to see charts here.'
+                      : brandStockSummaryPeriod !== 'all'
+                        ? 'No items match this period for this brand (sold lines need a sale date in range; unsold lines need a purchase date in range).'
+                        : 'No stock rows are linked to this brand yet. Assign a brand on the Stock page to see charts here.'}
                   </p>
                 ) : (
                   <div className="brand-research-sales-chart-block">
@@ -3813,6 +4071,27 @@ const Research: React.FC = () => {
                     <div className="brand-research-sales-chart-inner brand-research-sales-chart-inner--bar">
                       <Bar data={brandStockBarChartData} options={brandStockBarOptions} />
                     </div>
+                    {categorySoldUnsoldStackData && (
+                      <div className="brand-research-category-stack-block">
+                        <h4 className="brand-research-category-stack-heading">
+                          Sold vs unsold by category
+                        </h4>
+                        <div
+                          className="brand-research-category-stack-chart-inner"
+                          style={{
+                            height: `${Math.max(
+                              200,
+                              (brandStockSummary.categorySoldUnsold?.length ?? 0) * 40 + 120
+                            )}px`,
+                          }}
+                        >
+                          <Bar
+                            data={categorySoldUnsoldStackData}
+                            options={categorySoldUnsoldStackOptions}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
                 <div className="brand-research-brand-totals" aria-label="Brand spend and sales totals">
@@ -3907,31 +4186,6 @@ const Research: React.FC = () => {
                       </div>
                     </div>
                   )}
-                {categoryHeatMapChartData ? (
-                  <div className="brand-research-category-heat-block">
-                    <h3 className="brand-research-category-heat-heading">
-                      {`${
-                        brandsWithWebsites.find((x) => x.id === brandTagBrandId)?.brand_name?.trim() ||
-                        `Brand id ${brandStockSummary.brandId}`
-                      } Category Sales Heatmap`}
-                    </h3>
-                    <div
-                      className="brand-research-category-heat-chart-inner"
-                      style={{
-                        height: `${Math.max(
-                          200,
-                          (brandStockSummary.categorySellHeatMap?.length ?? 0) * 42 + 88
-                        )}px`,
-                      }}
-                    >
-                      <Bar data={categoryHeatMapChartData} options={categoryHeatMapBarOptions} />
-                    </div>
-                  </div>
-                ) : brandStockSummary.soldCount > 0 ? (
-                  <p className="brand-research-sales-empty brand-research-sales-empty--subtle">
-                    Sell counts by category will appear here once sold stock is linked to categories.
-                  </p>
-                ) : null}
                 {brandStockSummary.topSoldItems.length > 0 ? (
                   <div className="brand-research-sales-table-block">
                     <h4 className="brand-research-sales-subheading">Best sold items</h4>
@@ -4909,6 +5163,91 @@ const Research: React.FC = () => {
                 </div>
               </div>
             )}
+
+            <section
+              className="menswear-categories-sales-pie"
+              aria-label={
+                menswearCategoryIdFromUrl == null
+                  ? 'Menswear sales by category pie chart'
+                  : 'Menswear sales by brand within category pie chart'
+              }
+            >
+              <div className="menswear-categories-sales-pie-header">
+                <h3 className="menswear-categories-sales-pie-title">
+                  {menswearCategoryIdFromUrl == null
+                    ? 'Sales by Category'
+                    : `Sales by Brand${selectedMenswearCategory ? ` — ${selectedMenswearCategory.name}` : ''}`}
+                </h3>
+                <div className="menswear-categories-sales-pie-filter" role="group" aria-label="Sales period filter">
+                  <button
+                    type="button"
+                    className={`menswear-categories-sales-pie-filter-btn${menswearSalesPeriod === 'last_12_months' ? ' menswear-categories-sales-pie-filter-btn--active' : ''}`}
+                    onClick={() => setMenswearSalesPeriod('last_12_months')}
+                  >
+                    Last 12 Months
+                  </button>
+                  <button
+                    type="button"
+                    className={`menswear-categories-sales-pie-filter-btn${menswearSalesPeriod === '2026' ? ' menswear-categories-sales-pie-filter-btn--active' : ''}`}
+                    onClick={() => setMenswearSalesPeriod('2026')}
+                  >
+                    2026
+                  </button>
+                  <button
+                    type="button"
+                    className={`menswear-categories-sales-pie-filter-btn${menswearSalesPeriod === '2025' ? ' menswear-categories-sales-pie-filter-btn--active' : ''}`}
+                    onClick={() => setMenswearSalesPeriod('2025')}
+                  >
+                    2025
+                  </button>
+                </div>
+              </div>
+              {menswearCategorySalesError && (
+                <div className="menswear-categories-error" role="alert">
+                  {menswearCategorySalesError}
+                </div>
+              )}
+              {menswearCategorySalesLoading && !menswearCategorySalesError && (
+                <div className="menswear-categories-muted">
+                  {menswearCategoryIdFromUrl == null
+                    ? 'Loading category sales…'
+                    : 'Loading brand sales…'}
+                </div>
+              )}
+              {!menswearCategorySalesLoading &&
+                !menswearCategorySalesError &&
+                (menswearSalesPieData ? (
+                  <div className="menswear-categories-sales-pie-chart-wrap">
+                    <Pie
+                      data={menswearSalesPieData}
+                      options={{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                          legend: {
+                            position: 'bottom',
+                            labels: { color: 'rgba(255, 248, 226, 0.85)', boxWidth: 12, boxHeight: 12 },
+                          },
+                          tooltip: {
+                            callbacks: {
+                              label: (ctx) =>
+                                `${ctx.label}: ${formatResearchCurrency(
+                                  typeof ctx.raw === 'number' ? ctx.raw : Number(ctx.raw)
+                                )}`,
+                            },
+                          },
+                        },
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div className="menswear-categories-muted">
+                    {menswearCategoryIdFromUrl == null
+                      ? 'No sold revenue found for this period across mapped menswear categories.'
+                      : 'No sold revenue found for this period for brands in this category.'}
+                  </div>
+                ))}
+            </section>
           </div>
         </div>
       )}

@@ -33,451 +33,6 @@ try {
   mensResaleReference = [];
 }
 
-// Fallback array (kept for reference, but should not be used if JSON loads successfully)
-const mensResaleReferenceFallback = [
-  {
-    brand: "AllSaints",
-    status: "✅",
-    note: "Premium menswear — leather, knits, denim move fast.",
-    categories: [
-      { item: "Outerwear", resaleRange: "£60–£120" },
-      { item: "Knitwear", resaleRange: "£40–£70" },
-      { item: "Denim", resaleRange: "£40–£70" }
-    ]
-  },
-  {
-    brand: "Aligne",
-    status: "❌",
-    note: "Womenswear focused; no mens resale market.",
-    categories: [{ item: "All", resaleRange: "£0.00" }]
-  },
-  {
-    brand: "AMI Paris",
-    status: "✅",
-    note: "Modern French designer with loyal buyers.",
-    categories: [
-      { item: "Sweatshirts", resaleRange: "£60–£100" },
-      { item: "Outerwear", resaleRange: "£80–£150" },
-      { item: "Knitwear", resaleRange: "£50–£90" }
-    ]
-  },
-  {
-    brand: "A.P.C.",
-    status: "✅",
-    note: "French minimalist; premium selvedge denim holds strong value.",
-    categories: [
-      { item: "Denim", resaleRange: "£60–£100" },
-      { item: "Jackets", resaleRange: "£70–£120" }
-    ]
-  },
-  {
-    brand: "Aquascutum",
-    status: "✅",
-    note: "British heritage tailoring and trench coats.",
-    categories: [
-      { item: "Outerwear", resaleRange: "£80–£150" },
-      { item: "Suits", resaleRange: "£100–£180" }
-    ]
-  },
-  {
-    brand: "Arket",
-    status: "✅",
-    note: "High-quality minimalist menswear from H&M Group's premium line.",
-    categories: [
-      { item: "Coats", resaleRange: "£60–£100" },
-      { item: "Knitwear", resaleRange: "£40–£70" },
-      { item: "Shirts", resaleRange: "£30–£50" }
-    ]
-  },
-  {
-    brand: "Arc'teryx",
-    status: "✅",
-    note: "Technical outdoor wear with cult resale base.",
-    categories: [{ item: "Outerwear", resaleRange: "£100–£200" }]
-  },
-  {
-    brand: "Atmosphere",
-    status: "❌",
-    note: "Primark sub-brand; zero resale interest.",
-    categories: [{ item: "All", resaleRange: "£0.00" }]
-  },
-  {
-    brand: "Banana Republic",
-    status: "⚠️",
-    note: "Buy only tailored wool coats or chinos; most slow sellers.",
-    categories: [{ item: "Outerwear", resaleRange: "£30–£60" }]
-  },
-  {
-    brand: "Baracuta",
-    status: "✅",
-    note: "Iconic G9 Harrington jacket; UK classic resale hit.",
-    categories: [{ item: "Outerwear", resaleRange: "£70–£120" }]
-  },
-  {
-    brand: "Barbour",
-    status: "✅",
-    note: "UK heritage label; wax and quilted jackets resell fast.",
-    categories: [{ item: "Outerwear", resaleRange: "£80–£150" }]
-  },
-  {
-    brand: "Barbour Beacon",
-    status: "⚠️",
-    note: "Cheaper Barbour range; slower sales, lower quality.",
-    categories: [{ item: "Outerwear", resaleRange: "£25–£50" }]
-  },
-  {
-    brand: "Barbour International",
-    status: "✅",
-    note: "Popular biker sub-line; solid resale for jackets/gilets.",
-    categories: [{ item: "Outerwear", resaleRange: "£60–£100" }]
-  },
-  {
-    brand: "Barbour Gold Standard",
-    status: "✅",
-    note: "Collector range; high demand and resale prices.",
-    categories: [{ item: "Outerwear", resaleRange: "£120–£200" }]
-  },
-  {
-    brand: "Belstaff",
-    status: "✅",
-    note: "Luxury moto outerwear; jackets flip quickly £100+.",
-    categories: [{ item: "Outerwear", resaleRange: "£100–£250" }]
-  },
-  {
-    brand: "Ben Sherman",
-    status: "⚠️",
-    note: "Retro Mod appeal; vintage shirts worth it only.",
-    categories: [{ item: "Shirts", resaleRange: "£20–£35" }]
-  },
-  {
-    brand: "Bershka",
-    status: "❌",
-    note: "Youth fast fashion; poor quality, low resale.",
-    categories: [{ item: "All", resaleRange: "£0.00" }]
-  },
-  {
-    brand: "Blue Harbour",
-    status: "❌",
-    note: "M&S sub-line, dated and low demand.",
-    categories: [{ item: "All", resaleRange: "£0.00" }]
-  },
-  {
-    brand: "BoohooMAN",
-    status: "❌",
-    note: "Ultra-fast fashion; flooded market.",
-    categories: [{ item: "All", resaleRange: "£0.00" }]
-  },
-  {
-    brand: "Brakeburn",
-    status: "⚠️",
-    note: "Casual coastal wear; only if mint condition.",
-    categories: [
-      { item: "Shirts", resaleRange: "£15–£25" },
-      { item: "Knitwear", resaleRange: "£20–£30" }
-    ]
-  },
-  {
-    brand: "Burton",
-    status: "❌",
-    note: "Defunct high street label; weak resale.",
-    categories: [{ item: "All", resaleRange: "£0.00" }]
-  },
-  {
-    brand: "Calvin Klein Jeans",
-    status: "⚠️",
-    note: "Only premium denim or heavy-logo sweats sell.",
-    categories: [
-      { item: "Denim", resaleRange: "£25–£40" },
-      { item: "Sweatshirts", resaleRange: "£25–£35" }
-    ]
-  },
-  {
-    brand: "Carhartt WIP",
-    status: "✅",
-    note: "Workwear/streetwear crossover; reliable resale base.",
-    categories: [
-      { item: "Jackets", resaleRange: "£60–£100" },
-      { item: "Workwear", resaleRange: "£40–£80" },
-      { item: "Cargo", resaleRange: "£35–£60" }
-    ]
-  },
-  {
-    brand: "Charles Tyrwhitt",
-    status: "⚠️",
-    note: "Common businesswear; only limited or luxury cotton shirts move.",
-    categories: [{ item: "Shirts", resaleRange: "£25–£40" }]
-  },
-  {
-    brand: "Cheaney",
-    status: "✅",
-    note: "Heritage Northampton shoemaker; handmade leather boots.",
-    categories: [
-      { item: "Shoes", resaleRange: "£90–£150" },
-      { item: "Boots", resaleRange: "£100–£160" }
-    ]
-  },
-  {
-    brand: "Church's",
-    status: "✅",
-    note: "Top-end English dress shoes with collector appeal.",
-    categories: [{ item: "Shoes", resaleRange: "£120–£200" }]
-  },
-  {
-    brand: "CP Company",
-    status: "✅",
-    note: "Italian technical streetwear; strong resale market.",
-    categories: [
-      { item: "Outerwear", resaleRange: "£80–£150" },
-      { item: "Sweatshirts", resaleRange: "£50–£100" }
-    ]
-  },
-  {
-    brand: "Crockett & Jones",
-    status: "✅",
-    note: "Luxury UK-made footwear; elite resale value.",
-    categories: [{ item: "Shoes", resaleRange: "£120–£250" }]
-  },
-  {
-    brand: "Cotton On",
-    status: "❌",
-    note: "Low-cost fast fashion; poor resale.",
-    categories: [{ item: "All", resaleRange: "£0.00" }]
-  },
-  {
-    brand: "Crew Clothing",
-    status: "❌",
-    note: "Too common on resale platforms.",
-    categories: [{ item: "All", resaleRange: "£0.00" }]
-  },
-  {
-    brand: "Diesel",
-    status: "✅",
-    note: "Premium Italian denim; made-in-Italy lines resell well.",
-    categories: [
-      { item: "Denim", resaleRange: "£40–£80" },
-      { item: "Jackets", resaleRange: "£50–£100" }
-    ]
-  },
-  {
-    brand: "Dr. Martens Made in England",
-    status: "✅",
-    note: "Strong resale, collector appeal. Avoid Asia-made lines.",
-    categories: [{ item: "Boots", resaleRange: "£60–£120" }]
-  },
-  {
-    brand: "Dune Mens",
-    status: "✅",
-    note: "Real leather shoes £25–£50 resale; skip synthetic pairs.",
-    categories: [{ item: "Shoes", resaleRange: "£25–£50" }]
-  },
-  {
-    brand: "Eton Shirts",
-    status: "✅",
-    note: "Swedish premium shirtmaker; fast resale £40–£80.",
-    categories: [{ item: "Shirts", resaleRange: "£40–£80" }]
-  },
-  {
-    brand: "Filson",
-    status: "✅",
-    note: "US heritage outdoor gear; jackets sell £80–£150.",
-    categories: [
-      { item: "Outerwear", resaleRange: "£80–£150" },
-      { item: "Bags", resaleRange: "£60–£100" }
-    ]
-  },
-  {
-    brand: "French Connection",
-    status: "❌",
-    note: "Overproduced; little resale interest.",
-    categories: [{ item: "All", resaleRange: "£0.00" }]
-  },
-  {
-    brand: "GANT",
-    status: "✅",
-    note: "Premium preppy; polos and knits have steady resale.",
-    categories: [
-      { item: "Knitwear", resaleRange: "£30–£60" },
-      { item: "Shirts", resaleRange: "£25–£45" }
-    ]
-  },
-  {
-    brand: "Grenson",
-    status: "✅",
-    note: "Premium British shoe brand; good market base.",
-    categories: [
-      { item: "Shoes", resaleRange: "£80–£150" },
-      { item: "Boots", resaleRange: "£90–£160" }
-    ]
-  },
-  {
-    brand: "Hackett",
-    status: "✅",
-    note: "Upper-tier British casualwear, steady resale.",
-    categories: [
-      { item: "Shirts", resaleRange: "£30–£50" },
-      { item: "Jackets", resaleRange: "£60–£100" }
-    ]
-  },
-  {
-    brand: "H&M",
-    status: "❌",
-    note: "Mass-market, oversaturated.",
-    categories: [{ item: "All", resaleRange: "£0.00" }]
-  },
-  {
-    brand: "Jaeger",
-    status: "✅",
-    note: "British tailoring, wool coats and suits resell well.",
-    categories: [
-      { item: "Suits", resaleRange: "£60–£120" },
-      { item: "Outerwear", resaleRange: "£70–£130" }
-    ]
-  },
-  {
-    brand: "John Smedley",
-    status: "✅",
-    note: "Luxury knitwear brand; Merino & Sea Island cotton strong.",
-    categories: [{ item: "Knitwear", resaleRange: "£50–£90" }]
-  },
-  {
-    brand: "Lacoste",
-    status: "✅",
-    note: "Polos and knitwear resell quickly.",
-    categories: [
-      { item: "Polos", resaleRange: "£25–£50" },
-      { item: "Knitwear", resaleRange: "£30–£60" }
-    ]
-  },
-  {
-    brand: "Levi's",
-    status: "✅",
-    note: "Heritage denim. Vintage or 501s sell fast.",
-    categories: [
-      { item: "Denim", resaleRange: "£30–£70" },
-      { item: "Jackets", resaleRange: "£50–£80" }
-    ]
-  },
-  {
-    brand: "Loake",
-    status: "✅",
-    note: "Northampton heritage shoemaker; solid resale.",
-    categories: [{ item: "Shoes", resaleRange: "£60–£120" }]
-  },
-  {
-    brand: "Patagonia",
-    status: "✅",
-    note: "Outdoor brand with high resale £50–£100.",
-    categories: [
-      { item: "Outerwear", resaleRange: "£70–£120" },
-      { item: "Fleeces", resaleRange: "£50–£90" }
-    ]
-  },
-  {
-    brand: "Paul Smith",
-    status: "✅",
-    note: "British designer, shirts & shoes strong resale.",
-    categories: [
-      { item: "Shirts", resaleRange: "£50–£90" },
-      { item: "Shoes", resaleRange: "£70–£130" }
-    ]
-  },
-  {
-    brand: "Ralph Lauren (Standard)",
-    status: "✅",
-    note: "Core polos & knits steady resale.",
-    categories: [
-      { item: "Polos", resaleRange: "£25–£40" },
-      { item: "Knitwear", resaleRange: "£30–£50" }
-    ]
-  },
-  {
-    brand: "Reiss",
-    status: "✅",
-    note: "Premium high-street tailoring.",
-    categories: [
-      { item: "Suits", resaleRange: "£70–£120" },
-      { item: "Shirts", resaleRange: "£30–£60" }
-    ]
-  },
-  {
-    brand: "RM Williams",
-    status: "✅",
-    note: "Australian Chelsea boots; cult following.",
-    categories: [{ item: "Shoes", resaleRange: "£100–£180" }]
-  },
-  {
-    brand: "Stone Island",
-    status: "✅",
-    note: "Cult label, fast resale turnover.",
-    categories: [
-      { item: "Outerwear", resaleRange: "£100–£200" },
-      { item: "Sweatshirts", resaleRange: "£60–£120" }
-    ]
-  },
-  {
-    brand: "Ted Baker",
-    status: "✅",
-    note: "Premium tailoring & footwear resale well.",
-    categories: [
-      { item: "Suits", resaleRange: "£60–£120" },
-      { item: "Shoes", resaleRange: "£50–£90" }
-    ]
-  },
-  {
-    brand: "Timberland",
-    status: "✅",
-    note: "Boots & jackets move fast £40–£100.",
-    categories: [
-      { item: "Shoes", resaleRange: "£50–£100" },
-      { item: "Outerwear", resaleRange: "£50–£90" }
-    ]
-  },
-  {
-    brand: "Tommy Hilfiger",
-    status: "✅",
-    note: "Classic brand; polos & jackets £25–£60.",
-    categories: [
-      { item: "Polos", resaleRange: "£25–£50" },
-      { item: "Outerwear", resaleRange: "£50–£90" }
-    ]
-  },
-  {
-    brand: "Tricker's",
-    status: "✅",
-    note: "Heritage British shoemaker; high-end resale.",
-    categories: [{ item: "Shoes", resaleRange: "£90–£150" }]
-  },
-  {
-    brand: "Turnbull & Asser",
-    status: "✅",
-    note: "Savile Row shirtmaker; luxury resale.",
-    categories: [{ item: "Shirts", resaleRange: "£80–£150" }]
-  },
-  {
-    brand: "Whistles Mens",
-    status: "✅",
-    note: "Premium menswear; wool coats & knits resell.",
-    categories: [
-      { item: "Outerwear", resaleRange: "£60–£100" },
-      { item: "Knitwear", resaleRange: "£40–£70" }
-    ]
-  },
-  {
-    brand: "Wrangler",
-    status: "✅",
-    note: "Western/workwear denim, steady demand.",
-    categories: [
-      { item: "Denim", resaleRange: "£25–£45" },
-      { item: "Jackets", resaleRange: "£30–£60" }
-    ]
-  },
-  {
-    brand: "Zara",
-    status: "❌",
-    note: "Fast fashion, oversaturated resale.",
-    categories: [{ item: "All", resaleRange: "£0.00" }]
-  }
-];
 
 // Extract brands marked as avoid (❌) for settings
 // (Only used if JSON file fails to load)
@@ -548,13 +103,6 @@ const ensureIsoDateString = (value) => {
   }
   return date.toISOString().slice(0, 10);
 };
-
-const coalesceNetProfitExpression = `
-  COALESCE(
-    net_profit,
-    COALESCE(sale_price, 0) - COALESCE(purchase_price, 0)
-  )
-`;
 
 const loadSettings = () => {
   try {
@@ -1354,51 +902,6 @@ const getBrowseSearch = async ({
   return response.json();
 };
 
-const getCompletedItems = async (query, appId, oauthToken) => {
-  const params = new URLSearchParams({
-    'OPERATION-NAME': 'findCompletedItems',
-    'SERVICE-VERSION': '1.13.0',
-    'SECURITY-APPNAME': appId,
-    'GLOBAL-ID': 'EBAY-GB',
-    'RESPONSE-DATA-FORMAT': 'JSON',
-    'REST-PAYLOAD': '',
-    keywords: query,
-    siteId: '3',
-    'itemFilter(0).name': 'SoldItemsOnly',
-    'itemFilter(0).value': 'true'
-  });
-
-  const url = `https://svcs.ebay.com/services/search/FindingService/v1?${params.toString()}`;
-
-  const headers = {
-    Accept: 'application/json',
-    'X-EBAY-SOA-GLOBAL-ID': 'EBAY-GB'
-  };
-
-  if (process.env.EBAY_T) {
-    headers['X-EBAY-SOA-SECURITY-TOKEN'] = process.env.EBAY_T;
-  } else {
-    headers['X-EBAY-SOA-SECURITY-APPNAME'] = appId;
-  }
-
-  if (oauthToken) {
-    headers['X-EBAY-SOA-SECURITY-OAUTH-TOKEN'] = oauthToken;
-  }
-
-  const response = await fetch(url, {
-    method: 'GET',
-    headers
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('findCompletedItems error:', response.status, errorText);
-    throw new Error(`findCompletedItems error: ${response.status} - ${errorText}`);
-  }
-
-  return response.json();
-};
-
 app.get('/api/ebay/search', async (req, res) => {
   try {
     const { q, limit = '5', sort = '-price' } = req.query;
@@ -1712,7 +1215,6 @@ app.post('/api/stock', async (req, res) => {
       sale_date,
       sale_price,
       sold_platform,
-      net_profit,
       vinted_id,
       ebay_id,
       depop_id,
@@ -2554,6 +2056,79 @@ app.delete('/api/menswear-categories/:id', async (req, res) => {
 });
 
 /**
+ * Brand-level sold revenue within one menswear category (brands linked to that category).
+ * GET /api/menswear-categories/:id/sales-by-brand?period=last_12_months|2026|2025
+ */
+app.get('/api/menswear-categories/:id/sales-by-brand', async (req, res) => {
+  try {
+    const categoryId = parseInt(req.params.id, 10);
+    if (Number.isNaN(categoryId) || categoryId < 1) {
+      return res.status(400).json({ error: 'Invalid category id' });
+    }
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const catCheck = await pool.query('SELECT id FROM menswear_category WHERE id = $1', [categoryId]);
+    if (!catCheck.rowCount) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+
+    const rawPeriod = String(req.query.period ?? 'last_12_months').trim().toLowerCase();
+    const period =
+      rawPeriod === '2026' || rawPeriod === '2025' || rawPeriod === 'last_12_months'
+        ? rawPeriod
+        : 'last_12_months';
+
+    let dateFilterSql = '';
+    if (period === 'last_12_months') {
+      dateFilterSql = 'AND s.sale_date >= (CURRENT_DATE - INTERVAL \'12 months\')';
+    } else if (period === '2026') {
+      dateFilterSql = "AND s.sale_date >= DATE '2026-01-01' AND s.sale_date < DATE '2027-01-01'";
+    } else if (period === '2025') {
+      dateFilterSql = "AND s.sale_date >= DATE '2025-01-01' AND s.sale_date < DATE '2026-01-01'";
+    }
+
+    const result = await pool.query(
+      `SELECT b.id,
+              b.brand_name,
+              COALESCE(SUM(
+                CASE
+                  WHEN s.sale_price IS NOT NULL
+                   AND TRIM(s.sale_price::text) <> ''
+                   AND s.sale_price::numeric > 0
+                  THEN s.sale_price::numeric
+                  ELSE 0
+                END
+              ), 0)::numeric AS total_sales
+       FROM brand b
+       INNER JOIN stock s ON s.brand_id = b.id
+       WHERE b.menswear_category_id = $1
+         ${dateFilterSql}
+       GROUP BY b.id, b.brand_name
+       HAVING COALESCE(SUM(
+         CASE
+           WHEN s.sale_price IS NOT NULL
+            AND TRIM(s.sale_price::text) <> ''
+            AND s.sale_price::numeric > 0
+           THEN s.sale_price::numeric
+           ELSE 0
+         END
+       ), 0) > 0
+       ORDER BY total_sales DESC NULLS LAST, brand_name ASC`,
+      [categoryId]
+    );
+
+    res.json({ rows: result.rows, period, category_id: categoryId });
+  } catch (error) {
+    console.error('menswear-categories sales-by-brand failed:', error);
+    res.status(500).json({ error: 'Failed to load brand sales for category', details: error.message });
+  }
+});
+
+/**
  * Brands in a menswear category, with total sold revenue (sum of sale_price where sold).
  * GET /api/menswear-categories/:id/brands?sort=name|total_sales
  */
@@ -2608,6 +2183,68 @@ app.get('/api/menswear-categories/:id/brands', async (req, res) => {
   } catch (error) {
     console.error('menswear-categories brands failed:', error);
     res.status(500).json({ error: 'Failed to load brands for category', details: error.message });
+  }
+});
+
+/**
+ * Category-level sold revenue for menswear categories, aggregated from linked brands.
+ * GET /api/menswear-categories/sales-by-category?period=last_12_months|2026|2025
+ */
+app.get('/api/menswear-categories/sales-by-category', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const rawPeriod = String(req.query.period ?? 'last_12_months').trim().toLowerCase();
+    const period =
+      rawPeriod === '2026' || rawPeriod === '2025' || rawPeriod === 'last_12_months'
+        ? rawPeriod
+        : 'last_12_months';
+
+    let dateFilterSql = '';
+    if (period === 'last_12_months') {
+      dateFilterSql = 'AND s.sale_date >= (CURRENT_DATE - INTERVAL \'12 months\')';
+    } else if (period === '2026') {
+      dateFilterSql = "AND s.sale_date >= DATE '2026-01-01' AND s.sale_date < DATE '2027-01-01'";
+    } else if (period === '2025') {
+      dateFilterSql = "AND s.sale_date >= DATE '2025-01-01' AND s.sale_date < DATE '2026-01-01'";
+    }
+
+    const result = await pool.query(
+      `WITH sales AS (
+         SELECT
+           b.menswear_category_id AS category_id,
+           COALESCE(SUM(
+             CASE
+               WHEN s.sale_price IS NOT NULL
+                AND TRIM(s.sale_price::text) <> ''
+                AND s.sale_price::numeric > 0
+               THEN s.sale_price::numeric
+               ELSE 0
+             END
+           ), 0)::numeric AS total_sales
+         FROM stock s
+         JOIN brand b ON b.id = s.brand_id
+         WHERE b.menswear_category_id IS NOT NULL
+           ${dateFilterSql}
+         GROUP BY b.menswear_category_id
+       )
+       SELECT
+         c.id AS category_id,
+         c.name AS category_name,
+         COALESCE(s.total_sales, 0)::numeric AS total_sales
+       FROM menswear_category c
+       LEFT JOIN sales s ON s.category_id = c.id
+       WHERE COALESCE(s.total_sales, 0) > 0
+       ORDER BY total_sales DESC, category_name ASC`
+    );
+
+    res.json({ rows: result.rows, period });
+  } catch (error) {
+    console.error('menswear-categories sales-by-category failed:', error);
+    res.status(500).json({ error: 'Failed to load menswear category sales', details: error.message });
   }
 });
 
@@ -2856,7 +2493,8 @@ app.post('/api/brands/:brandId/links', async (req, res) => {
 
 /**
  * Brand research: stock sold vs unsold (by sale_price), top sold lines, longest-unsold by purchase_date.
- * GET /api/brands/:brandId/stock-summary
+ * GET /api/brands/:brandId/stock-summary?period=all|last_12_months|2026|2025
+ * When period is not all: rows included are sold lines with sale_date in range OR unsold with purchase_date in range.
  */
 app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
   try {
@@ -2875,6 +2513,66 @@ app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
       return res.status(404).json({ error: 'Brand not found' });
     }
 
+    const rawPeriod = String(req.query.period ?? 'all').trim().toLowerCase();
+    const period =
+      rawPeriod === 'last_12_months' || rawPeriod === '2026' || rawPeriod === '2025'
+        ? rawPeriod
+        : 'all';
+
+    let periodSql = '';
+    if (period === 'last_12_months') {
+      periodSql = `
+        AND (
+          (
+            s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+            AND s.sale_date IS NOT NULL
+            AND s.sale_date >= (CURRENT_DATE - INTERVAL '12 months')
+          )
+          OR
+          (
+            NOT (s.sale_price IS NOT NULL AND s.sale_price::numeric > 0)
+            AND s.purchase_date IS NOT NULL
+            AND s.purchase_date >= (CURRENT_DATE - INTERVAL '12 months')
+          )
+        )`;
+    } else if (period === '2026') {
+      periodSql = `
+        AND (
+          (
+            s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+            AND s.sale_date IS NOT NULL
+            AND s.sale_date >= DATE '2026-01-01' AND s.sale_date < DATE '2027-01-01'
+          )
+          OR
+          (
+            NOT (s.sale_price IS NOT NULL AND s.sale_price::numeric > 0)
+            AND s.purchase_date IS NOT NULL
+            AND s.purchase_date >= DATE '2026-01-01' AND s.purchase_date < DATE '2027-01-01'
+          )
+        )`;
+    } else if (period === '2025') {
+      periodSql = `
+        AND (
+          (
+            s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+            AND s.sale_date IS NOT NULL
+            AND s.sale_date >= DATE '2025-01-01' AND s.sale_date < DATE '2026-01-01'
+          )
+          OR
+          (
+            NOT (s.sale_price IS NOT NULL AND s.sale_price::numeric > 0)
+            AND s.purchase_date IS NOT NULL
+            AND s.purchase_date >= DATE '2025-01-01' AND s.purchase_date < DATE '2026-01-01'
+          )
+        )`;
+    }
+
+    const lifetimeCountResult = await pool.query(
+      `SELECT COUNT(*)::int AS c FROM stock s WHERE s.brand_id = $1`,
+      [brandId]
+    );
+    const stockRowCountLifetime = Number(lifetimeCountResult.rows[0]?.c) || 0;
+
     const countsResult = await pool.query(
       `
         SELECT
@@ -2887,6 +2585,7 @@ app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
           )::int AS unsold_count
         FROM stock s
         WHERE s.brand_id = $1
+        ${periodSql}
       `,
       [brandId]
     );
@@ -2911,6 +2610,7 @@ app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
           )::numeric AS total_sold_revenue
         FROM stock s
         WHERE s.brand_id = $1
+        ${periodSql}
       `,
       [brandId]
     );
@@ -2936,6 +2636,7 @@ app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
           ) AS avg_sold_profit_multiple
         FROM stock s
         WHERE s.brand_id = $1
+        ${periodSql}
       `,
       [brandId]
     );
@@ -2974,6 +2675,7 @@ app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
         FROM stock s
         LEFT JOIN category c ON c.id = s.category_id
         WHERE s.brand_id = $1
+          ${periodSql}
           AND s.sale_price IS NOT NULL
           AND s.sale_price::numeric > 0
           AND s.purchase_price IS NOT NULL
@@ -3010,6 +2712,7 @@ app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
         FROM stock s
         LEFT JOIN category c ON c.id = s.category_id
         WHERE s.brand_id = $1
+          ${periodSql}
           AND s.purchase_date IS NOT NULL
           AND NOT (s.sale_price IS NOT NULL AND s.sale_price::numeric > 0)
         ORDER BY s.purchase_date ASC NULLS LAST, s.id ASC
@@ -3026,64 +2729,38 @@ app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
       purchase_date: row.purchase_date != null ? row.purchase_date : null,
     }));
 
-    const categoryFreqResult = await pool.query(
+    const categorySoldUnsoldResult = await pool.query(
       `
         SELECT
           COALESCE(c.id, 0)::int AS category_id,
           COALESCE(c.category_name, 'Uncategorized') AS category_name,
-          COUNT(*)::int AS sold_count
+          COUNT(*) FILTER (
+            WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+          )::int AS sold_count,
+          COUNT(*) FILTER (
+            WHERE NOT (s.sale_price IS NOT NULL AND s.sale_price::numeric > 0)
+          )::int AS unsold_count
         FROM stock s
         LEFT JOIN category c ON c.id = s.category_id
         WHERE s.brand_id = $1
-          AND s.sale_price IS NOT NULL
-          AND s.sale_price::numeric > 0
+        ${periodSql}
         GROUP BY c.id, c.category_name
-        HAVING COUNT(*) > 0
+        ORDER BY COUNT(*) DESC, COALESCE(c.category_name, 'Uncategorized') ASC
       `,
       [brandId]
     );
 
-    const allCatRows = categoryFreqResult.rows.map((row) => ({
+    const categorySoldUnsold = categorySoldUnsoldResult.rows.map((row) => ({
       category_id: row.category_id != null ? Number(row.category_id) : 0,
       category_name: row.category_name != null ? String(row.category_name) : 'Uncategorized',
       sold_count: Number(row.sold_count) || 0,
+      unsold_count: Number(row.unsold_count) || 0,
     }));
-
-    const sortedDesc = [...allCatRows].sort((a, b) => {
-      if (b.sold_count !== a.sold_count) return b.sold_count - a.sold_count;
-      return String(a.category_name).localeCompare(String(b.category_name));
-    });
-    const top5 = sortedDesc.slice(0, 5);
-    const top5Ids = new Set(top5.map((r) => r.category_id));
-    const sortedAsc = [...allCatRows].sort((a, b) => {
-      if (a.sold_count !== b.sold_count) return a.sold_count - b.sold_count;
-      return String(a.category_name).localeCompare(String(b.category_name));
-    });
-    const worst3 = [];
-    for (const r of sortedAsc) {
-      if (!top5Ids.has(r.category_id)) {
-        worst3.push(r);
-        if (worst3.length >= 3) break;
-      }
-    }
-
-    const categorySellHeatMap = [
-      ...top5.map((r) => ({
-        category_id: r.category_id,
-        category_name: r.category_name,
-        sold_count: r.sold_count,
-        tier: 'top',
-      })),
-      ...worst3.map((r) => ({
-        category_id: r.category_id,
-        category_name: r.category_name,
-        sold_count: r.sold_count,
-        tier: 'worst',
-      })),
-    ];
 
     res.json({
       brandId,
+      period,
+      stockRowCountLifetime,
       totalItems,
       soldCount,
       unsoldCount,
@@ -3095,7 +2772,7 @@ app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
       avgSoldProfitMultiple,
       topSoldItems,
       longestUnsoldItems,
-      categorySellHeatMap,
+      categorySoldUnsold,
     });
   } catch (error) {
     console.error('Brand stock summary failed:', error);
