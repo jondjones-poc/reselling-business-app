@@ -215,6 +215,14 @@ function soldPlatformIsVinted(p: string | null | undefined): boolean {
   return t === 'Vinted' || t?.toLowerCase() === 'vinted';
 }
 
+/** Left-trim monthly charts: first index where this chart has data; if none, keep full range. */
+function monthlyChartLeadingTrimIndex(n: number, hasDataAtIndex: (i: number) => boolean): number {
+  for (let i = 0; i < n; i += 1) {
+    if (hasDataAtIndex(i)) return i;
+  }
+  return 0;
+}
+
 interface ReportingResponse {
   availableYears: number[];
   selectedYear: number;
@@ -1067,7 +1075,8 @@ const Reporting: React.FC = () => {
     if (selectedYear === 'all') {
       const base = new Date(now.getFullYear(), now.getMonth(), 1);
       const buckets: Array<{ key: string; label: string }> = [];
-      for (let offset = 0; offset <= 11; offset += 1) {
+      // Oldest month on the left, current month on the right (chronological x-axis).
+      for (let offset = 11; offset >= 0; offset -= 1) {
         const d = new Date(base);
         d.setMonth(base.getMonth() - offset);
         buckets.push({
@@ -1121,11 +1130,15 @@ const Reporting: React.FC = () => {
       }
     });
 
-    const labels = monthlyChartBuckets.map((bucket) => bucket.label);
-    const values = valuesByBucket.map((point) => point.sales - point.purchase);
-    if (!values.some((value) => value !== 0)) {
+    const labelsFull = monthlyChartBuckets.map((bucket) => bucket.label);
+    const valuesFull = valuesByBucket.map((point) => point.sales - point.purchase);
+    if (!valuesFull.some((value) => value !== 0)) {
       return null;
     }
+
+    const t = monthlyChartLeadingTrimIndex(valuesFull.length, (i) => valuesFull[i] !== 0);
+    const values = valuesFull.slice(t);
+    const labels = labelsFull.slice(t);
 
     return {
       labels,
@@ -1161,17 +1174,19 @@ const Reporting: React.FC = () => {
         }
       }
     });
+    const t = monthlyChartLeadingTrimIndex(values.length, (i) => values[i] !== 0);
+    const valuesS = values.slice(t);
     return {
       data: {
-        labels: monthlyChartBuckets.map((bucket) => bucket.label),
+        labels: monthlyChartBuckets.map((bucket) => bucket.label).slice(t),
         datasets: [
           {
             label: 'Monthly Sales',
-            data: values,
-            backgroundColor: values.map((value) =>
+            data: valuesS,
+            backgroundColor: valuesS.map((value) =>
               value >= 0 ? 'rgba(140, 255, 195, 0.5)' : 'rgba(255, 120, 120, 0.45)'
             ),
-            borderColor: values.map((value) =>
+            borderColor: valuesS.map((value) =>
               value >= 0 ? 'rgba(140, 255, 195, 0.85)' : 'rgba(255, 120, 120, 0.8)'
             ),
             borderWidth: 1,
@@ -1182,6 +1197,114 @@ const Reporting: React.FC = () => {
       hasData: values.some((value) => value !== 0)
     };
   }, [stockRowsForSalesData, isDateInSalesRange, monthlyChartBuckets]);
+
+  /** Monthly sale revenue by platform (sale_date month); side-by-side bars. */
+  const salesMonthlySalesPlatformData = useMemo(() => {
+    const ebayValues: number[] = Array(monthlyChartBuckets.length).fill(0);
+    const vintedValues: number[] = Array(monthlyChartBuckets.length).fill(0);
+    const bucketIndexByKey = new Map(monthlyChartBuckets.map((bucket, index) => [bucket.key, index]));
+    const toSale = (row: (typeof stockRowsForSalesData)[0]) => {
+      const n = Number(row.sale_price ?? 0);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    };
+
+    stockRowsForSalesData.forEach((row) => {
+      if (!isDateInSalesRange(row.sale_date)) return;
+      const amt = toSale(row);
+      if (amt <= 0) return;
+      const d = new Date(row.sale_date as string);
+      if (Number.isNaN(d.getTime())) return;
+      const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+      const bucketIndex = bucketIndexByKey.get(key);
+      if (bucketIndex === undefined) return;
+      if (soldPlatformIsEbay(row.sold_platform)) {
+        ebayValues[bucketIndex] += amt;
+      } else if (soldPlatformIsVinted(row.sold_platform)) {
+        vintedValues[bucketIndex] += amt;
+      }
+    });
+
+    const hasData = ebayValues.some((v) => v > 0) || vintedValues.some((v) => v > 0);
+    const n = ebayValues.length;
+    const t = monthlyChartLeadingTrimIndex(n, (i) => ebayValues[i] > 0 || vintedValues[i] > 0);
+    return {
+      data: {
+        labels: monthlyChartBuckets.map((bucket) => bucket.label).slice(t),
+        datasets: [
+          {
+            label: 'eBay',
+            data: ebayValues.slice(t),
+            backgroundColor: 'rgba(140, 195, 255, 0.55)',
+            borderColor: 'rgba(140, 195, 255, 0.9)',
+            borderWidth: 1,
+            borderRadius: 4,
+          },
+          {
+            label: 'Vinted',
+            data: vintedValues.slice(t),
+            backgroundColor: 'rgba(180, 140, 255, 0.5)',
+            borderColor: 'rgba(200, 170, 255, 0.9)',
+            borderWidth: 1,
+            borderRadius: 4,
+          },
+        ],
+      },
+      hasData,
+    };
+  }, [stockRowsForSalesData, isDateInSalesRange, monthlyChartBuckets]);
+
+  const salesMonthlyPlatformBarOptions = useMemo<ChartOptions<'bar'>>(
+    () => ({
+      ...chartOptions,
+      plugins: {
+        ...chartOptions.plugins,
+        legend: {
+          display: true,
+          position: 'top',
+          labels: {
+            color: 'rgba(255, 248, 226, 0.88)',
+            boxWidth: 12,
+            boxHeight: 12,
+            padding: 14,
+            font: { size: 12 },
+          },
+        },
+        tooltip: {
+          ...chartOptions.plugins?.tooltip,
+          callbacks: {
+            ...chartOptions.plugins?.tooltip?.callbacks,
+            label(context) {
+              const value = context.raw as number;
+              const label = context.dataset.label ?? '';
+              return `${label}: ${formatCurrency(value || 0)}`;
+            },
+          },
+        },
+      },
+      scales: {
+        ...chartOptions.scales,
+        x: {
+          ...chartOptions.scales?.x,
+          title: {
+            display: true,
+            text: 'Sale month',
+            color: 'rgba(255, 248, 226, 0.55)',
+            font: { size: 12 },
+          },
+        },
+        y: {
+          ...chartOptions.scales?.y,
+          title: {
+            display: true,
+            text: 'Sales (£)',
+            color: 'rgba(255, 248, 226, 0.55)',
+            font: { size: 12 },
+          },
+        },
+      },
+    }),
+    []
+  );
 
   const salesMonthlyExpensesData = useMemo(() => {
     const values = Array(monthlyChartBuckets.length).fill(0);
@@ -1198,12 +1321,14 @@ const Reporting: React.FC = () => {
         }
       }
     });
+    const t = monthlyChartLeadingTrimIndex(values.length, (i) => values[i] !== 0);
+    const valuesS = values.slice(t);
     return {
-      labels: monthlyChartBuckets.map((bucket) => bucket.label),
+      labels: monthlyChartBuckets.map((bucket) => bucket.label).slice(t),
       datasets: [
         {
           label: 'Monthly Expenses',
-          data: values,
+          data: valuesS,
           backgroundColor: 'rgba(255, 120, 120, 0.45)',
           borderColor: 'rgba(255, 120, 120, 0.8)',
           borderWidth: 1,
@@ -1232,12 +1357,14 @@ const Reporting: React.FC = () => {
       }
     });
     const values = sums.map((sum, idx) => (counts[idx] > 0 ? sum / counts[idx] : 0));
+    const t = monthlyChartLeadingTrimIndex(counts.length, (i) => counts[i] > 0);
+    const valuesS = values.slice(t);
     return {
-      labels: monthlyChartBuckets.map((bucket) => bucket.label),
+      labels: monthlyChartBuckets.map((bucket) => bucket.label).slice(t),
       datasets: [
         {
           label: 'Average Selling Price',
-          data: values,
+          data: valuesS,
           backgroundColor: 'rgba(140, 255, 195, 0.45)',
           borderColor: 'rgba(140, 255, 195, 0.8)',
           borderWidth: 1,
@@ -1267,12 +1394,13 @@ const Reporting: React.FC = () => {
       }
     });
     const values = sums.map((sum, idx) => (counts[idx] > 0 ? sum / counts[idx] : 0));
+    const t = monthlyChartLeadingTrimIndex(counts.length, (i) => counts[i] > 0);
     return {
-      labels: monthlyChartBuckets.map((bucket) => bucket.label),
+      labels: monthlyChartBuckets.map((bucket) => bucket.label).slice(t),
       datasets: [
         {
           label: 'Average Profit per Item',
-          data: values,
+          data: values.slice(t),
           backgroundColor: (context: any) => {
             const value = context.parsed.y;
             return value >= 0 ? 'rgba(140, 255, 195, 0.45)' : 'rgba(255, 120, 120, 0.45)';
@@ -1308,12 +1436,14 @@ const Reporting: React.FC = () => {
       }
     });
     const values = sums.map((sum, idx) => (counts[idx] > 0 ? sum / counts[idx] : 0));
+    const t = monthlyChartLeadingTrimIndex(counts.length, (i) => counts[i] > 0);
+    const valuesS = values.slice(t);
     return {
-      labels: monthlyChartBuckets.map((bucket) => bucket.label),
+      labels: monthlyChartBuckets.map((bucket) => bucket.label).slice(t),
       datasets: [
         {
           label: 'Average Profit Multiple',
-          data: values,
+          data: valuesS,
           backgroundColor: 'rgba(255, 214, 91, 0.45)',
           borderColor: 'rgba(255, 214, 91, 0.8)',
           borderWidth: 1,
@@ -1338,12 +1468,14 @@ const Reporting: React.FC = () => {
         }
       }
     });
+    const t = monthlyChartLeadingTrimIndex(values.length, (i) => values[i] > 0);
+    const valuesS = values.slice(t);
     return {
-      labels: monthlyChartBuckets.map((bucket) => bucket.label),
+      labels: monthlyChartBuckets.map((bucket) => bucket.label).slice(t),
       datasets: [
         {
           label: 'Items Listed',
-          data: values,
+          data: valuesS,
           backgroundColor: 'rgba(140, 195, 255, 0.5)',
           borderColor: 'rgba(140, 195, 255, 0.85)',
           borderWidth: 1,
@@ -1368,12 +1500,14 @@ const Reporting: React.FC = () => {
         }
       }
     });
+    const t = monthlyChartLeadingTrimIndex(values.length, (i) => values[i] > 0);
+    const valuesS = values.slice(t);
     return {
-      labels: monthlyChartBuckets.map((bucket) => bucket.label),
+      labels: monthlyChartBuckets.map((bucket) => bucket.label).slice(t),
       datasets: [
         {
           label: 'Items Sold',
-          data: values,
+          data: valuesS,
           backgroundColor: 'rgba(195, 255, 140, 0.5)',
           borderColor: 'rgba(195, 255, 140, 0.85)',
           borderWidth: 1,
@@ -2021,6 +2155,25 @@ const Reporting: React.FC = () => {
               </div>
             ) : (
               <div className="reporting-empty">No recorded sales {selectedYear === 'all' ? 'available.' : `for ${selectedYear}.`}</div>
+            )}
+          </section>
+
+          <section className="reporting-card">
+            <div className="card-header">
+              <h2>Sale By Month/Brand</h2>
+              <p>eBay vs Vinted (by sale date)</p>
+            </div>
+            {salesMonthlySalesPlatformData.hasData ? (
+              <div className="chart-wrapper">
+                <Bar
+                  data={salesMonthlySalesPlatformData.data}
+                  options={salesMonthlyPlatformBarOptions}
+                />
+              </div>
+            ) : (
+              <div className="reporting-empty">
+                No eBay or Vinted sales in range {selectedYear === 'all' ? 'for these months.' : `for ${selectedYear}.`}
+              </div>
             )}
           </section>
 
