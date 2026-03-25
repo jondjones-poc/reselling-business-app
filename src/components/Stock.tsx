@@ -1686,13 +1686,13 @@ const Stock: React.FC = () => {
     }
   };
 
-  const renderProjectedProfitInline = () => {
+  /** Vinted / eBay projected lines (shared by edit row 1 and new-item form). */
+  const renderProjectedProfitBody = (): React.ReactNode => {
     const hasProjectedPrice =
       !!createForm.projected_sale_price && createForm.projected_sale_price.trim() !== '';
     const hasPurchasePrice =
       !!createForm.purchase_price && createForm.purchase_price.trim() !== '';
 
-    let body: React.ReactNode;
     if (!hasProjectedPrice || !hasPurchasePrice) {
       const itemPartial = hasPurchasePrice ? parseFloat(createForm.purchase_price) || 0 : 0;
       const multPlaceholder =
@@ -1701,7 +1701,7 @@ const Stock: React.FC = () => {
         ) : (
           <span className="projected-profit-inline-mult"> / —</span>
         );
-      body = (
+      return (
         <div className="projected-profit-inline-row projected-profit-inline-row--muted">
           <span className="projected-profit-inline-cell projected-profit-inline-stat projected-profit-inline-stat--muted">
             Vinted: £0.00{multPlaceholder}
@@ -1711,83 +1711,167 @@ const Stock: React.FC = () => {
           </span>
         </div>
       );
-    } else {
-      const item = parseFloat(createForm.purchase_price) || 0;
-      const sale = parseFloat(createForm.projected_sale_price) || 0;
-      const listingFees = 0.1;
-      const promotedPercent = 10;
-      const promotedFee = (sale * promotedPercent) / 100;
-
-      const vintedProfit = sale - item;
-      const vintedProfitDisplay =
-        vintedProfit >= 0 ? `£${vintedProfit.toFixed(2)}` : `-£${Math.abs(vintedProfit).toFixed(2)}`;
-      const isVintedBuy = item > 0 && vintedProfit >= item * 2;
-
-      const ebayProfitWithoutPromo = sale - (item + listingFees);
-      const ebayProfitWithoutPromoDisplay =
-        ebayProfitWithoutPromo >= 0
-          ? `£${ebayProfitWithoutPromo.toFixed(2)}`
-          : `-£${Math.abs(ebayProfitWithoutPromo).toFixed(2)}`;
-      const isEbayBuyWithoutPromo = item > 0 && ebayProfitWithoutPromo >= item * 2;
-
-      const totalCosts = item + listingFees + promotedFee;
-      const ebayProfitWithPromo = sale - totalCosts;
-      const ebayProfitWithPromoDisplay =
-        ebayProfitWithPromo >= 0
-          ? `£${ebayProfitWithPromo.toFixed(2)}`
-          : `-£${Math.abs(ebayProfitWithPromo).toFixed(2)}`;
-
-      const profitMult = (profit: number) =>
-        item > 0 ? `${(profit / item).toFixed(2)}x` : '—';
-
-      body = (
-        <div className="projected-profit-inline-row">
-          <div
-            className={`projected-profit-inline-cell projected-profit-inline-stat${
-              isVintedBuy ? ' projected-profit-inline-stat--buy' : ' projected-profit-inline-stat--pass'
-            }`}
-          >
-            Vinted: {vintedProfitDisplay}
-            <span className="projected-profit-inline-mult"> / {profitMult(vintedProfit)}</span>
-          </div>
-          <div
-            className={`projected-profit-inline-cell projected-profit-inline-stat${
-              isEbayBuyWithoutPromo ? ' projected-profit-inline-stat--buy' : ' projected-profit-inline-stat--pass'
-            }`}
-          >
-            eBay: {ebayProfitWithoutPromoDisplay}
-            <span className="projected-profit-inline-mult"> / {profitMult(ebayProfitWithoutPromo)}</span>
-          </div>
-          <div className="projected-profit-inline-sub">
-            (with promo: {ebayProfitWithPromoDisplay})
-          </div>
-        </div>
-      );
     }
 
+    const item = parseFloat(createForm.purchase_price) || 0;
+    const sale = parseFloat(createForm.projected_sale_price) || 0;
+    const listingFees = 0.1;
+    const promotedPercent = 10;
+    const promotedFee = (sale * promotedPercent) / 100;
+
+    const vintedProfit = sale - item;
+    const vintedProfitDisplay =
+      vintedProfit >= 0 ? `£${vintedProfit.toFixed(2)}` : `-£${Math.abs(vintedProfit).toFixed(2)}`;
+    const isVintedBuy = item > 0 && vintedProfit >= item * 2;
+
+    const ebayProfitWithoutPromo = sale - (item + listingFees);
+    const ebayProfitWithoutPromoDisplay =
+      ebayProfitWithoutPromo >= 0
+        ? `£${ebayProfitWithoutPromo.toFixed(2)}`
+        : `-£${Math.abs(ebayProfitWithoutPromo).toFixed(2)}`;
+    const isEbayBuyWithoutPromo = item > 0 && ebayProfitWithoutPromo >= item * 2;
+
+    const totalCosts = item + listingFees + promotedFee;
+    const ebayProfitWithPromo = sale - totalCosts;
+    const ebayProfitWithPromoDisplay =
+      ebayProfitWithPromo >= 0
+        ? `£${ebayProfitWithPromo.toFixed(2)}`
+        : `-£${Math.abs(ebayProfitWithPromo).toFixed(2)}`;
+
+    const profitMult = (profit: number) =>
+      item > 0 ? `${(profit / item).toFixed(2)}x` : '—';
+
     return (
-      <div className="new-entry-field projected-profit-inline-field">
-        <span
-          style={{
-            color: 'rgba(255, 248, 226, 0.7)',
-            letterSpacing: '0.05rem',
-            fontSize: '0.85rem',
-            textTransform: 'uppercase',
-            height: '1.2rem',
-          }}
-        >
-          &nbsp;
-        </span>
+      <div className="projected-profit-inline-row">
         <div
-          className="projected-profit-inline"
-          role="region"
-          aria-label="Projected profit by platform"
+          className={`projected-profit-inline-cell projected-profit-inline-stat${
+            isVintedBuy ? ' projected-profit-inline-stat--buy' : ' projected-profit-inline-stat--pass'
+          }`}
         >
-          {body}
+          Vinted: {vintedProfitDisplay}
+          <span className="projected-profit-inline-mult"> / {profitMult(vintedProfit)}</span>
+        </div>
+        <div
+          className={`projected-profit-inline-cell projected-profit-inline-stat${
+            isEbayBuyWithoutPromo ? ' projected-profit-inline-stat--buy' : ' projected-profit-inline-stat--pass'
+          }`}
+        >
+          eBay: {ebayProfitWithoutPromoDisplay}
+          <span className="projected-profit-inline-mult"> / {profitMult(ebayProfitWithoutPromo)}</span>
+        </div>
+        <div className="projected-profit-inline-sub">
+          (with promo: {ebayProfitWithPromoDisplay})
         </div>
       </div>
     );
   };
+
+  const renderProjectedProfitInline = () => (
+    <div className="new-entry-field projected-profit-inline-field">
+      <span
+        style={{
+          color: 'rgba(255, 248, 226, 0.7)',
+          letterSpacing: '0.05rem',
+          fontSize: '0.85rem',
+          textTransform: 'uppercase',
+          height: '1.2rem',
+        }}
+      >
+        &nbsp;
+      </span>
+      <div
+        className="projected-profit-inline"
+        role="region"
+        aria-label="Projected profit by platform"
+      >
+        {renderProjectedProfitBody()}
+      </div>
+    </div>
+  );
+
+  /** One-line metrics for edit row 1: Vinted | eBay | eBay with fee | Profit (same math as renderProjectedProfitBody). */
+  const buildStockEditMetricsPipeline = (): { plain: string; content: React.ReactNode } => {
+    const fmt = (n: number) =>
+      n >= 0 ? `£${n.toFixed(2)}` : `-£${Math.abs(n).toFixed(2)}`;
+    const multStr = (profit: number, purchase: number) =>
+      purchase > 0 ? `${(profit / purchase).toFixed(2)}x` : '—';
+
+    const hasProjectedPrice =
+      !!createForm.projected_sale_price && createForm.projected_sale_price.trim() !== '';
+    const hasPurchasePrice =
+      !!createForm.purchase_price && createForm.purchase_price.trim() !== '';
+
+    const rawSale = String(createForm.sale_price ?? '').trim();
+    let profitAmt = 0;
+    let profitMultOut = '—';
+    if (rawSale !== '') {
+      const sp = parseFloat(rawSale);
+      const pp = parseFloat(String(createForm.purchase_price ?? '').trim());
+      if (Number.isFinite(sp) && Number.isFinite(pp)) {
+        profitAmt = sp - pp;
+        profitMultOut = pp > 0 ? `${(profitAmt / pp).toFixed(2)}x` : '—';
+      }
+    }
+    const profitSeg = `${fmt(profitAmt)} / ${profitMultOut}`;
+
+    const segment = (label: string, valuePart: string) => (
+      <>
+        <strong className="stock-edit-metrics-pipeline-label">{label}</strong>
+        {`: ${valuePart}`}
+      </>
+    );
+
+    if (!hasProjectedPrice || !hasPurchasePrice) {
+      const itemPartial = hasPurchasePrice ? parseFloat(createForm.purchase_price) || 0 : 0;
+      const multPlaceholder = itemPartial > 0 ? '0.00x' : '—';
+      const z = `£0.00 / ${multPlaceholder}`;
+      const plain = `Vinted: ${z} | eBay: ${z} | eBay with fee: ${z} | Profit: ${profitSeg} |`;
+      const content = (
+        <>
+          {segment('Vinted', z)}
+          {' | '}
+          {segment('eBay', z)}
+          {' | '}
+          {segment('eBay with fee', z)}
+          {' | '}
+          {segment('Profit', profitSeg)}
+          {' |'}
+        </>
+      );
+      return { plain, content };
+    }
+
+    const item = parseFloat(createForm.purchase_price) || 0;
+    const sale = parseFloat(createForm.projected_sale_price) || 0;
+    const listingFees = 0.1;
+    const promotedPercent = 10;
+    const promotedFee = (sale * promotedPercent) / 100;
+    const vintedProfit = sale - item;
+    const ebayProfitWithoutPromo = sale - (item + listingFees);
+    const totalCosts = item + listingFees + promotedFee;
+    const ebayProfitWithPromo = sale - totalCosts;
+
+    const vintedPart = `${fmt(vintedProfit)} / ${multStr(vintedProfit, item)}`;
+    const ebayPart = `${fmt(ebayProfitWithoutPromo)} / ${multStr(ebayProfitWithoutPromo, item)}`;
+    const ebayFeePart = `${fmt(ebayProfitWithPromo)} / ${multStr(ebayProfitWithPromo, item)}`;
+    const plain =
+      `Vinted: ${vintedPart} | eBay: ${ebayPart} | eBay with fee: ${ebayFeePart} | Profit: ${profitSeg} |`;
+    const content = (
+      <>
+        {segment('Vinted', vintedPart)}
+        {' | '}
+        {segment('eBay', ebayPart)}
+        {' | '}
+        {segment('eBay with fee', ebayFeePart)}
+        {' | '}
+        {segment('Profit', profitSeg)}
+        {' |'}
+      </>
+    );
+    return { plain, content };
+  };
+
+  const stockEditMetricsPipeline = buildStockEditMetricsPipeline();
 
   return (
     <div className={`stock-container ${showNewEntry ? 'editing-mode' : ''}`}>
@@ -1797,66 +1881,89 @@ const Stock: React.FC = () => {
       {showNewEntry && (
         <div className="new-entry-card" ref={editFormRef}>
           <div className="new-entry-grid">
-            {/* First Row: SKU, Projected Sale Price, Vinted/eBay profit inline, Remove (edit only) */}
+            {/* Edit row 1: left (Close, SKU, Add To Order, Instagram…) | flex space | centered metrics | delete right */}
             {editingRowId && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', width: '100%', marginBottom: '20px' }}>
-                {/* SKU Button */}
-                <div className="new-entry-field">
-                  <span>SKU</span>
+              <div className="stock-edit-row-1">
+                <div className="stock-edit-row-1-left">
                   <button
                     type="button"
-                    className="stock-sku-button"
+                    className="cancel-button stock-edit-row-1-action stock-edit-row-1-close-btn"
+                    onClick={() => {
+                      if (!creating && !deleting) {
+                        setShowNewEntry(false);
+                        setEditingRowId(null);
+                        setFormIntent('create');
+                        setShowCreateInsteadOfEditConfirm(false);
+                        resetCreateForm();
+                        setShowDeleteConfirm(false);
+                      }
+                    }}
+                    disabled={creating || deleting}
+                    aria-label="Close"
+                    title="Close"
+                  >
+                    X
+                  </button>
+                  <div className="stock-edit-sku-id-circle" title={`SKU ${editingRowId}`}>
+                    {editingRowId}
+                  </div>
+                  <button
+                    type="button"
+                    className="stock-sku-button stock-add-to-order-btn"
                     onClick={handleAddToOrders}
                     disabled={creating || deleting}
                   >
-                    {editingRowId}
+                    Add To Order
+                  </button>
+                  <button
+                    type="button"
+                    className="stock-instagram-ai-button stock-edit-row-1-instagram"
+                    onClick={handleInstagramAskAi}
+                    disabled={creating || deleting}
+                    aria-label="Copy AI prompt for Instagram caption and hashtags"
+                    title="Copy prompt for AI: Instagram caption and SEO hashtags"
+                  >
+                    Instagram
+                  </button>
+                  <button
+                    type="button"
+                    className="save-button stock-edit-row-1-action"
+                    onClick={() => {
+                      void handleCreateSubmit();
+                    }}
+                    disabled={creating || deleting}
+                  >
+                    {creating ? 'Saving…' : 'Update'}
                   </button>
                 </div>
-                
-                {/* Projected Sale Price */}
-                <label className="new-entry-field">
-                  <span>Projected Sale Price</span>
-                  <input
-                    type="text"
-                    value={createForm.projected_sale_price}
-                    onChange={(event) => handleCreateChange('projected_sale_price', event.target.value)}
-                    placeholder="0.00"
-                    style={{ textAlign: 'center' }}
-                  />
-                </label>
-
-                {renderProjectedProfitInline()}
-                
-                {/* Remove + Instagram AI prompt */}
-                <div className="new-entry-field stock-edit-actions-field">
-                  <span>&nbsp;</span>
-                  <div className="stock-edit-row-action-buttons">
-                    <button
-                      type="button"
-                      className="stock-instagram-ai-button"
-                      onClick={handleInstagramAskAi}
-                      disabled={creating || deleting}
-                      aria-label="Copy AI prompt for Instagram caption and hashtags"
-                      title="Copy prompt for AI: Instagram caption and SEO hashtags"
+                <div className="stock-edit-row-1-center">
+                  <div className="stock-edit-row-1-metrics-box">
+                    <div
+                      className="stock-edit-metrics-pipeline"
+                      role="region"
+                      aria-label="Projected profit by platform"
+                      title={stockEditMetricsPipeline.plain}
                     >
-                      Instagram
-                    </button>
-                    <button
-                      type="button"
-                      className="delete-button"
-                      onClick={handleDeleteClick}
-                      disabled={creating || deleting}
-                      aria-label="Remove item"
-                      title="Remove this stock record"
-                    >
-                      x
-                    </button>
+                      {stockEditMetricsPipeline.content}
+                    </div>
                   </div>
+                </div>
+                <div className="stock-edit-row-1-end">
+                  <button
+                    type="button"
+                    className="delete-button stock-edit-row1-delete-btn"
+                    onClick={handleDeleteClick}
+                    disabled={creating || deleting}
+                    aria-label="Delete stock item"
+                    title="Remove this stock record"
+                  >
+                    Delete
+                  </button>
                 </div>
               </div>
             )}
-            
-            {/* Row 1: Name, Category, Purchase Price (£), Purchase Date */}
+
+            {/* Row 2: Name, Category, Purchase Price (£), Purchase Date */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', width: '100%' }}>
               <label className="new-entry-field">
                 <span>Name</span>
@@ -1868,9 +1975,8 @@ const Stock: React.FC = () => {
                 />
               </label>
               <div className="new-entry-field" style={{ position: 'relative' }}>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: '8px', color: 'rgba(255, 248, 226, 0.7)', letterSpacing: '0.05rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                    <span>Category</span>
+                  <div className="new-entry-field-label-row">
+                    <span id="stock-form-category-label">Category</span>
                     <button
                       type="button"
                       onClick={() => {
@@ -1906,6 +2012,7 @@ const Stock: React.FC = () => {
                   </div>
                   <select
                     className="new-entry-select"
+                    aria-labelledby="stock-form-category-label"
                     value={createForm.category_id}
                     onChange={(event) => handleCreateChange('category_id', event.target.value)}
                   >
@@ -1993,7 +2100,6 @@ const Stock: React.FC = () => {
                       </button>
                     </div>
                   )}
-                </label>
               </div>
               <label className="new-entry-field">
                 <span>Purchase Price (£)</span>
@@ -2020,12 +2126,11 @@ const Stock: React.FC = () => {
                 />
               </label>
             </div>
-            {/* Row 2: Brand, Platform IDs */}
+            {/* Row 3: Brand, Platform IDs */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', width: '100%' }}>
               <div className="new-entry-field" style={{ position: 'relative' }}>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: '8px', color: 'rgba(255, 248, 226, 0.7)', letterSpacing: '0.05rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                    <span>Brand</span>
+                  <div className="new-entry-field-label-row">
+                    <span id="stock-form-brand-label">Brand</span>
                     <button
                       type="button"
                       onClick={() => {
@@ -2061,6 +2166,7 @@ const Stock: React.FC = () => {
                   </div>
                   <select
                     className="new-entry-select"
+                    aria-labelledby="stock-form-brand-label"
                     value={createForm.brand_id}
                     onChange={(event) => handleCreateChange('brand_id', event.target.value)}
                   >
@@ -2150,7 +2256,6 @@ const Stock: React.FC = () => {
                       </button>
                     </div>
                   )}
-                </label>
               </div>
               <label className="new-entry-field">
                 <span>Vinted ID</span>
@@ -2180,138 +2285,127 @@ const Stock: React.FC = () => {
                 />
               </label>
             </div>
-            {/* Row 3: Sale Price (£), Sale Date, Sold Platform (edit only) OR Projected Sale Price, Projected Profit, Empty, Save/Close (add only) */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', width: '100%' }}>
-              {editingRowId ? (
-                <>
-                  <label className="new-entry-field">
-                    <span>Sale Price (£)</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={createForm.sale_price}
-                      onChange={(event) => handleCreateChange('sale_price', event.target.value)}
-                      placeholder="e.g. 95.00"
-                    />
-                  </label>
-                  <label className="new-entry-field">
-                    <span>Sale Date</span>
-                    <DatePicker
-                      selected={stringToDate(createForm.sale_date)}
-                      onChange={(date) =>
-                        handleCreateChange('sale_date', dateToIsoString(date ?? null))
-                      }
-                      dateFormat="yyyy-MM-dd"
-                      placeholderText="Select sale date"
-                      className="date-picker-input"
-                      calendarClassName="date-picker-calendar"
-                      wrapperClassName="date-picker-wrapper"
-                    />
-                  </label>
-                  <div className="new-entry-field" style={{ position: 'relative' }} ref={soldPlatformDropdownRef}>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: '8px', color: 'rgba(255, 248, 226, 0.7)', letterSpacing: '0.05rem' }}>
-                <span>Sold Platform</span>
-                <div
-                  className="new-entry-select"
-                  style={{
-                    position: 'relative',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    padding: '14px 18px',
-                    borderRadius: '16px',
-                    border: '1px solid rgba(255, 214, 91, 0.28)',
-                    background: 'rgba(255, 214, 91, 0.08)',
-                    color: 'var(--text-strong)',
-                    gap: '6px',
-                    minHeight: 'auto',
-                    height: 'auto',
-                    lineHeight: '1.2'
-                  }}
-                  onClick={() => setShowSoldPlatformDropdown(!showSoldPlatformDropdown)}
-                >
-                  {createForm.sold_platform ? (() => {
-                    const getIconSrc = (platform: string) => {
-                      if (platform === 'Vinted') return '/images/vinted-icon.svg';
-                      if (platform === 'eBay') return '/images/ebay-icon.svg';
-                      if (platform === 'Not Listed') return '/images/to-list-icon.svg';
-                      return null;
-                    };
-                    const iconSrc = getIconSrc(createForm.sold_platform);
-                    return (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                        {iconSrc && (
-                          <img 
-                            src={iconSrc} 
-                            alt={`${createForm.sold_platform} icon`}
-                            style={{
-                              width: '12px',
-                              height: '12px',
-                              display: 'inline-block',
-                              flexShrink: 0
-                            }}
-                          />
-                        )}
-                        {createForm.sold_platform}
-                      </span>
-                    );
-                  })() : (
-                    <span style={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: '0.95rem' }}>Select platform...</span>
-                  )}
-                </div>
-                {showSoldPlatformDropdown && (
-                  <div
+            {/* Row 4 (edit): Sale Price, Projected Sale Price, Sale Date, Sold Platform */}
+            {editingRowId && (
+              <div
+                className="stock-edit-row-4"
+                style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', width: '100%', alignItems: 'flex-end' }}
+              >
+                <label className="new-entry-field">
+                  <span>Sale Price (£)</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={createForm.sale_price}
+                    onChange={(event) => handleCreateChange('sale_price', event.target.value)}
+                    placeholder="e.g. 95.00"
+                  />
+                </label>
+                <label className="new-entry-field">
+                  <span>Projected Sale Price</span>
+                  <input
+                    type="text"
+                    value={createForm.projected_sale_price}
+                    onChange={(event) => handleCreateChange('projected_sale_price', event.target.value)}
+                    placeholder="0.00"
+                    style={{ textAlign: 'center' }}
+                  />
+                </label>
+                <label className="new-entry-field">
+                  <span>Sale Date</span>
+                  <DatePicker
+                    selected={stringToDate(createForm.sale_date)}
+                    onChange={(date) =>
+                      handleCreateChange('sale_date', dateToIsoString(date ?? null))
+                    }
+                    dateFormat="yyyy-MM-dd"
+                    placeholderText="Select sale date"
+                    className="date-picker-input"
+                    calendarClassName="date-picker-calendar"
+                    wrapperClassName="date-picker-wrapper"
+                  />
+                </label>
+                <div className="new-entry-field" style={{ position: 'relative' }} ref={soldPlatformDropdownRef}>
+                  <label
                     style={{
-                      position: 'absolute',
-                      top: '100%',
-                      left: 0,
-                      right: 0,
-                      marginTop: '4px',
-                      background: 'rgba(5, 4, 3, 0.98)',
-                      border: '1px solid rgba(255, 214, 91, 0.28)',
-                      borderRadius: '16px',
-                      padding: '8px',
-                      zIndex: 1000,
-                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)'
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                      color: 'rgba(255, 248, 226, 0.7)',
+                      letterSpacing: '0.05rem',
                     }}
-                    onClick={(e) => e.stopPropagation()}
                   >
+                    <span>Sold Platform</span>
                     <div
+                      className="new-entry-select"
                       style={{
+                        position: 'relative',
+                        cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '8px',
-                        padding: '10px 12px',
-                        cursor: 'pointer',
-                        borderRadius: '8px',
-                        transition: 'background 0.2s ease',
-                        background: createForm.sold_platform === '' ? 'rgba(255, 214, 91, 0.1)' : 'transparent'
+                        padding: '14px 18px',
+                        borderRadius: '16px',
+                        border: '1px solid rgba(255, 214, 91, 0.28)',
+                        background: 'rgba(255, 214, 91, 0.08)',
+                        color: 'var(--text-strong)',
+                        gap: '6px',
+                        minHeight: 'auto',
+                        height: 'auto',
+                        lineHeight: '1.2',
                       }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'rgba(255, 214, 91, 0.1)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = createForm.sold_platform === '' ? 'rgba(255, 214, 91, 0.1)' : 'transparent';
-                      }}
-                      onClick={() => {
-                        handleCreateChange('sold_platform', '');
-                        setShowSoldPlatformDropdown(false);
-                      }}
+                      onClick={() => setShowSoldPlatformDropdown(!showSoldPlatformDropdown)}
                     >
-                      <span style={{ color: 'var(--text-strong)', fontSize: '0.95rem' }}>Select platform...</span>
+                      {createForm.sold_platform ? (
+                        (() => {
+                          const getIconSrc = (platform: string) => {
+                            if (platform === 'Vinted') return '/images/vinted-icon.svg';
+                            if (platform === 'eBay') return '/images/ebay-icon.svg';
+                            if (platform === 'Not Listed') return '/images/to-list-icon.svg';
+                            return null;
+                          };
+                          const iconSrc = getIconSrc(createForm.sold_platform);
+                          return (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                              {iconSrc && (
+                                <img
+                                  src={iconSrc}
+                                  alt={`${createForm.sold_platform} icon`}
+                                  style={{
+                                    width: '12px',
+                                    height: '12px',
+                                    display: 'inline-block',
+                                    flexShrink: 0,
+                                  }}
+                                />
+                              )}
+                              {createForm.sold_platform}
+                            </span>
+                          );
+                        })()
+                      ) : (
+                        <span style={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: '0.95rem' }}>
+                          Select platform...
+                        </span>
+                      )}
                     </div>
-                    {PLATFORMS.map((platform) => {
-                      const getIconSrc = (plat: string) => {
-                        if (plat === 'Vinted') return '/images/vinted-icon.svg';
-                        if (plat === 'eBay') return '/images/ebay-icon.svg';
-                        if (plat === 'Not Listed') return '/images/to-list-icon.svg';
-                        return null;
-                      };
-                      const iconSrc = getIconSrc(platform);
-                      const isSelected = createForm.sold_platform === platform;
-                      return (
+                    {showSoldPlatformDropdown && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: '100%',
+                          left: 0,
+                          right: 0,
+                          marginTop: '4px',
+                          background: 'rgba(5, 4, 3, 0.98)',
+                          border: '1px solid rgba(255, 214, 91, 0.28)',
+                          borderRadius: '16px',
+                          padding: '8px',
+                          zIndex: 1000,
+                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <div
-                          key={platform}
                           style={{
                             display: 'flex',
                             alignItems: 'center',
@@ -2320,147 +2414,149 @@ const Stock: React.FC = () => {
                             cursor: 'pointer',
                             borderRadius: '8px',
                             transition: 'background 0.2s ease',
-                            background: isSelected ? 'rgba(255, 214, 91, 0.1)' : 'transparent'
+                            background:
+                              createForm.sold_platform === '' ? 'rgba(255, 214, 91, 0.1)' : 'transparent',
                           }}
                           onMouseEnter={(e) => {
                             e.currentTarget.style.background = 'rgba(255, 214, 91, 0.1)';
                           }}
                           onMouseLeave={(e) => {
-                            e.currentTarget.style.background = isSelected ? 'rgba(255, 214, 91, 0.1)' : 'transparent';
+                            e.currentTarget.style.background =
+                              createForm.sold_platform === '' ? 'rgba(255, 214, 91, 0.1)' : 'transparent';
                           }}
                           onClick={() => {
-                            handleCreateChange('sold_platform', platform);
+                            handleCreateChange('sold_platform', '');
                             setShowSoldPlatformDropdown(false);
                           }}
                         >
-                          {iconSrc && (
-                            <img 
-                              src={iconSrc} 
-                              alt={`${platform} icon`}
-                              style={{
-                                width: '12px',
-                                height: '12px',
-                                display: 'inline-block',
-                                flexShrink: 0
-                              }}
-                            />
-                          )}
-                          <span style={{ color: 'var(--text-strong)', fontSize: '0.95rem' }}>{platform}</span>
+                          <span style={{ color: 'var(--text-strong)', fontSize: '0.95rem' }}>
+                            Select platform...
+                          </span>
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </label>
+                        {PLATFORMS.map((platform) => {
+                          const getIconSrc = (plat: string) => {
+                            if (plat === 'Vinted') return '/images/vinted-icon.svg';
+                            if (plat === 'eBay') return '/images/ebay-icon.svg';
+                            if (plat === 'Not Listed') return '/images/to-list-icon.svg';
+                            return null;
+                          };
+                          const iconSrc = getIconSrc(platform);
+                          const isSelected = createForm.sold_platform === platform;
+                          return (
+                            <div
+                              key={platform}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                padding: '10px 12px',
+                                cursor: 'pointer',
+                                borderRadius: '8px',
+                                transition: 'background 0.2s ease',
+                                background: isSelected ? 'rgba(255, 214, 91, 0.1)' : 'transparent',
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.background = 'rgba(255, 214, 91, 0.1)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = isSelected
+                                  ? 'rgba(255, 214, 91, 0.1)'
+                                  : 'transparent';
+                              }}
+                              onClick={() => {
+                                handleCreateChange('sold_platform', platform);
+                                setShowSoldPlatformDropdown(false);
+                              }}
+                            >
+                              {iconSrc && (
+                                <img
+                                  src={iconSrc}
+                                  alt={`${platform} icon`}
+                                  style={{
+                                    width: '12px',
+                                    height: '12px',
+                                    display: 'inline-block',
+                                    flexShrink: 0,
+                                  }}
+                                />
+                              )}
+                              <span style={{ color: 'var(--text-strong)', fontSize: '0.95rem' }}>{platform}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </label>
+                </div>
               </div>
-              <div className="new-entry-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <span style={{ color: 'rgba(255, 248, 226, 0.7)', letterSpacing: '0.05rem', fontSize: '0.85rem', textTransform: 'uppercase', height: '1.2rem' }}>&nbsp;</span>
-                <div className="update-close-buttons-container" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                    <button
-                      type="button"
-                      className="save-button"
-                      onClick={() => {
-                        void handleCreateSubmit();
-                      }}
-                      disabled={creating || deleting}
-                      style={{ flex: '1' }}
-                    >
-                      {creating ? 'Saving…' : editingRowId ? 'Update' : 'Save'}
-                    </button>
-                    <button
-                      type="button"
-                      className="cancel-button"
-                      onClick={() => {
-                        if (!creating && !deleting) {
-                          // Only reset editingRowId if we're not in the middle of a submit
-                          // This prevents race conditions where Close is clicked during submit
-                          setShowNewEntry(false);
-                          setEditingRowId(null);
-                          setFormIntent('create');
-                          setShowCreateInsteadOfEditConfirm(false);
-                          resetCreateForm();
-                          setShowDeleteConfirm(false);
-                        }
-                      }}
-                      disabled={creating || deleting}
-                      style={{ flex: '1' }}
-                    >
-                      Close
-                    </button>
+            )}
+
+            {/* New stock row: projected profit + Save / Close */}
+            {!editingRowId && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', width: '100%' }}>
+                <label className="new-entry-field">
+                  <span>Projected Sale Price</span>
+                  <input
+                    type="text"
+                    value={createForm.projected_sale_price}
+                    onChange={(event) => handleCreateChange('projected_sale_price', event.target.value)}
+                    placeholder="0.00"
+                    style={{ textAlign: 'center' }}
+                  />
+                </label>
+
+                {renderProjectedProfitInline()}
+
+                <div
+                  className="new-entry-field new-entry-field--actions"
+                  style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
+                >
+                  <span
+                    style={{
+                      color: 'rgba(255, 248, 226, 0.7)',
+                      letterSpacing: '0.05rem',
+                      fontSize: '0.85rem',
+                      textTransform: 'uppercase',
+                      height: '1.2rem',
+                    }}
+                  >
+                    &nbsp;
+                  </span>
+                  <div className="update-close-buttons-container" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        className="save-button"
+                        onClick={() => {
+                          void handleCreateSubmit();
+                        }}
+                        disabled={creating || deleting}
+                        style={{ flex: '1' }}
+                      >
+                        {creating ? 'Saving…' : 'Save'}
+                      </button>
+                      <button
+                        type="button"
+                        className="cancel-button"
+                        onClick={() => {
+                          if (!creating && !deleting) {
+                            setShowNewEntry(false);
+                            setEditingRowId(null);
+                            setFormIntent('create');
+                            setShowCreateInsteadOfEditConfirm(false);
+                            resetCreateForm();
+                            setShowDeleteConfirm(false);
+                          }
+                        }}
+                        disabled={creating || deleting}
+                        style={{ flex: '1' }}
+                      >
+                        Close
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
-                </>
-              ) : (
-                <>
-                  {/* Projected Sale Price */}
-                  <label className="new-entry-field">
-                    <span>Projected Sale Price</span>
-                    <input
-                      type="text"
-                      value={createForm.projected_sale_price}
-                      onChange={(event) => handleCreateChange('projected_sale_price', event.target.value)}
-                      placeholder="0.00"
-                      style={{ textAlign: 'center' }}
-                    />
-                  </label>
-
-                  {renderProjectedProfitInline()}
-                  
-                  {/* Save and Close Buttons */}
-                  <div
-                    className="new-entry-field new-entry-field--actions"
-                    style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
-                  >
-                    <span style={{ color: 'rgba(255, 248, 226, 0.7)', letterSpacing: '0.05rem', fontSize: '0.85rem', textTransform: 'uppercase', height: '1.2rem' }}>&nbsp;</span>
-                    <div className="update-close-buttons-container" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                        <button
-                          type="button"
-                          className="save-button"
-                          onClick={() => {
-                            void handleCreateSubmit();
-                          }}
-                          disabled={creating || deleting}
-                          style={{ flex: '1' }}
-                        >
-                          {creating ? 'Saving…' : 'Save'}
-                        </button>
-                        <button
-                          type="button"
-                          className="cancel-button"
-                          onClick={() => {
-                            if (!creating && !deleting) {
-                              setShowNewEntry(false);
-                              setEditingRowId(null);
-                              setFormIntent('create');
-                              setShowCreateInsteadOfEditConfirm(false);
-                              resetCreateForm();
-                              setShowDeleteConfirm(false);
-                            }
-                          }}
-                          disabled={creating || deleting}
-                          style={{ flex: '1' }}
-                        >
-                          Close
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-            {editingRowId && (
-              <button
-                type="button"
-                className="delete-button delete-button-mobile"
-                onClick={handleDeleteClick}
-                disabled={creating || deleting}
-                style={{ width: '100%' }}
-              >
-                Delete Item
-              </button>
             )}
           </div>
         </div>

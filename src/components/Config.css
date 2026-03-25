@@ -305,6 +305,11 @@
   border-color: rgba(140, 255, 195, 0.65);
 }
 
+.config-clothing-add-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .config-clothing-add-form {
   margin-bottom: 28px;
   padding: 20px;
@@ -499,4 +504,46 @@
 .config-clothing-cancel-edit-button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.config-clothing-delete-category-button {
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 120, 120, 0.45);
+  background: rgba(255, 100, 100, 0.12);
+  color: #ffb0b0;
+  font-weight: 600;
+  font-size: 0.88rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-left: auto;
+}
+
+.config-clothing-delete-category-button:hover:not(:disabled) {
+  background: rgba(255, 120, 120, 0.22);
+  border-color: rgba(255, 140, 140, 0.65);
+  color: #ffd0d0;
+}
+
+.config-clothing-delete-category-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.config-brand-edit-id {
+  margin: 0 0 12px 0;
+  font-size: 0.85rem;
+  color: rgba(255, 248, 226, 0.65);
+  letter-spacing: 0.04rem;
+}
+
+.config-brand-website-link {
+  color: var(--neon-primary-strong);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  word-break: break-all;
+}
+
+.config-brand-website-link:hover {
+  color: #fff8e2;
 }

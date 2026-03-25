@@ -62,7 +62,15 @@ const formatDate = (value: Nullable<string>) => {
   }).format(date);
 };
 
-type ConfigMenu = 'untagged-brand' | 'no-ebay-id' | 'no-vinted-id' | 'clothing-categories';
+type ConfigMenu = 'untagged-brand' | 'no-ebay-id' | 'no-vinted-id' | 'clothing-categories' | 'brands';
+
+interface ConfigBrandRow {
+  id: number;
+  brand_name: string;
+  brand_website?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
 
 interface ClothingCategoryRow {
   id: number;
@@ -94,6 +102,18 @@ const Config: React.FC = () => {
   const [clothingEditDescription, setClothingEditDescription] = useState('');
   const [clothingEditNotes, setClothingEditNotes] = useState('');
   const [clothingEditSaving, setClothingEditSaving] = useState(false);
+  const [clothingDeleteSaving, setClothingDeleteSaving] = useState(false);
+
+  const [brands, setBrands] = useState<ConfigBrandRow[]>([]);
+  const [brandsLoading, setBrandsLoading] = useState(false);
+  const [brandsError, setBrandsError] = useState<string | null>(null);
+  const [brandAddOpen, setBrandAddOpen] = useState(false);
+  const [brandAddName, setBrandAddName] = useState('');
+  const [brandAddSaving, setBrandAddSaving] = useState(false);
+  const [brandEditingId, setBrandEditingId] = useState<number | null>(null);
+  const [brandEditName, setBrandEditName] = useState('');
+  const [brandEditWebsite, setBrandEditWebsite] = useState('');
+  const [brandEditSaving, setBrandEditSaving] = useState(false);
 
   const loadStock = async () => {
     try {
@@ -176,6 +196,138 @@ const Config: React.FC = () => {
       void loadClothingCategories();
     }
   }, [activeMenu, loadClothingCategories]);
+
+  const loadBrands = useCallback(async () => {
+    try {
+      setBrandsLoading(true);
+      setBrandsError(null);
+      const response = await fetch(`${API_BASE}/api/brands`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        let msg = text || 'Failed to load brands';
+        try {
+          const j = JSON.parse(text) as { error?: string; details?: string };
+          msg = [j.error, j.details].filter(Boolean).join(' — ') || msg;
+        } catch {
+          /* keep msg */
+        }
+        throw new Error(msg);
+      }
+      const data = JSON.parse(text) as { rows?: ConfigBrandRow[] };
+      setBrands(Array.isArray(data.rows) ? data.rows : []);
+    } catch (err: unknown) {
+      console.error('Brands load error:', err);
+      const m = err instanceof Error ? err.message : 'Unable to load brands';
+      if (m === 'Failed to fetch' || (err instanceof TypeError && err.name === 'TypeError')) {
+        setBrandsError('Unable to connect to server (is the API running on port 5003?)');
+      } else {
+        setBrandsError(m);
+      }
+      setBrands([]);
+    } finally {
+      setBrandsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeMenu === 'brands') {
+      void loadBrands();
+    }
+  }, [activeMenu, loadBrands]);
+
+  const handleBrandAddSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = brandAddName.trim();
+    if (!name) {
+      setBrandsError('Brand name is required.');
+      return;
+    }
+    try {
+      setBrandAddSaving(true);
+      setBrandsError(null);
+      const response = await fetch(`${API_BASE}/api/brands`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brand_name: name }),
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        let msg = text || 'Failed to create brand';
+        try {
+          const j = JSON.parse(text) as { error?: string; details?: string };
+          msg = [j.error, j.details].filter(Boolean).join(' — ') || msg;
+        } catch {
+          /* keep msg */
+        }
+        throw new Error(msg);
+      }
+      setBrandAddOpen(false);
+      setBrandAddName('');
+      await loadBrands();
+    } catch (err: unknown) {
+      const m = err instanceof Error ? err.message : 'Unable to create brand';
+      setBrandsError(m);
+    } finally {
+      setBrandAddSaving(false);
+    }
+  };
+
+  const cancelBrandEdit = () => {
+    setBrandEditingId(null);
+    setBrandEditName('');
+    setBrandEditWebsite('');
+  };
+
+  const startBrandEdit = (b: ConfigBrandRow) => {
+    setBrandAddOpen(false);
+    setBrandsError(null);
+    setBrandEditingId(b.id);
+    setBrandEditName(b.brand_name);
+    setBrandEditWebsite(b.brand_website?.trim() ?? '');
+  };
+
+  const handleBrandEditSave = async () => {
+    if (brandEditingId == null) return;
+    const name = brandEditName.trim();
+    if (!name) {
+      setBrandsError('Brand name is required.');
+      return;
+    }
+    const websiteRaw = brandEditWebsite.trim();
+    try {
+      setBrandEditSaving(true);
+      setBrandsError(null);
+      const response = await fetch(`${API_BASE}/api/brands/${brandEditingId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          brand_name: name,
+          brand_website: websiteRaw.length > 0 ? websiteRaw : null,
+        }),
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        let msg = text || 'Failed to update brand';
+        try {
+          const j = JSON.parse(text) as { error?: string; details?: string };
+          msg = [j.error, j.details].filter(Boolean).join(' — ') || msg;
+        } catch {
+          /* keep msg */
+        }
+        throw new Error(msg);
+      }
+      cancelBrandEdit();
+      await loadBrands();
+    } catch (err: unknown) {
+      const m = err instanceof Error ? err.message : 'Unable to update brand';
+      setBrandsError(m);
+    } finally {
+      setBrandEditSaving(false);
+    }
+  };
 
   // Filter rows based on active menu
   const filteredRows = useMemo(() => {
@@ -335,9 +487,46 @@ const Config: React.FC = () => {
     }
   };
 
+  const handleClothingDelete = async () => {
+    if (clothingEditingId == null) return;
+    const cat = clothingCategories.find((c) => c.id === clothingEditingId);
+    const label = cat?.name?.trim() ? cat.name : `category #${clothingEditingId}`;
+    if (!window.confirm(`Delete “${label}”? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      setClothingDeleteSaving(true);
+      setClothingError(null);
+      const response = await fetch(`${API_BASE}/api/menswear-categories/${clothingEditingId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        let msg = text || 'Failed to delete category';
+        try {
+          const j = JSON.parse(text) as { error?: string; details?: string };
+          msg = [j.error, j.details].filter(Boolean).join(' — ') || msg;
+        } catch {
+          /* keep msg */
+        }
+        throw new Error(msg);
+      }
+      cancelClothingEdit();
+      await loadClothingCategories();
+    } catch (err: unknown) {
+      const m = err instanceof Error ? err.message : 'Unable to delete category';
+      setClothingError(m);
+    } finally {
+      setClothingDeleteSaving(false);
+    }
+  };
+
   return (
     <div className="config-container">
-      {error && activeMenu !== 'clothing-categories' && <div className="config-error">{error}</div>}
+      {error && activeMenu !== 'clothing-categories' && activeMenu !== 'brands' && (
+        <div className="config-error">{error}</div>
+      )}
 
       <div className="config-layout">
         {/* Sidebar */}
@@ -372,7 +561,14 @@ const Config: React.FC = () => {
               className={`config-menu-item ${activeMenu === 'clothing-categories' ? 'active' : ''}`}
               onClick={() => setActiveMenu('clothing-categories')}
             >
-              Clothing categories
+              Categorieson
+            </button>
+            <button
+              type="button"
+              className={`config-menu-item ${activeMenu === 'brands' ? 'active' : ''}`}
+              onClick={() => setActiveMenu('brands')}
+            >
+              Brands
             </button>
           </nav>
         </div>
@@ -579,6 +775,7 @@ const Config: React.FC = () => {
                     cancelClothingEdit();
                     setClothingAddOpen((o) => !o);
                   }}
+                  disabled={clothingDeleteSaving}
                 >
                   {clothingAddOpen ? 'Cancel add' : 'Add category'}
                 </button>
@@ -666,7 +863,7 @@ const Config: React.FC = () => {
                                     value={clothingEditName}
                                     onChange={(ev) => setClothingEditName(ev.target.value)}
                                     maxLength={500}
-                                    disabled={clothingEditSaving}
+                                    disabled={clothingEditSaving || clothingDeleteSaving}
                                   />
                                 </label>
                                 <label className="config-clothing-field">
@@ -675,7 +872,7 @@ const Config: React.FC = () => {
                                     value={clothingEditDescription}
                                     onChange={(ev) => setClothingEditDescription(ev.target.value)}
                                     rows={2}
-                                    disabled={clothingEditSaving}
+                                    disabled={clothingEditSaving || clothingDeleteSaving}
                                   />
                                 </label>
                                 <label className="config-clothing-field">
@@ -684,7 +881,7 @@ const Config: React.FC = () => {
                                     value={clothingEditNotes}
                                     onChange={(ev) => setClothingEditNotes(ev.target.value)}
                                     rows={2}
-                                    disabled={clothingEditSaving}
+                                    disabled={clothingEditSaving || clothingDeleteSaving}
                                   />
                                 </label>
                                 <div className="config-clothing-inline-edit-actions">
@@ -692,7 +889,11 @@ const Config: React.FC = () => {
                                     type="button"
                                     className="config-clothing-save-button"
                                     onClick={() => void handleClothingEditSave()}
-                                    disabled={clothingEditSaving || !clothingEditName.trim()}
+                                    disabled={
+                                      clothingEditSaving ||
+                                      clothingDeleteSaving ||
+                                      !clothingEditName.trim()
+                                    }
                                   >
                                     {clothingEditSaving ? 'Saving…' : 'Save'}
                                   </button>
@@ -700,9 +901,17 @@ const Config: React.FC = () => {
                                     type="button"
                                     className="config-clothing-cancel-edit-button"
                                     onClick={cancelClothingEdit}
-                                    disabled={clothingEditSaving}
+                                    disabled={clothingEditSaving || clothingDeleteSaving}
                                   >
                                     Cancel
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="config-clothing-delete-category-button"
+                                    onClick={() => void handleClothingDelete()}
+                                    disabled={clothingEditSaving || clothingDeleteSaving}
+                                  >
+                                    {clothingDeleteSaving ? 'Deleting…' : 'Delete'}
                                   </button>
                                 </div>
                               </div>
@@ -718,7 +927,172 @@ const Config: React.FC = () => {
                                 type="button"
                                 className="config-clothing-edit-name-button"
                                 onClick={() => startClothingEdit(cat)}
-                                disabled={clothingEditSaving || clothingAddSaving}
+                                disabled={
+                                  clothingEditSaving || clothingAddSaving || clothingDeleteSaving
+                                }
+                              >
+                                Edit
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeMenu === 'brands' && (
+            <div className="config-section config-section--brands">
+              {brandsError && <div className="config-error config-error--inline">{brandsError}</div>}
+
+              <div className="config-clothing-header">
+                <button
+                  type="button"
+                  className="config-clothing-add-button"
+                  onClick={() => {
+                    setBrandsError(null);
+                    cancelBrandEdit();
+                    setBrandAddOpen((o) => !o);
+                  }}
+                >
+                  {brandAddOpen ? 'Cancel add' : 'Add New Brand'}
+                </button>
+                <button
+                  type="button"
+                  className="config-refresh-button"
+                  onClick={() => void loadBrands()}
+                  title="Refresh list"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+                  </svg>
+                </button>
+              </div>
+
+              {brandAddOpen && (
+                <form className="config-clothing-add-form" onSubmit={handleBrandAddSubmit}>
+                  <label className="config-clothing-field">
+                    <span>Brand name *</span>
+                    <input
+                      type="text"
+                      value={brandAddName}
+                      onChange={(ev) => setBrandAddName(ev.target.value)}
+                      placeholder="e.g. Barbour"
+                      maxLength={500}
+                      required
+                      disabled={brandAddSaving}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <div className="config-clothing-add-actions">
+                    <button type="submit" className="config-clothing-save-button" disabled={brandAddSaving}>
+                      {brandAddSaving ? 'Saving…' : 'Save brand'}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {brandsLoading ? (
+                <div className="config-loading">Loading brands…</div>
+              ) : brandsError ? null : brands.length === 0 ? (
+                <div className="config-empty">No brands in the database yet. Use Add New Brand to create one.</div>
+              ) : (
+                <div className="config-clothing-table-wrap">
+                  <table className="config-clothing-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">ID</th>
+                        <th scope="col">Name</th>
+                        <th scope="col">Website</th>
+                        <th className="config-clothing-th-actions" scope="col">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {brands.map((b) =>
+                        brandEditingId === b.id ? (
+                          <tr key={b.id} className="config-clothing-row-edit">
+                            <td colSpan={4}>
+                              <div className="config-clothing-inline-edit">
+                                <p className="config-brand-edit-id">
+                                  <strong>ID</strong> {b.id}
+                                </p>
+                                <label className="config-clothing-field">
+                                  <span>Brand name *</span>
+                                  <input
+                                    type="text"
+                                    value={brandEditName}
+                                    onChange={(ev) => setBrandEditName(ev.target.value)}
+                                    maxLength={500}
+                                    disabled={brandEditSaving}
+                                    autoComplete="off"
+                                  />
+                                </label>
+                                <label className="config-clothing-field">
+                                  <span>Website (link)</span>
+                                  <input
+                                    type="text"
+                                    value={brandEditWebsite}
+                                    onChange={(ev) => setBrandEditWebsite(ev.target.value)}
+                                    placeholder="https://…"
+                                    maxLength={2048}
+                                    disabled={brandEditSaving}
+                                    autoComplete="off"
+                                  />
+                                </label>
+                                <div className="config-clothing-inline-edit-actions">
+                                  <button
+                                    type="button"
+                                    className="config-clothing-save-button"
+                                    onClick={() => void handleBrandEditSave()}
+                                    disabled={brandEditSaving || !brandEditName.trim()}
+                                  >
+                                    {brandEditSaving ? 'Saving…' : 'Save'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="config-clothing-cancel-edit-button"
+                                    onClick={cancelBrandEdit}
+                                    disabled={brandEditSaving}
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : (
+                          <tr key={b.id}>
+                            <td>{b.id}</td>
+                            <td className="config-clothing-td-name">{b.brand_name}</td>
+                            <td>
+                              {b.brand_website?.trim() ? (
+                                <a
+                                  href={
+                                    b.brand_website?.startsWith('http')
+                                      ? b.brand_website
+                                      : `https://${b.brand_website}`
+                                  }
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="config-brand-website-link"
+                                >
+                                  {b.brand_website}
+                                </a>
+                              ) : (
+                                '—'
+                              )}
+                            </td>
+                            <td className="config-clothing-td-actions">
+                              <button
+                                type="button"
+                                className="config-clothing-edit-name-button"
+                                onClick={() => startBrandEdit(b)}
+                                disabled={brandEditSaving || brandAddSaving}
                               >
                                 Edit
                               </button>

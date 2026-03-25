@@ -783,10 +783,18 @@ const handleBrandTagImagesGet = async (req, res) => {
     }
 
     const result = await pool.query(
-      `SELECT id, brand_id, storage_path, caption, sort_order, content_type, image_kind, created_at, updated_at
+      `SELECT id, brand_id, storage_path, caption, sort_order, content_type, image_kind, quality_tier, created_at, updated_at
        FROM brand_tag_image
        WHERE brand_id = $1
-       ORDER BY CASE WHEN image_kind = 'fake_check' THEN 1 ELSE 0 END, sort_order ASC, id ASC`,
+       ORDER BY
+         CASE WHEN image_kind = 'fake_check' THEN 1 ELSE 0 END,
+         CASE quality_tier
+           WHEN 'good' THEN 0
+           WHEN 'average' THEN 1
+           ELSE 2
+         END,
+         sort_order ASC,
+         id ASC`,
       [brandId]
     );
 
@@ -860,6 +868,15 @@ const handleBrandTagImagesPost = async (req, res) => {
     const imageKind =
       typeof kindRaw === 'string' && kindRaw.trim() === 'fake_check' ? 'fake_check' : 'tag';
 
+    const qualityTierRaw = req.body?.qualityTier ?? req.body?.quality_tier;
+    let qualityTier = 'average';
+    if (typeof qualityTierRaw === 'string') {
+      const q = qualityTierRaw.trim().toLowerCase();
+      if (q === 'good' || q === 'average' || q === 'poor') {
+        qualityTier = q;
+      }
+    }
+
     const ext =
       req.file.mimetype === 'image/png'
         ? 'png'
@@ -888,10 +905,10 @@ const handleBrandTagImagesPost = async (req, res) => {
 
     try {
       const insertResult = await pool.query(
-        `INSERT INTO brand_tag_image (id, brand_id, storage_path, caption, content_type, image_kind)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         RETURNING id, brand_id, storage_path, caption, sort_order, content_type, image_kind, created_at, updated_at`,
-        [imageRowId, brandId, storagePath, caption, req.file.mimetype, imageKind]
+        `INSERT INTO brand_tag_image (id, brand_id, storage_path, caption, content_type, image_kind, quality_tier)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id, brand_id, storage_path, caption, sort_order, content_type, image_kind, quality_tier, created_at, updated_at`,
+        [imageRowId, brandId, storagePath, caption, req.file.mimetype, imageKind, qualityTier]
       );
 
       const row = insertResult.rows[0];
@@ -960,10 +977,6 @@ const handleBrandTagImagesPatch = async (req, res) => {
       imageKind = k;
     }
 
-    if (!captionProvided && imageKind === null) {
-      return res.status(400).json({ error: 'Provide caption and/or imageKind' });
-    }
-
     const sets = [];
     const params = [];
     let n = 1;
@@ -975,6 +988,38 @@ const handleBrandTagImagesPatch = async (req, res) => {
       sets.push(`image_kind = $${n++}`);
       params.push(imageKind);
     }
+
+    const qualityBody = req.body && typeof req.body === 'object' ? req.body : {};
+    const hasQualityKey =
+      Object.prototype.hasOwnProperty.call(qualityBody, 'qualityTier') ||
+      Object.prototype.hasOwnProperty.call(qualityBody, 'quality_tier');
+    const qualityRaw = qualityBody.qualityTier ?? qualityBody.quality_tier;
+    let qualityTier = null;
+    if (hasQualityKey) {
+      if (qualityRaw === null || qualityRaw === undefined) {
+        return res.status(400).json({ error: 'qualityTier cannot be null' });
+      }
+      const q = String(qualityRaw).trim().toLowerCase();
+      if (q !== 'good' && q !== 'average' && q !== 'poor') {
+        return res.status(400).json({ error: 'qualityTier must be "good", "average", or "poor"' });
+      }
+      qualityTier = q;
+    } else if (qualityRaw !== undefined && qualityRaw !== null) {
+      // Defensive: body may expose tier without own-property (unusual proxies); still persist.
+      const q = String(qualityRaw).trim().toLowerCase();
+      if (q === 'good' || q === 'average' || q === 'poor') {
+        qualityTier = q;
+      }
+    }
+
+    if (!captionProvided && imageKind === null && qualityTier === null) {
+      return res.status(400).json({ error: 'Provide caption, imageKind, and/or qualityTier' });
+    }
+
+    if (qualityTier !== null) {
+      sets.push(`quality_tier = $${n++}`);
+      params.push(qualityTier);
+    }
     sets.push('updated_at = NOW()');
     params.push(id);
 
@@ -982,7 +1027,7 @@ const handleBrandTagImagesPatch = async (req, res) => {
       `UPDATE brand_tag_image
        SET ${sets.join(', ')}
        WHERE id = $${n}
-       RETURNING id, brand_id, storage_path, caption, sort_order, content_type, image_kind, created_at, updated_at`,
+       RETURNING id, brand_id, storage_path, caption, sort_order, content_type, image_kind, quality_tier, created_at, updated_at`,
       params
     );
 
@@ -997,6 +1042,13 @@ const handleBrandTagImagesPatch = async (req, res) => {
     });
   } catch (error) {
     console.error('Brand tag image patch failed:', error);
+    if (error && error.code === '42703') {
+      return res.status(503).json({
+        error: 'Database column missing (quality_tier)',
+        details: error.message,
+        hint: 'Run database/brand_tag_image_add_quality_tier.sql on this database, then retry.',
+      });
+    }
     res.status(500).json({ error: 'Failed to update brand tag image', details: error.message });
   }
 };
@@ -1563,6 +1615,11 @@ async function resolveBrandTagImageIdForCache(db, brandId) {
      WHERE brand_id = $1
      ORDER BY
        CASE WHEN image_kind = 'fake_check' THEN 1 ELSE 0 END,
+       CASE quality_tier
+         WHEN 'good' THEN 0
+         WHEN 'average' THEN 1
+         ELSE 2
+       END,
        sort_order ASC NULLS LAST,
        id ASC
      LIMIT 1`,
@@ -2173,6 +2230,23 @@ app.patch('/api/brands/:id', async (req, res) => {
     const vals = [];
     let n = 1;
 
+    if (Object.prototype.hasOwnProperty.call(body, 'brand_name')) {
+      const raw = body.brand_name;
+      if (typeof raw !== 'string' || !raw.trim()) {
+        return res.status(400).json({ error: 'brand_name cannot be empty' });
+      }
+      const normalizedName = raw.trim().slice(0, 500);
+      const dup = await pool.query(
+        'SELECT id FROM brand WHERE LOWER(TRIM(brand_name)) = LOWER($1) AND id <> $2',
+        [normalizedName, id]
+      );
+      if (dup.rowCount > 0) {
+        return res.status(400).json({ error: 'Brand name already exists' });
+      }
+      sets.push(`brand_name = $${n++}`);
+      vals.push(normalizedName);
+    }
+
     if (Object.prototype.hasOwnProperty.call(body, 'brand_website')) {
       const raw = body.brand_website;
       let value = null;
@@ -2240,7 +2314,7 @@ app.patch('/api/brands/:id', async (req, res) => {
     if (sets.length === 0) {
       return res.status(400).json({
         error:
-          'Provide at least one of: brand_website, things_to_buy, things_to_avoid, menswear_category_id',
+          'Provide at least one of: brand_name, brand_website, things_to_buy, things_to_avoid, menswear_category_id',
       });
     }
 
@@ -2440,6 +2514,46 @@ app.patch('/api/menswear-categories/:id', async (req, res) => {
 });
 
 /**
+ * DELETE /api/menswear-categories/:id
+ * Fails with 409 if any brand has menswear_category_id = id.
+ */
+app.delete('/api/menswear-categories/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id) || id < 1) {
+      return res.status(400).json({ error: 'Invalid category id' });
+    }
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    await ensureMenswearCategoryTable(pool);
+
+    const brandCountRes = await pool.query(
+      `SELECT COUNT(*)::int AS c FROM brand WHERE menswear_category_id = $1`,
+      [id]
+    );
+    const linked = brandCountRes.rows[0]?.c ?? 0;
+    if (linked > 0) {
+      return res.status(409).json({
+        error:
+          'Remove the associated brands from this category before deleting it.',
+        brandCount: linked,
+      });
+    }
+
+    const del = await pool.query('DELETE FROM menswear_category WHERE id = $1 RETURNING id', [id]);
+    if (!del.rowCount) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('menswear-categories delete failed:', error);
+    res.status(500).json({ error: 'Failed to delete category', details: error.message });
+  }
+});
+
+/**
  * Brands in a menswear category, with total sold revenue (sum of sale_price where sold).
  * GET /api/menswear-categories/:id/brands?sort=name|total_sales
  */
@@ -2514,6 +2628,141 @@ async function ensureBrandLinksTable(pool) {
     CREATE INDEX IF NOT EXISTS idx_brand_links_created_at ON public.brand_links (brand_id, created_at DESC);
   `);
 }
+
+async function ensureBrandExamplePricingTable(pool) {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS public.brand_example_pricing (
+      id SERIAL PRIMARY KEY,
+      brand_id INTEGER NOT NULL REFERENCES public.brand (id) ON DELETE CASCADE,
+      item_name VARCHAR(500) NOT NULL,
+      price_gbp NUMERIC(12, 2) NOT NULL CHECK (price_gbp >= 0),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_brand_example_pricing_brand_id
+      ON public.brand_example_pricing (brand_id);
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_brand_example_pricing_created_at
+      ON public.brand_example_pricing (brand_id, created_at DESC, id DESC);
+  `);
+}
+
+/**
+ * Example pricing lines for a brand (Research).
+ * GET /api/brands/:brandId/example-pricing
+ */
+app.get('/api/brands/:brandId/example-pricing', async (req, res) => {
+  try {
+    const brandId = parseInt(req.params.brandId, 10);
+    if (Number.isNaN(brandId) || brandId < 1) {
+      return res.status(400).json({ error: 'Invalid brand id' });
+    }
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    await ensureBrandExamplePricingTable(pool);
+    const brandCheck = await pool.query('SELECT id FROM brand WHERE id = $1', [brandId]);
+    if (!brandCheck.rowCount) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+    const result = await pool.query(
+      `SELECT id, brand_id, item_name, price_gbp, created_at
+       FROM brand_example_pricing
+       WHERE brand_id = $1
+       ORDER BY created_at ASC, id ASC`,
+      [brandId]
+    );
+    res.json({ rows: result.rows });
+  } catch (error) {
+    console.error('brand example pricing list failed:', error);
+    res.status(500).json({ error: 'Failed to load example pricing', details: error.message });
+  }
+});
+
+/**
+ * POST /api/brands/:brandId/example-pricing  body: { item_name, price_gbp }
+ */
+app.post('/api/brands/:brandId/example-pricing', async (req, res) => {
+  try {
+    const brandId = parseInt(req.params.brandId, 10);
+    if (Number.isNaN(brandId) || brandId < 1) {
+      return res.status(400).json({ error: 'Invalid brand id' });
+    }
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    await ensureBrandExamplePricingTable(pool);
+    const brandCheck = await pool.query('SELECT id FROM brand WHERE id = $1', [brandId]);
+    if (!brandCheck.rowCount) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+
+    const body = req.body ?? {};
+    const nameRaw = body.item_name;
+    if (typeof nameRaw !== 'string' || !nameRaw.trim()) {
+      return res.status(400).json({ error: 'item_name is required' });
+    }
+    const item_name = nameRaw.trim().slice(0, 500);
+
+    const priceRaw = body.price_gbp;
+    let priceNum;
+    if (typeof priceRaw === 'number' && Number.isFinite(priceRaw)) {
+      priceNum = priceRaw;
+    } else if (typeof priceRaw === 'string' && priceRaw.trim()) {
+      priceNum = parseFloat(priceRaw.trim().replace(/,/g, ''));
+    } else {
+      return res.status(400).json({ error: 'price_gbp is required (number)' });
+    }
+    if (!Number.isFinite(priceNum) || priceNum < 0) {
+      return res.status(400).json({ error: 'price_gbp must be a non-negative number' });
+    }
+    const price_gbp = Math.round(priceNum * 100) / 100;
+
+    const result = await pool.query(
+      `INSERT INTO brand_example_pricing (brand_id, item_name, price_gbp)
+       VALUES ($1, $2, $3)
+       RETURNING id, brand_id, item_name, price_gbp, created_at`,
+      [brandId, item_name, price_gbp]
+    );
+    res.status(201).json({ row: result.rows[0] });
+  } catch (error) {
+    console.error('brand example pricing create failed:', error);
+    res.status(500).json({ error: 'Failed to save example pricing', details: error.message });
+  }
+});
+
+/**
+ * DELETE /api/brands/:brandId/example-pricing/:rowId
+ */
+app.delete('/api/brands/:brandId/example-pricing/:rowId', async (req, res) => {
+  try {
+    const brandId = parseInt(req.params.brandId, 10);
+    const rowId = parseInt(req.params.rowId, 10);
+    if (Number.isNaN(brandId) || brandId < 1 || Number.isNaN(rowId) || rowId < 1) {
+      return res.status(400).json({ error: 'Invalid id' });
+    }
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    await ensureBrandExamplePricingTable(pool);
+    const result = await pool.query(
+      'DELETE FROM brand_example_pricing WHERE id = $1 AND brand_id = $2 RETURNING id',
+      [rowId, brandId]
+    );
+    if (!result.rowCount) {
+      return res.status(404).json({ error: 'Row not found' });
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('brand example pricing delete failed:', error);
+    res.status(500).json({ error: 'Failed to delete example pricing', details: error.message });
+  }
+});
 
 /**
  * Saved reference links for a brand (Research).
@@ -2670,6 +2919,43 @@ app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
     const totalSoldRevenue = Number(moneyRow.total_sold_revenue) || 0;
     const brandNetPosition = totalSoldRevenue - totalPurchaseSpend;
 
+    const soldPriceStatsResult = await pool.query(
+      `
+        SELECT
+          MIN(s.sale_price::numeric) FILTER (
+            WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+          ) AS min_sold_sale_price,
+          MAX(s.sale_price::numeric) FILTER (
+            WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+          ) AS max_sold_sale_price,
+          AVG(s.sale_price::numeric / NULLIF(s.purchase_price::numeric, 0)) FILTER (
+            WHERE s.sale_price IS NOT NULL
+              AND s.sale_price::numeric > 0
+              AND s.purchase_price IS NOT NULL
+              AND s.purchase_price::numeric > 0
+          ) AS avg_sold_profit_multiple
+        FROM stock s
+        WHERE s.brand_id = $1
+      `,
+      [brandId]
+    );
+    const soldPriceStats = soldPriceStatsResult.rows[0] || {};
+    const minSoldSalePriceRaw = soldPriceStats.min_sold_sale_price;
+    const maxSoldSalePriceRaw = soldPriceStats.max_sold_sale_price;
+    const minSoldSalePrice =
+      minSoldSalePriceRaw != null && Number.isFinite(Number(minSoldSalePriceRaw))
+        ? Number(minSoldSalePriceRaw)
+        : null;
+    const maxSoldSalePrice =
+      maxSoldSalePriceRaw != null && Number.isFinite(Number(maxSoldSalePriceRaw))
+        ? Number(maxSoldSalePriceRaw)
+        : null;
+    const avgSoldProfitMultipleRaw = soldPriceStats.avg_sold_profit_multiple;
+    const avgSoldProfitMultiple =
+      avgSoldProfitMultipleRaw != null && Number.isFinite(Number(avgSoldProfitMultipleRaw))
+        ? Number(avgSoldProfitMultipleRaw)
+        : null;
+
     const topResult = await pool.query(
       `
         SELECT
@@ -2740,6 +3026,62 @@ app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
       purchase_date: row.purchase_date != null ? row.purchase_date : null,
     }));
 
+    const categoryFreqResult = await pool.query(
+      `
+        SELECT
+          COALESCE(c.id, 0)::int AS category_id,
+          COALESCE(c.category_name, 'Uncategorized') AS category_name,
+          COUNT(*)::int AS sold_count
+        FROM stock s
+        LEFT JOIN category c ON c.id = s.category_id
+        WHERE s.brand_id = $1
+          AND s.sale_price IS NOT NULL
+          AND s.sale_price::numeric > 0
+        GROUP BY c.id, c.category_name
+        HAVING COUNT(*) > 0
+      `,
+      [brandId]
+    );
+
+    const allCatRows = categoryFreqResult.rows.map((row) => ({
+      category_id: row.category_id != null ? Number(row.category_id) : 0,
+      category_name: row.category_name != null ? String(row.category_name) : 'Uncategorized',
+      sold_count: Number(row.sold_count) || 0,
+    }));
+
+    const sortedDesc = [...allCatRows].sort((a, b) => {
+      if (b.sold_count !== a.sold_count) return b.sold_count - a.sold_count;
+      return String(a.category_name).localeCompare(String(b.category_name));
+    });
+    const top5 = sortedDesc.slice(0, 5);
+    const top5Ids = new Set(top5.map((r) => r.category_id));
+    const sortedAsc = [...allCatRows].sort((a, b) => {
+      if (a.sold_count !== b.sold_count) return a.sold_count - b.sold_count;
+      return String(a.category_name).localeCompare(String(b.category_name));
+    });
+    const worst3 = [];
+    for (const r of sortedAsc) {
+      if (!top5Ids.has(r.category_id)) {
+        worst3.push(r);
+        if (worst3.length >= 3) break;
+      }
+    }
+
+    const categorySellHeatMap = [
+      ...top5.map((r) => ({
+        category_id: r.category_id,
+        category_name: r.category_name,
+        sold_count: r.sold_count,
+        tier: 'top',
+      })),
+      ...worst3.map((r) => ({
+        category_id: r.category_id,
+        category_name: r.category_name,
+        sold_count: r.sold_count,
+        tier: 'worst',
+      })),
+    ];
+
     res.json({
       brandId,
       totalItems,
@@ -2748,8 +3090,12 @@ app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
       totalPurchaseSpend,
       totalSoldRevenue,
       brandNetPosition,
+      minSoldSalePrice,
+      maxSoldSalePrice,
+      avgSoldProfitMultiple,
       topSoldItems,
       longestUnsoldItems,
+      categorySellHeatMap,
     });
   } catch (error) {
     console.error('Brand stock summary failed:', error);

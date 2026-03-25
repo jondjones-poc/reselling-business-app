@@ -19,6 +19,34 @@ function formatResearchCurrency(value: number): string {
   return new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(value);
 }
 
+function formatAveragedSaleBand(min: number, max: number): string {
+  const same = Math.abs(max - min) < 0.005;
+  return same
+    ? formatResearchCurrency(min)
+    : `${formatResearchCurrency(min)}–${formatResearchCurrency(max)}`;
+}
+
+function formatSoldMultipleDisplay(n: number): string {
+  if (!Number.isFinite(n)) return '—';
+  const rounded = Math.round(n * 10) / 10;
+  if (Math.abs(rounded - Math.round(rounded)) < 0.05) {
+    return `${Math.round(rounded)}×`;
+  }
+  return `${rounded.toFixed(1)}×`;
+}
+
+/** Heat colour for category sell frequency: cool (low) → hot (high). */
+function categorySellHeatColor(value: number, min: number, max: number): string {
+  if (!Number.isFinite(value)) return 'rgba(120, 160, 220, 0.85)';
+  if (max <= min) return 'rgba(255, 180, 80, 0.9)';
+  const t = Math.min(1, Math.max(0, (value - min) / (max - min)));
+  const r = Math.round(60 + t * 195);
+  const g = Math.round(140 + (1 - t) * 70);
+  const b = Math.round(220 - t * 185);
+  const a = 0.88 + t * 0.1;
+  return `rgba(${r},${g},${b},${a})`;
+}
+
 async function copyResearchTextToClipboard(text: string): Promise<void> {
   if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
@@ -279,6 +307,14 @@ type BrandRefLinkRow = {
   created_at: string;
 };
 
+type BrandExamplePricingRow = {
+  id: number;
+  brand_id: number;
+  item_name: string;
+  price_gbp: number;
+  created_at: string;
+};
+
 type BrandStockTopItem = {
   id: number | null;
   item_name: string;
@@ -298,6 +334,13 @@ type BrandStockLongestUnsoldItem = {
   purchase_date: string | null;
 };
 
+type BrandCategorySellHeatRow = {
+  category_id: number;
+  category_name: string;
+  sold_count: number;
+  tier: 'top' | 'worst';
+};
+
 type BrandStockSummaryPayload = {
   brandId: number;
   totalItems: number;
@@ -309,8 +352,16 @@ type BrandStockSummaryPayload = {
   totalSoldRevenue: number;
   /** totalSoldRevenue − totalPurchaseSpend (sales vs all buy-in for the brand). */
   brandNetPosition: number;
+  /** Min sale_price among sold rows (> 0), when any. */
+  minSoldSalePrice: number | null;
+  /** Max sale_price among sold rows (> 0), when any. */
+  maxSoldSalePrice: number | null;
+  /** Mean sale_price ÷ purchase_price for sold rows with both prices > 0, when any. */
+  avgSoldProfitMultiple: number | null;
   topSoldItems: BrandStockTopItem[];
   longestUnsoldItems: BrandStockLongestUnsoldItem[];
+  /** Top 5 categories by sold count + 3 lowest (excluding those top 5). */
+  categorySellHeatMap: BrandCategorySellHeatRow[];
 };
 
 function parseBrandStockSummaryPayload(data: unknown): BrandStockSummaryPayload {
@@ -347,6 +398,30 @@ function parseBrandStockSummaryPayload(data: unknown): BrandStockSummaryPayload 
         };
       })
     : [];
+  const heatRaw = d.categorySellHeatMap;
+  const categorySellHeatGuard = (t: unknown): t is 'top' | 'worst' => t === 'top' || t === 'worst';
+  const categorySellHeatMap: BrandCategorySellHeatRow[] = Array.isArray(heatRaw)
+    ? heatRaw.map((row) => {
+        const r = row as Record<string, unknown>;
+        const tierRaw = r.tier;
+        return {
+          category_id: r.category_id != null ? Number(r.category_id) : 0,
+          category_name: r.category_name != null ? String(r.category_name) : 'Uncategorized',
+          sold_count: r.sold_count != null ? Number(r.sold_count) : 0,
+          tier: categorySellHeatGuard(tierRaw) ? tierRaw : 'top',
+        };
+      })
+    : [];
+  const minSp = d.minSoldSalePrice;
+  const maxSp = d.maxSoldSalePrice;
+  const minSoldSalePrice =
+    minSp != null && Number.isFinite(Number(minSp)) ? Number(minSp) : null;
+  const maxSoldSalePrice =
+    maxSp != null && Number.isFinite(Number(maxSp)) ? Number(maxSp) : null;
+  const avgMult = d.avgSoldProfitMultiple;
+  const avgSoldProfitMultiple =
+    avgMult != null && Number.isFinite(Number(avgMult)) ? Number(avgMult) : null;
+
   return {
     brandId: Number(d.brandId) || 0,
     totalItems: Number(d.totalItems) || 0,
@@ -355,8 +430,12 @@ function parseBrandStockSummaryPayload(data: unknown): BrandStockSummaryPayload 
     totalPurchaseSpend: Number(d.totalPurchaseSpend) || 0,
     totalSoldRevenue: Number(d.totalSoldRevenue) || 0,
     brandNetPosition: Number(d.brandNetPosition) || 0,
+    minSoldSalePrice,
+    maxSoldSalePrice,
+    avgSoldProfitMultiple,
     topSoldItems,
     longestUnsoldItems,
+    categorySellHeatMap,
   };
 }
 
@@ -1019,6 +1098,47 @@ interface TypeaheadResult {
 
 type BrandTagImageKind = 'tag' | 'fake_check';
 
+type BrandTagQualityTier = 'good' | 'average' | 'poor';
+
+type BrandTagQualitySortOrder = 'best_first' | 'bad_first';
+
+function parseBrandTagQualityTier(raw: unknown): BrandTagQualityTier {
+  if (raw === 'good' || raw === 'average' || raw === 'poor') return raw;
+  if (typeof raw === 'string') {
+    const s = raw.trim().toLowerCase();
+    if (s === 'good' || s === 'average' || s === 'poor') return s;
+  }
+  return 'average';
+}
+
+/** Display only (Best / Average / Poor). DB values stay good | average | poor. */
+function brandTagQualityStars(tier: BrandTagQualityTier): string {
+  switch (tier) {
+    case 'good':
+      return '⭐⭐⭐⭐⭐';
+    case 'poor':
+      return '⭐';
+    default:
+      return '⭐⭐⭐';
+  }
+}
+
+function brandTagQualityAriaLabel(tier: BrandTagQualityTier): string {
+  switch (tier) {
+    case 'good':
+      return 'Best quality, 5 stars';
+    case 'poor':
+      return 'Poor quality, 1 star';
+    default:
+      return 'Average quality, 3 stars';
+  }
+}
+
+function qualityTierSortRank(tier: BrandTagQualityTier, badFirst: boolean): number {
+  const base = tier === 'good' ? 0 : tier === 'average' ? 1 : 2;
+  return badFirst ? 2 - base : base;
+}
+
 interface BrandTagImageRow {
   id: number;
   brand_id: number;
@@ -1027,6 +1147,7 @@ interface BrandTagImageRow {
   sort_order: number;
   content_type: string | null;
   image_kind: BrandTagImageKind;
+  quality_tier: BrandTagQualityTier;
   created_at: string;
   updated_at: string;
   public_url: string | null;
@@ -1037,20 +1158,49 @@ function normalizeBrandTagImageRow(raw: unknown): BrandTagImageRow {
   const kindRaw = r.image_kind;
   const image_kind: BrandTagImageKind =
     kindRaw === 'fake_check' || kindRaw === 'fake' ? 'fake_check' : 'tag';
+  const base = r as unknown as BrandTagImageRow;
+  const qtRaw = r.quality_tier ?? r.qualityTier;
   return {
-    ...(r as unknown as BrandTagImageRow),
+    ...base,
     image_kind,
+    quality_tier: parseBrandTagQualityTier(qtRaw),
   };
 }
 
-function sortBrandTagImages(rows: BrandTagImageRow[]): BrandTagImageRow[] {
+function sortBrandTagImages(
+  rows: BrandTagImageRow[],
+  qualityOrder: BrandTagQualitySortOrder
+): BrandTagImageRow[] {
+  const badFirst = qualityOrder === 'bad_first';
   return [...rows].sort((a, b) => {
     const fa = a.image_kind === 'fake_check' ? 1 : 0;
     const fb = b.image_kind === 'fake_check' ? 1 : 0;
     if (fa !== fb) return fa - fb;
+    const qa = qualityTierSortRank(a.quality_tier, badFirst);
+    const qb = qualityTierSortRank(b.quality_tier, badFirst);
+    if (qa !== qb) return qa - qb;
     if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
     return a.id - b.id;
   });
+}
+
+function BrandTagQualityFilterIcon(): React.ReactElement {
+  return (
+    <svg
+      className="brand-tag-quality-filter-svg"
+      viewBox="0 0 24 24"
+      width={20}
+      height={20}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
+    </svg>
+  );
 }
 
 const Research: React.FC = () => {
@@ -1171,7 +1321,11 @@ const Research: React.FC = () => {
   const [brandTagEditingId, setBrandTagEditingId] = useState<number | null>(null);
   const [brandTagEditCaption, setBrandTagEditCaption] = useState('');
   const [brandTagEditKind, setBrandTagEditKind] = useState<BrandTagImageKind>('tag');
+  const [brandTagEditQuality, setBrandTagEditQuality] = useState<BrandTagQualityTier>('average');
   const [brandTagSaving, setBrandTagSaving] = useState(false);
+  const [brandTagQualitySort, setBrandTagQualitySort] = useState<BrandTagQualitySortOrder>('best_first');
+  const [brandTagQualityMenuOpen, setBrandTagQualityMenuOpen] = useState(false);
+  const brandTagQualityMenuRef = useRef<HTMLDivElement>(null);
   const [brandTagAddPanelOpen, setBrandTagAddPanelOpen] = useState(false);
   /** When Add info panel is open: choose sub-flow, then image upload or brand info form. */
   const [brandTagAddSubMode, setBrandTagAddSubMode] = useState<'pick' | 'image' | 'info'>('pick');
@@ -1201,6 +1355,15 @@ const Research: React.FC = () => {
   /** Shown when cache is missing/stale until a live sync completes. */
   const [ebaySoldNoCacheNotice, setEbaySoldNoCacheNotice] = useState<string | null>(null);
   const [ebaySoldRefreshing, setEbaySoldRefreshing] = useState(false);
+
+  const [brandExamplePricing, setBrandExamplePricing] = useState<BrandExamplePricingRow[]>([]);
+  const [brandExamplePricingLoading, setBrandExamplePricingLoading] = useState(false);
+  const [brandExamplePricingError, setBrandExamplePricingError] = useState<string | null>(null);
+  const [brandExamplePricingAddOpen, setBrandExamplePricingAddOpen] = useState(false);
+  const [brandExamplePricingItemDraft, setBrandExamplePricingItemDraft] = useState('');
+  const [brandExamplePricingPriceDraft, setBrandExamplePricingPriceDraft] = useState('');
+  const [brandExamplePricingSaving, setBrandExamplePricingSaving] = useState(false);
+  const [brandExamplePricingDeletingId, setBrandExamplePricingDeletingId] = useState<number | null>(null);
 
   const compressImage = (file: File, maxWidth: number = 1920, maxHeight: number = 1920, quality: number = 0.8): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -2000,6 +2163,9 @@ const Research: React.FC = () => {
     setBrandRefLinksAddOpen(false);
     setBrandRefLinkUrlDraft('');
     setBrandRefLinkTextDraft('');
+    setBrandExamplePricingAddOpen(false);
+    setBrandExamplePricingItemDraft('');
+    setBrandExamplePricingPriceDraft('');
   }, [brandTagBrandId]);
 
   useEffect(() => {
@@ -2049,6 +2215,60 @@ const Research: React.FC = () => {
   }, [researchTab, brandTagBrandId]);
 
   useEffect(() => {
+    if (researchTab !== 'brand' || brandTagBrandId === '') {
+      setBrandExamplePricing([]);
+      setBrandExamplePricingError(null);
+      setBrandExamplePricingLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const id = Number(brandTagBrandId);
+
+    (async () => {
+      setBrandExamplePricingLoading(true);
+      setBrandExamplePricingError(null);
+      try {
+        const res = await fetch(apiUrl(`/api/brands/${id}/example-pricing`));
+        const data = await readJsonResponse<{ rows?: unknown[] }>(res, 'brand example pricing');
+        if (!cancelled) {
+          const raw = Array.isArray(data.rows) ? data.rows : [];
+          setBrandExamplePricing(
+            raw.map((r) => {
+              const row = r as Record<string, unknown>;
+              const p = row.price_gbp;
+              const priceNum =
+                typeof p === 'number' && Number.isFinite(p)
+                  ? p
+                  : parseFloat(String(p ?? ''));
+              return {
+                id: Number(row.id),
+                brand_id: Number(row.brand_id),
+                item_name: String(row.item_name ?? ''),
+                price_gbp: Number.isFinite(priceNum) ? priceNum : 0,
+                created_at: String(row.created_at ?? ''),
+              };
+            })
+          );
+        }
+      } catch (err: unknown) {
+        if (!cancelled) {
+          setBrandExamplePricing([]);
+          setBrandExamplePricingError(friendlyApiUnreachableMessage(err));
+        }
+      } finally {
+        if (!cancelled) {
+          setBrandExamplePricingLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [researchTab, brandTagBrandId]);
+
+  useEffect(() => {
     if (!brandTagBrandId) {
       setBrandTagImages([]);
       setBrandTagError(null);
@@ -2076,7 +2296,7 @@ const Research: React.FC = () => {
             );
           }
           const rows = Array.isArray(data.rows) ? data.rows.map(normalizeBrandTagImageRow) : [];
-          setBrandTagImages(sortBrandTagImages(rows));
+          setBrandTagImages(rows);
         }
       } catch (err: unknown) {
         if (!cancelled) {
@@ -2095,6 +2315,31 @@ const Research: React.FC = () => {
       cancelled = true;
     };
   }, [brandTagBrandId]);
+
+  useEffect(() => {
+    setBrandTagQualityMenuOpen(false);
+  }, [brandTagBrandId]);
+
+  useEffect(() => {
+    if (!brandTagQualityMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const el = brandTagQualityMenuRef.current;
+      if (el && !el.contains(e.target as Node)) {
+        setBrandTagQualityMenuOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setBrandTagQualityMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [brandTagQualityMenuOpen]);
 
   useEffect(() => {
     if (brandTagBrandId === '') {
@@ -2274,6 +2519,76 @@ const Research: React.FC = () => {
     }
   };
 
+  const handleSaveBrandExamplePricing = async () => {
+    if (brandTagBrandId === '') return;
+    const id = Number(brandTagBrandId);
+    const itemName = brandExamplePricingItemDraft.trim();
+    if (!itemName) {
+      setBrandExamplePricingError('Enter an item name (e.g. Jeans).');
+      return;
+    }
+    const priceParsed = parseFloat(brandExamplePricingPriceDraft.trim().replace(/,/g, ''));
+    if (!Number.isFinite(priceParsed) || priceParsed < 0) {
+      setBrandExamplePricingError('Enter a valid price (GBP).');
+      return;
+    }
+    setBrandExamplePricingSaving(true);
+    setBrandExamplePricingError(null);
+    try {
+      const res = await fetch(apiUrl(`/api/brands/${id}/example-pricing`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          item_name: itemName,
+          price_gbp: priceParsed,
+        }),
+      });
+      const data = await readJsonResponse<{ row?: Record<string, unknown> }>(
+        res,
+        'brand example pricing save'
+      );
+      const row = data.row;
+      if (row) {
+        const p = row.price_gbp;
+        const priceNum =
+          typeof p === 'number' && Number.isFinite(p) ? p : parseFloat(String(p ?? ''));
+        const normalized: BrandExamplePricingRow = {
+          id: Number(row.id),
+          brand_id: Number(row.brand_id),
+          item_name: String(row.item_name ?? ''),
+          price_gbp: Number.isFinite(priceNum) ? priceNum : 0,
+          created_at: String(row.created_at ?? ''),
+        };
+        setBrandExamplePricing((prev) => [...prev, normalized]);
+      }
+      setBrandExamplePricingItemDraft('');
+      setBrandExamplePricingPriceDraft('');
+      setBrandExamplePricingAddOpen(false);
+    } catch (err: unknown) {
+      setBrandExamplePricingError(friendlyApiUnreachableMessage(err));
+    } finally {
+      setBrandExamplePricingSaving(false);
+    }
+  };
+
+  const handleDeleteBrandExamplePricing = async (rowId: number) => {
+    if (brandTagBrandId === '') return;
+    const brandId = Number(brandTagBrandId);
+    setBrandExamplePricingDeletingId(rowId);
+    setBrandExamplePricingError(null);
+    try {
+      const res = await fetch(apiUrl(`/api/brands/${brandId}/example-pricing/${rowId}`), {
+        method: 'DELETE',
+      });
+      await readJsonResponse<unknown>(res, 'brand example pricing delete');
+      setBrandExamplePricing((prev) => prev.filter((r) => r.id !== rowId));
+    } catch (err: unknown) {
+      setBrandExamplePricingError(friendlyApiUnreachableMessage(err));
+    } finally {
+      setBrandExamplePricingDeletingId(null);
+    }
+  };
+
   const handleCopyLongestUnsoldAskAi = async () => {
     if (!brandStockSummary || brandStockSummary.longestUnsoldItems.length === 0) return;
     const br = brandsWithWebsites.find((b) => b.id === brandTagBrandId);
@@ -2286,6 +2601,11 @@ const Research: React.FC = () => {
       console.warn('Ask AI clipboard write failed:', err);
     }
   };
+
+  const sortedBrandTagImages = useMemo(
+    () => sortBrandTagImages(brandTagImages, brandTagQualitySort),
+    [brandTagImages, brandTagQualitySort]
+  );
 
   const brandStockBarChartData = useMemo(() => {
     const s = brandStockSummary;
@@ -2359,6 +2679,94 @@ const Research: React.FC = () => {
     []
   );
 
+  const categoryHeatMapChartData = useMemo(() => {
+    const rows = brandStockSummary?.categorySellHeatMap;
+    if (!rows?.length) return null;
+    const counts = rows.map((r) => r.sold_count);
+    const minC = Math.min(...counts);
+    const maxC = Math.max(...counts);
+    const labelMax = 34;
+    return {
+      labels: rows.map((r) => {
+        let label = r.category_name || 'Uncategorized';
+        if (r.tier === 'worst') label = `${label} (slowest)`;
+        if (label.length > labelMax) label = `${label.slice(0, labelMax - 1)}…`;
+        return label;
+      }),
+      datasets: [
+        {
+          label: 'Sold in category',
+          data: counts,
+          backgroundColor: counts.map((c) => categorySellHeatColor(c, minC, maxC)),
+          borderColor: 'rgba(255, 214, 91, 0.15)',
+          borderWidth: 1,
+          borderRadius: 4,
+          barPercentage: 0.82,
+          categoryPercentage: 0.88,
+        },
+      ],
+    };
+  }, [brandStockSummary?.categorySellHeatMap]);
+
+  const categoryHeatMapBarOptions = useMemo<ChartOptions<'bar'>>(
+    () => {
+      const rows = brandStockSummary?.categorySellHeatMap ?? [];
+      return {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          title: {
+            display: true,
+            text: 'Category sell frequency (heat)',
+            color: 'rgba(255, 248, 226, 0.92)',
+            font: { size: 15, weight: 600 },
+            padding: { bottom: 8 },
+          },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => {
+                const i = ctx.dataIndex;
+                const row = rows[i];
+                const n = typeof ctx.raw === 'number' ? ctx.raw : Number(ctx.raw);
+                const tierNote =
+                  row?.tier === 'worst'
+                    ? ' — among slower categories for this brand'
+                    : ' — top seller';
+                return `${n} sold${tierNote}`;
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            beginAtZero: true,
+            title: {
+              display: true,
+              text: 'Sold items (count)',
+              color: 'rgba(255, 248, 226, 0.65)',
+              font: { size: 12 },
+            },
+            ticks: {
+              color: 'rgba(255, 248, 226, 0.8)',
+              precision: 0,
+            },
+            grid: { color: 'rgba(255, 214, 91, 0.1)' },
+          },
+          y: {
+            ticks: {
+              color: 'rgba(255, 248, 226, 0.88)',
+              font: { size: 12 },
+            },
+            grid: { display: false },
+          },
+        },
+      };
+    },
+    [brandStockSummary?.categorySellHeatMap]
+  );
+
   const handleSaveBrandInfo = async () => {
     if (brandTagBrandId === '') return;
     const id = brandTagBrandId;
@@ -2421,9 +2829,7 @@ const Research: React.FC = () => {
         response,
         'brandTagImages upload'
       );
-      setBrandTagImages((prev) =>
-        sortBrandTagImages([...prev, normalizeBrandTagImageRow(data)])
-      );
+      setBrandTagImages((prev) => [...prev, normalizeBrandTagImageRow(data)]);
       setBrandTagCaption('');
       setBrandTagNewImageKind('tag');
       setBrandTagAddPanelOpen(false);
@@ -2455,12 +2861,14 @@ const Research: React.FC = () => {
     setBrandTagEditingId(img.id);
     setBrandTagEditCaption(img.caption ?? '');
     setBrandTagEditKind(img.image_kind);
+    setBrandTagEditQuality(img.quality_tier);
   };
 
   const cancelEditBrandTagImage = () => {
     setBrandTagEditingId(null);
     setBrandTagEditCaption('');
     setBrandTagEditKind('tag');
+    setBrandTagEditQuality('average');
   };
 
   const handleSaveBrandTagCaption = async () => {
@@ -2475,17 +2883,20 @@ const Research: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           caption: trimmed ? trimmed.slice(0, 500) : null,
-          imageKind: brandTagEditKind,
+          imageKind: brandTagEditKind ?? 'tag',
+          // Always send a string so JSON never omits the key (undefined is stripped by JSON.stringify).
+          qualityTier: brandTagEditQuality ?? 'average',
         }),
       });
       const data = await readJsonResponse<BrandTagImageRow>(response, 'brandTagImages patch');
       const normalized = normalizeBrandTagImageRow(data);
       setBrandTagImages((prev) =>
-        sortBrandTagImages(prev.map((row) => (row.id === id ? { ...row, ...normalized } : row)))
+        prev.map((row) => (row.id === id ? { ...row, ...normalized } : row))
       );
       setBrandTagEditingId(null);
       setBrandTagEditCaption('');
       setBrandTagEditKind('tag');
+      setBrandTagEditQuality('average');
     } catch (err: unknown) {
       setBrandTagError(friendlyApiUnreachableMessage(err));
     } finally {
@@ -2496,12 +2907,14 @@ const Research: React.FC = () => {
   const renderBrandTagImageCard = (img: BrandTagImageRow) => {
     const isEditing = brandTagEditingId === img.id;
     const isFake = img.image_kind === 'fake_check';
+    const tierChrome = isEditing ? brandTagEditQuality : img.quality_tier;
+    const cardMod = isFake
+      ? ' brand-tag-examples-card--fake'
+      : ` brand-tag-examples-card--quality-${tierChrome}`;
     return (
       <li
         key={img.id}
-        className={
-          'brand-tag-examples-card' + (isFake ? ' brand-tag-examples-card--fake' : '')
-        }
+        className={'brand-tag-examples-card' + cardMod}
       >
         <div className="brand-tag-examples-card-row">
           <div className="brand-tag-examples-card-media">
@@ -2527,62 +2940,86 @@ const Research: React.FC = () => {
           </div>
           {isEditing ? (
             <div className="brand-tag-examples-edit-panel brand-tag-examples-card-edit-span">
-              <label className="brand-tag-examples-edit-label" htmlFor={`brand-tag-kind-${img.id}`}>
-                Image type
-              </label>
-              <select
-                id={`brand-tag-kind-${img.id}`}
-                className="brand-tag-examples-select brand-tag-examples-kind-select"
-                value={brandTagEditKind}
-                onChange={(e) => setBrandTagEditKind(e.target.value as BrandTagImageKind)}
-                disabled={brandTagSaving}
-              >
-                <option value="tag">Tag</option>
-                <option value="fake_check">Fake Check</option>
-              </select>
-              <label className="brand-tag-examples-edit-label" htmlFor={`brand-tag-edit-${img.id}`}>
-                Description
-              </label>
+              <div className="brand-tag-examples-edit-kind-quality-row">
+                <div className="brand-tag-examples-edit-field brand-tag-examples-edit-field--half">
+                  <select
+                    id={`brand-tag-kind-${img.id}`}
+                    className="brand-tag-examples-select brand-tag-examples-kind-select brand-tag-examples-edit-inline-select"
+                    aria-label="Image type"
+                    value={brandTagEditKind}
+                    onChange={(e) => setBrandTagEditKind(e.target.value as BrandTagImageKind)}
+                    disabled={brandTagSaving}
+                  >
+                    <option value="tag">Tag</option>
+                    <option value="fake_check">Fake Check</option>
+                  </select>
+                </div>
+                <div className="brand-tag-examples-edit-field brand-tag-examples-edit-field--half">
+                  <select
+                    id={`brand-tag-quality-${img.id}`}
+                    className="brand-tag-examples-select brand-tag-examples-kind-select brand-tag-examples-edit-inline-select"
+                    aria-label="Quality rating"
+                    value={brandTagEditQuality}
+                    onChange={(e) => setBrandTagEditQuality(e.target.value as BrandTagQualityTier)}
+                    disabled={brandTagSaving}
+                  >
+                    <option value="good">{brandTagQualityStars('good')}</option>
+                    <option value="average">{brandTagQualityStars('average')}</option>
+                    <option value="poor">{brandTagQualityStars('poor')}</option>
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  className="brand-tag-examples-remove brand-tag-examples-remove--round-inline"
+                  aria-label="Delete image"
+                  onClick={() => void handleDeleteBrandTagImage(img.id)}
+                  disabled={brandTagSaving}
+                >
+                  X
+                </button>
+              </div>
               <textarea
                 id={`brand-tag-edit-${img.id}`}
-                className="brand-tag-examples-edit-textarea"
+                className="brand-tag-examples-edit-textarea brand-tag-examples-edit-textarea--tag-image-caption"
+                aria-label="Description"
                 value={brandTagEditCaption}
                 onChange={(e) => setBrandTagEditCaption(e.target.value)}
                 placeholder="e.g. SS19 neck label"
                 maxLength={500}
-                rows={4}
+                rows={5}
                 disabled={brandTagSaving}
               />
-              <div className="brand-tag-examples-edit-actions">
-                <button
-                  type="button"
-                  className="brand-tag-examples-save"
-                  onClick={() => void handleSaveBrandTagCaption()}
-                  disabled={brandTagSaving}
-                >
-                  {brandTagSaving ? 'Saving…' : 'Save'}
-                </button>
-                <button
-                  type="button"
-                  className="brand-tag-examples-cancel"
-                  onClick={cancelEditBrandTagImage}
-                  disabled={brandTagSaving}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="brand-tag-examples-remove"
-                  onClick={() => void handleDeleteBrandTagImage(img.id)}
-                  disabled={brandTagSaving}
-                >
-                  Delete image
-                </button>
+              <div className="brand-tag-examples-edit-actions brand-tag-examples-edit-actions--tag-card">
+                <div className="brand-tag-examples-edit-actions-cluster">
+                  <button
+                    type="button"
+                    className="brand-tag-examples-save"
+                    onClick={() => void handleSaveBrandTagCaption()}
+                    disabled={brandTagSaving}
+                  >
+                    {brandTagSaving ? 'Saving…' : 'Save'}
+                  </button>
+                  <button
+                    type="button"
+                    className="brand-tag-examples-cancel"
+                    onClick={cancelEditBrandTagImage}
+                    disabled={brandTagSaving}
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
             </div>
           ) : (
             <>
               <div className="brand-tag-examples-caption-block">
+                <span
+                  className="brand-tag-examples-quality-stars"
+                  title={brandTagQualityAriaLabel(img.quality_tier)}
+                  aria-label={brandTagQualityAriaLabel(img.quality_tier)}
+                >
+                  {brandTagQualityStars(img.quality_tier)}
+                </span>
                 {img.caption ? (
                   <p className="brand-tag-examples-caption">{img.caption}</p>
                 ) : (
@@ -2982,6 +3419,10 @@ const Research: React.FC = () => {
                 const buy = br.things_to_buy?.trim() ?? '';
                 const avoid = br.things_to_avoid?.trim() ?? '';
                 if (!rawSite && !buy && !avoid) return null;
+                const savedBrandLabel = (br.brand_name ?? '').trim();
+                const savedVisitWebsiteLabel = savedBrandLabel
+                  ? `Visit ${savedBrandLabel} Website`
+                  : 'Visit Website';
                 return (
                   <div className="brand-tag-examples-saved-brand-info">
                     {rawSite && fullUrlBrowse ? (
@@ -2994,8 +3435,13 @@ const Research: React.FC = () => {
                             rel="noopener noreferrer"
                             className="brand-website-link brand-tag-examples-website-browse-link"
                             title={rawSite}
+                            aria-label={
+                              savedBrandLabel
+                                ? `Visit ${savedBrandLabel} website`
+                                : 'Visit website'
+                            }
                           >
-                            Visit Website
+                            {savedVisitWebsiteLabel}
                           </a>
                           <hr className="brand-visit-website-rule" aria-hidden="true" />
                         </div>
@@ -3243,9 +3689,74 @@ const Research: React.FC = () => {
         )}
         {brandTagImages.length > 0 && (
           <>
+            <div className="brand-tag-key-tags-wrap">
+              <div className="brand-tag-quality-filter-row">
+                <h3 className="brand-tag-key-tags-title">Key Tags</h3>
+                <div className="brand-tag-quality-filter" ref={brandTagQualityMenuRef}>
+                  <button
+                    type="button"
+                    className="brand-tag-quality-filter-btn"
+                    aria-expanded={brandTagQualityMenuOpen}
+                    aria-haspopup="listbox"
+                    aria-label="Filter tag quality order"
+                    onClick={() => setBrandTagQualityMenuOpen((open) => !open)}
+                  >
+                    <BrandTagQualityFilterIcon />
+                  </button>
+                  {brandTagQualityMenuOpen ? (
+                    <ul
+                      className="brand-tag-quality-filter-menu"
+                      role="listbox"
+                      aria-label="Quality order"
+                    >
+                      <li role="presentation">
+                        <button
+                          type="button"
+                          role="option"
+                          className={
+                            'brand-tag-quality-filter-option' +
+                            (brandTagQualitySort === 'best_first'
+                              ? ' brand-tag-quality-filter-option--active'
+                              : '')
+                          }
+                          aria-selected={brandTagQualitySort === 'best_first'}
+                          aria-label="Order: best first, then average, then poor"
+                          onClick={() => {
+                            setBrandTagQualitySort('best_first');
+                            setBrandTagQualityMenuOpen(false);
+                          }}
+                        >
+                          {`${brandTagQualityStars('good')} → ${brandTagQualityStars('average')} → ${brandTagQualityStars('poor')}`}
+                        </button>
+                      </li>
+                      <li role="presentation">
+                        <button
+                          type="button"
+                          role="option"
+                          className={
+                            'brand-tag-quality-filter-option' +
+                            (brandTagQualitySort === 'bad_first'
+                              ? ' brand-tag-quality-filter-option--active'
+                              : '')
+                          }
+                          aria-selected={brandTagQualitySort === 'bad_first'}
+                          aria-label="Order: poor first, then average, then best"
+                          onClick={() => {
+                            setBrandTagQualitySort('bad_first');
+                            setBrandTagQualityMenuOpen(false);
+                          }}
+                        >
+                          {`${brandTagQualityStars('poor')} → ${brandTagQualityStars('average')} → ${brandTagQualityStars('good')}`}
+                        </button>
+                      </li>
+                    </ul>
+                  ) : null}
+                </div>
+              </div>
+            </div>
             {(() => {
-              const tagRows = brandTagImages.filter((i) => i.image_kind !== 'fake_check');
-              const fakeRows = brandTagImages.filter((i) => i.image_kind === 'fake_check');
+              const tagRows = sortedBrandTagImages.filter((i) => i.image_kind !== 'fake_check');
+              const fakeRows = sortedBrandTagImages.filter((i) => i.image_kind === 'fake_check');
               return (
                 <>
                   {tagRows.length > 0 && (
@@ -3255,7 +3766,7 @@ const Research: React.FC = () => {
                   )}
                   {fakeRows.length > 0 && (
                     <div className="brand-tag-examples-image-section brand-tag-examples-image-section--fake">
-                      <h3 className="brand-tag-examples-fake-heading">Fake Warning Signals</h3>
+                      <h3 className="brand-tag-examples-fake-heading">Fake Tags</h3>
                       <ul className="brand-tag-examples-grid brand-tag-examples-grid--fake">
                         {fakeRows.map(renderBrandTagImageCard)}
                       </ul>
@@ -3343,6 +3854,84 @@ const Research: React.FC = () => {
                     <span className="brand-research-brand-totals-hint">Sold revenue − all spend</span>
                   </div>
                 </div>
+                {brandStockSummary.soldCount > 0 &&
+                  brandStockSummary.minSoldSalePrice != null &&
+                  brandStockSummary.maxSoldSalePrice != null && (
+                    <div
+                      className="brand-research-brand-totals brand-research-brand-totals--secondary"
+                      aria-label="Average sale price band and sell-through"
+                    >
+                      <div className="brand-research-brand-totals-col">
+                        <span className="brand-research-brand-totals-label">Avg sale price</span>
+                        <span className="brand-research-brand-totals-value brand-research-brand-totals-value--multiline">
+                          Averaged{' '}
+                          {formatAveragedSaleBand(
+                            brandStockSummary.minSoldSalePrice,
+                            brandStockSummary.maxSoldSalePrice
+                          )}
+                        </span>
+                        <span className="brand-research-brand-totals-hint">per sale</span>
+                      </div>
+                      <div className="brand-research-brand-totals-col">
+                        <span className="brand-research-brand-totals-label">Sell-through</span>
+                        <span className="brand-research-brand-totals-value brand-research-brand-totals-value--multiline">
+                          {(() => {
+                            const pctStr =
+                              brandStockSellThroughPercent != null
+                                ? `${
+                                    Math.abs(
+                                      brandStockSellThroughPercent -
+                                        Math.round(brandStockSellThroughPercent)
+                                    ) < 0.05
+                                      ? Math.round(brandStockSellThroughPercent)
+                                      : brandStockSellThroughPercent.toFixed(1)
+                                  }%`
+                                : null;
+                            const multStr =
+                              brandStockSummary.avgSoldProfitMultiple != null
+                                ? formatSoldMultipleDisplay(
+                                    brandStockSummary.avgSoldProfitMultiple
+                                  )
+                                : null;
+                            if (pctStr && multStr) return `${pctStr} / ${multStr}`;
+                            if (pctStr) return pctStr;
+                            if (multStr) return multStr;
+                            return '—';
+                          })()}
+                        </span>
+                        <span className="brand-research-brand-totals-hint">
+                          {brandStockSummary.avgSoldProfitMultiple != null
+                            ? 'Listed sell-through · avg sale ÷ buy'
+                            : 'Listed sell-through · add buy prices for avg ×'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                {categoryHeatMapChartData ? (
+                  <div className="brand-research-category-heat-block">
+                    <h3 className="brand-research-category-heat-heading">
+                      {`${
+                        brandsWithWebsites.find((x) => x.id === brandTagBrandId)?.brand_name?.trim() ||
+                        `Brand id ${brandStockSummary.brandId}`
+                      } Category Sales Heatmap`}
+                    </h3>
+                    <div
+                      className="brand-research-category-heat-chart-inner"
+                      style={{
+                        height: `${Math.max(
+                          200,
+                          (brandStockSummary.categorySellHeatMap?.length ?? 0) * 42 + 88
+                        )}px`,
+                      }}
+                    >
+                      <Bar data={categoryHeatMapChartData} options={categoryHeatMapBarOptions} />
+                    </div>
+                  </div>
+                ) : brandStockSummary.soldCount > 0 ? (
+                  <p className="brand-research-sales-empty brand-research-sales-empty--subtle">
+                    Sell counts by category will appear here once sold stock is linked to categories.
+                  </p>
+                ) : null}
                 {brandStockSummary.topSoldItems.length > 0 ? (
                   <div className="brand-research-sales-table-block">
                     <h4 className="brand-research-sales-subheading">Best sold items</h4>
@@ -3518,6 +4107,127 @@ const Research: React.FC = () => {
                 >
                   {ebaySoldRefreshing ? 'Refreshing…' : 'Refresh from eBay'}
                 </button>
+              </div>
+            )}
+          </section>
+        )}
+        {brandTagBrandId !== '' && (
+          <section
+            className="brand-research-example-pricing"
+            aria-labelledby="brand-research-brand-new-prices-title"
+          >
+            <div className="brand-research-reference-links-header">
+              <h3 id="brand-research-brand-new-prices-title" className="brand-research-sales-heading">
+                Brand New Prices
+              </h3>
+              {(brandExamplePricing.length > 0 || brandExamplePricingAddOpen) && (
+                <button
+                  type="button"
+                  className="brand-research-reference-links-add-btn"
+                  onClick={() => {
+                    setBrandExamplePricingError(null);
+                    setBrandExamplePricingAddOpen((o) => !o);
+                  }}
+                  aria-expanded={brandExamplePricingAddOpen}
+                >
+                  {brandExamplePricingAddOpen ? 'Cancel' : 'Add'}
+                </button>
+              )}
+            </div>
+            {brandExamplePricingError && (
+              <div className="brand-tag-examples-error brand-research-reference-links-error" role="alert">
+                {brandExamplePricingError}
+              </div>
+            )}
+            {brandExamplePricingAddOpen && (
+              <div className="brand-research-reference-links-form brand-research-example-pricing-form">
+                <label className="brand-research-reference-links-field">
+                  <span>Item</span>
+                  <input
+                    type="text"
+                    value={brandExamplePricingItemDraft}
+                    onChange={(e) => setBrandExamplePricingItemDraft(e.target.value)}
+                    placeholder="e.g. Jeans, Polo shirt"
+                    maxLength={500}
+                    autoComplete="off"
+                    disabled={brandExamplePricingSaving}
+                  />
+                </label>
+                <label className="brand-research-reference-links-field">
+                  <span>Price (£)</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={brandExamplePricingPriceDraft}
+                    onChange={(e) => setBrandExamplePricingPriceDraft(e.target.value)}
+                    placeholder="e.g. 100 or 29.99"
+                    autoComplete="off"
+                    disabled={brandExamplePricingSaving}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="brand-research-reference-links-save"
+                  onClick={() => void handleSaveBrandExamplePricing()}
+                  disabled={
+                    brandExamplePricingSaving ||
+                    !brandExamplePricingItemDraft.trim() ||
+                    !brandExamplePricingPriceDraft.trim()
+                  }
+                >
+                  {brandExamplePricingSaving ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            )}
+            {brandExamplePricingLoading && (
+              <p className="brand-tag-examples-muted">Loading Brand New Prices…</p>
+            )}
+            {!brandExamplePricingLoading &&
+              brandExamplePricing.length === 0 &&
+              !brandExamplePricingAddOpen && (
+                <button
+                  type="button"
+                  className="brand-research-example-pricing-empty-cta"
+                  onClick={() => {
+                    setBrandExamplePricingError(null);
+                    setBrandExamplePricingAddOpen(true);
+                  }}
+                >
+                  Add brand new price
+                </button>
+              )}
+            {!brandExamplePricingLoading && brandExamplePricing.length > 0 && (
+              <div className="brand-research-sales-table-scroll brand-research-example-pricing-table-wrap">
+                <table className="brand-research-sales-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Item</th>
+                      <th scope="col">Price</th>
+                      <th className="brand-research-example-pricing-th-actions" scope="col">
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {brandExamplePricing.map((row) => (
+                      <tr key={row.id}>
+                        <td className="brand-research-sales-cell-name">{row.item_name}</td>
+                        <td>{formatResearchCurrency(row.price_gbp)}</td>
+                        <td className="brand-research-example-pricing-td-actions">
+                          <button
+                            type="button"
+                            className="brand-research-example-pricing-remove"
+                            onClick={() => void handleDeleteBrandExamplePricing(row.id)}
+                            disabled={brandExamplePricingDeletingId === row.id}
+                            aria-label={`Remove ${row.item_name}`}
+                          >
+                            {brandExamplePricingDeletingId === row.id ? '…' : 'Remove'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </section>
@@ -3786,6 +4496,10 @@ const Research: React.FC = () => {
                       rawSite.startsWith('http://') || rawSite.startsWith('https://')
                         ? rawSite
                         : `https://${rawSite}`;
+                    const brandLabel = (selectedBrand.brand_name ?? '').trim();
+                    const visitLabel = brandLabel
+                      ? `Visit ${brandLabel} Website`
+                      : 'Visit Website';
                     return (
                       <div className="brand-visit-website-framed">
                         <hr className="brand-visit-website-rule" aria-hidden="true" />
@@ -3796,8 +4510,11 @@ const Research: React.FC = () => {
                             rel="noopener noreferrer"
                             className="brand-website-link"
                             title={rawSite}
+                            aria-label={
+                              brandLabel ? `Visit ${brandLabel} website` : 'Visit website'
+                            }
                           >
-                            Visit Website
+                            {visitLabel}
                           </a>
                         </div>
                         <hr className="brand-visit-website-rule" aria-hidden="true" />
@@ -3958,26 +4675,16 @@ const Research: React.FC = () => {
                 ) : (
                   menswearCategories.map((cat) => (
                     <li key={cat.id} className="menswear-categories-list-item">
-                      <div className="menswear-categories-list-item-row">
-                        <button
-                          type="button"
-                          className="menswear-categories-card"
-                          onClick={() => openMenswearCategoryInUrl(cat.id)}
-                        >
-                          <span className="menswear-categories-card-name">{cat.name}</span>
-                          {cat.description ? (
-                            <span className="menswear-categories-card-desc">{cat.description}</span>
-                          ) : null}
-                        </button>
-                        <button
-                          type="button"
-                          className="menswear-categories-ask-ai-btn menswear-categories-list-ask-ai-btn"
-                          disabled={menswearAskAiBusy}
-                          onClick={() => void runMenswearAskAi({ cat })}
-                        >
-                          Ask AI
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        className="menswear-categories-card"
+                        onClick={() => openMenswearCategoryInUrl(cat.id)}
+                      >
+                        <span className="menswear-categories-card-name">{cat.name}</span>
+                        {cat.description ? (
+                          <span className="menswear-categories-card-desc">{cat.description}</span>
+                        ) : null}
+                      </button>
                     </li>
                   ))
                 )}
@@ -4033,20 +4740,23 @@ const Research: React.FC = () => {
                       setMenswearAddBrandOpen((o) => !o);
                     }}
                     aria-expanded={menswearAddBrandOpen}
+                    aria-label={
+                      menswearAddBrandOpen
+                        ? `Close add brand to ${selectedMenswearCategory.name}`
+                        : `Add brand to ${selectedMenswearCategory.name}`
+                    }
                   >
-                    Add
+                    Add brand to {selectedMenswearCategory.name}
                   </button>
                 </div>
 
                 {menswearAddBrandOpen && (
                   <div className="menswear-categories-add-panel">
-                    <label className="menswear-categories-add-label" htmlFor="menswear-add-brand-search">
-                      Choose a brand
-                    </label>
                     <input
                       id="menswear-add-brand-search"
                       type="search"
                       className="menswear-categories-add-search"
+                      aria-label="Search brands"
                       placeholder="Search brands…"
                       value={menswearAddBrandSearch}
                       onChange={(e) => setMenswearAddBrandSearch(e.target.value)}

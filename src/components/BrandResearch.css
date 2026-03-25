@@ -707,6 +707,87 @@
   cursor: not-allowed;
 }
 
+/* Brand research: Brand New Prices (below eBay solds) */
+.brand-research-example-pricing {
+  width: 100%;
+  max-width: 720px;
+  margin: 40px auto 0;
+  padding-top: 28px;
+  border-top: 1px solid rgba(255, 214, 91, 0.2);
+  text-align: center;
+}
+
+.brand-research-example-pricing .brand-research-reference-links-error {
+  max-width: 520px;
+  margin-left: auto;
+  margin-right: auto;
+  text-align: left;
+}
+
+.brand-research-example-pricing-form {
+  max-width: 420px;
+  margin-left: auto;
+  margin-right: auto;
+  text-align: left;
+}
+
+.brand-research-example-pricing-empty-cta {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 12px 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(140, 255, 195, 0.45);
+  background: rgba(140, 255, 195, 0.14);
+  color: #8cffc3;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.brand-research-example-pricing-empty-cta:hover {
+  background: rgba(140, 255, 195, 0.24);
+  border-color: rgba(140, 255, 195, 0.65);
+}
+
+.brand-research-example-pricing-table-wrap {
+  margin-top: 12px;
+  margin-left: auto;
+  margin-right: auto;
+  text-align: left;
+  max-width: 100%;
+}
+
+.brand-research-example-pricing-th-actions,
+.brand-research-example-pricing-td-actions {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+  vertical-align: middle;
+}
+
+.brand-research-example-pricing-remove {
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 120, 120, 0.35);
+  background: rgba(255, 100, 100, 0.1);
+  color: #ffb0b0;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.brand-research-example-pricing-remove:hover:not(:disabled) {
+  background: rgba(255, 120, 120, 0.2);
+  border-color: rgba(255, 140, 140, 0.5);
+}
+
+.brand-research-example-pricing-remove:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Brand research: useful links */
 .brand-research-reference-links {
   width: 100%;
@@ -730,6 +811,18 @@
 .brand-research-reference-links-header .brand-research-sales-heading {
   margin: 0;
   text-align: left;
+}
+
+.brand-research-example-pricing .brand-research-reference-links-header {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.brand-research-example-pricing .brand-research-reference-links-header .brand-research-sales-heading {
+  text-align: center;
 }
 
 .brand-research-reference-links-add-btn {
@@ -2275,22 +2368,24 @@ button.image-upload-label {
 }
 
 .brand-tag-examples-buying-to-buy-heading {
-  margin: 0 0 8px 0;
-  padding: 0;
+  margin: 0;
+  padding: 0 0 16px 0;
   font-size: 1.05rem;
   font-weight: 700;
   letter-spacing: 0.06rem;
   text-transform: uppercase;
+  text-align: center;
   color: rgba(180, 255, 200, 0.95);
 }
 
 .brand-tag-examples-buying-to-avoid-heading {
-  margin: 0 0 8px 0;
-  padding: 0;
+  margin: 0;
+  padding: 0 0 16px 0;
   font-size: 1.05rem;
   font-weight: 700;
   letter-spacing: 0.06rem;
   text-transform: uppercase;
+  text-align: center;
   color: #ffb38a;
 }
 
@@ -2392,6 +2487,17 @@ button.image-upload-label {
   text-align: left;
 }
 
+.brand-research-brand-totals--secondary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 12px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(255, 214, 91, 0.1);
+}
+
+.brand-research-brand-totals-value--multiline {
+  white-space: normal;
+}
+
 .brand-research-brand-totals-col {
   min-width: 0;
 }
@@ -2421,6 +2527,32 @@ button.image-upload-label {
   font-size: 0.72rem;
   line-height: 1.35;
   color: rgba(255, 248, 226, 0.4);
+}
+
+/* Category sell-frequency heat chart (horizontal bars, colour = volume) */
+.brand-research-category-heat-block {
+  margin: 28px auto 0;
+  max-width: 720px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 214, 91, 0.12);
+  text-align: left;
+}
+
+.brand-research-category-heat-heading {
+  margin: 0 0 14px 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: 0.03rem;
+  color: rgba(255, 248, 226, 0.9);
+  text-align: center;
+}
+
+.brand-research-category-heat-chart-inner {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  position: relative;
 }
 
 .brand-research-brand-totals-value--profit {
@@ -2463,9 +2595,9 @@ button.image-upload-label {
 .brand-research-unsold-ask-ai-button {
   padding: 12px 22px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 214, 91, 0.45);
-  background: rgba(255, 214, 91, 0.12);
-  color: var(--neon-primary-strong);
+  border: 1px solid rgba(96, 165, 250, 0.55);
+  background: rgba(37, 99, 235, 0.5);
+  color: #eff6ff;
   font-size: 0.82rem;
   font-weight: 700;
   letter-spacing: 0.08rem;
@@ -2475,13 +2607,15 @@ button.image-upload-label {
     background 0.2s ease,
     border-color 0.2s ease,
     box-shadow 0.2s ease;
-  box-shadow: inset 0 0 14px rgba(255, 214, 91, 0.12);
+  box-shadow:
+    inset 0 0 14px rgba(59, 130, 246, 0.22),
+    0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .brand-research-unsold-ask-ai-button:hover {
-  background: rgba(255, 214, 91, 0.22);
-  border-color: rgba(255, 214, 91, 0.65);
-  box-shadow: 0 0 16px rgba(255, 214, 91, 0.2);
+  background: rgba(37, 99, 235, 0.68);
+  border-color: rgba(147, 197, 253, 0.75);
+  box-shadow: 0 0 18px rgba(59, 130, 246, 0.35);
 }
 
 .brand-research-sales-table-scroll {
@@ -2552,10 +2686,133 @@ button.image-upload-label {
   letter-spacing: 0.06rem;
   text-transform: uppercase;
   color: #ffb38a;
-  text-align: left;
+  text-align: center;
   max-width: 720px;
   margin-left: auto;
   margin-right: auto;
+}
+
+.brand-tag-key-tags-wrap {
+  max-width: 720px;
+  margin: 20px auto 0 auto;
+}
+
+.brand-tag-key-tags-title {
+  margin: 0;
+  padding: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: 0.04rem;
+  color: rgba(255, 248, 226, 0.92);
+  text-align: center;
+  grid-column: 2;
+  justify-self: center;
+  min-width: 0;
+}
+
+.brand-tag-quality-filter-row {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  column-gap: 12px;
+  max-width: 720px;
+  margin: 0 auto;
+  /* Matches prior stacked block: title line + 10px gap + filter row (8 + 44px btn + 14) */
+  min-height: 98px;
+  padding: 8px 0 14px;
+  border-bottom: 1px solid rgba(255, 214, 91, 0.12);
+}
+
+.brand-tag-quality-filter {
+  position: relative;
+  grid-column: 3;
+  justify-self: end;
+}
+
+.brand-tag-quality-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 214, 91, 0.45);
+  background: rgba(255, 214, 91, 0.12);
+  color: #ffe7a8;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.brand-tag-quality-filter-btn:hover {
+  background: rgba(255, 214, 91, 0.22);
+  border-color: rgba(255, 214, 91, 0.65);
+}
+
+.brand-tag-quality-filter-btn[aria-expanded='true'] {
+  background: rgba(255, 214, 91, 0.28);
+  border-color: rgba(255, 214, 91, 0.75);
+  box-shadow: 0 0 0 1px rgba(255, 214, 91, 0.25);
+}
+
+.brand-tag-quality-filter-svg {
+  display: block;
+  flex-shrink: 0;
+}
+
+.brand-tag-quality-filter-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 40;
+  margin: 0;
+  padding: 6px 0;
+  list-style: none;
+  min-width: 228px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 214, 91, 0.28);
+  background: rgba(22, 18, 14, 0.98);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.brand-tag-quality-filter-menu li {
+  margin: 0;
+  padding: 0;
+}
+
+.brand-tag-quality-filter-option {
+  display: block;
+  width: 100%;
+  padding: 11px 18px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 248, 226, 0.88);
+  font-size: 0.88rem;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.brand-tag-quality-filter-option:hover,
+.brand-tag-quality-filter-option:focus-visible {
+  background: rgba(255, 214, 91, 0.14);
+  outline: none;
+}
+
+.brand-tag-quality-filter-option--active {
+  color: var(--neon-primary-strong, #ffd65b);
+  font-weight: 600;
+}
+
+/* Star row only — card chrome uses --quality-* on .brand-tag-examples-card */
+.brand-tag-examples-quality-stars {
+  display: inline-block;
+  margin-bottom: 8px;
+  font-size: 0.92rem;
+  line-height: 1.3;
+  letter-spacing: 0.08em;
 }
 
 .brand-tag-examples-kind-select {
@@ -2591,6 +2848,22 @@ button.image-upload-label {
   border-radius: 16px;
   border: 1px solid rgba(255, 214, 91, 0.2);
   background: rgba(255, 214, 91, 0.04);
+}
+
+/* Whole-card tint: green / yellow / red by quality (non-fake tags only) */
+.brand-tag-examples-card--quality-good {
+  border-color: rgba(90, 200, 130, 0.55);
+  background: rgba(35, 95, 55, 0.22);
+}
+
+.brand-tag-examples-card--quality-average {
+  border-color: rgba(230, 190, 70, 0.5);
+  background: rgba(120, 95, 25, 0.2);
+}
+
+.brand-tag-examples-card--quality-poor {
+  border-color: rgba(230, 95, 85, 0.55);
+  background: rgba(120, 40, 38, 0.2);
 }
 
 .brand-tag-examples-card--fake {
@@ -2666,6 +2939,32 @@ button.image-upload-label {
   text-align: left;
 }
 
+.brand-tag-examples-edit-kind-quality-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px;
+  column-gap: 12px;
+  align-items: center;
+  width: 100%;
+}
+
+.brand-tag-examples-edit-field--half {
+  min-width: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.brand-tag-examples-edit-field--half .brand-tag-examples-edit-label {
+  margin-bottom: 0;
+}
+
+.brand-tag-examples-edit-inline-select {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
 .brand-tag-examples-edit-label {
   font-size: 0.78rem;
   text-transform: uppercase;
@@ -2688,6 +2987,10 @@ button.image-upload-label {
   font-family: inherit;
 }
 
+.brand-tag-examples-edit-textarea--tag-image-caption {
+  min-height: calc(88px * 1.2);
+}
+
 .brand-tag-examples-edit-textarea:focus {
   outline: none;
   border-color: rgba(255, 214, 91, 0.55);
@@ -2703,6 +3006,22 @@ button.image-upload-label {
   flex-wrap: wrap;
   gap: 10px;
   align-items: center;
+}
+
+.brand-tag-examples-edit-actions--tag-card {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  width: 100%;
+  gap: 10px;
+}
+
+.brand-tag-examples-edit-actions-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .brand-tag-examples-save {
@@ -2804,6 +3123,24 @@ button.image-upload-label {
   cursor: not-allowed;
 }
 
+.brand-tag-examples-remove.brand-tag-examples-remove--round-inline {
+  justify-self: center;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
 @media (max-width: 768px) {
   .brand-tag-examples-brand-toolbar {
     flex-direction: column;
@@ -2854,6 +3191,23 @@ button.image-upload-label {
 
   .brand-tag-examples-card-edit-span {
     grid-column: 1;
+  }
+
+  .brand-tag-examples-edit-kind-quality-row {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .brand-tag-examples-edit-field--half {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .brand-tag-examples-remove--round-inline {
+    align-self: flex-end;
+    justify-self: auto;
   }
 }
 
@@ -3133,41 +3487,12 @@ button.image-upload-label {
   gap: 12px;
 }
 
-.menswear-categories-list-item-row {
-  display: flex;
-  flex-direction: row;
-  align-items: stretch;
-  gap: 10px;
-  width: 100%;
-}
-
-.menswear-categories-list-item-row .menswear-categories-card {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.menswear-categories-list-ask-ai-btn {
-  flex-shrink: 0;
-  align-self: center;
-}
-
-@media (max-width: 520px) {
-  .menswear-categories-list-item-row {
-    flex-direction: column;
-  }
-
-  .menswear-categories-list-ask-ai-btn {
-    align-self: stretch;
-    width: 100%;
-  }
-}
-
 .menswear-categories-ask-ai-btn {
   padding: 8px 16px;
   border-radius: 999px;
-  border: 1px solid rgba(186, 200, 255, 0.4);
-  background: rgba(120, 140, 255, 0.12);
-  color: #c8d4ff;
+  border: 1px solid rgba(96, 165, 250, 0.55);
+  background: rgba(37, 99, 235, 0.5);
+  color: #eff6ff;
   font-size: 0.85rem;
   font-weight: 600;
   letter-spacing: 0.04rem;
@@ -3179,9 +3504,9 @@ button.image-upload-label {
 }
 
 .menswear-categories-ask-ai-btn:hover:not(:disabled) {
-  background: rgba(120, 140, 255, 0.22);
-  border-color: rgba(186, 200, 255, 0.6);
-  color: #e8ecff;
+  background: rgba(37, 99, 235, 0.68);
+  border-color: rgba(147, 197, 253, 0.75);
+  color: #f8fafc;
 }
 
 .menswear-categories-ask-ai-btn:disabled {
@@ -3289,7 +3614,12 @@ button.image-upload-label {
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 100%;
+  line-height: 1.35;
+  text-align: center;
+  white-space: normal;
 }
 
 .menswear-categories-add-btn:hover {
@@ -3304,15 +3634,6 @@ button.image-upload-label {
   border: 1px solid rgba(255, 214, 91, 0.22);
   background: rgba(0, 0, 0, 0.25);
   box-sizing: border-box;
-}
-
-.menswear-categories-add-label {
-  display: block;
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06rem;
-  color: var(--text-muted);
-  margin-bottom: 8px;
 }
 
 .menswear-categories-add-search {

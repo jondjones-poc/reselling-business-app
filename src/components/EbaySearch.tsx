@@ -11,7 +11,14 @@ type HomeBrandTagRow = {
   public_url: string | null;
   caption: string | null;
   image_kind: 'tag' | 'fake_check';
+  quality_tier: 'good' | 'average' | 'poor';
 };
+
+function homeTagQualityRank(tier: HomeBrandTagRow['quality_tier']): number {
+  if (tier === 'good') return 0;
+  if (tier === 'average') return 1;
+  return 2;
+}
 
 function normalizeHomeTagImage(raw: unknown): HomeBrandTagRow | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -25,7 +32,15 @@ function normalizeHomeTagImage(raw: unknown): HomeBrandTagRow | null {
     r.public_url === null || r.public_url === undefined ? null : String(r.public_url);
   const cap = r.caption;
   const caption = cap === null || cap === undefined ? null : String(cap);
-  return { id, public_url, caption, image_kind };
+  let quality_tier: HomeBrandTagRow['quality_tier'] = 'average';
+  const qt = r.quality_tier;
+  if (qt === 'good' || qt === 'average' || qt === 'poor') {
+    quality_tier = qt;
+  } else if (typeof qt === 'string') {
+    const s = qt.trim().toLowerCase();
+    if (s === 'good' || s === 'average' || s === 'poor') quality_tier = s;
+  }
+  return { id, public_url, caption, image_kind, quality_tier };
 }
 
 interface AppSettings {
@@ -400,6 +415,9 @@ const EbaySearch: React.FC = () => {
         const fa = a.image_kind === 'fake_check' ? 1 : 0;
         const fb = b.image_kind === 'fake_check' ? 1 : 0;
         if (fa !== fb) return fa - fb;
+        const qa = homeTagQualityRank(a.quality_tier);
+        const qb = homeTagQualityRank(b.quality_tier);
+        if (qa !== qb) return qa - qb;
         return a.id - b.id;
       });
       setHomeTagRows(out);

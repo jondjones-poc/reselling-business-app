@@ -192,6 +192,15 @@
   box-shadow: inset 0 0 14px rgba(255, 214, 91, 0.16);
 }
 
+.ask-ai-button {
+  border: 1px solid rgba(96, 165, 250, 0.55);
+  background: rgba(37, 99, 235, 0.5);
+  color: #eff6ff;
+  box-shadow:
+    inset 0 0 16px rgba(59, 130, 246, 0.22),
+    0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
 .copy-button--icon-only {
   padding: 18px 14px;
   display: inline-flex;
@@ -202,10 +211,16 @@
 }
 
 .clear-button:hover:not(:disabled),
-.copy-button:hover:not(:disabled),
-.ask-ai-button:hover:not(:disabled) {
+.copy-button:hover:not(:disabled) {
   background: rgba(255, 214, 91, 0.18);
   box-shadow: var(--neon-shadow);
+  transform: translateY(-1px);
+}
+
+.ask-ai-button:hover:not(:disabled) {
+  background: rgba(37, 99, 235, 0.68);
+  border-color: rgba(147, 197, 253, 0.75);
+  box-shadow: 0 0 22px rgba(59, 130, 246, 0.38);
   transform: translateY(-1px);
 }
 
