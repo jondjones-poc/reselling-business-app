@@ -177,6 +177,80 @@
   letter-spacing: 0.04rem;
 }
 
+.reporting-sales-filter-bar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px 28px;
+  flex-wrap: wrap;
+  padding: 12px 20px;
+  margin-bottom: 8px;
+  background: rgba(5, 4, 3, 0.72);
+  border: 1px solid rgba(255, 214, 91, 0.22);
+  border-radius: 14px;
+  box-sizing: border-box;
+}
+
+.reporting-sales-filter-label {
+  font-size: 0.78rem;
+  letter-spacing: 0.1rem;
+  text-transform: uppercase;
+  color: rgba(255, 248, 226, 0.72);
+  margin-right: 4px;
+}
+
+.reporting-sales-filter-select {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 214, 91, 0.35);
+  background: rgba(255, 214, 91, 0.1);
+  color: var(--neon-primary-strong);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+}
+
+.reporting-section-heading {
+  margin: 28px 0 16px 0;
+  width: 100%;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: 0.06rem;
+  color: var(--neon-primary-strong);
+  text-align: center;
+}
+
+.reporting-section-heading:first-of-type {
+  margin-top: 8px;
+}
+
+.reporting-summary--grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.reporting-summary--grid-4 .total-profit-card {
+  width: 100%;
+  flex: initial;
+  min-width: 0;
+}
+
+@media (max-width: 1200px) {
+  .reporting-summary--grid-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .reporting-summary--grid-4 {
+    grid-template-columns: 1fr;
+  }
+}
+
 .reporting-grid {
   display: flex;
   flex-direction: column;
@@ -360,6 +434,16 @@
   border-color: var(--neon-border-strong);
   box-shadow: var(--neon-shadow);
   background: rgba(255, 214, 91, 0.22);
+}
+
+.reporting-current-sales-platform {
+  width: 100%;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+.reporting-current-sales-platform .monthly-platform-row:first-of-type {
+  margin-top: 0;
 }
 
 /* Monthly Platform Rows */

@@ -277,6 +277,22 @@ const currencyFormatter = new Intl.NumberFormat('en-GB', {
 
 const formatCurrency = (value: number) => currencyFormatter.format(value ?? 0);
 
+interface ReportingExpenseRow {
+  id: number;
+  item: string;
+  cost: string | number;
+  purchase_date: string | null;
+  receipt_name?: string | null;
+  purchase_location?: string | null;
+}
+
+function expenseInCalendarMonth(purchaseDate: string | null, year: number, month: number): boolean {
+  if (!purchaseDate) return false;
+  const d = new Date(purchaseDate);
+  if (Number.isNaN(d.getTime())) return false;
+  return d.getFullYear() === year && d.getMonth() + 1 === month;
+}
+
 const chartOptions: ChartOptions<'bar'> = {
   responsive: true,
   maintainAspectRatio: false,
@@ -431,7 +447,11 @@ const Reporting: React.FC = () => {
     unsoldInventoryValue: number;
   } | null>(null);
   const [monthlySummaryLoading, setMonthlySummaryLoading] = useState(false);
-  
+
+  const [reportingExpensesAll, setReportingExpensesAll] = useState<ReportingExpenseRow[]>([]);
+  const [reportingExpensesLoading, setReportingExpensesLoading] = useState(false);
+  const [reportingExpensesError, setReportingExpensesError] = useState<string | null>(null);
+
   // State for trailing inventory
   const [trailingInventory, setTrailingInventory] = useState<TrailingInventoryPoint[]>([]);
   const [trailingInventoryLoading, setTrailingInventoryLoading] = useState(false);
@@ -444,7 +464,12 @@ const Reporting: React.FC = () => {
       try {
         setLoading(true);
         setError(null);
-      const yearParam = selectedYear === 'all' ? 'all' : selectedYear;
+      const yearParam =
+        viewMode === 'sales-data'
+          ? 'all'
+          : selectedYear === 'all'
+            ? 'all'
+            : selectedYear;
       const response = await fetch(`${API_BASE}/api/analytics/reporting?year=${yearParam}`);
         if (!response.ok) {
           const text = await response.text();
@@ -477,7 +502,11 @@ const Reporting: React.FC = () => {
         setUnsoldInventoryValue(data.unsoldInventoryValue || null);
         setCurrentMonthSales(data.currentMonthSales ?? 0);
         setCurrentWeekSales(data.currentWeekSales ?? 0);
-        if (data.selectedYear !== selectedYear && selectedYear !== 'all') {
+        if (
+          viewMode !== 'sales-data' &&
+          data.selectedYear !== selectedYear &&
+          selectedYear !== 'all'
+        ) {
           setSelectedYear(data.selectedYear);
         }
       } catch (err: any) {
@@ -489,7 +518,7 @@ const Reporting: React.FC = () => {
     };
 
     fetchData();
-  }, [selectedYear]);
+  }, [selectedYear, viewMode]);
 
   useEffect(() => {
     const t = searchParams.get('tab');
@@ -530,6 +559,39 @@ const Reporting: React.FC = () => {
     };
     fetchStockRows();
   }, []);
+
+  useEffect(() => {
+    if (viewMode !== 'sales-data') {
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setReportingExpensesLoading(true);
+      setReportingExpensesError(null);
+      try {
+        const res = await fetch(`${API_BASE}/api/expenses`);
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || 'Failed to load expenses');
+        }
+        const data = await res.json();
+        if (cancelled) return;
+        setReportingExpensesAll(Array.isArray(data.rows) ? data.rows : []);
+      } catch (e: unknown) {
+        if (!cancelled) {
+          setReportingExpensesError(e instanceof Error ? e.message : 'Unable to load expenses');
+          setReportingExpensesAll([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setReportingExpensesLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [viewMode]);
 
   // Fetch monthly platform data when in monthly view
   useEffect(() => {
@@ -663,6 +725,17 @@ const Reporting: React.FC = () => {
     fetchTrailingInventory();
   }, []);
 
+  const reportingExpensesMonthTotal = useMemo(
+    () =>
+      reportingExpensesAll.reduce((sum, r) => {
+        if (!expenseInCalendarMonth(r.purchase_date ?? null, monthlySummaryYear, monthlySummaryMonth)) {
+          return sum;
+        }
+        const c = typeof r.cost === 'number' ? r.cost : parseFloat(String(r.cost ?? 0));
+        return sum + (Number.isFinite(c) ? c : 0);
+      }, 0),
+    [reportingExpensesAll, monthlySummaryYear, monthlySummaryMonth]
+  );
 
   const totalProfit = useMemo(() => {
     // Use year-specific totals if available (matches Stock page calculation)
@@ -1071,8 +1144,10 @@ const Reporting: React.FC = () => {
     };
   }, [salesDateFilter, now, previousDataYear]);
 
+  const chartYearForBuckets = viewMode === 'sales-data' ? 'all' : selectedYear;
+
   const monthlyChartBuckets = useMemo(() => {
-    if (selectedYear === 'all') {
+    if (chartYearForBuckets === 'all') {
       const base = new Date(now.getFullYear(), now.getMonth(), 1);
       const buckets: Array<{ key: string; label: string }> = [];
       // Oldest month on the left, current month on the right (chronological x-axis).
@@ -1087,12 +1162,12 @@ const Reporting: React.FC = () => {
       return buckets;
     }
 
-    const year = Number(selectedYear);
+    const year = Number(chartYearForBuckets);
     return monthLabels.map((label, monthIndex) => ({
       key: `${year}-${monthIndex + 1}`,
       label
     }));
-  }, [selectedYear, now]);
+  }, [chartYearForBuckets, now]);
 
   const salesTimelineChartData = useMemo(() => {
     if (!stockRowsForSalesData.length) {
@@ -1714,34 +1789,39 @@ const Reporting: React.FC = () => {
       <div className={`view-content ${viewMode === 'sales-data' ? 'active' : ''}`}>
         {!loading && !error && (
           <>
-          {/* Row 1: Total Company Profit, Total Sales, Unsold Inventory Value, Current Sales */}
+          <div className="reporting-sales-filter-bar">
+            <span className="reporting-sales-filter-label">Year &amp; month</span>
+            <select
+              value={monthlySummaryYear}
+              onChange={(e) => setMonthlySummaryYear(Number(e.target.value))}
+              aria-label="Year for current sales and monthly summaries"
+              className="reporting-sales-filter-select"
+            >
+              {(availableYears.length > 0
+                ? availableYears
+                : Array.from({ length: 12 }, (_, i) => now.getFullYear() - i)
+              ).map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
+            <select
+              value={monthlySummaryMonth}
+              onChange={(e) => setMonthlySummaryMonth(Number(e.target.value))}
+              aria-label="Month for current sales"
+              className="reporting-sales-filter-select"
+            >
+              {monthLabels.map((label, index) => (
+                <option key={index + 1} value={index + 1}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <h2 className="reporting-section-heading">Current Sales</h2>
           <div className="reporting-summary">
-            <div className="total-profit-card">
-              <div className="total-profit-label">Total Company Profit {selectedYear === 'all' ? '(All Time)' : `(${selectedYear})`}</div>
-              <div className={`total-profit-value ${totalProfit >= 0 ? 'positive' : 'negative'}`}>
-                {formatCurrency(totalProfit)}
-              </div>
-              <div className="total-profit-description">All Sales - All Expenses {selectedYear === 'all' ? 'for All Time' : `for ${selectedYear}`}</div>
-            </div>
-            {yearSpecificTotals && (
-              <div className="total-profit-card">
-                <div className="total-profit-label">Total Sales {selectedYear === 'all' ? '(All Time)' : `(${selectedYear})`}</div>
-                <div className="total-profit-value positive">
-                  {formatCurrency(yearSpecificTotals.totalSales)}
-                </div>
-                <div className="total-profit-description">All sales {selectedYear === 'all' ? 'for All Time' : `for ${selectedYear}`}</div>
-              </div>
-            )}
-            {unsoldInventoryValue && (
-              <div className="total-profit-card">
-                <div className="total-profit-label">Unsold Inventory Value</div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: 0 }}>
-                  <div className="total-profit-value negative">
-                    {formatCurrency(-unsoldInventoryValue.value)}
-                  </div>
-                </div>
-              </div>
-            )}
             <div className="total-profit-card" style={{ paddingBottom: '12px' }}>
               <div className="total-profit-label">Current Sales</div>
               <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: '16px', flexWrap: 'wrap', flex: 1, minHeight: 0 }}>
@@ -1763,176 +1843,10 @@ const Reporting: React.FC = () => {
                 </div>
               </div>
             </div>
-          </div>
-
-          {/* Row 2: Total Purchases, Cost of Sold Items */}
-          {yearSpecificTotals && (
-            <div className="reporting-summary">
-              <div className="total-profit-card">
-                <div className="total-profit-label">Total Purchases {selectedYear === 'all' ? '(All Time)' : `(${selectedYear})`}</div>
-                <div className="total-profit-value negative">
-                  {formatCurrency(yearSpecificTotals.totalPurchase)}
-                </div>
-                <div className="total-profit-description">All items purchased {selectedYear === 'all' ? 'across all years' : `in ${selectedYear}`}</div>
-              </div>
-              {yearSpecificTotals.costOfSoldItems !== undefined && (
-                <div className="total-profit-card">
-                  <div className="total-profit-label">Cost of Sold Items {selectedYear === 'all' ? '(All Time)' : `(${selectedYear})`}</div>
-                  <div className="total-profit-value negative">
-                    {formatCurrency(yearSpecificTotals.costOfSoldItems)}
-                  </div>
-                  <div className="total-profit-description">Purchase cost of items that have been sold {selectedYear === 'all' ? 'across all years' : `in ${selectedYear}`}</div>
-                </div>
-              )}
-              {yearSpecificTotals.totalProfitFromSoldItems !== undefined && (
-                <div className="total-profit-card">
-                  <div className="total-profit-label">Total Profit from Sold Items {selectedYear === 'all' ? '(All Time)' : `(${selectedYear})`}</div>
-                  <div className={`total-profit-value ${yearSpecificTotals.totalProfitFromSoldItems >= 0 ? 'positive' : 'negative'}`}>
-                    {formatCurrency(yearSpecificTotals.totalProfitFromSoldItems)}
-                  </div>
-                  <div className="total-profit-description">Sale price - Purchase price for sold items {selectedYear === 'all' ? 'across all years' : `in ${selectedYear}`}</div>
-                </div>
-              )}
-              {yearSpecificTotals.vintedSales !== undefined && yearSpecificTotals.ebaySales !== undefined && (
-                <div className="total-profit-card">
-                  <div className="total-profit-label">Platform Sales {selectedYear === 'all' ? '(All Time)' : `(${selectedYear})`}</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: 0 }}>
-                    <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px' }}>
-                      <div style={{ fontSize: '0.9rem', color: 'rgba(255, 248, 226, 0.7)', letterSpacing: '0.05rem', fontWeight: 600 }}>Vinted =</div>
-                      <div className="total-profit-value positive" style={{ fontSize: '1.1rem', margin: 0 }}>
-                        {formatCurrency(yearSpecificTotals.vintedSales)}
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px' }}>
-                      <div style={{ fontSize: '0.9rem', color: 'rgba(255, 248, 226, 0.7)', letterSpacing: '0.05rem', fontWeight: 600 }}>eBay =</div>
-                      <div className="total-profit-value positive" style={{ fontSize: '1.1rem', margin: 0 }}>
-                        {formatCurrency(yearSpecificTotals.ebaySales)}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Row 3: Average Profit per Item, Average Selling Price, Average Profit Multiple (All Time), Average Days to Sell */}
-          <div className="reporting-summary">
-            {averageProfitPerItem && (
-              <div className="total-profit-card">
-                <div className="total-profit-label">Average Profit per Item</div>
-                <div className={`total-profit-value ${averageProfitPerItem.average >= 0 ? 'positive' : 'negative'}`}>
-                  {formatCurrency(averageProfitPerItem.average)}
-                </div>
-                <div className="total-profit-description">
-                  {formatCurrency(averageProfitPerItem.netProfit)} ÷ {averageProfitPerItem.soldCount.toLocaleString()} items
-                </div>
-              </div>
-            )}
-            {averageSellingPrice && (
-              <div className="total-profit-card">
-                <div className="total-profit-label">Average Selling Price</div>
-                <div className="total-profit-value positive">
-                  {formatCurrency(averageSellingPrice.average)}
-                </div>
-                <div className="total-profit-description">
-                  {formatCurrency(averageSellingPrice.totalSales)} ÷ {averageSellingPrice.soldCount.toLocaleString()} items
-                </div>
-              </div>
-            )}
-            {allTimeAverageProfitMultiple !== null && (
-              <div className="total-profit-card">
-                <div className="total-profit-label">Average Profit Multiple (All Time)</div>
-                <div className="total-profit-value positive">
-                  {allTimeAverageProfitMultiple.toFixed(2)}x
-                </div>
-                <div className="total-profit-description">Average return multiple across all sales</div>
-              </div>
-            )}
-            {averageDaysToSell && (
-              <div className="total-profit-card">
-                <div className="total-profit-label">Average Days to Sell</div>
-                <div className="total-profit-value positive">
-                  {averageDaysToSell.days.toFixed(1)} days
-                </div>
-                <div className="total-profit-description">
-                  Time from listing date to sale date
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Row 3: Active Listings Count, Items (2025), ROI, Year dropdown */}
-          <div className="reporting-summary">
-            {activeListingsCount && (
-              <div className="total-profit-card">
-                <div className="total-profit-label">Active Listings Count</div>
-                <div className="total-profit-value positive">
-                  {activeListingsCount.count.toLocaleString()}
-                </div>
-                <div className="total-profit-description">
-                  Number of live items
-                </div>
-              </div>
-            )}
-            {yearItemsStats && (
-              <div className="total-profit-card">
-                <div className="total-profit-label">Items {selectedYear === 'all' ? '(All Time)' : `(${selectedYear})`}</div>
-                <div className="total-profit-value positive">
-                  {yearItemsStats.sold.toLocaleString()} / {yearItemsStats.listed.toLocaleString()}
-                </div>
-                <div className="total-profit-description">Sold / Listed</div>
-              </div>
-            )}
-            {roi && (
-              <div className="total-profit-card">
-                <div className="total-profit-label">Return on Investment (ROI)</div>
-                <div className={`total-profit-value ${roi.percentage >= 0 ? 'positive' : 'negative'}`}>
-                  {roi.percentage.toFixed(1)}%
-                </div>
-                <div className="total-profit-description">
-                  {formatCurrency(roi.profit)} ÷ {formatCurrency(roi.totalSpend)} × 100
-                </div>
-              </div>
-            )}
             <div className="total-profit-card">
-              <div className="total-profit-label">Year</div>
-              <div className="total-profit-value" style={{ fontSize: '1.2rem', marginBottom: '8px' }}>
-                <select
-                  id="reporting-year"
-                  value={selectedYear}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setSelectedYear(value === 'all' ? 'all' : Number(value));
-                  }}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: 'var(--neon-primary-strong)',
-                    fontSize: '1.2rem',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    outline: 'none',
-                    textAlign: 'center',
-                    width: '100%'
-                  }}
-                >
-                  <option value="all">All</option>
-                  {availableYears.length === 0 && selectedYear !== 'all' && <option value={selectedYear}>{selectedYear}</option>}
-                  {availableYears.map((year) => (
-                    <option key={year} value={year}>
-                      {year}
-                    </option>
-                  ))}
-                </select>
+              <div className="total-profit-label">
+                Platform Sales ({monthLabels[monthlySummaryMonth - 1]} {monthlySummaryYear})
               </div>
-              <div className="total-profit-description">Select reporting year</div>
-            </div>
-          </div>
-
-          {/* Row 5: Monthly Sales Summary - Platform Sales (combined), Month Profit, Inventory Value, Month Filter */}
-          <div className="reporting-summary">
-            <div className="total-profit-card">
-              <div className="total-profit-label">Platform Sales ({monthLabels[monthlySummaryMonth - 1]} {monthlySummaryYear})</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: 0 }}>
                 <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px' }}>
                   <div style={{ fontSize: '0.9rem', color: 'rgba(255, 248, 226, 0.7)', letterSpacing: '0.05rem', fontWeight: 600 }}>Vinted =</div>
@@ -1949,80 +1863,40 @@ const Reporting: React.FC = () => {
               </div>
             </div>
             <div className="total-profit-card">
-              <div className="total-profit-label">Month Profit ({monthLabels[monthlySummaryMonth - 1]} {monthlySummaryYear})</div>
+              <div className="total-profit-label">
+                Month Profit ({monthLabels[monthlySummaryMonth - 1]} {monthlySummaryYear})
+              </div>
               <div className={`total-profit-value ${(monthlySummaryData?.monthProfit || 0) >= 0 ? 'positive' : 'negative'}`}>
                 {monthlySummaryLoading ? '...' : formatCurrency(monthlySummaryData?.monthProfit || 0)}
               </div>
               <div className="total-profit-description">Sales - Purchases for this month</div>
             </div>
             <div className="total-profit-card">
-              <div className="total-profit-label">Inventory Value</div>
-              <div className="total-profit-value positive">
-                {monthlySummaryLoading ? '...' : formatCurrency(monthlySummaryData?.unsoldInventoryValue || 0)}
+              <div className="total-profit-label">
+                Expenses ({monthLabels[monthlySummaryMonth - 1]} {monthlySummaryYear})
               </div>
-            </div>
-            <div className="total-profit-card">
-              <div className="total-profit-label">Month Filter</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%', alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: 0 }}>
-                <div style={{ width: '100%' }}>
-                  <div className="total-profit-value" style={{ fontSize: '1.2rem', marginBottom: '8px' }}>
-                    <select
-                      value={monthlySummaryMonth}
-                      onChange={(e) => setMonthlySummaryMonth(Number(e.target.value))}
-                      style={{
-                        background: 'transparent',
-                        border: 'none',
-                        color: 'var(--neon-primary-strong)',
-                        fontSize: '1.2rem',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        outline: 'none',
-                        textAlign: 'center',
-                        width: '100%'
-                      }}
-                    >
-                      {monthLabels.map((label, index) => (
-                        <option key={index + 1} value={index + 1}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+              {reportingExpensesError ? (
+                <div className="reporting-empty" style={{ marginTop: 8 }}>
+                  {reportingExpensesError}
                 </div>
-                <div style={{ width: '100%' }}>
-                  <div className="total-profit-value" style={{ fontSize: '1.2rem', marginBottom: '8px' }}>
-                    <select
-                      value={monthlySummaryYear}
-                      onChange={(e) => setMonthlySummaryYear(Number(e.target.value))}
-                      style={{
-                        background: 'transparent',
-                        border: 'none',
-                        color: '#8cffc3',
-                        fontSize: '1.2rem',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        outline: 'none',
-                        textAlign: 'center',
-                        width: '100%'
-                      }}
-                    >
-                      {availableYears.length === 0 && <option value={monthlySummaryYear}>{monthlySummaryYear}</option>}
-                      {availableYears.map((year) => (
-                        <option key={year} value={year}>
-                          {year}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+              ) : reportingExpensesLoading ? (
+                <div className="total-profit-description" style={{ marginTop: 12 }}>
+                  Loading expenses…
                 </div>
-              </div>
+              ) : (
+                <div
+                  className={`total-profit-value${reportingExpensesMonthTotal > 0 ? ' negative' : ''}`}
+                >
+                  {formatCurrency(reportingExpensesMonthTotal)}
+                </div>
+              )}
             </div>
           </div>
 
           {monthlyLoading ? (
             <div className="reporting-status">Loading monthly data...</div>
           ) : (
-            <>
+            <div className="reporting-current-sales-platform">
               <div className="monthly-platform-row">
                 <div className="platform-logo-cell">
                   <div className="platform-logo-tooltip">
@@ -2128,8 +2002,137 @@ const Reporting: React.FC = () => {
                   </div>
                 </div>
               )}
-            </>
+            </div>
           )}
+
+          <h2 className="reporting-section-heading">All Time Sales</h2>
+          <div className="reporting-summary">
+            <div className="total-profit-card">
+              <div className="total-profit-label">Total Company Profit (All Time)</div>
+              <div className={`total-profit-value ${totalProfit >= 0 ? 'positive' : 'negative'}`}>
+                {formatCurrency(totalProfit)}
+              </div>
+              <div className="total-profit-description">All sales - all expenses (all time)</div>
+            </div>
+            {yearSpecificTotals && (
+              <div className="total-profit-card">
+                <div className="total-profit-label">Total Sales (All Time)</div>
+                <div className="total-profit-value positive">
+                  {formatCurrency(yearSpecificTotals.totalSales)}
+                </div>
+                <div className="total-profit-description">All recorded sales</div>
+              </div>
+            )}
+            {yearSpecificTotals && (
+              <div className="total-profit-card">
+                <div className="total-profit-label">Total Purchases (All Time)</div>
+                <div className="total-profit-value negative">
+                  {formatCurrency(yearSpecificTotals.totalPurchase)}
+                </div>
+                <div className="total-profit-description">All items purchased</div>
+              </div>
+            )}
+            {unsoldInventoryValue && (
+              <div className="total-profit-card">
+                <div className="total-profit-label">Unsold Inventory Value</div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: 0 }}>
+                  <div className="total-profit-value negative">
+                    {formatCurrency(-unsoldInventoryValue.value)}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="reporting-summary reporting-summary--grid-4">
+            {yearSpecificTotals?.costOfSoldItems !== undefined && (
+              <div className="total-profit-card">
+                <div className="total-profit-label">Cost of Sold Items (All Time)</div>
+                <div className="total-profit-value negative">
+                  {formatCurrency(yearSpecificTotals.costOfSoldItems)}
+                </div>
+                <div className="total-profit-description">Purchase cost of sold items</div>
+              </div>
+            )}
+            {yearSpecificTotals?.totalProfitFromSoldItems !== undefined && (
+              <div className="total-profit-card">
+                <div className="total-profit-label">Total Profit from Sold Items (All Time)</div>
+                <div className={`total-profit-value ${yearSpecificTotals.totalProfitFromSoldItems >= 0 ? 'positive' : 'negative'}`}>
+                  {formatCurrency(yearSpecificTotals.totalProfitFromSoldItems)}
+                </div>
+                <div className="total-profit-description">Sale − purchase on sold lines</div>
+              </div>
+            )}
+            {averageProfitPerItem && (
+              <div className="total-profit-card">
+                <div className="total-profit-label">Average Profit per Item</div>
+                <div className={`total-profit-value ${averageProfitPerItem.average >= 0 ? 'positive' : 'negative'}`}>
+                  {formatCurrency(averageProfitPerItem.average)}
+                </div>
+                <div className="total-profit-description">
+                  {formatCurrency(averageProfitPerItem.netProfit)} ÷ {averageProfitPerItem.soldCount.toLocaleString()} items
+                </div>
+              </div>
+            )}
+            {averageSellingPrice && (
+              <div className="total-profit-card">
+                <div className="total-profit-label">Average Selling Price</div>
+                <div className="total-profit-value positive">
+                  {formatCurrency(averageSellingPrice.average)}
+                </div>
+                <div className="total-profit-description">
+                  {formatCurrency(averageSellingPrice.totalSales)} ÷ {averageSellingPrice.soldCount.toLocaleString()} items
+                </div>
+              </div>
+            )}
+            {allTimeAverageProfitMultiple !== null && (
+              <div className="total-profit-card">
+                <div className="total-profit-label">Average Profit Multiple (All Time)</div>
+                <div className="total-profit-value positive">
+                  {allTimeAverageProfitMultiple.toFixed(2)}x
+                </div>
+                <div className="total-profit-description">Average return multiple across all sales</div>
+              </div>
+            )}
+            {averageDaysToSell && (
+              <div className="total-profit-card">
+                <div className="total-profit-label">Average Days to Sell</div>
+                <div className="total-profit-value positive">
+                  {averageDaysToSell.days.toFixed(1)} days
+                </div>
+                <div className="total-profit-description">Listing date to sale date</div>
+              </div>
+            )}
+            {activeListingsCount && (
+              <div className="total-profit-card">
+                <div className="total-profit-label">Active Listings Count</div>
+                <div className="total-profit-value positive">
+                  {activeListingsCount.count.toLocaleString()}
+                </div>
+                <div className="total-profit-description">Live items</div>
+              </div>
+            )}
+            {yearItemsStats && (
+              <div className="total-profit-card">
+                <div className="total-profit-label">Items (All Time)</div>
+                <div className="total-profit-value positive">
+                  {yearItemsStats.sold.toLocaleString()} / {yearItemsStats.listed.toLocaleString()}
+                </div>
+                <div className="total-profit-description">Sold / listed</div>
+              </div>
+            )}
+            {roi && (
+              <div className="total-profit-card">
+                <div className="total-profit-label">Return on Investment (ROI)</div>
+                <div className={`total-profit-value ${roi.percentage >= 0 ? 'positive' : 'negative'}`}>
+                  {roi.percentage.toFixed(1)}%
+                </div>
+                <div className="total-profit-description">
+                  {formatCurrency(roi.profit)} ÷ {formatCurrency(roi.totalSpend)} × 100
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className="reporting-grid">
           <section className="reporting-card">
@@ -2154,7 +2157,9 @@ const Reporting: React.FC = () => {
                 <Bar data={salesMonthlySalesData.data} options={chartOptions} />
               </div>
             ) : (
-              <div className="reporting-empty">No recorded sales {selectedYear === 'all' ? 'available.' : `for ${selectedYear}.`}</div>
+              <div className="reporting-empty">
+                No recorded sales {chartYearForBuckets === 'all' ? 'available.' : `for ${chartYearForBuckets}.`}
+              </div>
             )}
           </section>
 
@@ -2172,7 +2177,8 @@ const Reporting: React.FC = () => {
               </div>
             ) : (
               <div className="reporting-empty">
-                No eBay or Vinted sales in range {selectedYear === 'all' ? 'for these months.' : `for ${selectedYear}.`}
+                No eBay or Vinted sales in range{' '}
+                {chartYearForBuckets === 'all' ? 'for these months.' : `for ${chartYearForBuckets}.`}
               </div>
             )}
           </section>
@@ -2291,7 +2297,9 @@ const Reporting: React.FC = () => {
                 />
               </div>
             ) : (
-              <div className="reporting-empty">No sales data available {selectedYear === 'all' ? '.' : `for ${selectedYear}.`}</div>
+              <div className="reporting-empty">
+                No sales data available {chartYearForBuckets === 'all' ? '.' : `for ${chartYearForBuckets}.`}
+              </div>
             )}
           </section>
 
@@ -2320,7 +2328,9 @@ const Reporting: React.FC = () => {
                 />
               </div>
             ) : (
-              <div className="reporting-empty">No sales data available {selectedYear === 'all' ? '.' : `for ${selectedYear}.`}</div>
+              <div className="reporting-empty">
+                No sales data available {chartYearForBuckets === 'all' ? '.' : `for ${chartYearForBuckets}.`}
+              </div>
             )}
           </section>
 
@@ -2596,7 +2606,9 @@ const Reporting: React.FC = () => {
                 <Bar data={unsoldStockByCategoryData} options={chartOptions} />
               </div>
             ) : (
-              <div className="reporting-empty">No unsold stock data available {selectedYear === 'all' ? '.' : `for ${selectedYear}.`}</div>
+              <div className="reporting-empty">
+                No unsold stock data available {chartYearForBuckets === 'all' ? '.' : `for ${chartYearForBuckets}.`}
+              </div>
             )}
           </section>
 

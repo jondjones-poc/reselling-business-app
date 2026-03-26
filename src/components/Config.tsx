@@ -561,7 +561,7 @@ const Config: React.FC = () => {
               className={`config-menu-item ${activeMenu === 'clothing-categories' ? 'active' : ''}`}
               onClick={() => setActiveMenu('clothing-categories')}
             >
-              Categorieson
+              Clothing Category
             </button>
             <button
               type="button"

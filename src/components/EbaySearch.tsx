@@ -764,9 +764,9 @@ const EbaySearch: React.FC = () => {
                   className="ask-ai-button"
                   disabled={!hasAskAiContent}
                   title="Copy a research prompt for AI (charity shop / boot sale)"
-                  aria-label="Copy Ask AI research prompt to clipboard"
+                  aria-label="Copy Ask RI research prompt to clipboard"
                 >
-                  Ask AI
+                  Ask RI - Review This Selection
                 </button>
               </div>
             </div>

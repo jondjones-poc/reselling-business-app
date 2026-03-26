@@ -2102,7 +2102,8 @@ app.get('/api/menswear-categories/:id/sales-by-brand', async (req, res) => {
                   THEN s.sale_price::numeric
                   ELSE 0
                 END
-              ), 0)::numeric AS total_sales
+              ), 0)::numeric AS total_sales,
+              COUNT(s.id)::int AS sold_count
        FROM brand b
        INNER JOIN stock s ON s.brand_id = b.id
        WHERE b.menswear_category_id = $1
@@ -2116,7 +2117,7 @@ app.get('/api/menswear-categories/:id/sales-by-brand', async (req, res) => {
            THEN s.sale_price::numeric
            ELSE 0
          END
-       ), 0) > 0
+       ), 0) > 0 OR COUNT(s.id) > 0
        ORDER BY total_sales DESC NULLS LAST, brand_name ASC`,
       [categoryId]
     );
@@ -2187,6 +2188,47 @@ app.get('/api/menswear-categories/:id/brands', async (req, res) => {
 });
 
 /**
+ * Unsold stock count per brand within one clothing (menswear) category.
+ * GET /api/menswear-categories/:id/inventory-by-brand
+ */
+app.get('/api/menswear-categories/:id/inventory-by-brand', async (req, res) => {
+  try {
+    const categoryId = parseInt(req.params.id, 10);
+    if (Number.isNaN(categoryId) || categoryId < 1) {
+      return res.status(400).json({ error: 'Invalid category id' });
+    }
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const catCheck = await pool.query('SELECT id FROM menswear_category WHERE id = $1', [categoryId]);
+    if (!catCheck.rowCount) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+
+    const result = await pool.query(
+      `SELECT
+         b.id AS brand_id,
+         b.brand_name,
+         COUNT(s.id)::int AS unsold_count
+       FROM brand b
+       LEFT JOIN stock s ON s.brand_id = b.id AND s.sale_date IS NULL
+       WHERE b.menswear_category_id = $1
+       GROUP BY b.id, b.brand_name
+       ORDER BY unsold_count DESC, b.brand_name ASC`,
+      [categoryId]
+    );
+
+    res.json({ rows: result.rows ?? [] });
+  } catch (error) {
+    console.error('menswear-categories inventory-by-brand failed:', error);
+    res.status(500).json({ error: 'Failed to load inventory by brand', details: error.message });
+  }
+});
+
+/**
  * Category-level sold revenue for menswear categories, aggregated from linked brands.
  * GET /api/menswear-categories/sales-by-category?period=last_12_months|2026|2025
  */
@@ -2224,7 +2266,8 @@ app.get('/api/menswear-categories/sales-by-category', async (req, res) => {
                THEN s.sale_price::numeric
                ELSE 0
              END
-           ), 0)::numeric AS total_sales
+           ), 0)::numeric AS total_sales,
+           COUNT(s.id)::int AS sold_count
          FROM stock s
          JOIN brand b ON b.id = s.brand_id
          WHERE b.menswear_category_id IS NOT NULL
@@ -2234,17 +2277,50 @@ app.get('/api/menswear-categories/sales-by-category', async (req, res) => {
        SELECT
          c.id AS category_id,
          c.name AS category_name,
-         COALESCE(s.total_sales, 0)::numeric AS total_sales
+         COALESCE(s.total_sales, 0)::numeric AS total_sales,
+         COALESCE(s.sold_count, 0)::int AS sold_count
        FROM menswear_category c
        LEFT JOIN sales s ON s.category_id = c.id
-       WHERE COALESCE(s.total_sales, 0) > 0
-       ORDER BY total_sales DESC, category_name ASC`
+       WHERE COALESCE(s.total_sales, 0) > 0 OR COALESCE(s.sold_count, 0) > 0
+       ORDER BY total_sales DESC NULLS LAST, category_name ASC`
     );
 
     res.json({ rows: result.rows, period });
   } catch (error) {
     console.error('menswear-categories sales-by-category failed:', error);
     res.status(500).json({ error: 'Failed to load menswear category sales', details: error.message });
+  }
+});
+
+/**
+ * Unsold stock count per clothing (menswear) category — stock rows with no sale_date,
+ * grouped via brand.menswear_category_id. Compare with sales-by-category pie.
+ * GET /api/menswear-categories/inventory-by-category
+ */
+app.get('/api/menswear-categories/inventory-by-category', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    await ensureMenswearCategoryTable(pool);
+
+    const result = await pool.query(
+      `SELECT
+         c.id AS category_id,
+         c.name AS category_name,
+         COUNT(s.id)::int AS unsold_count
+       FROM menswear_category c
+       LEFT JOIN brand b ON b.menswear_category_id = c.id
+       LEFT JOIN stock s ON s.brand_id = b.id AND s.sale_date IS NULL
+       GROUP BY c.id, c.name
+       ORDER BY unsold_count DESC, c.name ASC`
+    );
+
+    res.json({ rows: result.rows ?? [] });
+  } catch (error) {
+    console.error('menswear-categories inventory-by-category failed:', error);
+    res.status(500).json({ error: 'Failed to load inventory by category', details: error.message });
   }
 });
 

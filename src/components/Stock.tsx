@@ -94,6 +94,53 @@ const formatDate = (value: Nullable<string>) => {
   }).format(date);
 };
 
+function soldPlatformIsEbayStock(p: string | null | undefined): boolean {
+  const t = p?.trim();
+  return t === 'eBay' || t?.toLowerCase() === 'ebay';
+}
+
+function soldPlatformIsVintedStock(p: string | null | undefined): boolean {
+  const t = p?.trim();
+  return t === 'Vinted' || t?.toLowerCase() === 'vinted';
+}
+
+/** Clipboard with check — Add to orders control (icon only). */
+function AddToOrdersClipboardIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden
+    >
+      <path
+        d="M8 4.5h-.5A2.5 2.5 0 0 0 5 7v12a2.5 2.5 0 0 0 2.5 2.5h9A2.5 2.5 0 0 0 19 19V7a2.5 2.5 0 0 0-2.5-2.5H16"
+        stroke="currentColor"
+        strokeWidth="1.65"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M8 4.5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2V6H8V4.5z"
+        stroke="currentColor"
+        strokeWidth="1.65"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9.2 12.2 11.1 14l4.5-4.6"
+        stroke="currentColor"
+        strokeWidth="1.65"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 
 const normalizeDateInput = (value: Nullable<string>) => {
   if (!value) {
@@ -125,32 +172,10 @@ const dateToIsoString = (value: Date | null) => {
   return iso.slice(0, 10);
 };
 
-/** Prefer Vinted when an ID is present; otherwise eBay (UK storefront URLs). */
-function buildStockListingUrl(vintedId: Nullable<string>, ebayId: Nullable<string>): string | null {
-  const v = vintedId?.trim();
-  const e = ebayId?.trim();
-  if (v) {
-    if (/^https?:\/\//i.test(v)) {
-      return v;
-    }
-    const id = v.replace(/\D/g, '') || v;
-    return `https://www.vinted.co.uk/items/${id}`;
-  }
-  if (e) {
-    if (/^https?:\/\//i.test(e)) {
-      return e;
-    }
-    const id = e.replace(/\D/g, '') || e;
-    return `https://www.ebay.co.uk/itm/${id}`;
-  }
-  return null;
-}
-
 function buildStockInstagramAskAiPrompt(input: {
   itemName: string;
   brandName: string;
   categoryName: string;
-  listingUrl: string | null;
   sku: number | null;
 }): string {
   const lines = [
@@ -163,22 +188,22 @@ function buildStockInstagramAskAiPrompt(input: {
     `- Category: ${input.categoryName}`,
   ];
   if (input.sku !== null) {
-    lines.push(`- Internal SKU / stock ID: ${input.sku}`);
-  }
-  if (input.listingUrl) {
-    lines.push(
-      `- Listing URL (include this as a single clickable link in the caption where appropriate): ${input.listingUrl}`
-    );
-  } else {
-    lines.push(
-      '- Listing URL: (none — write the caption without a shopping link; do not invent a URL.)'
-    );
+    lines.push(`- Internal SKU / stock ID: ${input.sku} (for your reference only — do not put this in the public caption.)`);
   }
   lines.push(
     '',
+    'Posting context:',
+    '- The post is **caption + hashtags only**. Do not instruct the user to upload marketplace listing screenshots or reuse Vinted/eBay listing images — that often violates Instagram policy. Keep everything suitable for a normal photo + caption (their own imagery) or a text-led post.',
+    '',
+    'Instagram / policy constraints:',
+    '- Do NOT mention or include a link to this item on Vinted, eBay, Depop, or any other URL for this specific listing. No “swipe up” / DM-for-link gymnastics to a per-item page.',
+    '- For anyone interested in **this** item, the caption must **only** direct them to your shop in general — e.g. that **the link to your store is in your Instagram bio** (not a listing link).',
+    '- Do NOT ask the AI to invent a shop URL; the bio already holds that link.',
+    '- DO end the caption with a clear UK-English line in that spirit, for example: “Interested in this item? The link to my store is in my bio.” or “Love this piece? You’ll find my store link in my bio — no DMs for listing links.”',
+    '',
     'Please produce:',
-    '1. **Caption** — Engaging Instagram caption ready to paste: short hook, friendly resale tone, UK English, tasteful line breaks; optional relevant emojis.',
-    '2. **Hashtags** — A separate block at the end with 18–28 Instagram hashtags for discoverability and SEO: mix brand-specific, category, style (e.g. #vintage #preloved #menswear as relevant), platform tags (#vinted / #ebay only if they match the listing URL above), and niche long-tail tags. No spaces inside tags; avoid spammy repetition.',
+    '1. **Caption** — Engaging caption ready to paste: short hook, friendly resale tone, UK English, tasteful line breaks; optional relevant emojis; must follow the bio CTA rule above and include no marketplace item links.',
+    '2. **Hashtags** — A separate block at the end with 18–28 hashtags: mix brand-relevant, category, style, and general resale (#preloved #secondhand #menswear etc. as appropriate). No spaces inside tags; avoid spammy repetition; do not use hashtags whose purpose is to smuggle a URL.',
     '',
     'Output format: caption first, then a blank line, then hashtags as a single space-separated line.'
   );
@@ -232,6 +257,10 @@ const Stock: React.FC = () => {
   const [promotedFee, setPromotedFee] = useState<string>('10');
   const [showSoldPlatformDropdown, setShowSoldPlatformDropdown] = useState(false);
   const soldPlatformDropdownRef = useRef<HTMLDivElement>(null);
+  /** True when the row being edited is already in the Orders list (server `orders` table). */
+  const [editingRowInOrders, setEditingRowInOrders] = useState(false);
+  /** True while POST /api/orders is in flight — button shows disabled / pending styling. */
+  const [addingToOrder, setAddingToOrder] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -247,6 +276,69 @@ const Stock: React.FC = () => {
   const editFormRef = useRef<HTMLDivElement>(null);
   const [visibleItemsCount, setVisibleItemsCount] = useState(20);
   const cardsWrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setAddingToOrder(false);
+    if (editingRowId == null) {
+      setEditingRowInOrders(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(`${API_BASE}/api/orders`);
+        if (!response.ok || cancelled) return;
+        const data = await response.json();
+        const stockIds = new Set(
+          (data.rows ?? []).map((r: { stock_id?: number | string }) => Number(r.stock_id))
+        );
+        if (!cancelled) {
+          setEditingRowInOrders(stockIds.has(Number(editingRowId)));
+        }
+      } catch {
+        if (!cancelled) setEditingRowInOrders(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [editingRowId]);
+
+  /** Sold sale prices for other items with the same brand + category as the edit form (excludes the row being edited). */
+  const editFormBrandCategorySaleComps = useMemo(() => {
+    const bidRaw = createForm.brand_id;
+    const cidRaw = createForm.category_id;
+    if (bidRaw === '' || cidRaw === '' || bidRaw === undefined || cidRaw === undefined) {
+      return { ready: false as const, reason: 'incomplete' as const };
+    }
+    const bid = Number(bidRaw);
+    const cid = Number(cidRaw);
+    if (!Number.isFinite(bid) || !Number.isFinite(cid)) {
+      return { ready: false as const, reason: 'incomplete' as const };
+    }
+
+    const prices: number[] = [];
+    for (const r of rows) {
+      if (editingRowId !== null && Number(r.id) === Number(editingRowId)) continue;
+      if (r.brand_id == null || Number(r.brand_id) !== bid) continue;
+      if (r.category_id == null || Number(r.category_id) !== cid) continue;
+      if (!r.sale_date) continue;
+      const sp = typeof r.sale_price === 'number' ? r.sale_price : Number(r.sale_price ?? 0);
+      if (!Number.isFinite(sp) || sp <= 0) continue;
+      prices.push(sp);
+    }
+
+    if (prices.length === 0) {
+      return { ready: true as const, count: 0, avg: null as number | null, max: null as number | null };
+    }
+    const sum = prices.reduce((x, y) => x + y, 0);
+    return {
+      ready: true as const,
+      count: prices.length,
+      avg: sum / prices.length,
+      max: Math.max(...prices),
+    };
+  }, [rows, createForm.brand_id, createForm.category_id, editingRowId]);
 
   // Scroll to edit form when it opens on mobile
   useEffect(() => {
@@ -1636,17 +1728,17 @@ const Stock: React.FC = () => {
       categories.find((c) => String(c.id) === String(createForm.category_id))?.category_name?.trim() ||
       '(not set)';
     const itemName = createForm.item_name.trim() || '(no title)';
-    const listingUrl = buildStockListingUrl(createForm.vinted_id, createForm.ebay_id);
     const text = buildStockInstagramAskAiPrompt({
       itemName,
       brandName,
       categoryName,
-      listingUrl,
       sku: editingRowId,
     });
     try {
       await navigator.clipboard.writeText(text);
-      setSuccessMessage('Instagram AI prompt copied — paste into ChatGPT or your AI tool.');
+      setSuccessMessage(
+        'Instagram prompt copied — points people to your store via bio only (no item / marketplace links). Paste into your AI tool.'
+      );
       window.setTimeout(() => setSuccessMessage(null), 5000);
     } catch {
       setError('Could not copy to clipboard.');
@@ -1654,11 +1746,11 @@ const Stock: React.FC = () => {
   }, [editingRowId, brands, categories, createForm]);
 
   const handleAddToOrders = async () => {
-    if (!editingRowId) return;
+    if (!editingRowId || editingRowInOrders || addingToOrder) return;
 
+    setError(null);
+    setAddingToOrder(true);
     try {
-      setError(null);
-
       const response = await fetch(`${API_BASE}/api/orders`, {
         method: 'POST',
         headers: {
@@ -1668,6 +1760,10 @@ const Stock: React.FC = () => {
       });
 
       if (!response.ok) {
+        if (response.status === 409) {
+          setEditingRowInOrders(true);
+          return;
+        }
         let message = 'Failed to add item to orders';
         try {
           const errorBody = await response.json();
@@ -1679,10 +1775,13 @@ const Stock: React.FC = () => {
         throw new Error(message);
       }
 
+      setEditingRowInOrders(true);
       setSuccessMessage('Item added to orders list.');
     } catch (err: any) {
       console.error('Add to orders error:', err);
       setError(err.message || 'Unable to add item to orders');
+    } finally {
+      setAddingToOrder(false);
     }
   };
 
@@ -1796,12 +1895,25 @@ const Stock: React.FC = () => {
     const multStr = (profit: number, purchase: number) =>
       purchase > 0 ? `${(profit / purchase).toFixed(2)}x` : '—';
 
-    const hasProjectedPrice =
-      !!createForm.projected_sale_price && createForm.projected_sale_price.trim() !== '';
     const hasPurchasePrice =
       !!createForm.purchase_price && createForm.purchase_price.trim() !== '';
 
-    const rawSale = String(createForm.sale_price ?? '').trim();
+    const rawActualSale = String(createForm.sale_price ?? '').trim();
+    const actualSaleParsed = rawActualSale === '' ? NaN : parseFloat(rawActualSale);
+    const hasUsableActualSale = Number.isFinite(actualSaleParsed);
+
+    const hasProjectedPrice =
+      !!createForm.projected_sale_price && createForm.projected_sale_price.trim() !== '';
+    const projectedSaleParsed = hasProjectedPrice ? parseFloat(createForm.projected_sale_price) || 0 : NaN;
+
+    /** Sale price (£) wins for Vinted/eBay valuations when set; else projected sale price. */
+    const saleForPlatforms = hasUsableActualSale
+      ? actualSaleParsed
+      : hasProjectedPrice && Number.isFinite(projectedSaleParsed)
+        ? projectedSaleParsed
+        : null;
+
+    const rawSale = rawActualSale;
     let profitAmt = 0;
     let profitMultOut = '—';
     if (rawSale !== '') {
@@ -1814,18 +1926,45 @@ const Stock: React.FC = () => {
     }
     const profitSeg = `${fmt(profitAmt)} / ${profitMultOut}`;
 
-    const segment = (label: string, valuePart: string) => (
-      <>
-        <strong className="stock-edit-metrics-pipeline-label">{label}</strong>
-        {`: ${valuePart}`}
-      </>
-    );
+    const valuationsUseActualSale = hasUsableActualSale;
+    const soldPlat = createForm.sold_platform;
+    const highlightVinted = valuationsUseActualSale && soldPlatformIsVintedStock(soldPlat);
+    const highlightEbay = valuationsUseActualSale && soldPlatformIsEbayStock(soldPlat);
 
-    if (!hasProjectedPrice || !hasPurchasePrice) {
+    type SegmentHighlight = false | 'sold-platform' | 'profit-with-sale';
+    const segment = (label: string, valuePart: string, highlight: SegmentHighlight = false) => {
+      const body = (
+        <>
+          <strong className="stock-edit-metrics-pipeline-label">{label}</strong>
+          {`: ${valuePart}`}
+        </>
+      );
+      if (highlight === 'sold-platform') {
+        return (
+          <span className="stock-edit-metrics-pipeline-seg stock-edit-metrics-pipeline-seg--sold-platform">
+            {body}
+          </span>
+        );
+      }
+      if (highlight === 'profit-with-sale') {
+        return (
+          <span className="stock-edit-metrics-pipeline-seg stock-edit-metrics-pipeline-seg--profit-with-sale">
+            {body}
+          </span>
+        );
+      }
+      return body;
+    };
+
+    const profitHighlight: SegmentHighlight = hasUsableActualSale ? 'profit-with-sale' : false;
+
+    const cannotComputePlatforms = !hasPurchasePrice || saleForPlatforms === null;
+
+    if (cannotComputePlatforms) {
       const itemPartial = hasPurchasePrice ? parseFloat(createForm.purchase_price) || 0 : 0;
       const multPlaceholder = itemPartial > 0 ? '0.00x' : '—';
       const z = `£0.00 / ${multPlaceholder}`;
-      const plain = `Vinted: ${z} | eBay: ${z} | eBay with fee: ${z} | Profit: ${profitSeg} |`;
+      const plain = `Vinted: ${z} | eBay: ${z} | eBay with fee: ${z} | Profit: ${profitSeg}`;
       const content = (
         <>
           {segment('Vinted', z)}
@@ -1834,15 +1973,14 @@ const Stock: React.FC = () => {
           {' | '}
           {segment('eBay with fee', z)}
           {' | '}
-          {segment('Profit', profitSeg)}
-          {' |'}
+          {segment('Profit', profitSeg, profitHighlight)}
         </>
       );
       return { plain, content };
     }
 
     const item = parseFloat(createForm.purchase_price) || 0;
-    const sale = parseFloat(createForm.projected_sale_price) || 0;
+    const sale = saleForPlatforms;
     const listingFees = 0.1;
     const promotedPercent = 10;
     const promotedFee = (sale * promotedPercent) / 100;
@@ -1855,17 +1993,16 @@ const Stock: React.FC = () => {
     const ebayPart = `${fmt(ebayProfitWithoutPromo)} / ${multStr(ebayProfitWithoutPromo, item)}`;
     const ebayFeePart = `${fmt(ebayProfitWithPromo)} / ${multStr(ebayProfitWithPromo, item)}`;
     const plain =
-      `Vinted: ${vintedPart} | eBay: ${ebayPart} | eBay with fee: ${ebayFeePart} | Profit: ${profitSeg} |`;
+      `Vinted: ${vintedPart} | eBay: ${ebayPart} | eBay with fee: ${ebayFeePart} | Profit: ${profitSeg}`;
     const content = (
       <>
-        {segment('Vinted', vintedPart)}
+        {segment('Vinted', vintedPart, highlightVinted ? 'sold-platform' : false)}
         {' | '}
-        {segment('eBay', ebayPart)}
+        {segment('eBay', ebayPart, highlightEbay ? 'sold-platform' : false)}
         {' | '}
-        {segment('eBay with fee', ebayFeePart)}
+        {segment('eBay with fee', ebayFeePart, highlightEbay ? 'sold-platform' : false)}
         {' | '}
-        {segment('Profit', profitSeg)}
-        {' |'}
+        {segment('Profit', profitSeg, profitHighlight)}
       </>
     );
     return { plain, content };
@@ -1909,31 +2046,35 @@ const Stock: React.FC = () => {
                   </div>
                   <button
                     type="button"
-                    className="stock-sku-button stock-add-to-order-btn"
+                    className={`stock-sku-button stock-add-to-order-btn${editingRowInOrders ? ' stock-add-to-order-btn--in-orders' : ''}${addingToOrder ? ' stock-add-to-order-btn--adding' : ''}`}
                     onClick={handleAddToOrders}
-                    disabled={creating || deleting}
+                    disabled={creating || deleting || editingRowInOrders || addingToOrder}
+                    aria-label={
+                      editingRowInOrders
+                        ? 'Item is in orders list'
+                        : addingToOrder
+                          ? 'Adding to orders…'
+                          : 'Add item to orders'
+                    }
+                    title={
+                      editingRowInOrders
+                        ? 'Added — in orders list'
+                        : addingToOrder
+                          ? 'Adding…'
+                          : 'Add to orders'
+                    }
                   >
-                    Add To Order
+                    <AddToOrdersClipboardIcon className="stock-add-to-order-icon" />
                   </button>
                   <button
                     type="button"
                     className="stock-instagram-ai-button stock-edit-row-1-instagram"
                     onClick={handleInstagramAskAi}
                     disabled={creating || deleting}
-                    aria-label="Copy AI prompt for Instagram caption and hashtags"
-                    title="Copy prompt for AI: Instagram caption and SEO hashtags"
+                    aria-label="Copy AI prompt: Instagram caption and hashtags (shop link in bio only, no item URLs)"
+                    title="Copy AI prompt: caption + hashtags — points people to your bio, no listing links"
                   >
                     Instagram
-                  </button>
-                  <button
-                    type="button"
-                    className="save-button stock-edit-row-1-action"
-                    onClick={() => {
-                      void handleCreateSubmit();
-                    }}
-                    disabled={creating || deleting}
-                  >
-                    {creating ? 'Saving…' : 'Update'}
                   </button>
                 </div>
                 <div className="stock-edit-row-1-center">
@@ -2301,16 +2442,51 @@ const Stock: React.FC = () => {
                     placeholder="e.g. 95.00"
                   />
                 </label>
-                <label className="new-entry-field">
-                  <span>Projected Sale Price</span>
-                  <input
-                    type="text"
-                    value={createForm.projected_sale_price}
-                    onChange={(event) => handleCreateChange('projected_sale_price', event.target.value)}
-                    placeholder="0.00"
-                    style={{ textAlign: 'center' }}
-                  />
-                </label>
+                <div className="new-entry-field stock-edit-projected-with-comps">
+                  <span className="stock-edit-projected-label stock-edit-projected-label--left">
+                    Projected Sale Price
+                  </span>
+                  <span className="stock-edit-projected-label stock-edit-projected-label--right">My Sales Price</span>
+                  <div className="stock-edit-projected-input-wrap">
+                    <input
+                      type="text"
+                      className="stock-edit-projected-price-input"
+                      value={createForm.projected_sale_price}
+                      onChange={(event) => handleCreateChange('projected_sale_price', event.target.value)}
+                      placeholder="0.00"
+                      style={{ textAlign: 'center' }}
+                      aria-label="Projected sale price"
+                    />
+                  </div>
+                  <div
+                    className="stock-edit-brand-category-comps"
+                    role="region"
+                    aria-label="Average and top sale price for this brand and category"
+                  >
+                    {!editFormBrandCategorySaleComps.ready && (
+                      <p className="stock-edit-brand-category-comps__muted">Select brand &amp; category</p>
+                    )}
+                    {editFormBrandCategorySaleComps.ready && editFormBrandCategorySaleComps.count === 0 && (
+                      <p className="stock-edit-brand-category-comps__muted">No sold comps</p>
+                    )}
+                    {editFormBrandCategorySaleComps.ready && editFormBrandCategorySaleComps.count > 0 && (
+                      <div className="stock-edit-brand-category-comps__stack">
+                        <div className="stock-edit-brand-category-comps__stat-line">
+                          <span className="stock-edit-brand-category-comps__key">Avg</span>
+                          <span className="stock-edit-brand-category-comps__val">
+                            {formatCurrency(editFormBrandCategorySaleComps.avg ?? 0)}
+                          </span>
+                        </div>
+                        <div className="stock-edit-brand-category-comps__stat-line">
+                          <span className="stock-edit-brand-category-comps__key">Top</span>
+                          <span className="stock-edit-brand-category-comps__val">
+                            {formatCurrency(editFormBrandCategorySaleComps.max ?? 0)}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
                 <label className="new-entry-field">
                   <span>Sale Date</span>
                   <DatePicker
@@ -2325,7 +2501,13 @@ const Stock: React.FC = () => {
                     wrapperClassName="date-picker-wrapper"
                   />
                 </label>
-                <div className="new-entry-field" style={{ position: 'relative' }} ref={soldPlatformDropdownRef}>
+                <div
+                  className="new-entry-field stock-edit-sold-platform-with-save"
+                  style={{ position: 'relative' }}
+                  ref={soldPlatformDropdownRef}
+                >
+                  <div className="stock-edit-sold-platform-with-save-row">
+                    <div className="stock-edit-sold-platform-field">
                   <label
                     style={{
                       display: 'flex',
@@ -2333,25 +2515,27 @@ const Stock: React.FC = () => {
                       gap: '8px',
                       color: 'rgba(255, 248, 226, 0.7)',
                       letterSpacing: '0.05rem',
+                      position: 'relative',
                     }}
                   >
                     <span>Sold Platform</span>
                     <div
-                      className="new-entry-select"
+                      className="new-entry-select stock-edit-sold-platform-trigger"
                       style={{
                         position: 'relative',
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
-                        padding: '14px 18px',
-                        borderRadius: '16px',
+                        padding: '11px 13px',
+                        borderRadius: '14px',
                         border: '1px solid rgba(255, 214, 91, 0.28)',
                         background: 'rgba(255, 214, 91, 0.08)',
                         color: 'var(--text-strong)',
                         gap: '6px',
-                        minHeight: 'auto',
+                        minHeight: '46px',
                         height: 'auto',
                         lineHeight: '1.2',
+                        boxSizing: 'border-box',
                       }}
                       onClick={() => setShowSoldPlatformDropdown(!showSoldPlatformDropdown)}
                     >
@@ -2487,6 +2671,45 @@ const Stock: React.FC = () => {
                       </div>
                     )}
                   </label>
+                    </div>
+                    <div className="stock-edit-save-in-row4">
+                      <span className="stock-edit-save-in-row4-label-spacer" aria-hidden>
+                        &nbsp;
+                      </span>
+                      <button
+                        type="button"
+                        className="save-button stock-edit-save-disk"
+                        onClick={() => {
+                          void handleCreateSubmit();
+                        }}
+                        disabled={creating || deleting}
+                        aria-label={creating ? 'Saving changes' : 'Save changes'}
+                        title={creating ? 'Saving…' : 'Save changes'}
+                      >
+                        {creating ? (
+                          <span className="stock-edit-save-disk-spinner" aria-hidden />
+                        ) : (
+                          <svg
+                            className="stock-edit-save-disk-icon"
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="22"
+                            height="22"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.75"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden
+                          >
+                            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                            <polyline points="17 21 17 13 7 13 7 21" />
+                            <polyline points="7 3 7 8 15 8" />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

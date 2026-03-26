@@ -63,6 +63,8 @@
 }
 
 .new-entry-card {
+  container-type: inline-size;
+  container-name: stock-edit-card;
   background: rgba(5, 4, 3, 0.94);
   border: 1px solid rgba(255, 214, 91, 0.28);
   border-radius: 24px;
@@ -210,6 +212,28 @@
   color: inherit;
 }
 
+/* Sale price + matching sold platform: emphasise that platform’s line(s) */
+.stock-edit-metrics-pipeline-seg--sold-platform {
+  font-weight: 700;
+  color: #8cffc3;
+}
+
+.stock-edit-metrics-pipeline-seg--sold-platform .stock-edit-metrics-pipeline-label {
+  color: #8cffc3;
+  font-weight: 800;
+}
+
+/* Sale price set: emphasise realised Profit line */
+.stock-edit-metrics-pipeline-seg--profit-with-sale {
+  font-weight: 700;
+  color: #f0a030;
+}
+
+.stock-edit-metrics-pipeline-seg--profit-with-sale .stock-edit-metrics-pipeline-label {
+  color: #f0a030;
+  font-weight: 800;
+}
+
 .stock-edit-row1-delete-btn.delete-button {
   flex-shrink: 0;
   display: inline-flex;
@@ -225,24 +249,82 @@
   text-transform: none;
 }
 
-@media (max-width: 700px) {
+/*
+ * Metrics row: own line when the *edit card* is narrow (split view / half browser on large monitors).
+ * Viewport media alone missed those cases because half of e.g. 2560px is still > 1024px.
+ */
+@container stock-edit-card (max-width: 1480px) {
   .stock-edit-row-1 {
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    row-gap: 12px;
+    overflow-x: visible;
   }
 
+  .stock-edit-row-1-left {
+    order: 1;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .stock-edit-row-1-end {
+    order: 2;
+    flex: 0 0 auto;
+    margin-left: auto;
+    align-self: center;
+  }
+
+  .stock-edit-row-1-center {
+    order: 3;
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    padding: 0;
+    justify-content: stretch;
+    align-self: stretch;
+  }
+
+  .stock-edit-row-1-metrics-box {
+    width: 100%;
+    max-width: 100%;
+    justify-content: flex-start;
+    align-items: flex-start;
+    min-height: auto;
+    padding: 10px 14px;
+    box-sizing: border-box;
+  }
+
+  .stock-edit-metrics-pipeline {
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    font-size: 0.82rem;
+    line-height: 1.35;
+    text-align: left;
+  }
+}
+
+/* Tablet: a bit more top clearance so the edit card clears the app header */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .stock-container {
+    margin-top: 100px;
+    padding: 32px 28px;
+  }
+}
+
+@media (max-width: 700px) {
   .stock-edit-row-1-left {
     flex: 0 0 auto;
     width: auto;
   }
 
   .stock-edit-row-1-center {
-    flex: 1 1 auto;
-    order: unset;
-    padding: 0 8px;
+    flex: 1 1 100%;
+    padding: 0;
   }
 
   .stock-edit-row-1-end {
-    order: unset;
     width: auto;
   }
 }
@@ -265,11 +347,59 @@
 }
 
 .stock-edit-row-1 .stock-sku-button.stock-add-to-order-btn {
-  width: auto;
-  flex: 0 1 auto;
-  min-width: min(168px, 100%);
-  padding: 12px 18px;
-  font-size: 0.78rem;
+  width: 44px;
+  flex: 0 0 auto;
+  min-width: 44px;
+  max-width: 44px;
+  height: 44px;
+  padding: 0;
+  font-size: 0;
+  line-height: 0;
+  border-radius: 50%;
+  text-transform: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22);
+  border-color: rgba(140, 255, 195, 0.4);
+  background: rgba(140, 255, 195, 0.14);
+  color: #8cffc3;
+}
+
+.stock-edit-row-1 .stock-sku-button.stock-add-to-order-btn:hover:not(:disabled) {
+  background: rgba(140, 255, 195, 0.26);
+  border-color: rgba(140, 255, 195, 0.55);
+  color: #b8ffd9;
+}
+
+.stock-add-to-order-icon {
+  display: block;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.stock-edit-row-1 .stock-add-to-order-icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* Saving to orders — disabled, looks active */
+.stock-sku-button.stock-add-to-order-btn.stock-add-to-order-btn--adding:disabled:not(.stock-add-to-order-btn--in-orders) {
+  opacity: 1;
+  cursor: wait;
+  background: rgba(140, 255, 195, 0.2);
+  border-color: rgba(140, 255, 195, 0.5);
+  color: #8cffc3;
+  transform: none;
+  box-shadow: inset 0 0 0 1px rgba(140, 255, 195, 0.15);
+}
+
+/* In orders — disabled + grey (already on list) */
+.stock-sku-button.stock-add-to-order-btn.stock-add-to-order-btn--in-orders:disabled {
+  opacity: 1;
+  cursor: not-allowed;
+  background: rgba(120, 120, 130, 0.42);
+  border-color: rgba(160, 160, 172, 0.55);
+  color: rgba(220, 220, 228, 0.85);
+  transform: none;
+  box-shadow: inset 0 0 0 1px rgba(90, 90, 100, 0.2);
 }
 
 .stock-edit-row-1 .stock-edit-row-1-action {
@@ -278,23 +408,220 @@
   padding: 14px 20px;
 }
 
-/* Close (X) — left of SKU; red treatment */
+/* Edit row 4: 2×2 grid — labels align with columns (Projected | My Sales Price comps) */
+.new-entry-field.stock-edit-projected-with-comps {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: auto auto;
+  gap: 8px 10px;
+  align-items: stretch;
+}
+
+.stock-edit-projected-label {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  color: rgba(255, 248, 226, 0.7);
+  letter-spacing: 0.05rem;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+}
+
+.stock-edit-projected-label--left {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.stock-edit-projected-label--right {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.stock-edit-projected-with-comps .stock-edit-projected-input-wrap {
+  grid-column: 1;
+  grid-row: 2;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.stock-edit-projected-with-comps .stock-edit-brand-category-comps {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.stock-edit-brand-category-comps {
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  min-height: calc(28px + 0.95rem * 1.2);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 214, 91, 0.22);
+  background: rgba(255, 214, 91, 0.06);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+}
+
+.stock-edit-brand-category-comps__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+}
+
+.stock-edit-brand-category-comps__stat-line {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  line-height: 1.15;
+}
+
+.stock-edit-brand-category-comps__key {
+  color: rgba(255, 248, 226, 0.5);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.58rem;
+  letter-spacing: 0.05rem;
+  flex-shrink: 0;
+}
+
+.stock-edit-brand-category-comps__val {
+  color: var(--neon-primary-strong);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.72rem;
+}
+
+.stock-edit-brand-category-comps__muted {
+  margin: 0;
+  font-size: 0.65rem;
+  line-height: 1.15;
+  color: rgba(255, 248, 226, 0.48);
+  text-align: center;
+}
+
+@media (max-width: 600px) {
+  .new-entry-field.stock-edit-projected-with-comps {
+    grid-template-columns: 1fr;
+  }
+
+  .stock-edit-projected-label--left {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .stock-edit-projected-with-comps .stock-edit-projected-input-wrap {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .stock-edit-projected-label--right {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  .stock-edit-projected-with-comps .stock-edit-brand-category-comps {
+    grid-column: 1;
+    grid-row: 4;
+  }
+}
+
+/* Round save control (floppy disk) — edit form row 4 beside Sold Platform */
+.save-button.stock-edit-save-disk {
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  padding: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Sold Platform + save share one new-entry-field column */
+.stock-edit-sold-platform-with-save-row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.stock-edit-sold-platform-field {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.stock-edit-save-in-row4 {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.stock-edit-save-in-row4-label-spacer {
+  min-height: 32px;
+  width: 100%;
+  box-sizing: border-box;
+  display: block;
+}
+
+.stock-edit-save-disk-icon {
+  display: block;
+  flex-shrink: 0;
+  color: #8cffc3;
+}
+
+.stock-edit-save-disk-spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid rgba(140, 255, 195, 0.22);
+  border-top-color: #8cffc3;
+  border-radius: 50%;
+  animation: stock-edit-save-disk-spin 0.65s linear infinite;
+}
+
+@keyframes stock-edit-save-disk-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Close (X) — same 44px footprint as SKU circle + add-to-order */
 .stock-edit-row-1 .stock-edit-row-1-close-btn.cancel-button.stock-edit-row-1-action {
   flex-shrink: 0;
-  min-width: 48px;
-  padding: 14px 16px;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   box-sizing: border-box;
-  background: rgba(200, 45, 45, 0.55);
-  border: 1px solid rgba(255, 140, 140, 0.65);
-  color: #ffe8e8;
+  border-radius: 12px;
+  font-size: 1rem;
+  line-height: 1;
+  background: rgba(200, 200, 210, 0.35);
+  border: 1px solid rgba(220, 220, 230, 0.45);
+  color: rgba(255, 248, 226, 0.92);
 }
 
 .stock-edit-row-1 .stock-edit-row-1-close-btn.cancel-button.stock-edit-row-1-action:hover:not(:disabled) {
-  background: rgba(230, 55, 55, 0.72);
-  border-color: rgba(255, 170, 170, 0.85);
-  color: #fff;
+  background: rgba(215, 215, 225, 0.48);
+  border-color: rgba(235, 235, 242, 0.55);
+  color: #fff8e8;
   transform: translateY(-1px);
-  box-shadow: 0 0 12px rgba(255, 100, 100, 0.35);
+  box-shadow: 0 0 10px rgba(200, 200, 210, 0.25);
 }
 
 @media (max-width: 768px) {
@@ -962,9 +1289,9 @@
 .stock-instagram-ai-button {
   padding: 16px 24px;
   border-radius: 999px;
-  border: 1px solid rgba(140, 200, 255, 0.32);
-  background: rgba(140, 200, 255, 0.14);
-  color: #b8deff;
+  border: 1px solid #c9365a;
+  background: #e4405f;
+  color: #ffffff;
   font-weight: 600;
   letter-spacing: 0.06rem;
   text-transform: uppercase;
@@ -973,7 +1300,8 @@
 }
 
 .stock-instagram-ai-button:hover:not(:disabled) {
-  background: rgba(140, 200, 255, 0.26);
+  background: #f7778a;
+  border-color: #e4405f;
   transform: translateY(-1px);
   box-shadow: var(--neon-shadow);
 }
@@ -1903,9 +2231,14 @@
     flex-direction: column;
   }
 
-  .save-button,
+  .save-button:not(.stock-edit-save-disk),
   .cancel-button {
     width: 100%;
+  }
+
+  .save-button.stock-edit-save-disk {
+    width: 48px;
+    max-width: 48px;
   }
 
   /* Hide table on mobile */
