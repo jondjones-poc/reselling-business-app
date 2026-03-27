@@ -267,10 +267,11 @@
   box-sizing: border-box;
 }
 
+/* Match a single .new-entry-field column (same as Name, Category, etc.) */
 .new-entry-field.stock-new-entry-projected-only {
-  flex: 0 1 200px;
-  max-width: 220px;
-  min-width: 160px;
+  flex: 1 1 240px;
+  max-width: calc(25% - 16px);
+  min-width: 0;
   margin: 0;
 }
 
@@ -278,8 +279,10 @@
   text-transform: uppercase;
 }
 
+/* One column width — same flex basis as other new-entry fields */
 .stock-new-entry-comps-pipeline-wrap {
-  flex: 1 1 280px;
+  flex: 1 1 240px;
+  max-width: calc(25% - 16px);
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -294,23 +297,28 @@
   box-sizing: border-box;
 }
 
+/* Stack comps + metrics inside the My Sales column (not a third horizontal column) */
 .stock-new-entry-comps-pipeline-inner {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   align-items: stretch;
-  gap: 10px 12px;
+  gap: 10px;
   width: 100%;
   min-width: 0;
 }
 
 .stock-new-entry-comps-tile {
-  flex: 0 1 auto;
-  min-width: min(140px, 100%);
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .stock-new-entry-inline-pipeline {
-  flex: 1 1 220px;
-  min-width: 0;
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   min-height: auto;
   padding: 8px 12px;
   justify-content: flex-start;
