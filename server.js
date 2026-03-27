@@ -259,35 +259,37 @@ async function resolveBrandTagImageUrl(storagePath) {
 // Load settings at startup
 loadSettings();
 
-// Initialize database settings table on startup
-(async () => {
+/** Run before app.listen so OAuth callback never hits a DB before ebay_oauth_token exists. */
+async function ensureDatabaseSchema() {
   const pool = getDatabasePool();
-  if (pool) {
-    try {
-      await pool.query(
-        `CREATE TABLE IF NOT EXISTS app_settings (
-          key VARCHAR(255) PRIMARY KEY,
-          value TEXT NOT NULL,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )`
-      );
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS ebay_oauth_token (
-          integration_key VARCHAR(64) PRIMARY KEY,
-          user_name VARCHAR(255) NOT NULL,
-          refresh_token TEXT NOT NULL,
-          scope TEXT,
-          ebay_user_id VARCHAR(128),
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-      `);
-      console.log('App settings table initialized');
-    } catch (error) {
-      console.warn('Could not initialize app_settings table:', error.message);
-    }
+  if (!pool) {
+    console.warn('No database pool; skipping schema init');
+    return;
   }
-})();
+  try {
+    await pool.query(
+      `CREATE TABLE IF NOT EXISTS app_settings (
+        key VARCHAR(255) PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )`
+    );
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS ebay_oauth_token (
+        integration_key VARCHAR(64) PRIMARY KEY,
+        user_name VARCHAR(255) NOT NULL,
+        refresh_token TEXT NOT NULL,
+        scope TEXT,
+        ebay_user_id VARCHAR(128),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    console.log('Database schema ready: app_settings, ebay_oauth_token');
+  } catch (error) {
+    console.error('Could not initialize database tables:', error.message);
+  }
+}
 
 app.get('/api/test', (req, res) => {
   res.json({ message: 'Server is working!', timestamp: new Date().toISOString() });
@@ -375,6 +377,9 @@ app.get('/api/ebay/oauth/callback', async (req, res) => {
       throw new Error('Database not configured');
     }
 
+    const integrationKey = (
+      process.env.EBAY_OAUTH_INTEGRATION_KEY || ebaySellerOAuth.DEFAULT_INTEGRATION_KEY
+    ).trim();
     await ebaySellerOAuth.upsertRefreshToken(pool, {
       userName,
       refreshToken: String(refresh),
@@ -382,6 +387,7 @@ app.get('/api/ebay/oauth/callback', async (req, res) => {
       ebayUserId
     });
     ebaySellerOAuth.invalidateAccessTokenCache();
+    console.log(`[eBay OAuth] refresh token stored (integration_key=${integrationKey})`);
     res.redirect(302, frontendSuccess);
   } catch (err) {
     console.error('eBay OAuth callback error:', err);
@@ -403,17 +409,22 @@ app.get('/api/ebay/oauth/status', async (req, res) => {
     );
     const row = r.rows?.[0];
     if (!row) {
-      return res.json({ connected: false });
+      return res.json({ connected: false, reason: 'no_row', integration_key: key });
     }
     return res.json({
       connected: true,
       user_name: row.user_name,
       ebay_user_id: row.ebay_user_id,
-      updated_at: row.updated_at
+      updated_at: row.updated_at,
+      integration_key: key
     });
   } catch (e) {
     console.error('/api/ebay/oauth/status failed:', e);
-    return res.status(500).json({ connected: false, error: e instanceof Error ? e.message : String(e) });
+    return res.status(500).json({
+      connected: false,
+      reason: 'query_error',
+      error: e instanceof Error ? e.message : String(e)
+    });
   }
 });
 
@@ -5231,10 +5242,18 @@ if (fs.existsSync(buildDirectory)) {
   });
 }
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Settings endpoint: http://localhost:${PORT}/api/settings`);
-  console.log(`eBay API: http://localhost:${PORT}/api/ebay/search | sold-recent: /api/ebay/sold-recent?q=...`);
+async function startServer() {
+  await ensureDatabaseSchema();
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+    console.log(`Settings endpoint: http://localhost:${PORT}/api/settings`);
+    console.log(`eBay API: http://localhost:${PORT}/api/ebay/search | sold-recent: /api/ebay/sold-recent?q=...`);
+  });
+}
+
+startServer().catch((err) => {
+  console.error('Server failed to start:', err);
+  process.exit(1);
 });
 
 

@@ -192,6 +192,8 @@ const Orders: React.FC = () => {
     ebay_user_id?: string;
     updated_at?: string;
     reason?: string;
+    integration_key?: string;
+    error?: string;
   } | null>(null);
 
   const refreshEbayOAuthStatus = useCallback(async () => {
@@ -1008,7 +1010,11 @@ const Orders: React.FC = () => {
                   <div className="orders-oauth-flash orders-oauth-flash--warn" role="alert">
                     {ebayOAuthStatus?.reason === 'status_fetch_failed'
                       ? 'Cannot reach the API from this site (check Netlify: redeploy after adding public/_redirects proxy, or set REACT_APP_API_BASE to your Render URL).'
-                      : 'eBay redirect succeeded but this app sees no stored token. Confirm Render has the same database as the OAuth callback, redeploy the API, then use Connect eBay seller again.'}
+                      : ebayOAuthStatus?.reason === 'no_row'
+                        ? 'The API reached the database but there is no saved eBay token (this often means an old ?ebay_oauth=success bookmark, or the callback never finished). Check Render logs for “[eBay OAuth] refresh token stored”, redeploy the latest API, remove ebay_oauth from the URL, then use Connect eBay seller again.'
+                        : ebayOAuthStatus?.reason === 'query_error' && ebayOAuthStatus?.error
+                          ? `Could not read token from database: ${ebayOAuthStatus.error}`
+                          : 'eBay redirect succeeded but this app sees no stored token. Confirm Render database env matches Supabase, redeploy the API, clear ?ebay_oauth= from the URL, then use Connect eBay seller again.'}
                   </div>
                 ))}
               {searchParams.get('ebay_oauth') === 'error' && searchParams.get('ebay_oauth_msg') && (
