@@ -317,6 +317,15 @@ function daysSincePurchase(isoOrDate: string | null): number | null {
   return Math.floor(diff / 86400000);
 }
 
+/** Whole days from purchase date to sale date (for sold lines). */
+function daysHeldUntilSale(purchaseIso: string | null, saleIso: string | null): number | null {
+  if (!purchaseIso || !saleIso) return null;
+  const p = new Date(purchaseIso);
+  const s = new Date(saleIso);
+  if (Number.isNaN(p.getTime()) || Number.isNaN(s.getTime())) return null;
+  return Math.max(0, Math.floor((s.getTime() - p.getTime()) / 86400000));
+}
+
 function buildMenswearAvoidStockAskAiPrompt(args: {
   menswearCategoryName: string;
   worstRows: AvoidStockAskAiSummaryRow[];
@@ -1543,18 +1552,23 @@ const Research: React.FC = () => {
     sold_count: number;
   };
 
-  type MenswearAvoidDrilldownKey = {
+  type MenswearStockDrilldownKind = 'avoid' | 'buy-more';
+
+  type MenswearStockDrilldownKey = {
+    kind: MenswearStockDrilldownKind;
     brandId: number;
     categoryId: number | null;
     brandName: string;
     categoryName: string;
   };
 
-  type MenswearAvoidStockItemRow = {
+  type MenswearDrilldownStockItemRow = {
     id: number;
     item_name: string | null;
     purchase_price: string | number | null;
     purchase_date: string | null;
+    /** Present for sold-line drill-down (buy more). */
+    sale_date: string | null;
     vinted_id: string | null;
     ebay_id: string | null;
   };
@@ -1602,10 +1616,15 @@ const Research: React.FC = () => {
   );
   const [menswearUnsoldBrandCategoryLoading, setMenswearUnsoldBrandCategoryLoading] = useState(false);
   const [menswearUnsoldBrandCategoryError, setMenswearUnsoldBrandCategoryError] = useState<string | null>(null);
-  const [menswearAvoidDrilldown, setMenswearAvoidDrilldown] = useState<MenswearAvoidDrilldownKey | null>(null);
-  const [menswearAvoidItems, setMenswearAvoidItems] = useState<MenswearAvoidStockItemRow[]>([]);
-  const [menswearAvoidItemsLoading, setMenswearAvoidItemsLoading] = useState(false);
-  const [menswearAvoidItemsError, setMenswearAvoidItemsError] = useState<string | null>(null);
+  const [menswearBuyMoreBrandCategory, setMenswearBuyMoreBrandCategory] = useState<MenswearUnsoldBrandCategoryRow[]>(
+    []
+  );
+  const [menswearBuyMoreBrandCategoryLoading, setMenswearBuyMoreBrandCategoryLoading] = useState(false);
+  const [menswearBuyMoreBrandCategoryError, setMenswearBuyMoreBrandCategoryError] = useState<string | null>(null);
+  const [menswearStockDrilldown, setMenswearStockDrilldown] = useState<MenswearStockDrilldownKey | null>(null);
+  const [menswearDrilldownItems, setMenswearDrilldownItems] = useState<MenswearDrilldownStockItemRow[]>([]);
+  const [menswearDrilldownItemsLoading, setMenswearDrilldownItemsLoading] = useState(false);
+  const [menswearDrilldownItemsError, setMenswearDrilldownItemsError] = useState<string | null>(null);
 
   const [brandsWithWebsites, setBrandsWithWebsites] = useState<BrandRow[]>([]);
 
@@ -2440,63 +2459,124 @@ const Research: React.FC = () => {
   }, [researchTab, menswearCategoryIdFromUrl, menswearCategoryBrandsRefreshTick]);
 
   useEffect(() => {
-    setMenswearAvoidDrilldown(null);
+    setMenswearStockDrilldown(null);
   }, [menswearCategoryIdFromUrl]);
 
   useEffect(() => {
     if (researchTab !== 'menswear-categories') {
-      setMenswearAvoidDrilldown(null);
+      setMenswearStockDrilldown(null);
     }
   }, [researchTab]);
 
   useEffect(() => {
-    if (researchTab !== 'menswear-categories' || menswearCategoryIdFromUrl == null || !menswearAvoidDrilldown) {
-      setMenswearAvoidItems([]);
-      setMenswearAvoidItemsError(null);
-      setMenswearAvoidItemsLoading(false);
+    if (researchTab !== 'menswear-categories' || menswearCategoryIdFromUrl == null) {
+      setMenswearBuyMoreBrandCategory([]);
+      setMenswearBuyMoreBrandCategoryError(null);
+      setMenswearBuyMoreBrandCategoryLoading(false);
       return;
     }
     const ac = new AbortController();
     let cancelled = false;
     const load = async () => {
-      setMenswearAvoidItemsLoading(true);
-      setMenswearAvoidItemsError(null);
+      setMenswearBuyMoreBrandCategoryLoading(true);
+      setMenswearBuyMoreBrandCategoryError(null);
       try {
         const params = new URLSearchParams();
-        params.set('brand_id', String(menswearAvoidDrilldown.brandId));
-        if (menswearAvoidDrilldown.categoryId == null) {
-          params.set('uncategorized', '1');
-        } else {
-          params.set('category_id', String(menswearAvoidDrilldown.categoryId));
-        }
+        params.set('limit', '10');
         const res = await fetch(
           apiUrl(
-            `/api/menswear-categories/${menswearCategoryIdFromUrl}/unsold-stock-items?${params.toString()}`
+            `/api/menswear-categories/${menswearCategoryIdFromUrl}/buy-more-by-brand-category?${params}`
           ),
           { signal: ac.signal }
         );
-        const data = await readJsonResponse<{ rows?: MenswearAvoidStockItemRow[] }>(
+        const data = await readJsonResponse<{ rows?: MenswearUnsoldBrandCategoryRow[] }>(
           res,
-          'menswear-unsold-stock-items'
+          'menswear-buy-more-by-brand-category'
         );
         if (cancelled) return;
         const raw = Array.isArray(data.rows) ? data.rows : [];
-        setMenswearAvoidItems(
+        setMenswearBuyMoreBrandCategory(
+          raw.map((r) => ({
+            brand_id: (() => {
+              const n = Math.floor(Number(r.brand_id));
+              return Number.isFinite(n) && n > 0 ? n : 0;
+            })(),
+            brand_name: String(r.brand_name ?? '—'),
+            category_name: String(r.category_name ?? 'Uncategorized'),
+            category_id: (() => {
+              if (r.category_id === null || r.category_id === undefined) return null;
+              const n = Math.floor(Number(r.category_id));
+              return Number.isFinite(n) ? n : null;
+            })(),
+            unsold_count: Math.max(0, Math.floor(Number(r.unsold_count) || 0)),
+            sold_count: Math.max(0, Math.floor(Number(r.sold_count) || 0)),
+          }))
+        );
+      } catch (e) {
+        if (cancelled || isAbortError(e)) return;
+        setMenswearBuyMoreBrandCategory([]);
+        setMenswearBuyMoreBrandCategoryError(friendlyApiUnreachableMessage(e));
+      } finally {
+        if (!cancelled) setMenswearBuyMoreBrandCategoryLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [researchTab, menswearCategoryIdFromUrl, menswearCategoryBrandsRefreshTick]);
+
+  useEffect(() => {
+    if (researchTab !== 'menswear-categories' || menswearCategoryIdFromUrl == null || !menswearStockDrilldown) {
+      setMenswearDrilldownItems([]);
+      setMenswearDrilldownItemsError(null);
+      setMenswearDrilldownItemsLoading(false);
+      return;
+    }
+    const ac = new AbortController();
+    let cancelled = false;
+    const load = async () => {
+      setMenswearDrilldownItemsLoading(true);
+      setMenswearDrilldownItemsError(null);
+      try {
+        const params = new URLSearchParams();
+        params.set('brand_id', String(menswearStockDrilldown.brandId));
+        if (menswearStockDrilldown.categoryId == null) {
+          params.set('uncategorized', '1');
+        } else {
+          params.set('category_id', String(menswearStockDrilldown.categoryId));
+        }
+        const path =
+          menswearStockDrilldown.kind === 'avoid'
+            ? `/api/menswear-categories/${menswearCategoryIdFromUrl}/unsold-stock-items?${params.toString()}`
+            : `/api/menswear-categories/${menswearCategoryIdFromUrl}/sold-stock-items?${params.toString()}`;
+        const res = await fetch(apiUrl(path), { signal: ac.signal });
+        const data = await readJsonResponse<{ rows?: MenswearDrilldownStockItemRow[] }>(
+          res,
+          'menswear-drilldown-stock-items'
+        );
+        if (cancelled) return;
+        const raw = Array.isArray(data.rows) ? data.rows : [];
+        setMenswearDrilldownItems(
           raw.map((r) => ({
             id: Math.floor(Number(r.id) || 0),
             item_name: r.item_name != null ? String(r.item_name) : null,
             purchase_price: r.purchase_price ?? null,
             purchase_date: r.purchase_date != null ? String(r.purchase_date) : null,
-            vinted_id: r.vinted_id != null && String(r.vinted_id).trim() !== '' ? String(r.vinted_id).trim() : null,
+            sale_date:
+              r.sale_date != null && String(r.sale_date).trim() !== '' ? String(r.sale_date) : null,
+            vinted_id:
+              r.vinted_id != null && String(r.vinted_id).trim() !== '' ? String(r.vinted_id).trim() : null,
             ebay_id: r.ebay_id != null && String(r.ebay_id).trim() !== '' ? String(r.ebay_id).trim() : null,
           }))
         );
       } catch (e) {
         if (cancelled || isAbortError(e)) return;
-        setMenswearAvoidItems([]);
-        setMenswearAvoidItemsError(friendlyApiUnreachableMessage(e));
+        setMenswearDrilldownItems([]);
+        setMenswearDrilldownItemsError(friendlyApiUnreachableMessage(e));
       } finally {
-        if (!cancelled) setMenswearAvoidItemsLoading(false);
+        if (!cancelled) setMenswearDrilldownItemsLoading(false);
       }
     };
     void load();
@@ -2508,20 +2588,34 @@ const Research: React.FC = () => {
     researchTab,
     menswearCategoryIdFromUrl,
     menswearCategoryBrandsRefreshTick,
-    menswearAvoidDrilldown,
+    menswearStockDrilldown,
   ]);
 
-  /** Longest in stock first (most days since purchase), then by id. */
-  const menswearAvoidItemsSortedByStockAge = useMemo(() => {
-    return [...menswearAvoidItems].sort((a, b) => {
-      const da = daysSincePurchase(a.purchase_date);
-      const db = daysSincePurchase(b.purchase_date);
-      const sa = da !== null ? da : -1;
-      const sb = db !== null ? db : -1;
-      if (sb !== sa) return sb - sa;
-      return b.id - a.id;
-    });
-  }, [menswearAvoidItems]);
+  /** Avoid: longest in stock now; buy-more: longest hold (purchase→sale) first. */
+  const menswearDrilldownItemsSorted = useMemo(() => {
+    const kind = menswearStockDrilldown?.kind;
+    if (kind === 'avoid') {
+      return [...menswearDrilldownItems].sort((a, b) => {
+        const da = daysSincePurchase(a.purchase_date);
+        const db = daysSincePurchase(b.purchase_date);
+        const sa = da !== null ? da : -1;
+        const sb = db !== null ? db : -1;
+        if (sb !== sa) return sb - sa;
+        return b.id - a.id;
+      });
+    }
+    if (kind === 'buy-more') {
+      return [...menswearDrilldownItems].sort((a, b) => {
+        const da = daysHeldUntilSale(a.purchase_date, a.sale_date);
+        const db = daysHeldUntilSale(b.purchase_date, b.sale_date);
+        const sa = da !== null ? da : -1;
+        const sb = db !== null ? db : -1;
+        if (sb !== sa) return sb - sa;
+        return b.id - a.id;
+      });
+    }
+    return menswearDrilldownItems;
+  }, [menswearDrilldownItems, menswearStockDrilldown?.kind]);
 
   const menswearSalesPieModel = useMemo(() => {
     if (menswearCategoryIdFromUrl == null) {
@@ -4337,7 +4431,7 @@ const Research: React.FC = () => {
               `/api/menswear-categories/${menswearCategoryIdFromUrl}/unsold-stock-items?${params.toString()}`
             )
           );
-          const data = await readJsonResponse<{ rows?: MenswearAvoidStockItemRow[] }>(
+          const data = await readJsonResponse<{ rows?: MenswearDrilldownStockItemRow[] }>(
             res,
             'menswear-avoid-stock-ask-ai-items'
           );
@@ -4347,6 +4441,7 @@ const Research: React.FC = () => {
             item_name: row.item_name != null ? String(row.item_name) : null,
             purchase_price: row.purchase_price ?? null,
             purchase_date: row.purchase_date != null ? String(row.purchase_date) : null,
+            sale_date: null,
             vinted_id:
               row.vinted_id != null && String(row.vinted_id).trim() !== ''
                 ? String(row.vinted_id).trim()
@@ -6550,7 +6645,8 @@ const Research: React.FC = () => {
                                     );
                                     const openDrilldown = () => {
                                       if (row.brand_id < 1) return;
-                                      setMenswearAvoidDrilldown({
+                                      setMenswearStockDrilldown({
+                                        kind: 'avoid',
                                         brandId: row.brand_id,
                                         categoryId: row.category_id,
                                         brandName: row.brand_name,
@@ -6603,41 +6699,139 @@ const Research: React.FC = () => {
                           </button>
                         </div>
                       </section>
+
+                      <section
+                        className="menswear-categories-buy-more-stock"
+                        aria-labelledby="menswear-buy-more-stock-heading"
+                      >
+                        <h4 id="menswear-buy-more-stock-heading" className="menswear-categories-buy-more-stock-title">
+                          Stock To Buy More Of
+                        </h4>
+                        {menswearBuyMoreBrandCategoryError && (
+                          <div className="menswear-categories-error menswear-categories-error--inline" role="alert">
+                            {menswearBuyMoreBrandCategoryError}
+                          </div>
+                        )}
+                        {menswearBuyMoreBrandCategoryLoading && (
+                          <div className="menswear-categories-muted">Loading sell-through data…</div>
+                        )}
+                        {!menswearBuyMoreBrandCategoryLoading && !menswearBuyMoreBrandCategoryError && (
+                          <div className="menswear-categories-buy-more-stock-table-wrap">
+                            {menswearBuyMoreBrandCategory.length === 0 ? (
+                              <p className="menswear-categories-muted">
+                                No brand × category with at least one sale yet for this menswear category.
+                              </p>
+                            ) : (
+                              <table className="menswear-categories-buy-more-stock-table">
+                                <thead>
+                                  <tr>
+                                    <th scope="col">Brand</th>
+                                    <th scope="col">Category</th>
+                                    <th scope="col" className="menswear-categories-avoid-stock-num">
+                                      Unsold
+                                    </th>
+                                    <th scope="col" className="menswear-categories-avoid-stock-num">
+                                      Sold
+                                    </th>
+                                    <th
+                                      scope="col"
+                                      className="menswear-categories-avoid-stock-num"
+                                      title="Sold ÷ (sold + unsold) — share of units that sold"
+                                    >
+                                      Sell rate
+                                    </th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {menswearBuyMoreBrandCategory.map((row, idx) => {
+                                    const sold = row.sold_count;
+                                    const sellRateLabel = formatAvoidStockSellRateLabel(
+                                      row.unsold_count,
+                                      sold
+                                    );
+                                    const openBuyMoreDrilldown = () => {
+                                      if (row.brand_id < 1) return;
+                                      setMenswearStockDrilldown({
+                                        kind: 'buy-more',
+                                        brandId: row.brand_id,
+                                        categoryId: row.category_id,
+                                        brandName: row.brand_name,
+                                        categoryName: row.category_name,
+                                      });
+                                    };
+                                    const onKeyBuyMore = (e: React.KeyboardEvent) => {
+                                      if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        openBuyMoreDrilldown();
+                                      }
+                                    };
+                                    return (
+                                      <tr
+                                        key={`buy-more-${row.brand_id}-${row.category_id ?? 'u'}-${idx}`}
+                                        className="menswear-categories-buy-more-stock-row-link"
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={openBuyMoreDrilldown}
+                                        onKeyDown={onKeyBuyMore}
+                                        aria-label={`View sold lines: ${row.brand_name}, ${row.category_name}`}
+                                      >
+                                        <td>{row.brand_name}</td>
+                                        <td>{row.category_name}</td>
+                                        <td className="menswear-categories-avoid-stock-num">{row.unsold_count}</td>
+                                        <td className="menswear-categories-avoid-stock-num">{sold}</td>
+                                        <td className="menswear-categories-avoid-stock-num">{sellRateLabel}</td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            )}
+                          </div>
+                        )}
+                      </section>
                     </div>
                   </div>
                   <div
                     className={`menswear-categories-detail-split-chart${
-                      menswearAvoidDrilldown ? ' menswear-categories-detail-split-chart--avoid-drilldown' : ''
+                      menswearStockDrilldown ? ' menswear-categories-detail-split-chart--avoid-drilldown' : ''
                     }`}
                   >
-                    {menswearAvoidDrilldown ? (
-                      <div className="menswear-categories-avoid-drilldown" role="region" aria-label="Unsold items">
+                    {menswearStockDrilldown ? (
+                      <div className="menswear-categories-avoid-drilldown" role="region" aria-label="Stock lines">
                         <div className="menswear-categories-avoid-drilldown-header">
                           <button
                             type="button"
                             className="menswear-categories-avoid-drilldown-back"
-                            onClick={() => setMenswearAvoidDrilldown(null)}
+                            onClick={() => setMenswearStockDrilldown(null)}
                           >
                             ← Back to chart
                           </button>
                           <h4 className="menswear-categories-avoid-drilldown-title">
-                            {menswearAvoidDrilldown.brandName}
+                            <span className="menswear-categories-avoid-drilldown-kind">
+                              {menswearStockDrilldown.kind === 'avoid' ? 'Unsold' : 'Sold lines'}
+                            </span>
                             <span className="menswear-categories-avoid-drilldown-sep"> · </span>
-                            {menswearAvoidDrilldown.categoryName}
+                            {menswearStockDrilldown.brandName}
+                            <span className="menswear-categories-avoid-drilldown-sep"> · </span>
+                            {menswearStockDrilldown.categoryName}
                           </h4>
                         </div>
-                        {menswearAvoidItemsError && (
+                        {menswearDrilldownItemsError && (
                           <div className="menswear-categories-error menswear-categories-error--inline" role="alert">
-                            {menswearAvoidItemsError}
+                            {menswearDrilldownItemsError}
                           </div>
                         )}
-                        {menswearAvoidItemsLoading && (
+                        {menswearDrilldownItemsLoading && (
                           <div className="menswear-categories-muted">Loading items…</div>
                         )}
-                        {!menswearAvoidItemsLoading && !menswearAvoidItemsError && (
+                        {!menswearDrilldownItemsLoading && !menswearDrilldownItemsError && (
                           <div className="menswear-categories-avoid-drilldown-table-wrap">
-                            {menswearAvoidItemsSortedByStockAge.length === 0 ? (
-                              <p className="menswear-categories-muted">No matching unsold lines.</p>
+                            {menswearDrilldownItemsSorted.length === 0 ? (
+                              <p className="menswear-categories-muted">
+                                {menswearStockDrilldown.kind === 'avoid'
+                                  ? 'No matching unsold lines.'
+                                  : 'No sold lines for this pair.'}
+                              </p>
                             ) : (
                               <table className="menswear-categories-avoid-drilldown-table">
                                 <thead>
@@ -6645,12 +6839,21 @@ const Research: React.FC = () => {
                                     <th scope="col">Item</th>
                                     <th scope="col">Price</th>
                                     <th scope="col">Purchased</th>
-                                    <th scope="col">Days in stock</th>
+                                    <th
+                                      scope="col"
+                                      title={
+                                        menswearStockDrilldown.kind === 'avoid'
+                                          ? 'Days since purchase (still in stock)'
+                                          : 'Days from purchase to sale'
+                                      }
+                                    >
+                                      Days in stock
+                                    </th>
                                     <th scope="col">Listings</th>
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {menswearAvoidItemsSortedByStockAge.map((item) => {
+                                  {menswearDrilldownItemsSorted.map((item) => {
                                     const priceNum =
                                       item.purchase_price != null && item.purchase_price !== ''
                                         ? typeof item.purchase_price === 'number'
@@ -6663,7 +6866,10 @@ const Research: React.FC = () => {
                                         : '—';
                                     const hasVinted = Boolean(item.vinted_id);
                                     const hasEbay = Boolean(item.ebay_id);
-                                    const daysInStock = daysSincePurchase(item.purchase_date);
+                                    const daysCol =
+                                      menswearStockDrilldown.kind === 'avoid'
+                                        ? daysSincePurchase(item.purchase_date)
+                                        : daysHeldUntilSale(item.purchase_date, item.sale_date);
                                     return (
                                       <tr key={item.id}>
                                         <td className="menswear-categories-avoid-drilldown-item">
@@ -6681,7 +6887,7 @@ const Research: React.FC = () => {
                                           {formatResearchShortDate(item.purchase_date)}
                                         </td>
                                         <td className="menswear-categories-avoid-drilldown-num">
-                                          {daysInStock === null ? '—' : daysInStock}
+                                          {daysCol === null ? '—' : daysCol}
                                         </td>
                                         <td className="menswear-categories-avoid-drilldown-links">
                                           {hasVinted ? (

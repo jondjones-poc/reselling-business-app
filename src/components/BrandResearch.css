@@ -3990,6 +3990,93 @@ button.image-upload-label {
   outline-offset: -2px;
 }
 
+.menswear-categories-buy-more-stock {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(255, 214, 91, 0.14);
+  width: 100%;
+  max-width: min(100%, 520px);
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.menswear-categories-buy-more-stock-title {
+  margin: 0 0 12px 0;
+  font-size: 0.98rem;
+  font-weight: 600;
+  letter-spacing: 0.03rem;
+  color: var(--text-strong);
+  text-align: center;
+}
+
+.menswear-categories-buy-more-stock-table-wrap {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid rgba(100, 200, 140, 0.35);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.menswear-categories-buy-more-stock-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  color: var(--text-strong);
+}
+
+.menswear-categories-buy-more-stock-table thead th {
+  text-align: center;
+  padding: 10px 12px;
+  background: rgba(80, 180, 120, 0.14);
+  border-bottom: 1px solid rgba(100, 200, 140, 0.35);
+  font-weight: 700;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04rem;
+  color: rgba(255, 248, 226, 0.75);
+  white-space: nowrap;
+}
+
+.menswear-categories-buy-more-stock-table tbody td {
+  padding: 9px 12px;
+  border-bottom: 1px solid rgba(255, 214, 91, 0.08);
+  vertical-align: middle;
+  text-align: center;
+}
+
+.menswear-categories-buy-more-stock-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.menswear-categories-buy-more-stock-table tbody tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.menswear-categories-buy-more-stock-row-link {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.menswear-categories-buy-more-stock-row-link:hover td {
+  background: rgba(80, 180, 120, 0.1);
+}
+
+.menswear-categories-buy-more-stock-row-link:focus {
+  outline: none;
+}
+
+.menswear-categories-buy-more-stock-row-link:focus-visible {
+  outline: 2px solid rgba(120, 220, 160, 0.55);
+  outline-offset: -2px;
+}
+
+.menswear-categories-avoid-drilldown-kind {
+  font-weight: 600;
+  font-size: 0.78rem;
+  letter-spacing: 0.06rem;
+  text-transform: uppercase;
+  color: rgba(255, 248, 226, 0.65);
+}
+
 .menswear-categories-detail-split-chart--avoid-drilldown {
   align-self: stretch;
 }

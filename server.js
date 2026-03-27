@@ -2825,6 +2825,139 @@ app.get('/api/menswear-categories/:id/unsold-stock-items', async (req, res) => {
 });
 
 /**
+ * Brand × stock category rows with highest sell rate (sold ÷ total lines). At least one sale required.
+ * GET /api/menswear-categories/:id/buy-more-by-brand-category?limit=10
+ */
+app.get('/api/menswear-categories/:id/buy-more-by-brand-category', async (req, res) => {
+  try {
+    const categoryId = parseInt(req.params.id, 10);
+    if (Number.isNaN(categoryId) || categoryId < 1) {
+      return res.status(400).json({ error: 'Invalid category id' });
+    }
+
+    let limit = parseInt(String(req.query.limit ?? '10'), 10);
+    if (Number.isNaN(limit)) limit = 10;
+    limit = Math.min(200, Math.max(5, limit));
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const catCheck = await pool.query('SELECT id FROM menswear_category WHERE id = $1', [categoryId]);
+    if (!catCheck.rowCount) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+
+    const result = await pool.query(
+      `SELECT
+         b.id AS brand_id,
+         b.brand_name,
+         COALESCE(MAX(c.category_name), 'Uncategorized') AS category_name,
+         s.category_id AS category_id,
+         COUNT(s.id) FILTER (WHERE s.sale_date IS NULL)::int AS unsold_count,
+         COUNT(s.id) FILTER (WHERE s.sale_date IS NOT NULL)::int AS sold_count
+       FROM stock s
+       INNER JOIN brand b ON s.brand_id = b.id
+       LEFT JOIN category c ON s.category_id = c.id
+       WHERE b.menswear_category_id = $1
+       GROUP BY b.id, b.brand_name, s.category_id
+       HAVING COUNT(s.id) FILTER (WHERE s.sale_date IS NOT NULL) >= 1
+       ORDER BY
+         (COUNT(s.id) FILTER (WHERE s.sale_date IS NOT NULL))::numeric / NULLIF(COUNT(s.id), 0) DESC NULLS LAST,
+         (COUNT(s.id) FILTER (WHERE s.sale_date IS NULL)) ASC NULLS LAST,
+         brand_name ASC,
+         category_name ASC
+       LIMIT $2`,
+      [categoryId, limit]
+    );
+
+    res.json({ rows: result.rows ?? [], category_id: categoryId, limit });
+  } catch (error) {
+    console.error('menswear-categories buy-more-by-brand-category failed:', error);
+    res.status(500).json({ error: 'Failed to load buy-more by brand and category', details: error.message });
+  }
+});
+
+/**
+ * Sold stock lines for one brand + stock category (drill-down for “buy more”).
+ * GET /api/menswear-categories/:id/sold-stock-items?brand_id=…&category_id=… | &uncategorized=1
+ */
+app.get('/api/menswear-categories/:id/sold-stock-items', async (req, res) => {
+  try {
+    const categoryId = parseInt(req.params.id, 10);
+    if (Number.isNaN(categoryId) || categoryId < 1) {
+      return res.status(400).json({ error: 'Invalid category id' });
+    }
+
+    const brandId = parseInt(String(req.query.brand_id ?? ''), 10);
+    if (Number.isNaN(brandId) || brandId < 1) {
+      return res.status(400).json({ error: 'brand_id is required' });
+    }
+
+    const uncategorized = String(req.query.uncategorized ?? '').trim() === '1';
+    const rawCategoryId = req.query.category_id;
+    let categorySql = '';
+    const params = [categoryId, brandId];
+    if (uncategorized) {
+      categorySql = 'AND s.category_id IS NULL';
+    } else if (rawCategoryId !== undefined && rawCategoryId !== null && String(rawCategoryId).trim() !== '') {
+      const cid = parseInt(String(rawCategoryId), 10);
+      if (Number.isNaN(cid) || cid < 1) {
+        return res.status(400).json({ error: 'Invalid category_id' });
+      }
+      categorySql = 'AND s.category_id = $3';
+      params.push(cid);
+    } else {
+      return res.status(400).json({ error: 'Provide category_id or uncategorized=1' });
+    }
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const catCheck = await pool.query('SELECT id FROM menswear_category WHERE id = $1', [categoryId]);
+    if (!catCheck.rowCount) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+
+    const brandCheck = await pool.query(
+      'SELECT id FROM brand WHERE id = $1 AND menswear_category_id = $2',
+      [brandId, categoryId]
+    );
+    if (!brandCheck.rowCount) {
+      return res.status(404).json({ error: 'Brand not in this menswear category' });
+    }
+
+    const result = await pool.query(
+      `SELECT
+         s.id,
+         s.item_name,
+         s.purchase_price,
+         s.purchase_date,
+         s.sale_date,
+         s.vinted_id,
+         s.ebay_id
+       FROM stock s
+       INNER JOIN brand b ON s.brand_id = b.id
+       WHERE b.menswear_category_id = $1
+         AND b.id = $2
+         AND s.sale_date IS NOT NULL
+         ${categorySql}
+       ORDER BY s.sale_date DESC NULLS LAST, s.id DESC
+       LIMIT 500`,
+      params
+    );
+
+    res.json({ rows: result.rows ?? [], category_id: categoryId, brand_id: brandId });
+  } catch (error) {
+    console.error('menswear-categories sold-stock-items failed:', error);
+    res.status(500).json({ error: 'Failed to load sold stock items', details: error.message });
+  }
+});
+
+/**
  * Category-level sold revenue for menswear categories, aggregated from linked brands.
  * GET /api/menswear-categories/sales-by-category?period=last_12_months|2026|2025
  */
