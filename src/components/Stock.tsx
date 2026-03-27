@@ -1786,110 +1786,7 @@ const Stock: React.FC = () => {
     }
   };
 
-  /** Vinted / eBay projected lines (shared by edit row 1 and new-item form). */
-  const renderProjectedProfitBody = (): React.ReactNode => {
-    const hasProjectedPrice =
-      !!createForm.projected_sale_price && createForm.projected_sale_price.trim() !== '';
-    const hasPurchasePrice =
-      !!createForm.purchase_price && createForm.purchase_price.trim() !== '';
-
-    if (!hasProjectedPrice || !hasPurchasePrice) {
-      const itemPartial = hasPurchasePrice ? parseFloat(createForm.purchase_price) || 0 : 0;
-      const multPlaceholder =
-        itemPartial > 0 ? (
-          <span className="projected-profit-inline-mult"> / 0.00x</span>
-        ) : (
-          <span className="projected-profit-inline-mult"> / —</span>
-        );
-      return (
-        <div className="projected-profit-inline-row projected-profit-inline-row--muted">
-          <span className="projected-profit-inline-cell projected-profit-inline-stat projected-profit-inline-stat--muted">
-            Vinted: £0.00{multPlaceholder}
-          </span>
-          <span className="projected-profit-inline-cell projected-profit-inline-stat projected-profit-inline-stat--muted">
-            eBay: £0.00{multPlaceholder}
-          </span>
-        </div>
-      );
-    }
-
-    const item = parseFloat(createForm.purchase_price) || 0;
-    const sale = parseFloat(createForm.projected_sale_price) || 0;
-    const listingFees = 0.1;
-    const promotedPercent = 10;
-    const promotedFee = (sale * promotedPercent) / 100;
-
-    const vintedProfit = sale - item;
-    const vintedProfitDisplay =
-      vintedProfit >= 0 ? `£${vintedProfit.toFixed(2)}` : `-£${Math.abs(vintedProfit).toFixed(2)}`;
-    const isVintedBuy = item > 0 && vintedProfit >= item * 2;
-
-    const ebayProfitWithoutPromo = sale - (item + listingFees);
-    const ebayProfitWithoutPromoDisplay =
-      ebayProfitWithoutPromo >= 0
-        ? `£${ebayProfitWithoutPromo.toFixed(2)}`
-        : `-£${Math.abs(ebayProfitWithoutPromo).toFixed(2)}`;
-    const isEbayBuyWithoutPromo = item > 0 && ebayProfitWithoutPromo >= item * 2;
-
-    const totalCosts = item + listingFees + promotedFee;
-    const ebayProfitWithPromo = sale - totalCosts;
-    const ebayProfitWithPromoDisplay =
-      ebayProfitWithPromo >= 0
-        ? `£${ebayProfitWithPromo.toFixed(2)}`
-        : `-£${Math.abs(ebayProfitWithPromo).toFixed(2)}`;
-
-    const profitMult = (profit: number) =>
-      item > 0 ? `${(profit / item).toFixed(2)}x` : '—';
-
-    return (
-      <div className="projected-profit-inline-row">
-        <div
-          className={`projected-profit-inline-cell projected-profit-inline-stat${
-            isVintedBuy ? ' projected-profit-inline-stat--buy' : ' projected-profit-inline-stat--pass'
-          }`}
-        >
-          Vinted: {vintedProfitDisplay}
-          <span className="projected-profit-inline-mult"> / {profitMult(vintedProfit)}</span>
-        </div>
-        <div
-          className={`projected-profit-inline-cell projected-profit-inline-stat${
-            isEbayBuyWithoutPromo ? ' projected-profit-inline-stat--buy' : ' projected-profit-inline-stat--pass'
-          }`}
-        >
-          eBay: {ebayProfitWithoutPromoDisplay}
-          <span className="projected-profit-inline-mult"> / {profitMult(ebayProfitWithoutPromo)}</span>
-        </div>
-        <div className="projected-profit-inline-sub">
-          (with promo: {ebayProfitWithPromoDisplay})
-        </div>
-      </div>
-    );
-  };
-
-  const renderProjectedProfitInline = () => (
-    <div className="new-entry-field projected-profit-inline-field">
-      <span
-        style={{
-          color: 'rgba(255, 248, 226, 0.7)',
-          letterSpacing: '0.05rem',
-          fontSize: '0.85rem',
-          textTransform: 'uppercase',
-          height: '1.2rem',
-        }}
-      >
-        &nbsp;
-      </span>
-      <div
-        className="projected-profit-inline"
-        role="region"
-        aria-label="Projected profit by platform"
-      >
-        {renderProjectedProfitBody()}
-      </div>
-    </div>
-  );
-
-  /** One-line metrics for edit row 1: Vinted | eBay | eBay with fee | Profit (same math as renderProjectedProfitBody). */
+  /** One-line metrics for edit row 1 and new-item form: Vinted | eBay | eBay with fee | Profit. */
   const buildStockEditMetricsPipeline = (): { plain: string; content: React.ReactNode } => {
     const fmt = (n: number) =>
       n >= 0 ? `£${n.toFixed(2)}` : `-£${Math.abs(n).toFixed(2)}`;
@@ -2715,72 +2612,131 @@ const Stock: React.FC = () => {
               </div>
             )}
 
-            {/* New stock row: projected profit + Save / Close */}
+            {/* New stock: Projected + My Sales (comps) same as edit row 4; full pipeline bar; Save / Close */}
             {!editingRowId && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', width: '100%' }}>
-                <label className="new-entry-field">
-                  <span>Projected Sale Price</span>
-                  <input
-                    type="text"
-                    value={createForm.projected_sale_price}
-                    onChange={(event) => handleCreateChange('projected_sale_price', event.target.value)}
-                    placeholder="0.00"
-                    style={{ textAlign: 'center' }}
-                  />
-                </label>
-
-                {renderProjectedProfitInline()}
-
+              <>
                 <div
-                  className="new-entry-field new-entry-field--actions"
-                  style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '16px',
+                    width: '100%',
+                    alignItems: 'flex-end',
+                  }}
                 >
-                  <span
-                    style={{
-                      color: 'rgba(255, 248, 226, 0.7)',
-                      letterSpacing: '0.05rem',
-                      fontSize: '0.85rem',
-                      textTransform: 'uppercase',
-                      height: '1.2rem',
-                    }}
+                  <div className="new-entry-field stock-edit-projected-with-comps">
+                    <span className="stock-edit-projected-label stock-edit-projected-label--left">
+                      Projected Sale Price
+                    </span>
+                    <span className="stock-edit-projected-label stock-edit-projected-label--right">
+                      My Sales Price
+                    </span>
+                    <div className="stock-edit-projected-input-wrap">
+                      <input
+                        type="text"
+                        className="stock-edit-projected-price-input"
+                        value={createForm.projected_sale_price}
+                        onChange={(event) => handleCreateChange('projected_sale_price', event.target.value)}
+                        placeholder="0.00"
+                        style={{ textAlign: 'center' }}
+                        aria-label="Projected sale price"
+                      />
+                    </div>
+                    <div
+                      className="stock-edit-brand-category-comps"
+                      role="region"
+                      aria-label="Average and top sale price for this brand and category"
+                    >
+                      {!editFormBrandCategorySaleComps.ready && (
+                        <p className="stock-edit-brand-category-comps__muted">Select brand &amp; category</p>
+                      )}
+                      {editFormBrandCategorySaleComps.ready && editFormBrandCategorySaleComps.count === 0 && (
+                        <p className="stock-edit-brand-category-comps__muted">No sold comps</p>
+                      )}
+                      {editFormBrandCategorySaleComps.ready && editFormBrandCategorySaleComps.count > 0 && (
+                        <div className="stock-edit-brand-category-comps__stack">
+                          <div className="stock-edit-brand-category-comps__stat-line">
+                            <span className="stock-edit-brand-category-comps__key">Avg</span>
+                            <span className="stock-edit-brand-category-comps__val">
+                              {formatCurrency(editFormBrandCategorySaleComps.avg ?? 0)}
+                            </span>
+                          </div>
+                          <div className="stock-edit-brand-category-comps__stat-line">
+                            <span className="stock-edit-brand-category-comps__key">Top</span>
+                            <span className="stock-edit-brand-category-comps__val">
+                              {formatCurrency(editFormBrandCategorySaleComps.max ?? 0)}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div
+                    className="new-entry-field new-entry-field--actions"
+                    style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
                   >
-                    &nbsp;
-                  </span>
-                  <div className="update-close-buttons-container" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                      <button
-                        type="button"
-                        className="save-button"
-                        onClick={() => {
-                          void handleCreateSubmit();
-                        }}
-                        disabled={creating || deleting}
-                        style={{ flex: '1' }}
-                      >
-                        {creating ? 'Saving…' : 'Save'}
-                      </button>
-                      <button
-                        type="button"
-                        className="cancel-button"
-                        onClick={() => {
-                          if (!creating && !deleting) {
-                            setShowNewEntry(false);
-                            setEditingRowId(null);
-                            setFormIntent('create');
-                            setShowCreateInsteadOfEditConfirm(false);
-                            resetCreateForm();
-                            setShowDeleteConfirm(false);
-                          }
-                        }}
-                        disabled={creating || deleting}
-                        style={{ flex: '1' }}
-                      >
-                        Close
-                      </button>
+                    <span
+                      style={{
+                        color: 'rgba(255, 248, 226, 0.7)',
+                        letterSpacing: '0.05rem',
+                        fontSize: '0.85rem',
+                        textTransform: 'uppercase',
+                        height: '1.2rem',
+                      }}
+                    >
+                      &nbsp;
+                    </span>
+                    <div
+                      className="update-close-buttons-container"
+                      style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
+                    >
+                      <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                        <button
+                          type="button"
+                          className="save-button"
+                          onClick={() => {
+                            void handleCreateSubmit();
+                          }}
+                          disabled={creating || deleting}
+                          style={{ flex: '1' }}
+                        >
+                          {creating ? 'Saving…' : 'Save'}
+                        </button>
+                        <button
+                          type="button"
+                          className="cancel-button"
+                          onClick={() => {
+                            if (!creating && !deleting) {
+                              setShowNewEntry(false);
+                              setEditingRowId(null);
+                              setFormIntent('create');
+                              setShowCreateInsteadOfEditConfirm(false);
+                              resetCreateForm();
+                              setShowDeleteConfirm(false);
+                            }
+                          }}
+                          disabled={creating || deleting}
+                          style={{ flex: '1' }}
+                        >
+                          Close
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
+                <div className="stock-new-entry-pipeline-row">
+                  <div className="stock-edit-row-1-metrics-box stock-new-entry-pipeline-box">
+                    <div
+                      className="stock-edit-metrics-pipeline"
+                      role="region"
+                      aria-label="Projected profit by platform"
+                      title={stockEditMetricsPipeline.plain}
+                    >
+                      {stockEditMetricsPipeline.content}
+                    </div>
+                  </div>
+                </div>
+              </>
             )}
           </div>
         </div>

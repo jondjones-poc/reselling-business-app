@@ -212,6 +212,22 @@
   color: inherit;
 }
 
+/* New stock form: full-width pipeline under Projected / comps row */
+.stock-new-entry-pipeline-row {
+  width: 100%;
+  margin-top: 10px;
+  box-sizing: border-box;
+}
+
+.stock-new-entry-pipeline-row .stock-new-entry-pipeline-box {
+  width: 100%;
+  max-width: 100%;
+  justify-content: flex-start;
+  align-items: flex-start;
+  min-height: auto;
+  padding: 10px 14px;
+}
+
 /* Sale price + matching sold platform: emphasise that platform’s line(s) */
 .stock-edit-metrics-pipeline-seg--sold-platform {
   font-weight: 700;
