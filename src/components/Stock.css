@@ -212,14 +212,82 @@
   color: inherit;
 }
 
-/* New stock: top-left close */
-.stock-new-entry-card-header {
+/* New stock: 4 columns — (1) Projected + My Sales comps; (2–3) pipeline; (4) close + save centered */
+.stock-new-entry-four-col-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(72px, auto);
+  gap: 14px 16px;
   width: 100%;
   flex: 1 1 100%;
+  box-sizing: border-box;
+  align-items: end;
+}
+
+.stock-new-entry-col1-prices {
+  grid-column: 1;
   display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.new-entry-field.stock-new-entry-col1-field {
+  flex: none;
+  max-width: 100%;
+  margin: 0;
+}
+
+.stock-new-entry-col1-mysales {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.stock-new-entry-comps-only {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.stock-new-entry-col23-pipeline {
+  grid-column: 2 / 4;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+}
+
+.stock-new-entry-span-pipeline-box {
+  width: 100%;
+  min-height: auto;
+  padding: 8px 12px;
   justify-content: flex-start;
   align-items: center;
-  margin: -6px 0 4px 0;
+  box-sizing: border-box;
+}
+
+.stock-new-entry-span-pipeline-box .stock-edit-metrics-pipeline {
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.stock-new-entry-col4-actions {
+  grid-column: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  align-self: stretch;
+}
+
+.stock-new-entry-mysales-label {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
   box-sizing: border-box;
 }
 
@@ -254,92 +322,6 @@
 .stock-new-entry-close-x:disabled {
   opacity: 0.45;
   cursor: not-allowed;
-}
-
-/* New stock: projected | comps + pipeline | save */
-.stock-new-entry-projected-save-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 14px 16px;
-  width: 100%;
-  flex: 1 1 100%;
-  box-sizing: border-box;
-}
-
-/* Match a single .new-entry-field column (same as Name, Category, etc.) */
-.new-entry-field.stock-new-entry-projected-only {
-  flex: 1 1 240px;
-  max-width: calc(25% - 16px);
-  min-width: 0;
-  margin: 0;
-}
-
-.stock-new-entry-projected-only-label {
-  text-transform: uppercase;
-}
-
-/* One column width — same flex basis as other new-entry fields */
-.stock-new-entry-comps-pipeline-wrap {
-  flex: 1 1 240px;
-  max-width: calc(25% - 16px);
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  align-items: stretch;
-}
-
-.stock-new-entry-mysales-label {
-  min-height: 32px;
-  display: flex;
-  align-items: center;
-  box-sizing: border-box;
-}
-
-/* Stack comps + metrics inside the My Sales column (not a third horizontal column) */
-.stock-new-entry-comps-pipeline-inner {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
-  width: 100%;
-  min-width: 0;
-}
-
-.stock-new-entry-comps-tile {
-  flex: 0 0 auto;
-  width: 100%;
-  max-width: 100%;
-  box-sizing: border-box;
-}
-
-.stock-new-entry-inline-pipeline {
-  flex: 0 0 auto;
-  width: 100%;
-  max-width: 100%;
-  box-sizing: border-box;
-  min-height: auto;
-  padding: 8px 12px;
-  justify-content: flex-start;
-  align-items: center;
-}
-
-.stock-new-entry-inline-pipeline .stock-edit-metrics-pipeline {
-  white-space: normal;
-  word-break: break-word;
-  overflow-wrap: anywhere;
-  font-size: 0.78rem;
-  line-height: 1.35;
-}
-
-.stock-new-entry-save-wrap {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  /* Row uses flex-end; previously align-self:center lifted the button off the input baseline */
-  align-self: flex-end;
 }
 
 .stock-new-entry-save-circle {
@@ -399,6 +381,25 @@
 @keyframes stock-new-entry-save-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@container stock-edit-card (max-width: 720px) {
+  .stock-new-entry-four-col-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .stock-new-entry-col23-pipeline {
+    grid-column: 1;
+  }
+
+  .stock-new-entry-col4-actions {
+    grid-column: 1;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    gap: 16px;
   }
 }
 

@@ -1916,29 +1916,6 @@ const Stock: React.FC = () => {
       {showNewEntry && (
         <div className="new-entry-card" ref={editFormRef}>
           <div className="new-entry-grid">
-            {!editingRowId && (
-              <div className="stock-new-entry-card-header">
-                <button
-                  type="button"
-                  className="stock-new-entry-close-x"
-                  onClick={() => {
-                    if (!creating && !deleting) {
-                      setShowNewEntry(false);
-                      setEditingRowId(null);
-                      setFormIntent('create');
-                      setShowCreateInsteadOfEditConfirm(false);
-                      resetCreateForm();
-                      setShowDeleteConfirm(false);
-                    }
-                  }}
-                  disabled={creating || deleting}
-                  aria-label="Close"
-                  title="Close"
-                >
-                  ×
-                </button>
-              </div>
-            )}
             {/* Edit row 1: left (Close, SKU, Add To Order, Instagram…) | flex space | centered metrics | delete right */}
             {editingRowId && (
               <div className="stock-edit-row-1">
@@ -2635,28 +2612,28 @@ const Stock: React.FC = () => {
               </div>
             )}
 
-            {/* New stock: Close (top bar); projected | comps + pipeline | round save */}
+            {/* New stock: 4-col grid — col1 Projected+My Sales comps; col2-3 pipeline; col4 close+save centered */}
             {!editingRowId && (
-              <div className="stock-new-entry-projected-save-row">
-                <label className="new-entry-field stock-new-entry-projected-only">
-                  <span className="stock-edit-projected-label stock-new-entry-projected-only-label">
-                    Projected Sale Price
-                  </span>
-                  <input
-                    type="text"
-                    className="stock-edit-projected-price-input"
-                    value={createForm.projected_sale_price}
-                    onChange={(event) => handleCreateChange('projected_sale_price', event.target.value)}
-                    placeholder="0.00"
-                    style={{ textAlign: 'center' }}
-                    aria-label="Projected sale price"
-                  />
-                </label>
-                <div className="stock-new-entry-comps-pipeline-wrap">
-                  <span className="stock-edit-projected-label stock-new-entry-mysales-label">My Sales Price</span>
-                  <div className="stock-new-entry-comps-pipeline-inner">
+              <div className="stock-new-entry-four-col-row">
+                <div className="stock-new-entry-col1-prices">
+                  <label className="new-entry-field stock-new-entry-col1-field">
+                    <span className="stock-edit-projected-label">Projected Sale Price</span>
+                    <input
+                      type="text"
+                      className="stock-edit-projected-price-input"
+                      value={createForm.projected_sale_price}
+                      onChange={(event) => handleCreateChange('projected_sale_price', event.target.value)}
+                      placeholder="0.00"
+                      style={{ textAlign: 'center' }}
+                      aria-label="Projected sale price"
+                    />
+                  </label>
+                  <div className="stock-new-entry-col1-mysales">
+                    <span className="stock-edit-projected-label stock-new-entry-mysales-label">
+                      My Sales Price
+                    </span>
                     <div
-                      className="stock-edit-brand-category-comps stock-new-entry-comps-tile"
+                      className="stock-edit-brand-category-comps stock-new-entry-comps-only"
                       role="region"
                       aria-label="Average and top sale price for this brand and category"
                     >
@@ -2683,19 +2660,40 @@ const Stock: React.FC = () => {
                         </div>
                       )}
                     </div>
-                    <div className="stock-edit-row-1-metrics-box stock-new-entry-inline-pipeline">
-                      <div
-                        className="stock-edit-metrics-pipeline"
-                        role="region"
-                        aria-label="Projected profit by platform"
-                        title={stockEditMetricsPipeline.plain}
-                      >
-                        {stockEditMetricsPipeline.content}
-                      </div>
+                  </div>
+                </div>
+                <div className="stock-new-entry-col23-pipeline">
+                  <div className="stock-edit-row-1-metrics-box stock-new-entry-span-pipeline-box">
+                    <div
+                      className="stock-edit-metrics-pipeline"
+                      role="region"
+                      aria-label="Projected profit by platform"
+                      title={stockEditMetricsPipeline.plain}
+                    >
+                      {stockEditMetricsPipeline.content}
                     </div>
                   </div>
                 </div>
-                <div className="stock-new-entry-save-wrap">
+                <div className="stock-new-entry-col4-actions">
+                  <button
+                    type="button"
+                    className="stock-new-entry-close-x"
+                    onClick={() => {
+                      if (!creating && !deleting) {
+                        setShowNewEntry(false);
+                        setEditingRowId(null);
+                        setFormIntent('create');
+                        setShowCreateInsteadOfEditConfirm(false);
+                        resetCreateForm();
+                        setShowDeleteConfirm(false);
+                      }
+                    }}
+                    disabled={creating || deleting}
+                    aria-label="Close"
+                    title="Close"
+                  >
+                    ×
+                  </button>
                   <button
                     type="button"
                     className="stock-new-entry-save-circle"
