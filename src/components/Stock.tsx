@@ -2612,23 +2612,25 @@ const Stock: React.FC = () => {
               </div>
             )}
 
-            {/* New stock: 4-col grid — col1 Projected+My Sales comps; col2-3 pipeline; col4 close+save centered */}
+            {/* New stock: col1 = Projected | My Sales (50/50 same row); cols 2–3 = pipeline; col4 = actions */}
             {!editingRowId && (
               <div className="stock-new-entry-four-col-row">
                 <div className="stock-new-entry-col1-prices">
-                  <label className="new-entry-field stock-new-entry-col1-field">
-                    <span className="stock-edit-projected-label">Projected Sale Price</span>
-                    <input
-                      type="text"
-                      className="stock-edit-projected-price-input"
-                      value={createForm.projected_sale_price}
-                      onChange={(event) => handleCreateChange('projected_sale_price', event.target.value)}
-                      placeholder="0.00"
-                      style={{ textAlign: 'center' }}
-                      aria-label="Projected sale price"
-                    />
-                  </label>
-                  <div className="stock-new-entry-col1-mysales">
+                  <div className="stock-new-entry-col1-half">
+                    <label className="new-entry-field stock-new-entry-col1-field">
+                      <span className="stock-edit-projected-label">Projected Sale Price</span>
+                      <input
+                        type="text"
+                        className="stock-edit-projected-price-input"
+                        value={createForm.projected_sale_price}
+                        onChange={(event) => handleCreateChange('projected_sale_price', event.target.value)}
+                        placeholder="0.00"
+                        style={{ textAlign: 'center' }}
+                        aria-label="Projected sale price"
+                      />
+                    </label>
+                  </div>
+                  <div className="stock-new-entry-col1-half">
                     <span className="stock-edit-projected-label stock-new-entry-mysales-label">
                       My Sales Price
                     </span>

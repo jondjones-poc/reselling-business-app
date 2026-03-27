@@ -212,7 +212,7 @@
   color: inherit;
 }
 
-/* New stock: 4 columns — (1) Projected + My Sales comps; (2–3) pipeline; (4) close + save centered */
+/* New stock: col1 = Projected | My Sales (50/50 one row); cols 2–3 = metrics; col4 = actions */
 .stock-new-entry-four-col-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(72px, auto);
@@ -226,22 +226,25 @@
 .stock-new-entry-col1-prices {
   grid-column: 1;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: flex-end;
   gap: 12px;
   min-width: 0;
 }
 
-.new-entry-field.stock-new-entry-col1-field {
-  flex: none;
-  max-width: 100%;
-  margin: 0;
-}
-
-.stock-new-entry-col1-mysales {
+.stock-new-entry-col1-half {
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-width: 0;
+}
+
+.new-entry-field.stock-new-entry-col1-field {
+  flex: none;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
 }
 
 .stock-new-entry-comps-only {
@@ -387,6 +390,11 @@
 @container stock-edit-card (max-width: 720px) {
   .stock-new-entry-four-col-row {
     grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .stock-new-entry-col1-prices {
+    flex-direction: column;
     align-items: stretch;
   }
 
