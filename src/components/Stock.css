@@ -212,20 +212,186 @@
   color: inherit;
 }
 
-/* New stock form: full-width pipeline under Projected / comps row */
-.stock-new-entry-pipeline-row {
+/* New stock: top-left close */
+.stock-new-entry-card-header {
   width: 100%;
-  margin-top: 10px;
+  flex: 1 1 100%;
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  margin: -6px 0 4px 0;
   box-sizing: border-box;
 }
 
-.stock-new-entry-pipeline-row .stock-new-entry-pipeline-box {
+.stock-new-entry-close-x {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 248, 226, 0.22);
+  background: rgba(255, 248, 226, 0.06);
+  color: rgba(255, 248, 226, 0.75);
+  font-size: 1.1rem;
+  line-height: 1;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.stock-new-entry-close-x:hover:not(:disabled) {
+  background: rgba(255, 120, 120, 0.12);
+  border-color: rgba(255, 160, 140, 0.45);
+  color: #ffb8a8;
+}
+
+.stock-new-entry-close-x:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* New stock: projected | comps + pipeline | save */
+.stock-new-entry-projected-save-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px 16px;
   width: 100%;
-  max-width: 100%;
-  justify-content: flex-start;
-  align-items: flex-start;
+  flex: 1 1 100%;
+  box-sizing: border-box;
+}
+
+.new-entry-field.stock-new-entry-projected-only {
+  flex: 0 1 200px;
+  max-width: 220px;
+  min-width: 160px;
+  margin: 0;
+}
+
+.stock-new-entry-projected-only-label {
+  text-transform: uppercase;
+}
+
+.stock-new-entry-comps-pipeline-wrap {
+  flex: 1 1 280px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.stock-new-entry-mysales-label {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+.stock-new-entry-comps-pipeline-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 10px 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.stock-new-entry-comps-tile {
+  flex: 0 1 auto;
+  min-width: min(140px, 100%);
+}
+
+.stock-new-entry-inline-pipeline {
+  flex: 1 1 220px;
+  min-width: 0;
   min-height: auto;
-  padding: 10px 14px;
+  padding: 8px 12px;
+  justify-content: flex-start;
+  align-items: center;
+}
+
+.stock-new-entry-inline-pipeline .stock-edit-metrics-pipeline {
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.stock-new-entry-save-wrap {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  padding-bottom: 2px;
+}
+
+.stock-new-entry-save-circle {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: linear-gradient(145deg, #2d8f5a 0%, #1e6b42 100%);
+  color: rgba(255, 255, 255, 0.95);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease,
+    filter 0.12s ease;
+}
+
+.stock-new-entry-save-circle:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+  box-shadow:
+    0 4px 12px rgba(30, 107, 66, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.stock-new-entry-save-circle:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.stock-new-entry-save-circle:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.stock-new-entry-save-icon {
+  display: block;
+  flex-shrink: 0;
+}
+
+.stock-new-entry-save-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: rgba(255, 255, 255, 0.95);
+  border-radius: 50%;
+  animation: stock-new-entry-save-spin 0.65s linear infinite;
+}
+
+@keyframes stock-new-entry-save-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Sale price + matching sold platform: emphasise that platform’s line(s) */
