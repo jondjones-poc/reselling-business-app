@@ -1,2 +1,3 @@
-/*    /index.html   200
-
+# Proxy API to Render (same-origin /api/* when REACT_APP_API_BASE is unset on Netlify)
+/api/*  https://reselling-business-app.onrender.com/api/:splat  200
+/*  /index.html  200

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import BarcodeScanner from 'react-qr-barcode-scanner';
 import { augmentEbaySearchQuery } from '../utils/augmentEbaySearchQuery';
-import { apiUrl } from '../utils/apiBase';
+import { apiUrl, getApiBase } from '../utils/apiBase';
 import { pingDatabase } from '../utils/dbPing';
 import './EbaySearch.css';
 import './BrandResearch.css';
@@ -64,7 +64,7 @@ interface ResearchResult {
   };
 }
 
-const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5003';
+const API_BASE = getApiBase();
 
 const EbaySearch: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');

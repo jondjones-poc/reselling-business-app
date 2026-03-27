@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { getApiBase } from '../utils/apiBase';
 import './Sourcing.css';
 
-const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5003';
+const API_BASE = getApiBase();
 
 // Fallback brands list (extracted from Research component's fallback data)
 const fallbackBrands = [

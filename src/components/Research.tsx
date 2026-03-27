@@ -12,6 +12,7 @@ import {
 import { Bar, Pie } from 'react-chartjs-2';
 import ReactMarkdown from 'react-markdown';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
+import { getApiBase } from '../utils/apiBase';
 import './BrandResearch.css';
 
 ChartJS.register(ArcElement, BarElement, CategoryScale, LinearScale, Tooltip, Legend);
@@ -311,21 +312,8 @@ function ebaySoldPriceGbpNumber(item: EbaySoldItemRow): number | null {
 
 const EBAY_SOLD_DISPLAY_MIN_GBP = 30;
 
-/**
- * API base for Research fetches (matches Stock, EbaySearch, etc.).
- * - REACT_APP_API_BASE when set (build-time; production API or custom dev URL)
- * - Development default: http://localhost:5003 (direct; avoids CRA proxy returning index.html for /api when backend is down)
- * - Production build with no env: same-origin '' so `/api/...` goes to the host serving the SPA
- */
-const getResearchApiBase = (): string => {
-  const fromEnv = (process.env.REACT_APP_API_BASE || '').trim().replace(/\/$/, '');
-  if (fromEnv) return fromEnv;
-  if (process.env.NODE_ENV === 'development') return 'http://localhost:5003';
-  return '';
-};
-
 const apiUrl = (path: string) => {
-  const base = getResearchApiBase();
+  const base = getApiBase();
   return base ? `${base}${path}` : path;
 };
 

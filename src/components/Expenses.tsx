@@ -2,9 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import * as XLSX from 'xlsx';
+import { getApiBase } from '../utils/apiBase';
 import './Stock.css';
 
-const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5003';
+const API_BASE = getApiBase();
 
 type Nullable<T> = T | null | undefined;
 

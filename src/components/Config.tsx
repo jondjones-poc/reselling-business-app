@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { getApiBase } from '../utils/apiBase';
 import './Config.css';
 
-const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5003';
+const API_BASE = getApiBase();
 
 type Nullable<T> = T | null | undefined;
 

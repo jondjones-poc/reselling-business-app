@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { pingDatabase } from '../utils/dbPing';
+import { getApiBase } from '../utils/apiBase';
 import './Orders.css';
 
-const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5003';
+const API_BASE = getApiBase();
 
 type Nullable<T> = T | null | undefined;
 
@@ -199,7 +200,7 @@ const Orders: React.FC = () => {
       const j = await r.json();
       setEbayOAuthStatus(j);
     } catch {
-      setEbayOAuthStatus({ connected: false });
+      setEbayOAuthStatus({ connected: false, reason: 'status_fetch_failed' });
     }
   }, []);
 
@@ -1005,8 +1006,9 @@ const Orders: React.FC = () => {
                   </div>
                 ) : (
                   <div className="orders-oauth-flash orders-oauth-flash--warn" role="alert">
-                    The return URL says success, but the API has no stored seller token (check Render env
-                    database settings, deploy the latest API, then use Connect eBay seller again).
+                    {ebayOAuthStatus?.reason === 'status_fetch_failed'
+                      ? 'Cannot reach the API from this site (check Netlify: redeploy after adding public/_redirects proxy, or set REACT_APP_API_BASE to your Render URL).'
+                      : 'eBay redirect succeeded but this app sees no stored token. Confirm Render has the same database as the OAuth callback, redeploy the API, then use Connect eBay seller again.'}
                   </div>
                 ))}
               {searchParams.get('ebay_oauth') === 'error' && searchParams.get('ebay_oauth_msg') && (

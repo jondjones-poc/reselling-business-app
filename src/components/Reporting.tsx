@@ -12,6 +12,7 @@ import {
   ChartOptions,
 } from 'chart.js';
 import { Bar, Line } from 'react-chartjs-2';
+import { getApiBase } from '../utils/apiBase';
 import './Reporting.css';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend);
@@ -264,7 +265,7 @@ interface ReportingResponse {
   currentWeekSales?: number;
 }
 
-const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5003';
+const API_BASE = getApiBase();
 
 const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
