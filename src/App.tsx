@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { NavLink, Route, Routes, Navigate, useLocation } from 'react-router-dom';
+import { NavLink, Route, Routes, Navigate, useLocation, type NavLinkProps } from 'react-router-dom';
 import EbaySearch from './components/EbaySearch';
 import Research from './components/Research';
 import Reporting from './components/Reporting';
@@ -20,7 +20,28 @@ const navItems = [
   { to: '/orders', label: 'Orders' },
   { to: '/research', label: 'Research' },
   { to: '/sourcing', label: 'Sourcing' }
-];
+] as const;
+
+/** Preserves ?tab= when opening Orders from another page (uses sessionStorage set on the Orders screen). */
+function OrdersNavLink({ className }: Pick<NavLinkProps, 'className'>) {
+  const location = useLocation();
+  let tab: 'sales' | 'to-pack' = 'to-pack';
+  if (location.pathname === '/orders') {
+    const q = new URLSearchParams(location.search).get('tab');
+    tab = q === 'sales' ? 'sales' : 'to-pack';
+  } else {
+    try {
+      if (sessionStorage.getItem('ordersTab') === 'sales') tab = 'sales';
+    } catch {
+      /* ignore */
+    }
+  }
+  return (
+    <NavLink to={`/orders?tab=${tab}`} className={className}>
+      Orders
+    </NavLink>
+  );
+}
 
 function App() {
   const location = useLocation();
@@ -37,18 +58,25 @@ function App() {
         <nav className="navigation" aria-label="Main">
           <div className="nav-container">
             <div id="primary-nav-menu" className="nav-menu">
-              {navItems.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.end}
-                  className={({ isActive }) =>
-                    `nav-button${isActive ? ' active' : ''}`
-                  }
-                >
-                  {item.label}
-                </NavLink>
-              ))}
+              {navItems.map((item) =>
+                item.to === '/orders' ? (
+                  <OrdersNavLink
+                    key={item.to}
+                    className={({ isActive }) => `nav-button${isActive ? ' active' : ''}`}
+                  />
+                ) : (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={'end' in item ? item.end : false}
+                    className={({ isActive }) =>
+                      `nav-button${isActive ? ' active' : ''}`
+                    }
+                  >
+                    {item.label}
+                  </NavLink>
+                )
+              )}
               {/* Settings menu item for mobile only */}
               <NavLink
                 to="/config"

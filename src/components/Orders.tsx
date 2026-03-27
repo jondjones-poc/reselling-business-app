@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { pingDatabase } from '../utils/dbPing';
 import './Orders.css';
 
@@ -40,6 +40,51 @@ interface OrderItem {
 }
 
 
+type OrdersTab = 'to-pack' | 'sales';
+
+/** Compact eBay wordmark (brand colors) for buttons — not an official asset; typographic approximation. */
+function EbayLogoIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 52 18"
+      width={52}
+      height={18}
+      aria-hidden
+      focusable="false"
+    >
+      <text
+        x="0"
+        y="14.5"
+        fontFamily="Arial, Helvetica, sans-serif"
+        fontSize="15"
+        fontWeight="700"
+        letterSpacing="-0.03em"
+      >
+        <tspan fill="#E53238">e</tspan>
+        <tspan fill="#0064D2">b</tspan>
+        <tspan fill="#F5AF02">a</tspan>
+        <tspan fill="#86B817">y</tspan>
+      </text>
+    </svg>
+  );
+}
+
+const ebayListingHref = (ebayId: Nullable<string>): string | null => {
+  const s = ebayId?.trim();
+  if (!s) return null;
+  if (/^https?:\/\//i.test(s)) return s;
+  return `https://www.ebay.co.uk/itm/${encodeURIComponent(s)}`;
+};
+
+const vintedListingHref = (vintedId: Nullable<string>): string | null => {
+  const s = vintedId?.trim();
+  if (!s) return null;
+  if (/^https?:\/\//i.test(s)) return s;
+  return `https://www.vinted.co.uk/items/${encodeURIComponent(s)}`;
+};
+
 const formatCurrency = (value: Nullable<string | number>) => {
   if (value === null || value === undefined || value === '') {
     return '—';
@@ -56,6 +101,35 @@ const formatCurrency = (value: Nullable<string | number>) => {
     minimumFractionDigits: 2
   }).format(parsed);
 };
+
+interface VintedEbayViolation {
+  id: number;
+  item_name: Nullable<string>;
+  ebay_id: string;
+  ebay_url: string;
+  vinted_id: Nullable<string>;
+}
+
+interface VintedEbayCheckResponse {
+  checked: number;
+  violations: VintedEbayViolation[];
+  apiErrors: Array<{ stock_id: number; message: string; httpStatus: number | null }>;
+}
+
+interface MissingEbayStockRow {
+  legacy_item_id: string;
+  item_title: Nullable<string>;
+  order_ids: string[];
+  ebay_url: string;
+}
+
+interface MissingEbayStockMatchResponse {
+  window_days: number;
+  ebay_line_items_seen: number;
+  ebay_distinct_listings: number;
+  stock_ebay_ids_count: number;
+  missing: MissingEbayStockRow[];
+}
 
 interface OrdersApiResponse {
   rows: Array<{
@@ -81,6 +155,17 @@ interface OrdersApiResponse {
 
 const Orders: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const ordersTab: OrdersTab = searchParams.get('tab') === 'sales' ? 'sales' : 'to-pack';
+
+  const setOrdersTab = (tab: OrdersTab) => {
+    try {
+      sessionStorage.setItem('ordersTab', tab);
+    } catch {
+      /* ignore */
+    }
+    setSearchParams({ tab }, { replace: true });
+  };
   const [allStock, setAllStock] = useState<StockRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +173,35 @@ const Orders: React.FC = () => {
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [clearConfirmCount, setClearConfirmCount] = useState(0);
   const [ordersLoading, setOrdersLoading] = useState(false);
+  const [soldRows, setSoldRows] = useState<StockRow[]>([]);
+  const [soldLoading, setSoldLoading] = useState(false);
+  const [soldError, setSoldError] = useState<string | null>(null);
+  const [vintedEbayCheckLoading, setVintedEbayCheckLoading] = useState(false);
+  const [vintedEbayViolations, setVintedEbayViolations] = useState<VintedEbayViolation[]>([]);
+  const [vintedEbayCheckError, setVintedEbayCheckError] = useState<string | null>(null);
+  const [vintedEbayCheckApiErrors, setVintedEbayCheckApiErrors] = useState<
+    VintedEbayCheckResponse['apiErrors']
+  >([]);
+  const [missingEbayCheckLoading, setMissingEbayCheckLoading] = useState(false);
+  const [missingEbayInStock, setMissingEbayInStock] = useState<MissingEbayStockRow[]>([]);
+  const [missingEbayCheckError, setMissingEbayCheckError] = useState<string | null>(null);
+  const [ebayOAuthStatus, setEbayOAuthStatus] = useState<{
+    connected: boolean;
+    user_name?: string;
+    ebay_user_id?: string;
+    updated_at?: string;
+    reason?: string;
+  } | null>(null);
+
+  const refreshEbayOAuthStatus = useCallback(async () => {
+    try {
+      const r = await fetch(`${API_BASE}/api/ebay/oauth/status`);
+      const j = await r.json();
+      setEbayOAuthStatus(j);
+    } catch {
+      setEbayOAuthStatus({ connected: false });
+    }
+  }, []);
 
   // Load all stock data
   const loadStock = async () => {
@@ -193,6 +307,92 @@ const Orders: React.FC = () => {
     loadStock();
     loadOrders();
   }, []);
+
+  // Normalize URL: /orders with missing/invalid ?tab= uses last tab from sessionStorage (nav + refresh).
+  useEffect(() => {
+    const q = searchParams.get('tab');
+    if (q === 'sales' || q === 'to-pack') {
+      try {
+        sessionStorage.setItem('ordersTab', q);
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+    let initial: OrdersTab = 'to-pack';
+    try {
+      const saved = sessionStorage.getItem('ordersTab');
+      if (saved === 'sales') initial = 'sales';
+    } catch {
+      /* ignore */
+    }
+    setSearchParams({ tab: initial }, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (ordersTab !== 'sales') {
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        setSoldLoading(true);
+        setSoldError(null);
+        const response = await fetch(`${API_BASE}/api/stock/sold`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        if (!response.ok) {
+          const message = await response.text();
+          throw new Error(message || 'Failed to load sold items');
+        }
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          const text = await response.text();
+          throw new Error(text || 'Unexpected response format');
+        }
+        const data: StockApiResponse = await response.json();
+        if (!cancelled) {
+          setSoldRows(Array.isArray(data.rows) ? data.rows : []);
+        }
+      } catch (err: any) {
+        console.error('Sold stock load error:', err);
+        if (!cancelled) {
+          if (err.message === 'Failed to fetch' || err.name === 'TypeError') {
+            setSoldError('Unable to connect to server. Please ensure the backend server is running on port 5003.');
+          } else {
+            setSoldError(err.message || 'Unable to load sold items');
+          }
+          setSoldRows([]);
+        }
+      } finally {
+        if (!cancelled) setSoldLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ordersTab]);
+
+  useEffect(() => {
+    if (ordersTab !== 'sales') {
+      return;
+    }
+    void refreshEbayOAuthStatus();
+  }, [ordersTab, searchParams, refreshEbayOAuthStatus]);
+
+  useEffect(() => {
+    if (ordersTab !== 'sales') return;
+    const flag = searchParams.get('ebay_oauth');
+    if (!flag) return;
+    const timer = window.setTimeout(() => {
+      const next = new URLSearchParams(searchParams);
+      next.delete('ebay_oauth');
+      next.delete('ebay_oauth_msg');
+      setSearchParams(next, { replace: true });
+    }, 12000);
+    return () => window.clearTimeout(timer);
+  }, [ordersTab, searchParams, setSearchParams]);
 
   // Search results - search all items
   // Uses AND logic: all words must match (order doesn't matter)
@@ -346,10 +546,134 @@ const Orders: React.FC = () => {
     }
   };
 
+  const handleVintedEbayCheck = async () => {
+    setVintedEbayCheckLoading(true);
+    setVintedEbayCheckError(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/stock/vinted-sold-ebay-active-check`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const text = await response.text();
+      let data: VintedEbayCheckResponse | null = null;
+      try {
+        data = text ? (JSON.parse(text) as VintedEbayCheckResponse) : null;
+      } catch {
+        /* not JSON */
+      }
+      if (!response.ok) {
+        const msg =
+          (data as { error?: string; details?: string } | null)?.error ||
+          (data as { error?: string; details?: string } | null)?.details ||
+          text ||
+          'Check failed';
+        throw new Error(msg);
+      }
+      if (!data) {
+        throw new Error('Unexpected empty response');
+      }
+      setVintedEbayViolations(Array.isArray(data.violations) ? data.violations : []);
+      setVintedEbayCheckApiErrors(Array.isArray(data.apiErrors) ? data.apiErrors : []);
+      if (data.apiErrors?.length) {
+        console.warn('eBay check API errors:', data.apiErrors);
+      }
+    } catch (err: any) {
+      console.error('Vinted / eBay check error:', err);
+      setVintedEbayViolations([]);
+      setVintedEbayCheckApiErrors([]);
+      setVintedEbayCheckError(
+        err.message === 'Failed to fetch' || err.name === 'TypeError'
+          ? 'Unable to connect to server. Is the API running?'
+          : err.message || 'Check failed'
+      );
+    } finally {
+      setVintedEbayCheckLoading(false);
+    }
+  };
+
+  const handleMissingEbayOrderCheck = async () => {
+    setMissingEbayCheckLoading(true);
+    setMissingEbayCheckError(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/stock/ebay-sold-missing-stock-match`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      const text = await response.text();
+      let data: MissingEbayStockMatchResponse | null = null;
+      try {
+        data = text ? (JSON.parse(text) as MissingEbayStockMatchResponse) : null;
+      } catch {
+        /* not JSON */
+      }
+      if (!response.ok) {
+        const body = data as { error?: string; details?: string; code?: string } | null;
+        const msg =
+          body?.details ||
+          body?.error ||
+          text ||
+          'Check failed';
+        throw new Error(msg);
+      }
+      if (!data) {
+        throw new Error('Unexpected empty response');
+      }
+      setMissingEbayInStock(Array.isArray(data.missing) ? data.missing : []);
+    } catch (err: any) {
+      console.error('Missing eBay order check:', err);
+      setMissingEbayInStock([]);
+      setMissingEbayCheckError(
+        err.message === 'Failed to fetch' || err.name === 'TypeError'
+          ? 'Unable to connect to server. Is the API running?'
+          : err.message || 'Check failed'
+      );
+    } finally {
+      setMissingEbayCheckLoading(false);
+    }
+  };
+
+  const vintedEbayViolationIdSet = useMemo(
+    () => new Set(vintedEbayViolations.map((v) => v.id)),
+    [vintedEbayViolations]
+  );
+
   return (
     <div className="orders-container">
-      {error && <div className="orders-error">{error}</div>}
+      <div className="orders-tabs" role="tablist" aria-label="Orders views">
+        <button
+          type="button"
+          role="tab"
+          id="orders-tab-to-pack"
+          aria-selected={ordersTab === 'to-pack'}
+          aria-controls="orders-panel-to-pack"
+          className={`orders-tab${ordersTab === 'to-pack' ? ' orders-tab--active' : ''}`}
+          onClick={() => setOrdersTab('to-pack')}
+        >
+          To Pack
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="orders-tab-sales"
+          aria-selected={ordersTab === 'sales'}
+          aria-controls="orders-panel-sales"
+          className={`orders-tab${ordersTab === 'sales' ? ' orders-tab--active' : ''}`}
+          onClick={() => setOrdersTab('sales')}
+        >
+          Sales
+        </button>
+      </div>
 
+      {ordersTab === 'to-pack' && error && <div className="orders-error">{error}</div>}
+      {ordersTab === 'sales' && soldError && <div className="orders-error">{soldError}</div>}
+
+      {ordersTab === 'to-pack' && (
+        <div
+          id="orders-panel-to-pack"
+          role="tabpanel"
+          aria-labelledby="orders-tab-to-pack"
+        >
       <div className="orders-search-section">
         <div className="orders-search-wrapper">
           <input
@@ -611,6 +935,298 @@ const Orders: React.FC = () => {
         <div className="orders-empty-state">
           <p>No items in your order list.</p>
           <p>Search for unsold items above to add them to your pickup list.</p>
+        </div>
+      )}
+        </div>
+      )}
+
+      {ordersTab === 'sales' && (
+        <div
+          id="orders-panel-sales"
+          role="tabpanel"
+          aria-labelledby="orders-tab-sales"
+          className="orders-sales-section"
+        >
+          {!soldLoading && (
+            <>
+              <div className="orders-vinted-ebay-check-bar orders-sales-ebay-actions">
+                <button
+                  type="button"
+                  className="orders-vinted-ebay-check-button"
+                  onClick={handleVintedEbayCheck}
+                  disabled={vintedEbayCheckLoading}
+                  aria-label={
+                    vintedEbayCheckLoading
+                      ? 'Checking eBay listings for items sold on Vinted'
+                      : 'Scan eBay listings for items already sold on Vinted that may still be live'
+                  }
+                >
+                  <EbayLogoIcon className="orders-unlist-ebay-logo" />
+                  <span className="orders-unlist-ebay-label">
+                    {vintedEbayCheckLoading ? 'Checking…' : 'Unlist eBay'}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="orders-vinted-ebay-check-button orders-missing-ebay-order-button"
+                  onClick={handleMissingEbayOrderCheck}
+                  disabled={missingEbayCheckLoading}
+                  aria-label={
+                    missingEbayCheckLoading
+                      ? 'Loading eBay sold orders from your account'
+                      : 'Compare eBay sold orders to Stock listing IDs'
+                  }
+                >
+                  <EbayLogoIcon className="orders-unlist-ebay-logo" />
+                  <span className="orders-unlist-ebay-label">
+                    {missingEbayCheckLoading ? 'Checking…' : 'Missing eBay order'}
+                  </span>
+                </button>
+              </div>
+              <div className="orders-ebay-oauth-row">
+                <a href={`${API_BASE}/api/ebay/oauth/start`} className="orders-ebay-oauth-connect">
+                  Connect eBay seller
+                </a>
+                {ebayOAuthStatus?.connected ? (
+                  <span className="orders-ebay-oauth-status orders-ebay-oauth-status--ok">
+                    Linked
+                    {ebayOAuthStatus.user_name ? ` as ${ebayOAuthStatus.user_name}` : ''}
+                  </span>
+                ) : ebayOAuthStatus && ordersTab === 'sales' ? (
+                  <span className="orders-ebay-oauth-status">
+                    Not linked — needed for “Missing eBay order” (Fulfillment API)
+                  </span>
+                ) : null}
+              </div>
+              {searchParams.get('ebay_oauth') === 'success' && (
+                <div className="orders-oauth-flash orders-oauth-flash--ok" role="status">
+                  eBay seller account linked. You can run Missing eBay order.
+                </div>
+              )}
+              {searchParams.get('ebay_oauth') === 'error' && searchParams.get('ebay_oauth_msg') && (
+                <div className="orders-oauth-flash orders-oauth-flash--err" role="alert">
+                  eBay connection failed: {searchParams.get('ebay_oauth_msg')}
+                </div>
+              )}
+              {vintedEbayCheckError && (
+                <div className="orders-error orders-vinted-ebay-check-error" role="alert">
+                  {vintedEbayCheckError}
+                </div>
+              )}
+              {missingEbayCheckError && (
+                <div className="orders-error orders-vinted-ebay-check-error" role="alert">
+                  {missingEbayCheckError}
+                </div>
+              )}
+              {(vintedEbayViolations.length > 0 || missingEbayInStock.length > 0) && (
+                <div
+                  className="orders-vinted-ebay-violations-banner"
+                  role="region"
+                  aria-label="Items that may need your attention"
+                >
+                  <h3 className="orders-vinted-ebay-violations-title">Needs fixing</h3>
+                  {vintedEbayViolations.length > 0 && (
+                    <>
+                      <h4 className="orders-needs-fixing-subtitle">eBay still looks live (sold on Vinted)</h4>
+                      <p className="orders-vinted-ebay-violations-intro">
+                        Sold on Vinted but eBay still reports the listing as available to buy. End or remove the
+                        eBay listing.
+                      </p>
+                      <ul className="orders-vinted-ebay-violations-list">
+                        {vintedEbayViolations.map((v) => {
+                          const vintedHref = vintedListingHref(v.vinted_id);
+                          return (
+                            <li key={v.id} className="orders-vinted-ebay-violations-item">
+                              <Link
+                                to={`/stock?editId=${v.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="orders-vinted-ebay-violations-sku orders-vinted-ebay-violations-stock-link"
+                                title={`Edit stock SKU ${v.id} (opens in new tab)`}
+                              >
+                                SKU {v.id}
+                              </Link>
+                              {v.item_name?.trim() ? (
+                                <>
+                                  {' — '}
+                                  <Link
+                                    to={`/stock?editId=${v.id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="orders-vinted-ebay-violations-name orders-vinted-ebay-violations-stock-link"
+                                    title={`Edit stock SKU ${v.id} (opens in new tab)`}
+                                  >
+                                    {v.item_name.trim()}
+                                  </Link>
+                                </>
+                              ) : null}{' '}
+                              <span className="orders-vinted-ebay-violations-platform-links">
+                                <a
+                                  href={v.ebay_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="orders-vinted-ebay-violations-ebay-link"
+                                >
+                                  Open on eBay
+                                </a>
+                                {vintedHref ? (
+                                  <a
+                                    href={vintedHref}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="orders-vinted-ebay-violations-vinted-link"
+                                  >
+                                    Open on Vinted
+                                  </a>
+                                ) : null}
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </>
+                  )}
+                  {missingEbayInStock.length > 0 && (
+                    <>
+                      <h4 className="orders-needs-fixing-subtitle">
+                        eBay sale — listing ID not in Stock
+                      </h4>
+                      <p className="orders-vinted-ebay-violations-intro">
+                        These lines are in your eBay sold orders (Fulfillment API) but no{' '}
+                        <strong>Stock</strong> row stores this eBay item ID. Add the item or correct the eBay ID
+                        in Stock. (The To Pack <strong>orders</strong> list is separate; matching is against
+                        Stock only.)
+                      </p>
+                      <ul className="orders-vinted-ebay-violations-list">
+                        {missingEbayInStock.map((m) => (
+                          <li key={m.legacy_item_id} className="orders-vinted-ebay-violations-item">
+                            <span className="orders-missing-ebay-legacy-id">Item {m.legacy_item_id}</span>
+                            {m.item_title?.trim() ? (
+                              <span className="orders-missing-ebay-title"> — {m.item_title.trim()}</span>
+                            ) : null}{' '}
+                            <span className="orders-vinted-ebay-violations-platform-links">
+                              <a
+                                href={m.ebay_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="orders-vinted-ebay-violations-ebay-link"
+                              >
+                                Open on eBay
+                              </a>
+                            </span>
+                            {m.order_ids?.length ? (
+                              <span className="orders-missing-ebay-order-refs">
+                                {' '}
+                                (eBay order{m.order_ids.length === 1 ? '' : 's'}: {m.order_ids.join(', ')})
+                              </span>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </div>
+              )}
+              {vintedEbayCheckApiErrors.length > 0 && (
+                <p className="orders-vinted-ebay-api-errors" role="status">
+                  {vintedEbayCheckApiErrors.length} listing
+                  {vintedEbayCheckApiErrors.length === 1 ? '' : 's'} could not be checked (eBay API). Try
+                  again later.
+                </p>
+              )}
+            </>
+          )}
+          {soldLoading ? (
+            <div className="orders-empty-state">
+              <p>Loading sold items…</p>
+            </div>
+          ) : soldRows.length === 0 ? (
+            <div className="orders-empty-state">
+              <p>No sold items yet.</p>
+              <p>Items with a sale date appear here, newest first.</p>
+            </div>
+          ) : (
+            <div className="table-wrapper orders-sales-table">
+              <table className="orders-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Sold on</th>
+                    <th>eBay link</th>
+                    <th>Vinted link</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {soldRows.map((row) => {
+                    const ebayHref = ebayListingHref(row.ebay_id);
+                    const vintedHref = vintedListingHref(row.vinted_id);
+                    const ebayLabel = row.ebay_id != null ? String(row.ebay_id).trim() : '';
+                    const vintedLabel = row.vinted_id != null ? String(row.vinted_id).trim() : '';
+                    const rowNeedsEbayFix = vintedEbayViolationIdSet.has(row.id);
+                    return (
+                      <tr
+                        key={row.id}
+                        className={rowNeedsEbayFix ? 'orders-sales-row--ebay-fix-needed' : undefined}
+                      >
+                        <td>{row.id}</td>
+                        <td>
+                          {row.item_name?.trim() ? (
+                            <Link
+                              to={`/stock?editId=${row.id}`}
+                              className="orders-sales-stock-name-link"
+                              title={`Edit item ${row.id} in Stock`}
+                            >
+                              {row.item_name.trim()}
+                            </Link>
+                          ) : (
+                            <span className="orders-table-dash">—</span>
+                          )}
+                        </td>
+                        <td>
+                          {row.sold_platform?.trim() ? (
+                            row.sold_platform.trim()
+                          ) : (
+                            <span className="orders-table-dash">—</span>
+                          )}
+                        </td>
+                        <td>
+                          {ebayHref ? (
+                            <a
+                              href={ebayHref}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="orders-table-external-link"
+                              title={ebayLabel || undefined}
+                            >
+                              {ebayLabel}
+                            </a>
+                          ) : (
+                            <span className="orders-table-dash">—</span>
+                          )}
+                        </td>
+                        <td>
+                          {vintedHref ? (
+                            <a
+                              href={vintedHref}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="orders-table-external-link"
+                              title={vintedLabel || undefined}
+                            >
+                              {vintedLabel}
+                            </a>
+                          ) : (
+                            <span className="orders-table-dash">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>

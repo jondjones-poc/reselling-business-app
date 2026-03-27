@@ -440,122 +440,6 @@ const EbaySearch: React.FC = () => {
     return (sold / totalInventory) * 100;
   }, [itemsSold, activeListings]);
 
-  const hasMeaningfulProfitInput =
-    itemsSold.trim().length > 0 ||
-    activeListings.trim().length > 0 ||
-    itemPrice.trim().length > 0 ||
-    salePrice.trim().length > 0 ||
-    (listingFees.trim() !== '' && listingFees.trim() !== '0.10') ||
-    (promotedFees.trim() !== '' && promotedFees.trim() !== '10');
-
-  const hasAskAiContent = hasSearchableInput || hasMeaningfulProfitInput;
-
-  const buildAskAiPrompt = (): string => {
-    const tokens = buildSearchTokens();
-    const ebayQuery =
-      tokens.length > 0
-        ? augmentEbaySearchQuery(tokens.join(' '), {
-            phraseWrap: false,
-            appendMens: includeMens,
-          })
-        : '';
-
-    const lines: string[] = [
-      "I'm at a charity shop or boot sale in the UK and need a quick resale opinion before I buy.",
-      '',
-      '## Item / search',
-    ];
-
-    if (searchTerm.trim()) {
-      lines.push(`- Keywords typed: ${searchTerm.trim()}`);
-    }
-    if (ebayQuery) {
-      lines.push(`- Full eBay-style search string (filters combined): ${ebayQuery}`);
-    } else {
-      lines.push('- (no search keywords or filters combined yet)');
-    }
-    lines.push(`- Mens terms appended to search: ${includeMens ? 'Yes' : 'No'}`);
-
-    lines.push('', '## Filters selected');
-    const filterLines = [
-      selectedBrand.trim() && `Brand: ${selectedBrand.trim()}`,
-      selectedCategory.trim() && `Category: ${selectedCategory.trim()}`,
-      selectedPattern.trim() && `Pattern: ${selectedPattern.trim()}`,
-      selectedColor.trim() && `Colour: ${selectedColor.trim()}`,
-      selectedMaterial.trim() && `Material: ${selectedMaterial.trim()}`,
-    ].filter(Boolean) as string[];
-    if (filterLines.length) {
-      filterLines.forEach((f) => lines.push(`- ${f}`));
-    } else {
-      lines.push('- (none)');
-    }
-
-    lines.push('', '## Demand / comps (from my quick notes)');
-    if (itemsSold.trim()) {
-      lines.push(`- Sold count (period I used): ${itemsSold.trim()}`);
-    }
-    if (activeListings.trim()) {
-      lines.push(`- Active listings: ${activeListings.trim()}`);
-    }
-    if (manualSellThroughPercent !== null) {
-      lines.push(
-        `- Estimated sell-through: (${itemsSold} / (${itemsSold} + ${activeListings})) × 100 ≈ ${manualSellThroughPercent.toFixed(1)}%`
-      );
-    }
-    if (!itemsSold.trim() && !activeListings.trim() && manualSellThroughPercent === null) {
-      lines.push('- (not filled in)');
-    }
-
-    lines.push('', '## Potential profit inputs (£ / %, from the app form)');
-    const profitLines: string[] = [];
-    if (itemPrice.trim()) profitLines.push(`- Item / buy price: £${itemPrice.trim()}`);
-    if (salePrice.trim()) profitLines.push(`- Expected sale price: £${salePrice.trim()}`);
-    if (listingFees.trim()) profitLines.push(`- Listing fees: £${listingFees.trim()}`);
-    if (promotedFees.trim()) profitLines.push(`- Promoted listing fee: ${promotedFees.trim()}%`);
-    if (profitLines.length) {
-      lines.push(...profitLines);
-    } else {
-      lines.push('- (not filled in)');
-    }
-
-    if (ebayResearchResult) {
-      lines.push(
-        '',
-        '## eBay research snapshot (from app)',
-        `- Active listings (sample): ${ebayResearchResult.activeCount}`,
-        `- Sold / completed (sample): ${ebayResearchResult.soldCount}`,
-        ebayResearchResult.sellThroughRatio !== null
-          ? `- Sell-through ratio (app): ${(ebayResearchResult.sellThroughRatio * 100).toFixed(1)}%`
-          : '- Sell-through ratio (app): n/a'
-      );
-    }
-
-    lines.push(
-      '',
-      '## What I need from you',
-      '1. Does this look like a good buy at the buy price? What would make you say yes or no?',
-      '2. What might stop it selling or kill margin (condition, seasonality, fees, competition, fakes, sizing, trends, etc.)?',
-      '3. Anything else I should check or ask before I hand over cash?',
-      '',
-      '## Format for your reply',
-      'Answer in exactly 7 paragraphs. Each paragraph should be a few sentences and one main idea—no bullet lists or numbered lists as the backbone of the answer. Cover the three questions above across those paragraphs, and end paragraph 7 with a clear buy / pass / negotiate stance. Keep it practical—I am still in the shop.'
-    );
-
-    return lines.join('\n');
-  };
-
-  const handleAskAiClipboard = async () => {
-    if (!hasAskAiContent) {
-      return;
-    }
-    const text = buildAskAiPrompt();
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch (err) {
-      console.warn('Clipboard write failed:', err);
-    }
-  };
-
   const getSTRColor = (rate: number | null): string => {
     if (rate === null) return '';
     if (rate >= 70) return 'str-strong';
@@ -757,16 +641,6 @@ const EbaySearch: React.FC = () => {
                   aria-label="Copy eBay search query to clipboard"
                 >
                   <span aria-hidden>📋</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleAskAiClipboard}
-                  className="ask-ai-button"
-                  disabled={!hasAskAiContent}
-                  title="Copy a research prompt for AI (charity shop / boot sale)"
-                  aria-label="Copy Ask RI research prompt to clipboard"
-                >
-                  Ask RI - Review This Selection
                 </button>
               </div>
             </div>

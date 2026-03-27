@@ -9,6 +9,8 @@ const multer = require('multer');
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
+const ebaySellerOAuth = require('./ebaySellerOAuth');
+
 const app = express();
 const PORT = process.env.PORT || 5003;
 
@@ -269,6 +271,17 @@ loadSettings();
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`
       );
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS ebay_oauth_token (
+          integration_key VARCHAR(64) PRIMARY KEY,
+          user_name VARCHAR(255) NOT NULL,
+          refresh_token TEXT NOT NULL,
+          scope TEXT,
+          ebay_user_id VARCHAR(128),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
       console.log('App settings table initialized');
     } catch (error) {
       console.warn('Could not initialize app_settings table:', error.message);
@@ -292,6 +305,115 @@ app.get('/api/db-ping', async (req, res) => {
   } catch (error) {
     console.error('db-ping failed:', error);
     res.status(500).json({ ok: false, error: error?.message || 'ping failed' });
+  }
+});
+
+/** Redirect browser to eBay to sign in and grant sell.fulfillment (Authorization Code). */
+app.get('/api/ebay/oauth/start', (req, res) => {
+  try {
+    const state = ebaySellerOAuth.createOAuthState();
+    const url = ebaySellerOAuth.buildAuthorizeUrl(state);
+    res.redirect(302, url);
+  } catch (error) {
+    console.error('eBay OAuth start error:', error);
+    res.status(500).type('text/plain').send(error instanceof Error ? error.message : String(error));
+  }
+});
+
+/**
+ * eBay redirects here after consent. Exchanges `code` for refresh token and stores it in `ebay_oauth_token`.
+ * RuName’s Auth Accepted URL must hit this route. OAuth requests use EBAY_OAUTH_RU_NAME (RuName string), not a raw URL.
+ */
+app.get('/api/ebay/oauth/callback', async (req, res) => {
+  const frontendSuccess =
+    process.env.EBAY_OAUTH_SUCCESS_REDIRECT_URL?.trim() ||
+    'http://localhost:3000/orders?tab=sales&ebay_oauth=success';
+  const frontendErrorBase =
+    process.env.EBAY_OAUTH_ERROR_REDIRECT_URL?.trim() ||
+    'http://localhost:3000/orders?tab=sales&ebay_oauth=error';
+
+  const code = req.query.code != null ? String(req.query.code) : '';
+  const state = req.query.state != null ? String(req.query.state) : '';
+  const oauthErr = req.query.error != null ? String(req.query.error) : '';
+
+  if (oauthErr) {
+    const desc =
+      req.query.error_description != null ? String(req.query.error_description) : oauthErr;
+    return res.redirect(302, `${frontendErrorBase}&ebay_oauth_msg=${encodeURIComponent(desc)}`);
+  }
+
+  if (!code || !state || !ebaySellerOAuth.consumeOAuthState(state)) {
+    return res.redirect(
+      302,
+      `${frontendErrorBase}&ebay_oauth_msg=${encodeURIComponent('invalid_or_expired_state')}`
+    );
+  }
+
+  try {
+    const tokens = await ebaySellerOAuth.exchangeAuthorizationCode(code);
+    const refresh = tokens.refresh_token;
+    if (!refresh) {
+      throw new Error(
+        'eBay did not return refresh_token. Confirm OAuth scopes include sell.fulfillment and try again.'
+      );
+    }
+    const scope = ebaySellerOAuth.getScopeString();
+    let userName = 'seller';
+    let ebayUserId = null;
+    try {
+      if (tokens.access_token) {
+        const idUser = await ebaySellerOAuth.fetchEbayIdentityUser(tokens.access_token);
+        if (idUser?.username) userName = String(idUser.username);
+        if (idUser?.userId) ebayUserId = String(idUser.userId);
+      }
+    } catch (idErr) {
+      console.warn('eBay Identity user fetch skipped:', idErr?.message || idErr);
+    }
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      throw new Error('Database not configured');
+    }
+
+    await ebaySellerOAuth.upsertRefreshToken(pool, {
+      userName,
+      refreshToken: String(refresh),
+      scope,
+      ebayUserId
+    });
+    ebaySellerOAuth.invalidateAccessTokenCache();
+    res.redirect(302, frontendSuccess);
+  } catch (err) {
+    console.error('eBay OAuth callback error:', err);
+    const msg = encodeURIComponent(err instanceof Error ? err.message : String(err));
+    res.redirect(302, `${frontendErrorBase}&ebay_oauth_msg=${msg}`);
+  }
+});
+
+app.get('/api/ebay/oauth/status', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.json({ connected: false, reason: 'no_database' });
+    }
+    const key = (process.env.EBAY_OAUTH_INTEGRATION_KEY || ebaySellerOAuth.DEFAULT_INTEGRATION_KEY).trim();
+    const r = await pool.query(
+      `SELECT user_name, ebay_user_id, updated_at, integration_key FROM ebay_oauth_token WHERE integration_key = $1`,
+      [key]
+    );
+    const row = r.rows?.[0];
+    if (!row) {
+      return res.json({ connected: false });
+    }
+    return res.json({
+      connected: true,
+      user_name: row.user_name,
+      ebay_user_id: row.ebay_user_id,
+      updated_at: row.updated_at
+    });
+  } catch (e) {
+    console.error('/api/ebay/oauth/status failed:', e);
+    return res.status(500).json({ connected: false, error: e instanceof Error ? e.message : String(e) });
   }
 });
 
@@ -1196,6 +1318,336 @@ app.get('/api/stock', async (req, res) => {
   } catch (error) {
     console.error('Stock query failed:', error);
     res.status(500).json({ error: 'Failed to load stock data', details: error.message });
+  }
+});
+
+/** Sold stock rows only, newest sale first (for Orders → Sales tab). */
+app.get('/api/stock/sold', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const result = await pool.query(
+      `SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, projected_sale_price
+       FROM stock
+       WHERE sale_date IS NOT NULL
+       ORDER BY sale_date DESC NULLS LAST, id DESC`
+    );
+
+    res.json({
+      rows: result.rows ?? [],
+      count: result.rowCount ?? 0
+    });
+  } catch (error) {
+    console.error('Sold stock query failed:', error);
+    res.status(500).json({ error: 'Failed to load sold stock data', details: error.message });
+  }
+});
+
+/** Legacy item id from DB (digits, v1|…|0, or itm URL). */
+function extractEbayLegacyItemId(raw) {
+  if (raw == null || raw === '') return null;
+  let s = String(raw).trim();
+  if (!s) return null;
+  const urlMatch = s.match(/\/itm\/(\d+)/i);
+  if (urlMatch) return urlMatch[1];
+  if (/^v1\|\d+\|/i.test(s)) {
+    const parts = s.split('|');
+    return parts[1] || null;
+  }
+  if (/^\d+$/.test(s)) return s;
+  const digits = s.replace(/\D/g, '');
+  return digits.length > 0 ? digits : null;
+}
+
+function ebayBrowseRestItemIdFromLegacy(legacyId) {
+  if (!legacyId) return null;
+  return `v1|${legacyId}|0`;
+}
+
+/** True if Buy Browse API suggests the listing can still be purchased. */
+function isBrowseItemStillBuyable(item) {
+  if (!item || typeof item !== 'object') return false;
+  const now = new Date();
+  if (item.itemEndDate) {
+    const end = new Date(item.itemEndDate);
+    if (!Number.isNaN(end.getTime()) && end <= now) return false;
+  }
+  const avs = item.estimatedAvailabilities;
+  if (Array.isArray(avs) && avs.length > 0) {
+    return avs.some(
+      (a) =>
+        a.estimatedAvailabilityStatus === 'IN_STOCK' ||
+        a.estimatedAvailabilityStatus === 'LIMITED_STOCK'
+    );
+  }
+  if (item.itemEndDate) {
+    const end = new Date(item.itemEndDate);
+    if (!Number.isNaN(end.getTime()) && end > now) return true;
+  }
+  return Boolean(item.price);
+}
+
+async function fetchBrowseItemStillBuyable(accessToken, ebayIdRaw) {
+  const legacy = extractEbayLegacyItemId(ebayIdRaw);
+  if (!legacy) {
+    return { ok: false, buyable: null, error: 'invalid_ebay_id' };
+  }
+  const restId = ebayBrowseRestItemIdFromLegacy(legacy);
+  const url = `https://api.ebay.com/buy/browse/v1/item/${encodeURIComponent(restId)}?fieldgroups=COMPACT`;
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json',
+      'X-EBAY-C-MARKETPLACE-ID': 'EBAY_GB'
+    }
+  });
+  if (response.status === 404) {
+    return { ok: true, buyable: false, reason: 'not_found_or_unavailable' };
+  }
+  if (!response.ok) {
+    const text = await response.text();
+    return {
+      ok: false,
+      buyable: null,
+      error: `eBay ${response.status}: ${text.slice(0, 400)}`,
+      httpStatus: response.status
+    };
+  }
+  const item = await response.json();
+  return {
+    ok: true,
+    buyable: isBrowseItemStillBuyable(item),
+    reason: null
+  };
+}
+
+/**
+ * POST — For sold-on-Vinted rows that still have an eBay id, call Browse getItem (COMPACT).
+ * Rows where eBay still appears buyable are returned as `violations` (should end duplicate listing).
+ */
+app.post('/api/stock/vinted-sold-ebay-active-check', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const appId = process.env.REACT_APP_EBAY_APP_ID || process.env.EBAY_APP;
+    const certId = process.env.REACT_APP_EBAY_CERT_ID;
+
+    if (!appId || !certId) {
+      return res.status(500).json({
+        error: 'eBay credentials not configured',
+        details: 'Set REACT_APP_EBAY_APP_ID and REACT_APP_EBAY_CERT_ID (same as Browse search).'
+      });
+    }
+
+    const result = await pool.query(
+      `SELECT id, item_name, ebay_id, vinted_id, sold_platform
+       FROM stock
+       WHERE sale_date IS NOT NULL
+         AND ebay_id IS NOT NULL
+         AND TRIM(COALESCE(ebay_id::text, '')) <> ''
+         AND LOWER(TRIM(COALESCE(sold_platform::text, ''))) = 'vinted'
+       ORDER BY sale_date DESC NULLS LAST, id DESC`
+    );
+
+    const rows = result.rows ?? [];
+    const accessToken = await getAccessToken(appId, certId);
+    const violations = [];
+    const apiErrors = [];
+
+    const delayMs = Math.min(600, Math.max(80, Number(process.env.EBAY_STOCK_CHECK_DELAY_MS) || 130));
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (i > 0) await new Promise((r) => setTimeout(r, delayMs));
+      try {
+        const outcome = await fetchBrowseItemStillBuyable(accessToken, row.ebay_id);
+        if (!outcome.ok) {
+          apiErrors.push({
+            stock_id: row.id,
+            message: outcome.error || 'eBay request failed',
+            httpStatus: outcome.httpStatus ?? null
+          });
+          continue;
+        }
+        if (outcome.buyable === true) {
+          const leg = extractEbayLegacyItemId(row.ebay_id);
+          const ebayUrl =
+            leg != null
+              ? `https://www.ebay.co.uk/itm/${leg}`
+              : /^https?:\/\//i.test(String(row.ebay_id))
+                ? String(row.ebay_id).trim()
+                : `https://www.ebay.co.uk/itm/${String(row.ebay_id).replace(/\D/g, '')}`;
+          violations.push({
+            id: row.id,
+            item_name: row.item_name,
+            ebay_id: leg ?? String(row.ebay_id).trim(),
+            ebay_url: ebayUrl,
+            vinted_id: row.vinted_id ?? null
+          });
+        }
+      } catch (e) {
+        apiErrors.push({
+          stock_id: row.id,
+          message: e instanceof Error ? e.message : String(e)
+        });
+      }
+    }
+
+    res.json({
+      checked: rows.length,
+      violations,
+      apiErrors
+    });
+  } catch (error) {
+    console.error('vinted-sold-ebay-active-check failed:', error);
+    res.status(500).json({
+      error: 'Check failed',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+/**
+ * Paginate Sell Fulfillment getOrders — seller's eBay orders (needs User access token, not client credentials).
+ */
+async function fetchEbayFulfillmentLineLegacyItems(userAccessToken, windowDays = 90) {
+  const days = Math.min(730, Math.max(7, Number(windowDays) || 90));
+  const end = new Date();
+  const start = new Date(end.getTime() - days * 86400000);
+  const filter = `creationdate:[${start.toISOString()}..${end.toISOString()}]`;
+  const base = 'https://api.ebay.com/sell/fulfillment/v1/order';
+  const aggregated = [];
+  let offset = 0;
+  const limit = 50;
+  const delayMs = Math.min(500, Math.max(80, Number(process.env.EBAY_FULFILLMENT_PAGE_DELAY_MS) || 130));
+
+  for (;;) {
+    const params = new URLSearchParams({
+      limit: String(limit),
+      offset: String(offset),
+      filter
+    });
+    const url = `${base}?${params.toString()}`;
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${userAccessToken}`,
+        'Content-Type': 'application/json',
+        'X-EBAY-C-MARKETPLACE-ID': 'EBAY_GB'
+      }
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      const err = new Error(`Fulfillment getOrders ${res.status}: ${text.slice(0, 700)}`);
+      err.httpStatus = res.status;
+      throw err;
+    }
+    const data = await res.json();
+    const orders = Array.isArray(data.orders) ? data.orders : [];
+    for (const order of orders) {
+      const orderId = order.orderId;
+      for (const li of order.lineItems || []) {
+        const rawLeg = li.legacyItemId;
+        if (rawLeg == null || String(rawLeg).trim() === '') continue;
+        aggregated.push({
+          orderId,
+          legacyItemId: String(rawLeg).trim(),
+          title: li.title != null ? String(li.title) : null
+        });
+      }
+    }
+    if (orders.length < limit) break;
+    offset += limit;
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  return aggregated;
+}
+
+/**
+ * POST — Compare eBay Fulfillment line items (sold on your account) to stock.ebay_id.
+ * The app `orders` table is only the to-pack queue; matching is against Stock listing IDs.
+ */
+app.post('/api/stock/ebay-sold-missing-stock-match', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    let userToken;
+    try {
+      userToken = await ebaySellerOAuth.getFulfillmentUserAccessToken(pool);
+    } catch (tokErr) {
+      if (tokErr.code === 'EBAY_USER_TOKEN_MISSING') {
+        return res.status(503).json({
+          error: 'eBay seller not connected',
+          code: 'EBAY_USER_TOKEN_MISSING',
+          details: tokErr.message
+        });
+      }
+      throw tokErr;
+    }
+
+    const days = Math.min(
+      730,
+      Math.max(7, Number(req.body?.days) || Number(req.query?.days) || 90)
+    );
+
+    const lineRows = await fetchEbayFulfillmentLineLegacyItems(userToken, days);
+
+    const stockResult = await pool.query(
+      `SELECT ebay_id FROM stock WHERE ebay_id IS NOT NULL AND TRIM(COALESCE(ebay_id::text, '')) <> ''`
+    );
+    const stockLegacy = new Set();
+    for (const row of stockResult.rows || []) {
+      const leg = extractEbayLegacyItemId(row.ebay_id);
+      if (leg) stockLegacy.add(leg);
+    }
+
+    const byLegacy = new Map();
+    for (const row of lineRows) {
+      if (!byLegacy.has(row.legacyItemId)) {
+        byLegacy.set(row.legacyItemId, { title: row.title, orderIds: [] });
+      }
+      const m = byLegacy.get(row.legacyItemId);
+      if (row.orderId && !m.orderIds.includes(row.orderId)) m.orderIds.push(row.orderId);
+      if (!m.title && row.title) m.title = row.title;
+    }
+
+    const missing = [];
+    for (const [legacyItemId, meta] of byLegacy) {
+      if (!stockLegacy.has(legacyItemId)) {
+        missing.push({
+          legacy_item_id: legacyItemId,
+          item_title: meta.title,
+          order_ids: meta.orderIds,
+          ebay_url: `https://www.ebay.co.uk/itm/${legacyItemId}`
+        });
+      }
+    }
+
+    res.json({
+      window_days: days,
+      ebay_line_items_seen: lineRows.length,
+      ebay_distinct_listings: byLegacy.size,
+      stock_ebay_ids_count: stockLegacy.size,
+      missing
+    });
+  } catch (error) {
+    console.error('ebay-sold-missing-stock-match failed:', error);
+    res.status(500).json({
+      error: 'eBay fulfillment check failed',
+      details: error instanceof Error ? error.message : String(error)
+    });
   }
 });
 
