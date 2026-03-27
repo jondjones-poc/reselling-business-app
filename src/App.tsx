@@ -14,11 +14,11 @@ import './App.css';
 
 const navItems = [
   { to: '/', label: 'Price', end: true },
+  { to: '/research', label: 'Research' },
   { to: '/stock', label: 'Stock' },
+  { to: '/orders', label: 'Orders' },
   { to: '/reporting', label: 'Reporting' },
   { to: '/expenses', label: 'Expenses' },
-  { to: '/orders', label: 'Orders' },
-  { to: '/research', label: 'Research' },
   { to: '/sourcing', label: 'Sourcing' }
 ] as const;
 

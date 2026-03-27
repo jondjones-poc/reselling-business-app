@@ -3898,6 +3898,240 @@ button.image-upload-label {
   padding-top: 4px;
 }
 
+.menswear-categories-avoid-stock {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(255, 214, 91, 0.14);
+  width: 100%;
+  max-width: min(100%, 520px);
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.menswear-categories-avoid-stock-title {
+  margin: 0 0 12px 0;
+  font-size: 0.98rem;
+  font-weight: 600;
+  letter-spacing: 0.03rem;
+  color: var(--text-strong);
+  text-align: center;
+}
+
+.menswear-categories-avoid-stock-footer {
+  margin-top: 14px;
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.menswear-categories-avoid-stock-table-wrap {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 120, 120, 0.22);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.menswear-categories-avoid-stock-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  color: var(--text-strong);
+}
+
+.menswear-categories-avoid-stock-table thead th {
+  text-align: center;
+  padding: 10px 12px;
+  background: rgba(255, 120, 120, 0.12);
+  border-bottom: 1px solid rgba(255, 120, 120, 0.25);
+  font-weight: 700;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04rem;
+  color: rgba(255, 248, 226, 0.75);
+  white-space: nowrap;
+}
+
+.menswear-categories-avoid-stock-table tbody td {
+  padding: 9px 12px;
+  border-bottom: 1px solid rgba(255, 214, 91, 0.08);
+  vertical-align: middle;
+  text-align: center;
+}
+
+.menswear-categories-avoid-stock-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.menswear-categories-avoid-stock-table tbody tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.menswear-categories-avoid-stock-num {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.menswear-categories-avoid-stock-row-link {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.menswear-categories-avoid-stock-row-link:hover td {
+  background: rgba(255, 120, 120, 0.08);
+}
+
+.menswear-categories-avoid-stock-row-link:focus {
+  outline: none;
+}
+
+.menswear-categories-avoid-stock-row-link:focus-visible {
+  outline: 2px solid rgba(255, 214, 91, 0.65);
+  outline-offset: -2px;
+}
+
+.menswear-categories-detail-split-chart--avoid-drilldown {
+  align-self: stretch;
+}
+
+.menswear-categories-avoid-drilldown {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  text-align: left;
+}
+
+.menswear-categories-avoid-drilldown-header {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.menswear-categories-avoid-drilldown-back {
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 214, 91, 0.35);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text-strong);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.menswear-categories-avoid-drilldown-back:hover {
+  border-color: rgba(255, 214, 91, 0.55);
+  background: rgba(255, 214, 91, 0.08);
+}
+
+.menswear-categories-avoid-drilldown-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-strong);
+  line-height: 1.35;
+}
+
+.menswear-categories-avoid-drilldown-sep {
+  font-weight: 500;
+  opacity: 0.65;
+}
+
+.menswear-categories-avoid-drilldown-table-wrap {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 214, 91, 0.18);
+  background: rgba(0, 0, 0, 0.18);
+  max-height: min(62vh, 520px);
+  overflow-y: auto;
+}
+
+.menswear-categories-avoid-drilldown-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+  color: var(--text-strong);
+}
+
+.menswear-categories-avoid-drilldown-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  text-align: center;
+  padding: 10px 10px;
+  background: rgba(40, 36, 28, 0.96);
+  border-bottom: 1px solid rgba(255, 214, 91, 0.2);
+  font-weight: 700;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04rem;
+  color: rgba(255, 248, 226, 0.78);
+  white-space: nowrap;
+}
+
+.menswear-categories-avoid-drilldown-table tbody td {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 214, 91, 0.07);
+  vertical-align: middle;
+  text-align: center;
+}
+
+.menswear-categories-avoid-drilldown-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.menswear-categories-avoid-drilldown-item {
+  max-width: 220px;
+  word-break: break-word;
+  text-align: center;
+}
+
+.menswear-categories-avoid-drilldown-item-link {
+  color: rgba(120, 200, 255, 0.95);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.menswear-categories-avoid-drilldown-item-link:hover {
+  color: rgba(160, 220, 255, 1);
+}
+
+.menswear-categories-avoid-drilldown-num {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.menswear-categories-avoid-drilldown-date {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.menswear-categories-avoid-drilldown-links {
+  white-space: nowrap;
+  text-align: center;
+}
+
+.menswear-categories-avoid-drilldown-platform-link {
+  color: rgba(120, 200, 255, 0.95);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.menswear-categories-avoid-drilldown-platform-link:hover {
+  color: rgba(160, 220, 255, 1);
+}
+
+.menswear-categories-avoid-drilldown-link-sep {
+  display: inline-block;
+  width: 0.35em;
+}
+
 .menswear-categories-card {
   width: 100%;
   text-align: left;

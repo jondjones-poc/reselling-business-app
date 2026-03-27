@@ -99,23 +99,26 @@
   max-width: calc(25% - 16px);
 }
 
-/* Label + inline “add” — same horizontal start as plain labels; height matches text-only labels so inputs line up */
+/* Label + inline “add” — centered with Category + button as a group */
 .new-entry-field-label-row {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   gap: 8px;
   width: 100%;
   min-height: 32px;
   box-sizing: border-box;
 }
 
-/* Plain field label (Name, etc.) — same min-height as .new-entry-field-label-row (+ button row) */
+/* Plain field label (Name, Purchase Price, IDs, etc.) — centered above inputs */
 .new-entry-field:not(.projected-profit-inline-field) > span:first-child {
   min-height: 32px;
   display: flex;
   align-items: center;
+  justify-content: center;
   box-sizing: border-box;
+  text-align: center;
+  width: 100%;
 }
 
 .new-entry-field--actions {
@@ -214,20 +217,22 @@
 
 /* New stock: col1 = Projected | My Sales (50/50 one row); cols 2–3 = metrics; col4 = actions */
 .stock-new-entry-four-col-row {
+  /* Match projected input border-box (taller than comps min by ~2px from borders) — caps pipeline when text wraps */
+  --stock-new-entry-controls-h: calc(28px + 0.95rem * 1.2 + 2px);
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(72px, auto);
   gap: 14px 16px;
   width: 100%;
   flex: 1 1 100%;
   box-sizing: border-box;
-  align-items: end;
+  align-items: start;
 }
 
 .stock-new-entry-col1-prices {
   grid-column: 1;
   display: flex;
   flex-direction: row;
-  align-items: flex-end;
+  align-items: flex-start;
   gap: 12px;
   min-width: 0;
 }
@@ -256,14 +261,29 @@
   grid-column: 2 / 4;
   min-width: 0;
   display: flex;
-  align-items: center;
-  align-self: stretch;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
 }
 
-.stock-new-entry-span-pipeline-box {
+/* Same min-height as .stock-edit-projected-label / .stock-new-entry-mysales-label */
+.stock-new-entry-pipeline-label-spacer {
+  min-height: 32px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+/*
+ * Match comps border-box height; max-height stops multi-line pipeline from dropping below comps/input row.
+ */
+.stock-new-entry-span-pipeline-box.stock-edit-row-1-metrics-box {
+  flex: 0 1 auto;
   width: 100%;
-  min-height: auto;
-  padding: 8px 12px;
+  min-height: var(--stock-new-entry-controls-h);
+  max-height: var(--stock-new-entry-controls-h);
+  padding: 6px 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
   justify-content: flex-start;
   align-items: center;
   box-sizing: border-box;
@@ -275,6 +295,8 @@
   overflow-wrap: anywhere;
   font-size: 0.8rem;
   line-height: 1.35;
+  min-width: 0;
+  width: 100%;
 }
 
 .stock-new-entry-col4-actions {
@@ -284,47 +306,127 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
-  align-self: stretch;
+  align-self: end;
+}
+
+/*
+ * One flex slot for the row; inside, grid so the input spans full width under (× + NAME),
+ * not only the column beside the close button.
+ */
+.stock-new-entry-name-with-close {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 6px;
+  row-gap: 8px;
+  align-items: center;
+  flex: 1 1 240px;
+  min-width: 0;
+  max-width: calc(25% - 16px);
+  box-sizing: border-box;
+}
+
+.stock-new-entry-name-with-close .stock-new-entry-close-before-name {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  box-sizing: border-box;
+}
+
+.stock-new-entry-name-with-close .new-entry-field.stock-new-entry-name-field {
+  display: contents;
+}
+
+.stock-new-entry-name-with-close .new-entry-field.stock-new-entry-name-field > span:first-child {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: center;
+}
+
+.stock-new-entry-name-with-close .new-entry-field.stock-new-entry-name-field > input[type='text'] {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  width: 100%;
+  min-width: 0;
+  height: calc(28px + 0.95rem * 1.2 + 2px);
+  line-height: calc(28px + 0.95rem * 1.2);
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 18px;
+  padding-right: 18px;
 }
 
 .stock-new-entry-mysales-label {
   min-height: 32px;
   display: flex;
   align-items: center;
+  justify-content: center;
   box-sizing: border-box;
+  text-align: center;
+  width: 100%;
 }
 
-.stock-new-entry-close-x {
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
+/* Edit row + add-new: same coral circular close + X icon */
+button.stock-close-circle-btn {
+  flex-shrink: 0;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
   padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 248, 226, 0.22);
-  background: rgba(255, 248, 226, 0.06);
-  color: rgba(255, 248, 226, 0.75);
-  font-size: 1.1rem;
-  line-height: 1;
-  font-weight: 600;
+  box-sizing: border-box;
+  border-radius: 50%;
+  font-size: 0;
+  line-height: 0;
+  background: #ee957e;
+  border: 1px solid rgba(180, 85, 65, 0.55);
+  color: rgba(42, 22, 18, 0.88);
   cursor: pointer;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
   transition:
     background 0.15s ease,
     color 0.15s ease,
-    border-color 0.15s ease;
+    border-color 0.15s ease,
+    transform 0.12s ease,
+    box-shadow 0.15s ease;
 }
 
-.stock-new-entry-close-x:hover:not(:disabled) {
-  background: rgba(255, 120, 120, 0.12);
-  border-color: rgba(255, 160, 140, 0.45);
-  color: #ffb8a8;
+button.stock-close-circle-btn:hover:not(:disabled) {
+  background: #f0a896;
+  border-color: rgba(160, 72, 55, 0.6);
+  color: rgba(30, 14, 10, 0.92);
+  transform: translateY(-1px);
+  box-shadow: 0 0 12px rgba(238, 149, 126, 0.55);
 }
 
-.stock-new-entry-close-x:disabled {
+button.stock-close-circle-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.stock-close-circle-icon {
+  display: block;
+  flex-shrink: 0;
+}
+
+/* Add-new name row only: smaller close so row 1 matches other fields’ 32px label line */
+.stock-new-entry-name-with-close button.stock-close-circle-btn {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+}
+
+.stock-new-entry-name-with-close .stock-close-circle-icon {
+  width: 14px;
+  height: 14px;
 }
 
 .stock-new-entry-save-circle {
@@ -402,6 +504,10 @@
     grid-column: 1;
   }
 
+  .stock-new-entry-pipeline-label-spacer {
+    display: none;
+  }
+
   .stock-new-entry-col4-actions {
     grid-column: 1;
     flex-direction: row;
@@ -435,17 +541,22 @@
 
 .stock-edit-row1-delete-btn.delete-button {
   flex-shrink: 0;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 48px;
-  padding: 14px 20px;
-  border-radius: 999px;
-  font-size: 0.72rem;
-  line-height: 1;
-  letter-spacing: 0.06rem;
-  font-weight: 600;
-  text-transform: none;
+  box-sizing: border-box;
+  border-radius: 50%;
+  font-size: 0;
+  line-height: 0;
+}
+
+.stock-edit-row-1-delete-icon {
+  display: block;
+  flex-shrink: 0;
 }
 
 /*
@@ -601,10 +712,14 @@
   box-shadow: inset 0 0 0 1px rgba(90, 90, 100, 0.2);
 }
 
-.stock-edit-row-1 .stock-edit-row-1-action {
-  flex: 0 1 auto;
-  min-width: 100px;
-  padding: 14px 20px;
+/* Edit row close: explicit circle (44px); not mixed with pill-style .cancel-button padding */
+.stock-edit-row-1 .stock-edit-row-1-close-btn.stock-close-circle-btn--edit {
+  flex: 0 0 auto;
+  min-width: 44px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
 }
 
 /* Edit row 4: 2×2 grid — labels align with columns (Projected | My Sales Price comps) */
@@ -621,7 +736,10 @@
   min-height: 32px;
   display: flex;
   align-items: center;
+  justify-content: center;
   box-sizing: border-box;
+  text-align: center;
+  width: 100%;
   color: rgba(255, 248, 226, 0.7);
   letter-spacing: 0.05rem;
   font-size: 0.85rem;
@@ -662,6 +780,10 @@
   flex-direction: column;
   align-items: stretch;
   justify-content: center;
+}
+
+.stock-edit-brand-category-comps.stock-new-entry-comps-only {
+  min-height: var(--stock-new-entry-controls-h);
 }
 
 .stock-edit-brand-category-comps__stack {
@@ -794,33 +916,6 @@
   to {
     transform: rotate(360deg);
   }
-}
-
-/* Close (X) — same 44px footprint as SKU circle + add-to-order */
-.stock-edit-row-1 .stock-edit-row-1-close-btn.cancel-button.stock-edit-row-1-action {
-  flex-shrink: 0;
-  width: 44px;
-  min-width: 44px;
-  height: 44px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-  border-radius: 12px;
-  font-size: 1rem;
-  line-height: 1;
-  background: rgba(200, 200, 210, 0.35);
-  border: 1px solid rgba(220, 220, 230, 0.45);
-  color: rgba(255, 248, 226, 0.92);
-}
-
-.stock-edit-row-1 .stock-edit-row-1-close-btn.cancel-button.stock-edit-row-1-action:hover:not(:disabled) {
-  background: rgba(215, 215, 225, 0.48);
-  border-color: rgba(235, 235, 242, 0.55);
-  color: #fff8e8;
-  transform: translateY(-1px);
-  box-shadow: 0 0 10px rgba(200, 200, 210, 0.25);
 }
 
 @media (max-width: 768px) {
@@ -960,6 +1055,16 @@
   box-sizing: border-box;
 }
 
+/* Match control band height; line-height = content box so value/placeholder sit vertically centred */
+.new-entry-field input.stock-edit-projected-price-input {
+  height: calc(28px + 0.95rem * 1.2 + 2px);
+  line-height: calc(28px + 0.95rem * 1.2);
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 18px;
+  padding-right: 18px;
+}
+
 .new-entry-field input:focus,
 .new-entry-field select:focus,
 .new-entry-field .react-datepicker__input-container input:focus {
@@ -1064,16 +1169,28 @@
   .new-entry-field {
     max-width: calc(33.333% - 16px);
   }
+
+  .stock-new-entry-name-with-close {
+    max-width: calc(33.333% - 16px);
+  }
 }
 
 @media (max-width: 900px) {
   .new-entry-field {
     max-width: calc(50% - 16px);
   }
+
+  .stock-new-entry-name-with-close {
+    max-width: calc(50% - 16px);
+  }
 }
 
 @media (max-width: 600px) {
   .new-entry-field {
+    max-width: 100%;
+  }
+
+  .stock-new-entry-name-with-close {
     max-width: 100%;
   }
 }
@@ -2431,8 +2548,14 @@
   }
 
   .save-button:not(.stock-edit-save-disk),
-  .cancel-button {
+  .cancel-button:not(.stock-close-circle-btn) {
     width: 100%;
+  }
+
+  .stock-close-circle-btn--edit {
+    width: 44px;
+    max-width: 44px;
+    min-width: 44px;
   }
 
   .save-button.stock-edit-save-disk {

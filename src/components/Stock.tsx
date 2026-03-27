@@ -105,8 +105,8 @@ function soldPlatformIsVintedStock(p: string | null | undefined): boolean {
   return t === 'Vinted' || t?.toLowerCase() === 'vinted';
 }
 
-/** Clipboard with check — Add to orders control (icon only). */
-function AddToOrdersClipboardIcon({ className }: { className?: string }) {
+/** Price tag — sold / listing item (Add to orders). */
+function AddToOrdersIcon({ className }: { className?: string }) {
   return (
     <svg
       className={className}
@@ -118,26 +118,13 @@ function AddToOrdersClipboardIcon({ className }: { className?: string }) {
       aria-hidden
     >
       <path
-        d="M8 4.5h-.5A2.5 2.5 0 0 0 5 7v12a2.5 2.5 0 0 0 2.5 2.5h9A2.5 2.5 0 0 0 19 19V7a2.5 2.5 0 0 0-2.5-2.5H16"
+        d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.82 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"
         stroke="currentColor"
-        strokeWidth="1.65"
+        strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      <path
-        d="M8 4.5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2V6H8V4.5z"
-        stroke="currentColor"
-        strokeWidth="1.65"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M9.2 12.2 11.1 14l4.5-4.6"
-        stroke="currentColor"
-        strokeWidth="1.65"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <circle cx="7" cy="7" r="1.5" fill="none" stroke="currentColor" strokeWidth="1.75" />
     </svg>
   );
 }
@@ -1922,7 +1909,7 @@ const Stock: React.FC = () => {
                 <div className="stock-edit-row-1-left">
                   <button
                     type="button"
-                    className="cancel-button stock-edit-row-1-action stock-edit-row-1-close-btn"
+                    className="cancel-button stock-edit-row-1-close-btn stock-close-circle-btn stock-close-circle-btn--edit"
                     onClick={() => {
                       if (!creating && !deleting) {
                         setShowNewEntry(false);
@@ -1937,7 +1924,21 @@ const Stock: React.FC = () => {
                     aria-label="Close"
                     title="Close"
                   >
-                    X
+                    <svg
+                      className="stock-close-circle-icon"
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.25"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden
+                    >
+                      <path d="M18 6 6 18M6 6l12 12" />
+                    </svg>
                   </button>
                   <div className="stock-edit-sku-id-circle" title={`SKU ${editingRowId}`}>
                     {editingRowId}
@@ -1962,7 +1963,7 @@ const Stock: React.FC = () => {
                           : 'Add to orders'
                     }
                   >
-                    <AddToOrdersClipboardIcon className="stock-add-to-order-icon" />
+                    <AddToOrdersIcon className="stock-add-to-order-icon" />
                   </button>
                   <button
                     type="button"
@@ -1996,7 +1997,24 @@ const Stock: React.FC = () => {
                     aria-label="Delete stock item"
                     title="Remove this stock record"
                   >
-                    Delete
+                    <svg
+                      className="stock-edit-row-1-delete-icon"
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden
+                    >
+                      <path d="M3 6h18" />
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                      <path d="M10 11v6M14 11v6" />
+                    </svg>
                   </button>
                 </div>
               </div>
@@ -2004,15 +2022,64 @@ const Stock: React.FC = () => {
 
             {/* Row 2: Name, Category, Purchase Price (£), Purchase Date */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', width: '100%' }}>
-              <label className="new-entry-field">
-                <span>Name</span>
-                <input
-                  type="text"
-                  value={createForm.item_name}
-                  onChange={(event) => handleCreateChange('item_name', event.target.value)}
-                  placeholder="e.g. Barbour jacket"
-                />
-              </label>
+              {!editingRowId ? (
+                <div className="stock-new-entry-name-with-close">
+                  <div className="stock-new-entry-close-before-name">
+                    <button
+                      type="button"
+                      className="stock-close-circle-btn"
+                      onClick={() => {
+                        if (!creating && !deleting) {
+                          setShowNewEntry(false);
+                          setEditingRowId(null);
+                          setFormIntent('create');
+                          setShowCreateInsteadOfEditConfirm(false);
+                          resetCreateForm();
+                          setShowDeleteConfirm(false);
+                        }
+                      }}
+                      disabled={creating || deleting}
+                      aria-label="Close"
+                      title="Close"
+                    >
+                      <svg
+                        className="stock-close-circle-icon"
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.25"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden
+                      >
+                        <path d="M18 6 6 18M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                  <label className="new-entry-field stock-new-entry-name-field">
+                    <span>Name</span>
+                    <input
+                      type="text"
+                      value={createForm.item_name}
+                      onChange={(event) => handleCreateChange('item_name', event.target.value)}
+                      placeholder="e.g. Barbour jacket"
+                    />
+                  </label>
+                </div>
+              ) : (
+                <label className="new-entry-field">
+                  <span>Name</span>
+                  <input
+                    type="text"
+                    value={createForm.item_name}
+                    onChange={(event) => handleCreateChange('item_name', event.target.value)}
+                    placeholder="e.g. Barbour jacket"
+                  />
+                </label>
+              )}
               <div className="new-entry-field" style={{ position: 'relative' }}>
                   <div className="new-entry-field-label-row">
                     <span id="stock-form-category-label">Category</span>
@@ -2665,6 +2732,7 @@ const Stock: React.FC = () => {
                   </div>
                 </div>
                 <div className="stock-new-entry-col23-pipeline">
+                  <div className="stock-new-entry-pipeline-label-spacer" aria-hidden="true" />
                   <div className="stock-edit-row-1-metrics-box stock-new-entry-span-pipeline-box">
                     <div
                       className="stock-edit-metrics-pipeline"
@@ -2677,25 +2745,6 @@ const Stock: React.FC = () => {
                   </div>
                 </div>
                 <div className="stock-new-entry-col4-actions">
-                  <button
-                    type="button"
-                    className="stock-new-entry-close-x"
-                    onClick={() => {
-                      if (!creating && !deleting) {
-                        setShowNewEntry(false);
-                        setEditingRowId(null);
-                        setFormIntent('create');
-                        setShowCreateInsteadOfEditConfirm(false);
-                        resetCreateForm();
-                        setShowDeleteConfirm(false);
-                      }
-                    }}
-                    disabled={creating || deleting}
-                    aria-label="Close"
-                    title="Close"
-                  >
-                    ×
-                  </button>
                   <button
                     type="button"
                     className="stock-new-entry-save-circle"

@@ -231,6 +231,82 @@ function formatResearchShortDate(isoOrDate: string | null): string {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+function researchVintedItemUrl(id: string): string {
+  return `https://www.vinted.co.uk/items/${encodeURIComponent(id.trim())}`;
+}
+
+function researchEbayItemUrl(id: string): string {
+  return `https://www.ebay.co.uk/itm/${encodeURIComponent(id.trim())}`;
+}
+
+type AvoidStockAskAiSummaryRow = {
+  brand_id: number;
+  brand_name: string;
+  category_name: string;
+  category_id: number | null;
+  unsold_count: number;
+  sold_count: number;
+};
+
+type AvoidStockAskAiItem = {
+  id: number;
+  item_name: string | null;
+  purchase_price: string | number | null;
+  purchase_date: string | null;
+  vinted_id: string | null;
+  ebay_id: string | null;
+};
+
+/** Sold ÷ (sold + unsold) for this brand×category — i.e. share of units that sold vs total units in the data. */
+function avoidStockSellRateDecimal(unsold: number, sold: number): number {
+  const u = Math.max(0, unsold);
+  const s = Math.max(0, sold);
+  const t = u + s;
+  if (t <= 0) return 0;
+  return s / t;
+}
+
+function formatAvoidStockSellRateLabel(unsold: number, sold: number): string {
+  return new Intl.NumberFormat('en-GB', {
+    style: 'percent',
+    maximumFractionDigits: 1,
+    minimumFractionDigits: 0,
+  }).format(avoidStockSellRateDecimal(unsold, sold));
+}
+
+function pickWorstThreeAvoidStockRows(rows: AvoidStockAskAiSummaryRow[]): AvoidStockAskAiSummaryRow[] {
+  if (rows.length === 0) return [];
+  const rate = (r: AvoidStockAskAiSummaryRow) =>
+    avoidStockSellRateDecimal(r.unsold_count, r.sold_count);
+  return [...rows]
+    .sort((a, b) => {
+      const ra = rate(a);
+      const rb = rate(b);
+      if (ra !== rb) return ra - rb;
+      return b.unsold_count - a.unsold_count;
+    })
+    .slice(0, 3);
+}
+
+function formatAvoidStockAskAiItemLine(it: AvoidStockAskAiItem): string {
+  const title = (it.item_name ?? '').trim() || '—';
+  const priceNum =
+    it.purchase_price != null && it.purchase_price !== ''
+      ? typeof it.purchase_price === 'number'
+        ? it.purchase_price
+        : parseFloat(String(it.purchase_price))
+      : NaN;
+  const price = Number.isFinite(priceNum) ? formatResearchCurrency(priceNum) : '—';
+  const date = formatResearchShortDate(it.purchase_date);
+  const v = it.vinted_id?.trim() ? researchVintedItemUrl(it.vinted_id.trim()) : null;
+  const e = it.ebay_id?.trim() ? researchEbayItemUrl(it.ebay_id.trim()) : null;
+  const linkBits = [v ? `Vinted: ${v}` : null, e ? `eBay: ${e}` : null].filter(Boolean);
+  const links = linkBits.length > 0 ? linkBits.join(' | ') : 'no listing links';
+  const days = daysSincePurchase(it.purchase_date);
+  const daysStr = days === null ? '—' : `${days} days in stock`;
+  return `- **${title}** | ${price} | purchased ${date} | ${daysStr} | ${links}`;
+}
+
 /** Whole days from purchase date to today (inventory age). */
 function daysSincePurchase(isoOrDate: string | null): number | null {
   if (!isoOrDate) return null;
@@ -239,6 +315,62 @@ function daysSincePurchase(isoOrDate: string | null): number | null {
   const diff = Date.now() - start.getTime();
   if (diff < 0) return 0;
   return Math.floor(diff / 86400000);
+}
+
+function buildMenswearAvoidStockAskAiPrompt(args: {
+  menswearCategoryName: string;
+  worstRows: AvoidStockAskAiSummaryRow[];
+  itemRowsPerWorst: AvoidStockAskAiItem[][];
+}): string {
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const lines: string[] = [
+    `I'm a UK menswear reseller (second-hand / resale). I organise stock with internal **menswear category** labels in my app.`,
+    ``,
+    `**Menswear bucket:** **${args.menswearCategoryName}**`,
+    ``,
+    `Below I focus on the **three worst-performing combinations** in my system: **brand × stock category** (among brands I’ve linked to this menswear bucket), ranked by **lowest sell rate** — **sold ÷ (sold + unsold)** for that pair (share of units that have sold vs all units in my data for that brand × category).`,
+    ``,
+    `## Summary — worst 3`,
+    ``,
+  ];
+
+  args.worstRows.forEach((r, i) => {
+    const sold = r.sold_count;
+    const sellRateLabel = formatAvoidStockSellRateLabel(r.unsold_count, sold);
+    lines.push(
+      `${i + 1}. **${r.brand_name}** — **${r.category_name}** | Unsold: ${r.unsold_count} | Sold: ${sold} | Sell rate: ${sellRateLabel}`
+    );
+  });
+  lines.push(``);
+
+  args.worstRows.forEach((r, i) => {
+    const items = args.itemRowsPerWorst[i] ?? [];
+    lines.push(`## ${i + 1}. ${r.brand_name} — ${r.category_name}`);
+    lines.push(
+      `*(Unsold ${r.unsold_count} / sold ${r.sold_count} in my system for this pair.)*`,
+      ``,
+      `**Unsold lines (one row per item still in stock):**`,
+      ``
+    );
+    if (items.length === 0) {
+      lines.push(`*(No line items returned — treat summary as above.)*`, ``);
+    } else {
+      items.forEach((it) => lines.push(formatAvoidStockAskAiItemLine(it)));
+      lines.push(``);
+    }
+  });
+
+  lines.push(
+    `## What I need from you`,
+    `1. **Why are these not selling** for me (or selling so slowly compared to what I’ve sold in the same brand × category)?`,
+    `2. **What am I missing** — pricing, season, fit, sizing, colour, category choice, brand tier, listing quality, platform mix, or something else?`,
+    `3. **How could I have found better options** when sourcing this space — what should I look for next time (filters, comps, eras, product lines, condition signals)?`,
+    `4. **In general**, should **items like these** typically move in UK resale — or is the problem more likely **my selection**, **timing**, or **execution** than the category being “unsellable”?`,
+    ``,
+    `Tone: direct, practical. Date: ${dateStr}.`
+  );
+
+  return lines.join('\n');
 }
 
 type EbaySoldItemRow = {
@@ -1402,6 +1534,31 @@ const Research: React.FC = () => {
     unsold_count: number;
   };
 
+  type MenswearUnsoldBrandCategoryRow = {
+    brand_id: number;
+    brand_name: string;
+    category_name: string;
+    category_id: number | null;
+    unsold_count: number;
+    sold_count: number;
+  };
+
+  type MenswearAvoidDrilldownKey = {
+    brandId: number;
+    categoryId: number | null;
+    brandName: string;
+    categoryName: string;
+  };
+
+  type MenswearAvoidStockItemRow = {
+    id: number;
+    item_name: string | null;
+    purchase_price: string | number | null;
+    purchase_date: string | null;
+    vinted_id: string | null;
+    ebay_id: string | null;
+  };
+
   type MenswearSalesPeriod = 'last_12_months' | '2026' | '2025';
 
   const [menswearCategories, setMenswearCategories] = useState<MenswearCategoryRow[]>([]);
@@ -1440,6 +1597,15 @@ const Research: React.FC = () => {
   );
   const [menswearBrandInventoryLoading, setMenswearBrandInventoryLoading] = useState(false);
   const [menswearBrandInventoryError, setMenswearBrandInventoryError] = useState<string | null>(null);
+  const [menswearUnsoldBrandCategory, setMenswearUnsoldBrandCategory] = useState<MenswearUnsoldBrandCategoryRow[]>(
+    []
+  );
+  const [menswearUnsoldBrandCategoryLoading, setMenswearUnsoldBrandCategoryLoading] = useState(false);
+  const [menswearUnsoldBrandCategoryError, setMenswearUnsoldBrandCategoryError] = useState<string | null>(null);
+  const [menswearAvoidDrilldown, setMenswearAvoidDrilldown] = useState<MenswearAvoidDrilldownKey | null>(null);
+  const [menswearAvoidItems, setMenswearAvoidItems] = useState<MenswearAvoidStockItemRow[]>([]);
+  const [menswearAvoidItemsLoading, setMenswearAvoidItemsLoading] = useState(false);
+  const [menswearAvoidItemsError, setMenswearAvoidItemsError] = useState<string | null>(null);
 
   const [brandsWithWebsites, setBrandsWithWebsites] = useState<BrandRow[]>([]);
 
@@ -2213,6 +2379,149 @@ const Research: React.FC = () => {
       ac.abort();
     };
   }, [researchTab, menswearCategoryIdFromUrl, menswearCategoryBrandsRefreshTick]);
+
+  useEffect(() => {
+    if (researchTab !== 'menswear-categories' || menswearCategoryIdFromUrl == null) {
+      setMenswearUnsoldBrandCategory([]);
+      setMenswearUnsoldBrandCategoryError(null);
+      setMenswearUnsoldBrandCategoryLoading(false);
+      return;
+    }
+    const ac = new AbortController();
+    let cancelled = false;
+    const load = async () => {
+      setMenswearUnsoldBrandCategoryLoading(true);
+      setMenswearUnsoldBrandCategoryError(null);
+      try {
+        const params = new URLSearchParams();
+        params.set('limit', '10');
+        const res = await fetch(
+          apiUrl(
+            `/api/menswear-categories/${menswearCategoryIdFromUrl}/unsold-inventory-by-brand-category?${params}`
+          ),
+          { signal: ac.signal }
+        );
+        const data = await readJsonResponse<{ rows?: MenswearUnsoldBrandCategoryRow[] }>(
+          res,
+          'menswear-unsold-inventory-by-brand-category'
+        );
+        if (cancelled) return;
+        const raw = Array.isArray(data.rows) ? data.rows : [];
+        setMenswearUnsoldBrandCategory(
+          raw.map((r) => ({
+            brand_id: (() => {
+              const n = Math.floor(Number(r.brand_id));
+              return Number.isFinite(n) && n > 0 ? n : 0;
+            })(),
+            brand_name: String(r.brand_name ?? '—'),
+            category_name: String(r.category_name ?? 'Uncategorized'),
+            category_id: (() => {
+              if (r.category_id === null || r.category_id === undefined) return null;
+              const n = Math.floor(Number(r.category_id));
+              return Number.isFinite(n) ? n : null;
+            })(),
+            unsold_count: Math.max(0, Math.floor(Number(r.unsold_count) || 0)),
+            sold_count: Math.max(0, Math.floor(Number(r.sold_count) || 0)),
+          }))
+        );
+      } catch (e) {
+        if (cancelled || isAbortError(e)) return;
+        setMenswearUnsoldBrandCategory([]);
+        setMenswearUnsoldBrandCategoryError(friendlyApiUnreachableMessage(e));
+      } finally {
+        if (!cancelled) setMenswearUnsoldBrandCategoryLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [researchTab, menswearCategoryIdFromUrl, menswearCategoryBrandsRefreshTick]);
+
+  useEffect(() => {
+    setMenswearAvoidDrilldown(null);
+  }, [menswearCategoryIdFromUrl]);
+
+  useEffect(() => {
+    if (researchTab !== 'menswear-categories') {
+      setMenswearAvoidDrilldown(null);
+    }
+  }, [researchTab]);
+
+  useEffect(() => {
+    if (researchTab !== 'menswear-categories' || menswearCategoryIdFromUrl == null || !menswearAvoidDrilldown) {
+      setMenswearAvoidItems([]);
+      setMenswearAvoidItemsError(null);
+      setMenswearAvoidItemsLoading(false);
+      return;
+    }
+    const ac = new AbortController();
+    let cancelled = false;
+    const load = async () => {
+      setMenswearAvoidItemsLoading(true);
+      setMenswearAvoidItemsError(null);
+      try {
+        const params = new URLSearchParams();
+        params.set('brand_id', String(menswearAvoidDrilldown.brandId));
+        if (menswearAvoidDrilldown.categoryId == null) {
+          params.set('uncategorized', '1');
+        } else {
+          params.set('category_id', String(menswearAvoidDrilldown.categoryId));
+        }
+        const res = await fetch(
+          apiUrl(
+            `/api/menswear-categories/${menswearCategoryIdFromUrl}/unsold-stock-items?${params.toString()}`
+          ),
+          { signal: ac.signal }
+        );
+        const data = await readJsonResponse<{ rows?: MenswearAvoidStockItemRow[] }>(
+          res,
+          'menswear-unsold-stock-items'
+        );
+        if (cancelled) return;
+        const raw = Array.isArray(data.rows) ? data.rows : [];
+        setMenswearAvoidItems(
+          raw.map((r) => ({
+            id: Math.floor(Number(r.id) || 0),
+            item_name: r.item_name != null ? String(r.item_name) : null,
+            purchase_price: r.purchase_price ?? null,
+            purchase_date: r.purchase_date != null ? String(r.purchase_date) : null,
+            vinted_id: r.vinted_id != null && String(r.vinted_id).trim() !== '' ? String(r.vinted_id).trim() : null,
+            ebay_id: r.ebay_id != null && String(r.ebay_id).trim() !== '' ? String(r.ebay_id).trim() : null,
+          }))
+        );
+      } catch (e) {
+        if (cancelled || isAbortError(e)) return;
+        setMenswearAvoidItems([]);
+        setMenswearAvoidItemsError(friendlyApiUnreachableMessage(e));
+      } finally {
+        if (!cancelled) setMenswearAvoidItemsLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [
+    researchTab,
+    menswearCategoryIdFromUrl,
+    menswearCategoryBrandsRefreshTick,
+    menswearAvoidDrilldown,
+  ]);
+
+  /** Longest in stock first (most days since purchase), then by id. */
+  const menswearAvoidItemsSortedByStockAge = useMemo(() => {
+    return [...menswearAvoidItems].sort((a, b) => {
+      const da = daysSincePurchase(a.purchase_date);
+      const db = daysSincePurchase(b.purchase_date);
+      const sa = da !== null ? da : -1;
+      const sb = db !== null ? db : -1;
+      if (sb !== sa) return sb - sa;
+      return b.id - a.id;
+    });
+  }, [menswearAvoidItems]);
 
   const menswearSalesPieModel = useMemo(() => {
     if (menswearCategoryIdFromUrl == null) {
@@ -4001,6 +4310,68 @@ const Research: React.FC = () => {
     () => menswearCategories.find((c) => c.id === menswearCategoryIdFromUrl) ?? null,
     [menswearCategories, menswearCategoryIdFromUrl]
   );
+
+  const runMenswearAvoidStockAskAi = useCallback(async () => {
+    if (menswearCategoryIdFromUrl == null || !selectedMenswearCategory) return;
+    const rows = menswearUnsoldBrandCategory.filter((r) => r.brand_id >= 1);
+    if (rows.length === 0) {
+      setMenswearAskAiHint('Load “Stock To Avoid Buying” data first (need at least one row).');
+      window.setTimeout(() => setMenswearAskAiHint(null), 4500);
+      return;
+    }
+    const worst = pickWorstThreeAvoidStockRows(rows);
+    setMenswearAskAiBusy(true);
+    setMenswearAskAiHint(null);
+    try {
+      const itemRowsPerWorst: AvoidStockAskAiItem[][] = await Promise.all(
+        worst.map(async (r) => {
+          const params = new URLSearchParams();
+          params.set('brand_id', String(r.brand_id));
+          if (r.category_id == null) {
+            params.set('uncategorized', '1');
+          } else {
+            params.set('category_id', String(r.category_id));
+          }
+          const res = await fetch(
+            apiUrl(
+              `/api/menswear-categories/${menswearCategoryIdFromUrl}/unsold-stock-items?${params.toString()}`
+            )
+          );
+          const data = await readJsonResponse<{ rows?: MenswearAvoidStockItemRow[] }>(
+            res,
+            'menswear-avoid-stock-ask-ai-items'
+          );
+          const raw = Array.isArray(data.rows) ? data.rows : [];
+          return raw.map((row) => ({
+            id: Math.floor(Number(row.id) || 0),
+            item_name: row.item_name != null ? String(row.item_name) : null,
+            purchase_price: row.purchase_price ?? null,
+            purchase_date: row.purchase_date != null ? String(row.purchase_date) : null,
+            vinted_id:
+              row.vinted_id != null && String(row.vinted_id).trim() !== ''
+                ? String(row.vinted_id).trim()
+                : null,
+            ebay_id:
+              row.ebay_id != null && String(row.ebay_id).trim() !== ''
+                ? String(row.ebay_id).trim()
+                : null,
+          }));
+        })
+      );
+      const text = buildMenswearAvoidStockAskAiPrompt({
+        menswearCategoryName: selectedMenswearCategory.name,
+        worstRows: worst,
+        itemRowsPerWorst,
+      });
+      await copyResearchTextToClipboard(text);
+      setMenswearAskAiHint('Copied to clipboard — paste into ChatGPT.');
+    } catch (e) {
+      setMenswearAskAiHint(friendlyApiUnreachableMessage(e));
+    } finally {
+      setMenswearAskAiBusy(false);
+      window.setTimeout(() => setMenswearAskAiHint(null), 5000);
+    }
+  }, [menswearCategoryIdFromUrl, selectedMenswearCategory, menswearUnsoldBrandCategory]);
 
   const speakMenswearCategoryAloud = useCallback((cat: MenswearCategoryRow) => {
     if (typeof window === 'undefined' || !window.speechSynthesis) return;
@@ -6127,9 +6498,236 @@ const Research: React.FC = () => {
                           Ask RI - Review This Selection
                         </button>
                       </div>
+
+                      <section
+                        className="menswear-categories-avoid-stock"
+                        aria-labelledby="menswear-avoid-stock-heading"
+                      >
+                        <h4 id="menswear-avoid-stock-heading" className="menswear-categories-avoid-stock-title">
+                          Stock To Avoid Buying
+                        </h4>
+                        {menswearUnsoldBrandCategoryError && (
+                          <div className="menswear-categories-error menswear-categories-error--inline" role="alert">
+                            {menswearUnsoldBrandCategoryError}
+                          </div>
+                        )}
+                        {menswearUnsoldBrandCategoryLoading && (
+                          <div className="menswear-categories-muted">Loading unsold inventory…</div>
+                        )}
+                        {!menswearUnsoldBrandCategoryLoading && !menswearUnsoldBrandCategoryError && (
+                          <div className="menswear-categories-avoid-stock-table-wrap">
+                            {menswearUnsoldBrandCategory.length === 0 ? (
+                              <p className="menswear-categories-muted">
+                                No unsold items for brands in this menswear category.
+                              </p>
+                            ) : (
+                              <table className="menswear-categories-avoid-stock-table">
+                                <thead>
+                                  <tr>
+                                    <th scope="col">Brand</th>
+                                    <th scope="col">Category</th>
+                                    <th scope="col" className="menswear-categories-avoid-stock-num">
+                                      Unsold
+                                    </th>
+                                    <th scope="col" className="menswear-categories-avoid-stock-num">
+                                      Sold
+                                    </th>
+                                    <th
+                                      scope="col"
+                                      className="menswear-categories-avoid-stock-num"
+                                      title="Sold ÷ (sold + unsold) — share of units that sold"
+                                    >
+                                      Sell rate
+                                    </th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {menswearUnsoldBrandCategory.map((row, idx) => {
+                                    const sold = row.sold_count;
+                                    const sellRateLabel = formatAvoidStockSellRateLabel(
+                                      row.unsold_count,
+                                      sold
+                                    );
+                                    const openDrilldown = () => {
+                                      if (row.brand_id < 1) return;
+                                      setMenswearAvoidDrilldown({
+                                        brandId: row.brand_id,
+                                        categoryId: row.category_id,
+                                        brandName: row.brand_name,
+                                        categoryName: row.category_name,
+                                      });
+                                    };
+                                    const onKeyOpen = (e: React.KeyboardEvent) => {
+                                      if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        openDrilldown();
+                                      }
+                                    };
+                                    return (
+                                      <tr
+                                        key={`${row.brand_id}-${row.category_id ?? 'u'}-${idx}`}
+                                        className="menswear-categories-avoid-stock-row-link"
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={openDrilldown}
+                                        onKeyDown={onKeyOpen}
+                                        aria-label={`View ${row.unsold_count} unsold items: ${row.brand_name}, ${row.category_name}`}
+                                      >
+                                        <td>{row.brand_name}</td>
+                                        <td>{row.category_name}</td>
+                                        <td className="menswear-categories-avoid-stock-num">{row.unsold_count}</td>
+                                        <td className="menswear-categories-avoid-stock-num">{sold}</td>
+                                        <td className="menswear-categories-avoid-stock-num">{sellRateLabel}</td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            )}
+                          </div>
+                        )}
+                        <div className="menswear-categories-avoid-stock-footer">
+                          <button
+                            type="button"
+                            className="menswear-categories-ask-ai-btn"
+                            disabled={
+                              menswearAskAiBusy ||
+                              menswearUnsoldBrandCategoryLoading ||
+                              Boolean(menswearUnsoldBrandCategoryError) ||
+                              menswearUnsoldBrandCategory.length === 0
+                            }
+                            onClick={() => void runMenswearAvoidStockAskAi()}
+                            aria-label="Copy Ask AI prompt for worst stock categories to clipboard"
+                          >
+                            Ask AI — Review worst stock
+                          </button>
+                        </div>
+                      </section>
                     </div>
                   </div>
-                  <div className="menswear-categories-detail-split-chart">{renderMenswearSalesPie()}</div>
+                  <div
+                    className={`menswear-categories-detail-split-chart${
+                      menswearAvoidDrilldown ? ' menswear-categories-detail-split-chart--avoid-drilldown' : ''
+                    }`}
+                  >
+                    {menswearAvoidDrilldown ? (
+                      <div className="menswear-categories-avoid-drilldown" role="region" aria-label="Unsold items">
+                        <div className="menswear-categories-avoid-drilldown-header">
+                          <button
+                            type="button"
+                            className="menswear-categories-avoid-drilldown-back"
+                            onClick={() => setMenswearAvoidDrilldown(null)}
+                          >
+                            ← Back to chart
+                          </button>
+                          <h4 className="menswear-categories-avoid-drilldown-title">
+                            {menswearAvoidDrilldown.brandName}
+                            <span className="menswear-categories-avoid-drilldown-sep"> · </span>
+                            {menswearAvoidDrilldown.categoryName}
+                          </h4>
+                        </div>
+                        {menswearAvoidItemsError && (
+                          <div className="menswear-categories-error menswear-categories-error--inline" role="alert">
+                            {menswearAvoidItemsError}
+                          </div>
+                        )}
+                        {menswearAvoidItemsLoading && (
+                          <div className="menswear-categories-muted">Loading items…</div>
+                        )}
+                        {!menswearAvoidItemsLoading && !menswearAvoidItemsError && (
+                          <div className="menswear-categories-avoid-drilldown-table-wrap">
+                            {menswearAvoidItemsSortedByStockAge.length === 0 ? (
+                              <p className="menswear-categories-muted">No matching unsold lines.</p>
+                            ) : (
+                              <table className="menswear-categories-avoid-drilldown-table">
+                                <thead>
+                                  <tr>
+                                    <th scope="col">Item</th>
+                                    <th scope="col">Price</th>
+                                    <th scope="col">Purchased</th>
+                                    <th scope="col">Days in stock</th>
+                                    <th scope="col">Listings</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {menswearAvoidItemsSortedByStockAge.map((item) => {
+                                    const priceNum =
+                                      item.purchase_price != null && item.purchase_price !== ''
+                                        ? typeof item.purchase_price === 'number'
+                                          ? item.purchase_price
+                                          : parseFloat(String(item.purchase_price))
+                                        : NaN;
+                                    const title =
+                                      item.item_name && item.item_name.trim().length > 0
+                                        ? item.item_name.trim()
+                                        : '—';
+                                    const hasVinted = Boolean(item.vinted_id);
+                                    const hasEbay = Boolean(item.ebay_id);
+                                    const daysInStock = daysSincePurchase(item.purchase_date);
+                                    return (
+                                      <tr key={item.id}>
+                                        <td className="menswear-categories-avoid-drilldown-item">
+                                          <Link
+                                            to={`/stock?editId=${encodeURIComponent(String(item.id))}`}
+                                            className="menswear-categories-avoid-drilldown-item-link"
+                                          >
+                                            {title}
+                                          </Link>
+                                        </td>
+                                        <td className="menswear-categories-avoid-drilldown-num">
+                                          {Number.isFinite(priceNum) ? formatResearchCurrency(priceNum) : '—'}
+                                        </td>
+                                        <td className="menswear-categories-avoid-drilldown-date">
+                                          {formatResearchShortDate(item.purchase_date)}
+                                        </td>
+                                        <td className="menswear-categories-avoid-drilldown-num">
+                                          {daysInStock === null ? '—' : daysInStock}
+                                        </td>
+                                        <td className="menswear-categories-avoid-drilldown-links">
+                                          {hasVinted ? (
+                                            <a
+                                              href={researchVintedItemUrl(item.vinted_id!)}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="menswear-categories-avoid-drilldown-platform-link"
+                                              onClick={(e) => e.stopPropagation()}
+                                            >
+                                              Vinted
+                                            </a>
+                                          ) : null}
+                                          {hasVinted && hasEbay ? (
+                                            <span className="menswear-categories-avoid-drilldown-link-sep" aria-hidden>
+                                              {' '}
+                                            </span>
+                                          ) : null}
+                                          {hasEbay ? (
+                                            <a
+                                              href={researchEbayItemUrl(item.ebay_id!)}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="menswear-categories-avoid-drilldown-platform-link"
+                                              onClick={(e) => e.stopPropagation()}
+                                            >
+                                              eBay
+                                            </a>
+                                          ) : null}
+                                          {!hasVinted && !hasEbay ? (
+                                            <span className="menswear-categories-muted">—</span>
+                                          ) : null}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      renderMenswearSalesPie()
+                    )}
+                  </div>
                 </div>
               </div>
             )}
