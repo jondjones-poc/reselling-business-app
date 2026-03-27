@@ -189,6 +189,18 @@
   color: #ffb5a8;
 }
 
+.orders-oauth-flash--pending {
+  border: 1px solid rgba(255, 214, 91, 0.35);
+  background: rgba(90, 75, 20, 0.35);
+  color: rgba(255, 240, 200, 0.92);
+}
+
+.orders-oauth-flash--warn {
+  border: 1px solid rgba(255, 190, 100, 0.55);
+  background: rgba(110, 70, 25, 0.35);
+  color: #ffd9a8;
+}
+
 .orders-vinted-ebay-check-button:hover:not(:disabled) {
   background: rgba(255, 214, 91, 0.22);
   border-color: rgba(255, 214, 91, 0.55);

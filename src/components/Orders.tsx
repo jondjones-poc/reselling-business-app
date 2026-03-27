@@ -992,17 +992,23 @@ const Orders: React.FC = () => {
                     Linked
                     {ebayOAuthStatus.user_name ? ` as ${ebayOAuthStatus.user_name}` : ''}
                   </span>
-                ) : ebayOAuthStatus && ordersTab === 'sales' ? (
-                  <span className="orders-ebay-oauth-status">
-                    Not linked — needed for “Missing eBay order” (Fulfillment API)
-                  </span>
                 ) : null}
               </div>
-              {searchParams.get('ebay_oauth') === 'success' && (
-                <div className="orders-oauth-flash orders-oauth-flash--ok" role="status">
-                  eBay seller account linked. You can run Missing eBay order.
-                </div>
-              )}
+              {searchParams.get('ebay_oauth') === 'success' &&
+                (ebayOAuthStatus === null ? (
+                  <div className="orders-oauth-flash orders-oauth-flash--pending" role="status">
+                    Verifying eBay link with the server…
+                  </div>
+                ) : ebayOAuthStatus.connected ? (
+                  <div className="orders-oauth-flash orders-oauth-flash--ok" role="status">
+                    eBay seller account linked. You can run Missing eBay order.
+                  </div>
+                ) : (
+                  <div className="orders-oauth-flash orders-oauth-flash--warn" role="alert">
+                    The return URL says success, but the API has no stored seller token (check Render env
+                    database settings, deploy the latest API, then use Connect eBay seller again).
+                  </div>
+                ))}
               {searchParams.get('ebay_oauth') === 'error' && searchParams.get('ebay_oauth_msg') && (
                 <div className="orders-oauth-flash orders-oauth-flash--err" role="alert">
                   eBay connection failed: {searchParams.get('ebay_oauth_msg')}

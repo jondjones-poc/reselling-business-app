@@ -11,7 +11,8 @@ const DEFAULT_SCOPES = 'https://api.ebay.com/oauth/api_scope/sell.fulfillment.re
 const TOKEN_URL = 'https://api.ebay.com/identity/v1/oauth2/token';
 const AUTHORIZE_BASE = 'https://auth.ebay.com/oauth2/authorize';
 
-const oauthStateStore = new Map();
+/** Signed OAuth state (no server memory) — required for Render multi-instance / cold start. */
+const STATE_TTL_MS = 15 * 60 * 1000;
 
 /** In-memory access token cache (avoid hammering refresh on every Fulfillment page). */
 const accessTokenCache = {
@@ -63,26 +64,49 @@ function getEbayOAuthRuName() {
   );
 }
 
-function pruneOAuthStates() {
-  const now = Date.now();
-  for (const [k, exp] of oauthStateStore) {
-    if (exp < now) oauthStateStore.delete(k);
+function getOAuthStateSecretKey() {
+  const env = process.env.EBAY_OAUTH_STATE_SECRET?.trim();
+  if (env) return env;
+  const creds = getEbayClientCreds();
+  if (!creds) {
+    throw new Error('eBay client credentials required for OAuth state signing');
   }
+  return crypto.createHash('sha256').update(`ebay-oauth-state|${creds.clientId}|${creds.clientSecret}`).digest();
 }
 
 function createOAuthState() {
-  pruneOAuthStates();
-  const state = crypto.randomBytes(24).toString('hex');
-  oauthStateStore.set(state, Date.now() + 10 * 60 * 1000);
-  return state;
+  const exp = Date.now() + STATE_TTL_MS;
+  const nonce = crypto.randomBytes(18).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({ exp, nonce }), 'utf8').toString('base64url');
+  const key = getOAuthStateSecretKey();
+  const sig = crypto.createHmac('sha256', key).update(payload, 'utf8').digest('base64url');
+  return `${payload}.${sig}`;
 }
 
 function consumeOAuthState(state) {
   if (!state || typeof state !== 'string') return false;
-  pruneOAuthStates();
-  const exp = oauthStateStore.get(state);
-  if (!exp || Date.now() > exp) return false;
-  oauthStateStore.delete(state);
+  const dot = state.lastIndexOf('.');
+  if (dot <= 0) return false;
+  const payload = state.slice(0, dot);
+  const sig = state.slice(dot + 1);
+  if (!payload || !sig) return false;
+  let key;
+  try {
+    key = getOAuthStateSecretKey();
+  } catch {
+    return false;
+  }
+  const expected = crypto.createHmac('sha256', key).update(payload, 'utf8').digest('base64url');
+  const sigBuf = Buffer.from(sig, 'utf8');
+  const expBuf = Buffer.from(expected, 'utf8');
+  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) return false;
+  let data;
+  try {
+    data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+  } catch {
+    return false;
+  }
+  if (!data || typeof data.exp !== 'number' || Date.now() > data.exp) return false;
   return true;
 }
 
