@@ -2519,6 +2519,173 @@ app.delete('/api/menswear-categories/:id', async (req, res) => {
 });
 
 /**
+ * All mapped clothing buckets: brand × stock category, ≥1 sale — most sold first (for list overview charts).
+ * GET /api/menswear-categories/cross-bucket/buy-more-brand-stock-category?limit=10
+ */
+app.get('/api/menswear-categories/cross-bucket/buy-more-brand-stock-category', async (req, res) => {
+  try {
+    let limit = parseInt(String(req.query.limit ?? '10'), 10);
+    if (Number.isNaN(limit)) limit = 10;
+    limit = Math.min(200, Math.max(5, limit));
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    await ensureMenswearCategoryTable(pool);
+
+    const result = await pool.query(
+      `SELECT
+         b.id AS brand_id,
+         b.brand_name,
+         mc.id AS menswear_category_id,
+         mc.name AS menswear_category_name,
+         COALESCE(MAX(cat.category_name), 'Uncategorized') AS category_name,
+         s.category_id AS category_id,
+         COUNT(s.id) FILTER (WHERE s.sale_date IS NULL)::int AS unsold_count,
+         COUNT(s.id) FILTER (WHERE s.sale_date IS NOT NULL)::int AS sold_count
+       FROM stock s
+       INNER JOIN brand b ON s.brand_id = b.id
+       INNER JOIN menswear_category mc ON mc.id = b.menswear_category_id
+       LEFT JOIN category cat ON s.category_id = cat.id
+       GROUP BY b.id, b.brand_name, mc.id, mc.name, s.category_id
+       HAVING COUNT(s.id) FILTER (WHERE s.sale_date IS NOT NULL) >= 1
+       ORDER BY
+         (COUNT(s.id) FILTER (WHERE s.sale_date IS NOT NULL)) DESC NULLS LAST,
+         (COUNT(s.id) FILTER (WHERE s.sale_date IS NULL)) ASC NULLS LAST,
+         brand_name ASC,
+         menswear_category_name ASC,
+         category_name ASC
+       LIMIT $1`,
+      [limit]
+    );
+
+    res.json({ rows: result.rows ?? [], limit });
+  } catch (error) {
+    console.error('menswear-categories cross-bucket buy-more failed:', error);
+    res.status(500).json({ error: 'Failed to load cross-bucket buy-more rows', details: error.message });
+  }
+});
+
+/**
+ * All mapped clothing buckets: brand × stock category with unsold lines — lowest sell rate first (top avoid).
+ * GET /api/menswear-categories/cross-bucket/avoid-brand-stock-category?limit=10
+ */
+app.get('/api/menswear-categories/cross-bucket/avoid-brand-stock-category', async (req, res) => {
+  try {
+    let limit = parseInt(String(req.query.limit ?? '10'), 10);
+    if (Number.isNaN(limit)) limit = 10;
+    limit = Math.min(200, Math.max(5, limit));
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    await ensureMenswearCategoryTable(pool);
+
+    const result = await pool.query(
+      `SELECT
+         b.id AS brand_id,
+         b.brand_name,
+         mc.id AS menswear_category_id,
+         mc.name AS menswear_category_name,
+         COALESCE(MAX(cat.category_name), 'Uncategorized') AS category_name,
+         s.category_id AS category_id,
+         COUNT(s.id) FILTER (WHERE s.sale_date IS NULL)::int AS unsold_count,
+         COUNT(s.id) FILTER (WHERE s.sale_date IS NOT NULL)::int AS sold_count
+       FROM stock s
+       INNER JOIN brand b ON s.brand_id = b.id
+       INNER JOIN menswear_category mc ON mc.id = b.menswear_category_id
+       LEFT JOIN category cat ON s.category_id = cat.id
+       GROUP BY b.id, b.brand_name, mc.id, mc.name, s.category_id
+       HAVING COUNT(s.id) FILTER (WHERE s.sale_date IS NULL) >= 1
+       ORDER BY
+         (COUNT(s.id) FILTER (WHERE s.sale_date IS NOT NULL))::numeric / NULLIF(COUNT(s.id), 0) ASC NULLS LAST,
+         (COUNT(s.id) FILTER (WHERE s.sale_date IS NULL)) DESC NULLS LAST,
+         brand_name ASC,
+         menswear_category_name ASC,
+         category_name ASC
+       LIMIT $1`,
+      [limit]
+    );
+
+    res.json({ rows: result.rows ?? [], limit });
+  } catch (error) {
+    console.error('menswear-categories cross-bucket avoid failed:', error);
+    res.status(500).json({ error: 'Failed to load cross-bucket avoid rows', details: error.message });
+  }
+});
+
+/**
+ * Stock lines for one brand in this clothing (menswear) category — unsold and sold, newest purchase first.
+ * GET /api/menswear-categories/:id/brand-inventory-items?brand_id=…
+ */
+app.get('/api/menswear-categories/:id/brand-inventory-items', async (req, res) => {
+  try {
+    const categoryId = parseInt(req.params.id, 10);
+    if (Number.isNaN(categoryId) || categoryId < 1) {
+      return res.status(400).json({ error: 'Invalid category id' });
+    }
+
+    const brandId = parseInt(String(req.query.brand_id ?? ''), 10);
+    if (Number.isNaN(brandId) || brandId < 1) {
+      return res.status(400).json({ error: 'brand_id is required' });
+    }
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    await ensureMenswearCategoryTable(pool);
+
+    const catCheck = await pool.query('SELECT id FROM menswear_category WHERE id = $1', [categoryId]);
+    if (!catCheck.rowCount) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+
+    const brandCheck = await pool.query(
+      `SELECT id, brand_name FROM brand WHERE id = $1 AND menswear_category_id = $2`,
+      [brandId, categoryId]
+    );
+    if (!brandCheck.rowCount) {
+      return res.status(404).json({ error: 'Brand is not in this clothing category' });
+    }
+
+    const brandName = String(brandCheck.rows[0].brand_name ?? '');
+
+    const result = await pool.query(
+      `SELECT
+         s.id,
+         s.item_name,
+         s.purchase_price,
+         s.purchase_date,
+         s.sale_date,
+         s.category_id,
+         COALESCE(c.category_name, 'Uncategorized') AS category_name
+       FROM stock s
+       INNER JOIN brand b ON s.brand_id = b.id
+       LEFT JOIN category c ON s.category_id = c.id
+       WHERE b.id = $1
+         AND b.menswear_category_id = $2
+       ORDER BY s.purchase_date DESC NULLS LAST, s.id DESC
+       LIMIT 5000`,
+      [brandId, categoryId]
+    );
+
+    res.json({
+      rows: result.rows ?? [],
+      brand_id: brandId,
+      brand_name: brandName,
+      menswear_category_id: categoryId,
+    });
+  } catch (error) {
+    console.error('menswear-categories brand-inventory-items failed:', error);
+    res.status(500).json({ error: 'Failed to load brand inventory items', details: error.message });
+  }
+});
+
+/**
  * Brand-level sold revenue within one menswear category (brands linked to that category).
  * GET /api/menswear-categories/:id/sales-by-brand?period=last_12_months|2026|2025
  */
@@ -2589,6 +2756,230 @@ app.get('/api/menswear-categories/:id/sales-by-brand', async (req, res) => {
   } catch (error) {
     console.error('menswear-categories sales-by-brand failed:', error);
     res.status(500).json({ error: 'Failed to load brand sales for category', details: error.message });
+  }
+});
+
+/** Period filter on sale_date (sold lines only), same as sales-by-brand. */
+function menswearSaleDateInPeriodSql(period) {
+  if (period === 'last_12_months') {
+    return `s.sale_date IS NOT NULL AND s.sale_date >= (CURRENT_DATE - INTERVAL '12 months')`;
+  }
+  if (period === '2026') {
+    return `s.sale_date IS NOT NULL AND s.sale_date >= DATE '2026-01-01' AND s.sale_date < DATE '2027-01-01'`;
+  }
+  if (period === '2025') {
+    return `s.sale_date IS NOT NULL AND s.sale_date >= DATE '2025-01-01' AND s.sale_date < DATE '2026-01-01'`;
+  }
+  return `s.sale_date IS NOT NULL AND s.sale_date >= (CURRENT_DATE - INTERVAL '12 months')`;
+}
+
+/**
+ * Watchlist: brand × stock category — sold lines in period, revenue, profit ÷ revenue.
+ * GET /api/menswear-categories/:id/watchlist-lookout?period=last_12_months|2026|2025&limit=200
+ */
+app.get('/api/menswear-categories/:id/watchlist-lookout', async (req, res) => {
+  try {
+    const categoryId = parseInt(req.params.id, 10);
+    if (Number.isNaN(categoryId) || categoryId < 1) {
+      return res.status(400).json({ error: 'Invalid category id' });
+    }
+
+    let limit = parseInt(String(req.query.limit ?? '200'), 10);
+    if (Number.isNaN(limit)) limit = 200;
+    limit = Math.min(500, Math.max(1, limit));
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const catCheck = await pool.query('SELECT id FROM menswear_category WHERE id = $1', [categoryId]);
+    if (!catCheck.rowCount) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+
+    const rawPeriod = String(req.query.period ?? 'last_12_months').trim().toLowerCase();
+    const period =
+      rawPeriod === '2026' || rawPeriod === '2025' || rawPeriod === 'last_12_months'
+        ? rawPeriod
+        : 'last_12_months';
+
+    const dateCond = menswearSaleDateInPeriodSql(period);
+
+    const result = await pool.query(
+      `SELECT
+         b.id AS brand_id,
+         b.brand_name,
+         COALESCE(MAX(c.category_name), 'Uncategorized') AS category_name,
+         s.category_id AS category_id,
+         COUNT(s.id)::int AS sold_count,
+         COALESCE(SUM(
+           CASE
+             WHEN s.sale_price IS NOT NULL
+              AND TRIM(s.sale_price::text) <> ''
+              AND s.sale_price::numeric > 0
+             THEN s.sale_price::numeric
+             ELSE 0
+           END
+         ), 0)::numeric AS total_sales,
+         CASE
+           WHEN COALESCE(SUM(
+             CASE
+               WHEN s.sale_price IS NOT NULL
+                AND TRIM(s.sale_price::text) <> ''
+                AND s.sale_price::numeric > 0
+               THEN s.sale_price::numeric
+               ELSE 0
+             END
+           ), 0) > 0
+           THEN (
+             COALESCE(SUM(
+               CASE
+                 WHEN s.net_profit IS NOT NULL
+                  AND TRIM(s.net_profit::text) <> ''
+                 THEN s.net_profit::numeric
+                 ELSE 0
+               END
+             ), 0)::numeric
+           ) / NULLIF(
+             COALESCE(SUM(
+               CASE
+                 WHEN s.sale_price IS NOT NULL
+                  AND TRIM(s.sale_price::text) <> ''
+                  AND s.sale_price::numeric > 0
+                 THEN s.sale_price::numeric
+                 ELSE 0
+               END
+             ), 0)::numeric,
+             0
+           )
+           ELSE NULL
+         END AS profit_ratio
+       FROM stock s
+       INNER JOIN brand b ON s.brand_id = b.id
+       LEFT JOIN category c ON s.category_id = c.id
+       WHERE b.menswear_category_id = $1
+         AND (${dateCond})
+       GROUP BY b.id, b.brand_name, s.category_id
+       HAVING COUNT(s.id) >= 1
+       ORDER BY total_sales DESC NULLS LAST, sold_count DESC NULLS LAST, brand_name ASC, category_name ASC
+       LIMIT $2`,
+      [categoryId, limit]
+    );
+
+    res.json({ rows: result.rows ?? [], period, category_id: categoryId, limit });
+  } catch (error) {
+    console.error('menswear-categories watchlist-lookout failed:', error);
+    res.status(500).json({ error: 'Failed to load watchlist lookout', details: error.message });
+  }
+});
+
+/**
+ * Watchlist: top N brand × category with most unsold now and fewest sales in period (+ profit ratio on period sales).
+ * GET /api/menswear-categories/:id/watchlist-avoid?period=last_12_months|2026|2025&limit=5
+ */
+app.get('/api/menswear-categories/:id/watchlist-avoid', async (req, res) => {
+  try {
+    const categoryId = parseInt(req.params.id, 10);
+    if (Number.isNaN(categoryId) || categoryId < 1) {
+      return res.status(400).json({ error: 'Invalid category id' });
+    }
+
+    let limit = parseInt(String(req.query.limit ?? '5'), 10);
+    if (Number.isNaN(limit)) limit = 5;
+    limit = Math.min(50, Math.max(1, limit));
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const catCheck = await pool.query('SELECT id FROM menswear_category WHERE id = $1', [categoryId]);
+    if (!catCheck.rowCount) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+
+    const rawPeriod = String(req.query.period ?? 'last_12_months').trim().toLowerCase();
+    const period =
+      rawPeriod === '2026' || rawPeriod === '2025' || rawPeriod === 'last_12_months'
+        ? rawPeriod
+        : 'last_12_months';
+
+    const dateCond = menswearSaleDateInPeriodSql(period);
+
+    const result = await pool.query(
+      `SELECT
+         b.id AS brand_id,
+         b.brand_name,
+         COALESCE(MAX(c.category_name), 'Uncategorized') AS category_name,
+         s.category_id AS category_id,
+         COUNT(s.id) FILTER (WHERE s.sale_date IS NULL)::int AS unsold_count,
+         COUNT(s.id) FILTER (WHERE ${dateCond})::int AS sold_count,
+         COALESCE(SUM(
+           CASE
+             WHEN (${dateCond})
+              AND s.sale_price IS NOT NULL
+              AND TRIM(s.sale_price::text) <> ''
+              AND s.sale_price::numeric > 0
+             THEN s.sale_price::numeric
+             ELSE 0
+           END
+         ), 0)::numeric AS total_sales,
+         CASE
+           WHEN COALESCE(SUM(
+             CASE
+               WHEN (${dateCond})
+                AND s.sale_price IS NOT NULL
+                AND TRIM(s.sale_price::text) <> ''
+                AND s.sale_price::numeric > 0
+               THEN s.sale_price::numeric
+               ELSE 0
+             END
+           ), 0) > 0
+           THEN (
+             COALESCE(SUM(
+               CASE
+                 WHEN (${dateCond})
+                  AND s.net_profit IS NOT NULL
+                  AND TRIM(s.net_profit::text) <> ''
+                 THEN s.net_profit::numeric
+                 ELSE 0
+               END
+             ), 0)::numeric
+           ) / NULLIF(
+             COALESCE(SUM(
+               CASE
+                 WHEN (${dateCond})
+                  AND s.sale_price IS NOT NULL
+                  AND TRIM(s.sale_price::text) <> ''
+                  AND s.sale_price::numeric > 0
+                 THEN s.sale_price::numeric
+                 ELSE 0
+               END
+             ), 0)::numeric,
+             0
+           )
+           ELSE NULL
+         END AS profit_ratio
+       FROM stock s
+       INNER JOIN brand b ON s.brand_id = b.id
+       LEFT JOIN category c ON s.category_id = c.id
+       WHERE b.menswear_category_id = $1
+       GROUP BY b.id, b.brand_name, s.category_id
+       HAVING COUNT(s.id) FILTER (WHERE s.sale_date IS NULL) >= 1
+       ORDER BY
+         COUNT(s.id) FILTER (WHERE s.sale_date IS NULL) DESC NULLS LAST,
+         COUNT(s.id) FILTER (WHERE ${dateCond}) ASC NULLS LAST,
+         brand_name ASC,
+         category_name ASC
+       LIMIT $2`,
+      [categoryId, limit]
+    );
+
+    res.json({ rows: result.rows ?? [], period, category_id: categoryId, limit });
+  } catch (error) {
+    console.error('menswear-categories watchlist-avoid failed:', error);
+    res.status(500).json({ error: 'Failed to load watchlist avoid', details: error.message });
   }
 });
 
@@ -2825,7 +3216,7 @@ app.get('/api/menswear-categories/:id/unsold-stock-items', async (req, res) => {
 });
 
 /**
- * Brand × stock category rows with highest sell rate (sold ÷ total lines). At least one sale required.
+ * Brand × stock category rows with at least one sale, ordered by most units sold first (fewest sold at bottom).
  * GET /api/menswear-categories/:id/buy-more-by-brand-category?limit=10
  */
 app.get('/api/menswear-categories/:id/buy-more-by-brand-category', async (req, res) => {
@@ -2864,7 +3255,7 @@ app.get('/api/menswear-categories/:id/buy-more-by-brand-category', async (req, r
        GROUP BY b.id, b.brand_name, s.category_id
        HAVING COUNT(s.id) FILTER (WHERE s.sale_date IS NOT NULL) >= 1
        ORDER BY
-         (COUNT(s.id) FILTER (WHERE s.sale_date IS NOT NULL))::numeric / NULLIF(COUNT(s.id), 0) DESC NULLS LAST,
+         (COUNT(s.id) FILTER (WHERE s.sale_date IS NOT NULL)) DESC NULLS LAST,
          (COUNT(s.id) FILTER (WHERE s.sale_date IS NULL)) ASC NULLS LAST,
          brand_name ASC,
          category_name ASC
@@ -3297,7 +3688,7 @@ app.post('/api/brands/:brandId/links', async (req, res) => {
 });
 
 /**
- * Brand research: stock sold vs unsold (by sale_price), top sold lines, longest-unsold by purchase_date.
+ * Brand research: stock sold vs unsold, category breakdown (best sold vs heavy unsold), stacked category chart.
  * GET /api/brands/:brandId/stock-summary?period=all|last_12_months|2026|2025
  * When period is not all: rows included are sold lines with sale_date in range OR unsold with purchase_date in range.
  */
@@ -3462,77 +3853,121 @@ app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
         ? Number(avgSoldProfitMultipleRaw)
         : null;
 
-    const topResult = await pool.query(
-      `
-        SELECT
-          s.id,
-          s.item_name,
-          s.purchase_price,
-          s.sale_price,
-          s.sale_date,
-          c.category_name,
-          (s.sale_price::numeric - s.purchase_price::numeric) AS profit,
+    const categoryAggSql = `
+      SELECT
+        COALESCE(c.id, 0)::int AS category_id,
+        COALESCE(c.category_name, 'Uncategorized') AS category_name,
+        COALESCE(SUM(s.sale_price::numeric) FILTER (
+          WHERE s.sale_price IS NOT NULL
+            AND TRIM(s.sale_price::text) <> ''
+            AND s.sale_price::numeric > 0
+        ), 0)::numeric AS total_sold_value,
+        COALESCE(SUM(s.purchase_price::numeric) FILTER (
+          WHERE NOT (
+            s.sale_price IS NOT NULL
+            AND TRIM(s.sale_price::text) <> ''
+            AND s.sale_price::numeric > 0
+          )
+            AND s.purchase_price IS NOT NULL
+            AND TRIM(s.purchase_price::text) <> ''
+            AND s.purchase_price::numeric > 0
+        ), 0)::numeric AS total_unsold_value,
+        COALESCE(SUM(
           CASE
-            WHEN COALESCE(s.purchase_price::numeric, 0) > 0
-            THEN (s.sale_price::numeric / s.purchase_price::numeric)
-            ELSE NULL
-          END AS profit_multiple
-        FROM stock s
-        LEFT JOIN category c ON c.id = s.category_id
-        WHERE s.brand_id = $1
-          ${periodSql}
-          AND s.sale_price IS NOT NULL
-          AND s.sale_price::numeric > 0
-          AND s.purchase_price IS NOT NULL
-          AND s.purchase_price::numeric > 0
-        ORDER BY
-          profit_multiple DESC NULLS LAST,
-          profit DESC NULLS LAST,
-          s.sale_date DESC NULLS LAST,
-          s.id DESC
-        LIMIT 30
-      `,
+            WHEN s.sale_price IS NOT NULL
+             AND TRIM(s.sale_price::text) <> ''
+             AND s.sale_price::numeric > 0
+             AND s.purchase_price IS NOT NULL
+             AND TRIM(s.purchase_price::text) <> ''
+             AND s.purchase_price::numeric > 0
+            THEN s.sale_price::numeric - s.purchase_price::numeric
+            ELSE 0
+          END
+        ), 0)::numeric AS total_profit,
+        CASE
+          WHEN COALESCE(SUM(s.purchase_price::numeric) FILTER (
+            WHERE s.sale_price IS NOT NULL
+              AND TRIM(s.sale_price::text) <> ''
+              AND s.sale_price::numeric > 0
+              AND s.purchase_price IS NOT NULL
+              AND TRIM(s.purchase_price::text) <> ''
+              AND s.purchase_price::numeric > 0
+          ), 0) > 0
+          THEN (
+            COALESCE(SUM(s.sale_price::numeric) FILTER (
+              WHERE s.sale_price IS NOT NULL
+                AND TRIM(s.sale_price::text) <> ''
+                AND s.sale_price::numeric > 0
+                AND s.purchase_price IS NOT NULL
+                AND TRIM(s.purchase_price::text) <> ''
+                AND s.purchase_price::numeric > 0
+            ), 0)::numeric
+          ) / NULLIF(
+            COALESCE(SUM(s.purchase_price::numeric) FILTER (
+              WHERE s.sale_price IS NOT NULL
+                AND TRIM(s.sale_price::text) <> ''
+                AND s.sale_price::numeric > 0
+                AND s.purchase_price IS NOT NULL
+                AND TRIM(s.purchase_price::text) <> ''
+                AND s.purchase_price::numeric > 0
+            ), 0)::numeric,
+            0
+          )
+          ELSE NULL
+        END AS sales_multiple
+      FROM stock s
+      LEFT JOIN category c ON c.id = s.category_id
+      WHERE s.brand_id = $1
+        ${periodSql}
+      GROUP BY c.id, c.category_name
+      HAVING
+        COALESCE(SUM(s.sale_price::numeric) FILTER (
+          WHERE s.sale_price IS NOT NULL
+            AND TRIM(s.sale_price::text) <> ''
+            AND s.sale_price::numeric > 0
+        ), 0) > 0
+        OR COALESCE(SUM(s.purchase_price::numeric) FILTER (
+          WHERE NOT (
+            s.sale_price IS NOT NULL
+            AND TRIM(s.sale_price::text) <> ''
+            AND s.sale_price::numeric > 0
+          )
+            AND s.purchase_price IS NOT NULL
+            AND TRIM(s.purchase_price::text) <> ''
+            AND s.purchase_price::numeric > 0
+        ), 0) > 0
+    `;
+
+    const mapCategoryRow = (row) => ({
+      categoryId: row.category_id != null ? Number(row.category_id) : 0,
+      categoryName: row.category_name != null ? String(row.category_name) : 'Uncategorized',
+      totalSoldValue: row.total_sold_value != null ? Number(row.total_sold_value) : 0,
+      totalUnsoldValue: row.total_unsold_value != null ? Number(row.total_unsold_value) : 0,
+      totalProfit: row.total_profit != null ? Number(row.total_profit) : 0,
+      salesMultiple:
+        row.sales_multiple != null && Number.isFinite(Number(row.sales_multiple))
+          ? Number(row.sales_multiple)
+          : null,
+    });
+
+    const categoryAggSub = categoryAggSql.trim();
+    const bestSoldByCategoryResult = await pool.query(
+      `SELECT * FROM (${categoryAggSub}) cat
+      WHERE cat.total_sold_value > 0
+      ORDER BY cat.total_sold_value DESC NULLS LAST, cat.total_unsold_value ASC NULLS LAST, cat.category_name ASC
+      LIMIT 30`,
       [brandId]
     );
+    const bestSoldByCategory = bestSoldByCategoryResult.rows.map(mapCategoryRow);
 
-    const topSoldItems = topResult.rows.map((row) => ({
-      id: row.id != null ? Number(row.id) : null,
-      item_name: row.item_name != null ? String(row.item_name) : '',
-      category_name: row.category_name != null ? String(row.category_name) : null,
-      purchase_price: row.purchase_price != null ? Number(row.purchase_price) : null,
-      sale_price: row.sale_price != null ? Number(row.sale_price) : null,
-      sale_date: row.sale_date != null ? row.sale_date : null,
-      profit: row.profit != null ? Number(row.profit) : null,
-      profit_multiple: row.profit_multiple != null ? Number(row.profit_multiple) : null,
-    }));
-
-    const longestUnsoldResult = await pool.query(
-      `
-        SELECT
-          s.id,
-          s.item_name,
-          s.purchase_price,
-          s.purchase_date,
-          c.category_name
-        FROM stock s
-        LEFT JOIN category c ON c.id = s.category_id
-        WHERE s.brand_id = $1
-          ${periodSql}
-          AND s.purchase_date IS NOT NULL
-          AND NOT (s.sale_price IS NOT NULL AND s.sale_price::numeric > 0)
-        ORDER BY s.purchase_date ASC NULLS LAST, s.id ASC
-        LIMIT 5
-      `,
+    const heavyUnsoldByCategoryResult = await pool.query(
+      `SELECT * FROM (${categoryAggSub}) cat
+      WHERE cat.total_unsold_value > 0
+      ORDER BY cat.total_unsold_value DESC NULLS LAST, cat.total_sold_value ASC NULLS LAST, cat.category_name ASC
+      LIMIT 30`,
       [brandId]
     );
-
-    const longestUnsoldItems = longestUnsoldResult.rows.map((row) => ({
-      id: row.id != null ? Number(row.id) : null,
-      item_name: row.item_name != null ? String(row.item_name) : '',
-      category_name: row.category_name != null ? String(row.category_name) : null,
-      purchase_price: row.purchase_price != null ? Number(row.purchase_price) : null,
-      purchase_date: row.purchase_date != null ? row.purchase_date : null,
-    }));
+    const heavyUnsoldByCategory = heavyUnsoldByCategoryResult.rows.map(mapCategoryRow);
 
     const categorySoldUnsoldResult = await pool.query(
       `
@@ -3575,8 +4010,8 @@ app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
       minSoldSalePrice,
       maxSoldSalePrice,
       avgSoldProfitMultiple,
-      topSoldItems,
-      longestUnsoldItems,
+      bestSoldByCategory,
+      heavyUnsoldByCategory,
       categorySoldUnsold,
     });
   } catch (error) {
