@@ -530,6 +530,14 @@
   cursor: not-allowed;
 }
 
+.config-stock-types-hint {
+  margin: 0 0 20px 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: rgba(255, 248, 226, 0.58);
+  max-width: 48rem;
+}
+
 .config-brand-edit-id {
   margin: 0 0 12px 0;
   font-size: 0.85rem;
@@ -546,4 +554,47 @@
 
 .config-brand-website-link:hover {
   color: #fff8e2;
+}
+
+.config-brands-ask-ai-footer {
+  margin-top: 28px;
+  padding-top: 22px;
+  border-top: 1px solid rgba(255, 214, 91, 0.2);
+  max-width: 52rem;
+}
+
+.config-brands-ask-ai-button {
+  padding: 10px 20px;
+  border-radius: 12px;
+  border: 1px solid rgba(180, 160, 255, 0.45);
+  background: rgba(160, 140, 255, 0.14);
+  color: #d4c8ff;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.config-brands-ask-ai-button:hover:not(:disabled) {
+  background: rgba(160, 140, 255, 0.24);
+  border-color: rgba(200, 180, 255, 0.6);
+  color: #ece8ff;
+}
+
+.config-brands-ask-ai-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.config-brands-ask-ai-hint {
+  margin: 12px 0 0 0;
+  font-size: 0.9rem;
+  color: rgba(140, 255, 195, 0.9);
+}
+
+.config-brands-ask-ai-explainer {
+  margin: 10px 0 0 0;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: rgba(255, 248, 226, 0.52);
 }

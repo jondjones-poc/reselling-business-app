@@ -237,6 +237,26 @@ const EbaySearch: React.FC = () => {
       );
     };
 
+    const loadCategoriesFromDatabase = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/categories`);
+        if (!res.ok) {
+          return;
+        }
+        const data = (await res.json()) as { rows?: { category_name?: unknown }[] };
+        const raw = Array.isArray(data.rows) ? data.rows : [];
+        const names = raw
+          .map((r) => String(r.category_name ?? '').trim())
+          .filter((n) => n.length > 0);
+        const sanitized = sanitizeCategories(names);
+        if (sanitized.length > 0) {
+          setCategories(sanitized);
+        }
+      } catch {
+        /* keep categories from settings / fallback */
+      }
+    };
+
     const loadBrandsFromDatabase = async () => {
       try {
         const brRes = await fetch(`${API_BASE}/api/brands`);
@@ -349,6 +369,7 @@ const EbaySearch: React.FC = () => {
         setSettingsError('Unable to load configuration settings.');
       } finally {
         setSettingsLoading(false);
+        await loadCategoriesFromDatabase();
         await loadBrandsFromDatabase();
       }
     };

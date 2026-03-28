@@ -1,8 +1,27 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { getApiBase } from '../utils/apiBase';
 import './Config.css';
 
 const API_BASE = getApiBase();
+
+async function copyConfigPromptToClipboard(text: string): Promise<void> {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand('copy');
+  } finally {
+    document.body.removeChild(ta);
+  }
+}
 
 type Nullable<T> = T | null | undefined;
 
@@ -63,7 +82,13 @@ const formatDate = (value: Nullable<string>) => {
   }).format(date);
 };
 
-type ConfigMenu = 'untagged-brand' | 'no-ebay-id' | 'no-vinted-id' | 'clothing-categories' | 'brands';
+type ConfigMenu =
+  | 'untagged-brand'
+  | 'no-ebay-id'
+  | 'no-vinted-id'
+  | 'clothing-type-categories'
+  | 'clothing-categories'
+  | 'brands';
 
 interface ConfigBrandRow {
   id: number;
@@ -80,6 +105,67 @@ interface ClothingCategoryRow {
   notes: string | null;
   created_at?: string;
   updated_at?: string;
+}
+
+/** Stock clothing type — `category` table, `stock.category_id`. */
+interface StockClothingTypeRow {
+  id: number;
+  category_name: string;
+  stock_count: number;
+}
+
+/** Prompt: rank config brands using menswear category taxonomy (Research / Config “Menswear categories”). */
+function buildBrandsRankByMenswearCategoriesPrompt(
+  brands: ConfigBrandRow[],
+  categories: ClothingCategoryRow[]
+): string {
+  const brandNames = brands
+    .map((b) => String(b.brand_name ?? '').trim())
+    .filter((n) => n.length > 0)
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+
+  const lines: string[] = [
+    `I'm a UK menswear reseller (second-hand / resale). I track stock by **brand** and organise research using **menswear categories** in my app.`,
+    ``,
+    `Below are **every brand** currently in my database (names only) and my **menswear category** list (name, description, and my notes).`,
+    ``,
+    `## Brands in my database (${brandNames.length})`,
+    ``,
+  ];
+
+  if (brandNames.length === 0) {
+    lines.push(`*(No brands in the list.)*`, ``);
+  } else {
+    brandNames.forEach((name, i) => lines.push(`${i + 1}. ${name}`));
+    lines.push(``);
+  }
+
+  lines.push(`## Menswear categories (${categories.length})`, ``);
+  if (categories.length === 0) {
+    lines.push(
+      `*(No menswear categories defined yet. Still suggest how you would rank these brands against typical UK menswear resale buckets — outerwear, knitwear, denim, tailoring, etc. — so I can align when I add categories.)*`,
+      ``
+    );
+  } else {
+    categories.forEach((c, i) => {
+      lines.push(`### ${i + 1}. ${c.name}`);
+      if (c.description?.trim()) lines.push(c.description.trim());
+      if (c.notes?.trim()) lines.push(`**My notes:** ${c.notes.trim()}`);
+      lines.push(``);
+    });
+  }
+
+  lines.push(
+    `## What I need from you`,
+    `1. **Per category** — For each menswear category above, **rank my brands** from strongest fit for UK resale (demand, typical product mix, realistic price band) to weaker or marginal fit. Use "N/A" or skip only when a brand almost never appears in that bucket.`,
+    `2. **Overall** — A concise **overall ranking** or tiered view (e.g. core vs opportunistic) across categories.`,
+    `3. **Risks** — Flag pairs of brands that are easy to confuse, or brands that are mainly womenswear/kids if that's well known.`,
+    ``,
+    `Only use the brand names I listed; don't invent brands. If unsure, say so briefly instead of guessing.`,
+    `Today's date context: ${new Date().toISOString().slice(0, 10)}.`
+  );
+
+  return lines.join('\n');
 }
 
 const Config: React.FC = () => {
@@ -105,6 +191,17 @@ const Config: React.FC = () => {
   const [clothingEditSaving, setClothingEditSaving] = useState(false);
   const [clothingDeleteSaving, setClothingDeleteSaving] = useState(false);
 
+  const [stockClothingTypes, setStockClothingTypes] = useState<StockClothingTypeRow[]>([]);
+  const [stockTypesLoading, setStockTypesLoading] = useState(false);
+  const [stockTypesError, setStockTypesError] = useState<string | null>(null);
+  const [stockTypeAddOpen, setStockTypeAddOpen] = useState(false);
+  const [stockTypeAddName, setStockTypeAddName] = useState('');
+  const [stockTypeAddSaving, setStockTypeAddSaving] = useState(false);
+  const [stockTypeEditingId, setStockTypeEditingId] = useState<number | null>(null);
+  const [stockTypeEditName, setStockTypeEditName] = useState('');
+  const [stockTypeEditSaving, setStockTypeEditSaving] = useState(false);
+  const [stockTypeDeleteSaving, setStockTypeDeleteSaving] = useState(false);
+
   const [brands, setBrands] = useState<ConfigBrandRow[]>([]);
   const [brandsLoading, setBrandsLoading] = useState(false);
   const [brandsError, setBrandsError] = useState<string | null>(null);
@@ -115,6 +212,8 @@ const Config: React.FC = () => {
   const [brandEditName, setBrandEditName] = useState('');
   const [brandEditWebsite, setBrandEditWebsite] = useState('');
   const [brandEditSaving, setBrandEditSaving] = useState(false);
+  const [brandsAskAiHint, setBrandsAskAiHint] = useState<string | null>(null);
+  const brandsAskAiHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadStock = async () => {
     try {
@@ -179,7 +278,7 @@ const Config: React.FC = () => {
       const data = JSON.parse(text) as { rows?: ClothingCategoryRow[] };
       setClothingCategories(Array.isArray(data.rows) ? data.rows : []);
     } catch (err: unknown) {
-      console.error('Clothing categories load error:', err);
+      console.error('Menswear categories load error:', err);
       const m = err instanceof Error ? err.message : 'Unable to load categories';
       if (m === 'Failed to fetch' || (err instanceof TypeError && err.name === 'TypeError')) {
         setClothingError('Unable to connect to server (is the API running on port 5003?)');
@@ -197,6 +296,62 @@ const Config: React.FC = () => {
       void loadClothingCategories();
     }
   }, [activeMenu, loadClothingCategories]);
+
+  const loadStockClothingTypes = useCallback(async () => {
+    try {
+      setStockTypesLoading(true);
+      setStockTypesError(null);
+      const response = await fetch(`${API_BASE}/api/categories`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        let msg = text || 'Failed to load clothing types';
+        try {
+          const j = JSON.parse(text) as { error?: string; details?: string };
+          msg = [j.error, j.details].filter(Boolean).join(' — ') || msg;
+        } catch {
+          /* keep msg */
+        }
+        throw new Error(msg);
+      }
+      const data = JSON.parse(text) as { rows?: unknown[] };
+      const raw = Array.isArray(data.rows) ? data.rows : [];
+      const rows: StockClothingTypeRow[] = raw.map((r) => {
+        const o = r as Record<string, unknown>;
+        const id = Number(o.id);
+        const sc = o.stock_count;
+        const stockCount =
+          typeof sc === 'number' && Number.isFinite(sc)
+            ? Math.max(0, Math.floor(sc))
+            : Number.parseInt(String(sc ?? '0'), 10) || 0;
+        return {
+          id: Number.isFinite(id) ? Math.floor(id) : -1,
+          category_name: String(o.category_name ?? '').trim(),
+          stock_count: stockCount,
+        };
+      });
+      setStockClothingTypes(rows.filter((r) => r.id >= 1));
+    } catch (err: unknown) {
+      console.error('Stock clothing types load error:', err);
+      const m = err instanceof Error ? err.message : 'Unable to load clothing types';
+      if (m === 'Failed to fetch' || (err instanceof TypeError && err.name === 'TypeError')) {
+        setStockTypesError('Unable to connect to server (is the API running on port 5003?)');
+      } else {
+        setStockTypesError(m);
+      }
+      setStockClothingTypes([]);
+    } finally {
+      setStockTypesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeMenu === 'clothing-type-categories') {
+      void loadStockClothingTypes();
+    }
+  }, [activeMenu, loadStockClothingTypes]);
 
   const loadBrands = useCallback(async () => {
     try {
@@ -236,8 +391,41 @@ const Config: React.FC = () => {
   useEffect(() => {
     if (activeMenu === 'brands') {
       void loadBrands();
+      void loadClothingCategories();
     }
-  }, [activeMenu, loadBrands]);
+  }, [activeMenu, loadBrands, loadClothingCategories]);
+
+  const handleBrandsAskAiRank = useCallback(async () => {
+    setBrandsError(null);
+    if (brands.length === 0) {
+      setBrandsAskAiHint(null);
+      setBrandsError('Add at least one brand before using Ask AI.');
+      return;
+    }
+    if (brandsAskAiHintTimerRef.current) {
+      clearTimeout(brandsAskAiHintTimerRef.current);
+      brandsAskAiHintTimerRef.current = null;
+    }
+    try {
+      const prompt = buildBrandsRankByMenswearCategoriesPrompt(brands, clothingCategories);
+      await copyConfigPromptToClipboard(prompt);
+      setBrandsAskAiHint('Copied to clipboard — paste into ChatGPT or your AI tool.');
+      brandsAskAiHintTimerRef.current = setTimeout(() => {
+        setBrandsAskAiHint(null);
+        brandsAskAiHintTimerRef.current = null;
+      }, 5000);
+    } catch {
+      setBrandsAskAiHint('Could not copy to clipboard.');
+    }
+  }, [brands, clothingCategories]);
+
+  useEffect(() => {
+    return () => {
+      if (brandsAskAiHintTimerRef.current) {
+        clearTimeout(brandsAskAiHintTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleBrandAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -273,6 +461,132 @@ const Config: React.FC = () => {
       setBrandsError(m);
     } finally {
       setBrandAddSaving(false);
+    }
+  };
+
+  const handleStockTypeAddSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = stockTypeAddName.trim();
+    if (!name) {
+      setStockTypesError('Category name is required.');
+      return;
+    }
+    try {
+      setStockTypeAddSaving(true);
+      setStockTypesError(null);
+      const response = await fetch(`${API_BASE}/api/categories`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category_name: name }),
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        let msg = text || 'Failed to create category';
+        try {
+          const j = JSON.parse(text) as { error?: string; details?: string };
+          msg = [j.error, j.details].filter(Boolean).join(' — ') || msg;
+        } catch {
+          /* keep msg */
+        }
+        throw new Error(msg);
+      }
+      setStockTypeAddOpen(false);
+      setStockTypeAddName('');
+      await loadStockClothingTypes();
+    } catch (err: unknown) {
+      const m = err instanceof Error ? err.message : 'Unable to create category';
+      setStockTypesError(m);
+    } finally {
+      setStockTypeAddSaving(false);
+    }
+  };
+
+  const cancelStockTypeEdit = () => {
+    setStockTypeEditingId(null);
+    setStockTypeEditName('');
+  };
+
+  const startStockTypeEdit = (row: StockClothingTypeRow) => {
+    setStockTypeAddOpen(false);
+    setStockTypesError(null);
+    setStockTypeEditingId(row.id);
+    setStockTypeEditName(row.category_name);
+  };
+
+  const handleStockTypeEditSave = async () => {
+    if (stockTypeEditingId == null) return;
+    const name = stockTypeEditName.trim();
+    if (!name) {
+      setStockTypesError('Category name is required.');
+      return;
+    }
+    try {
+      setStockTypeEditSaving(true);
+      setStockTypesError(null);
+      const response = await fetch(`${API_BASE}/api/categories/${stockTypeEditingId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category_name: name }),
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        let msg = text || 'Failed to update category';
+        try {
+          const j = JSON.parse(text) as { error?: string; details?: string };
+          msg = [j.error, j.details].filter(Boolean).join(' — ') || msg;
+        } catch {
+          /* keep msg */
+        }
+        throw new Error(msg);
+      }
+      cancelStockTypeEdit();
+      await loadStockClothingTypes();
+    } catch (err: unknown) {
+      const m = err instanceof Error ? err.message : 'Unable to update category';
+      setStockTypesError(m);
+    } finally {
+      setStockTypeEditSaving(false);
+    }
+  };
+
+  const handleStockTypeDelete = async () => {
+    if (stockTypeEditingId == null) return;
+    const row = stockClothingTypes.find((r) => r.id === stockTypeEditingId);
+    if (row && row.stock_count > 0) {
+      setStockTypesError(
+        `Cannot delete: ${row.stock_count} stock item${row.stock_count === 1 ? '' : 's'} use this category. Reassign them in Stock first.`
+      );
+      return;
+    }
+    const label = row?.category_name?.trim() ? row.category_name : `category #${stockTypeEditingId}`;
+    if (!window.confirm(`Delete clothing type “${label}”? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      setStockTypeDeleteSaving(true);
+      setStockTypesError(null);
+      const response = await fetch(`${API_BASE}/api/categories/${stockTypeEditingId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        let msg = text || 'Failed to delete category';
+        try {
+          const j = JSON.parse(text) as { error?: string; details?: string; stockCount?: number };
+          msg = [j.error, j.details].filter(Boolean).join(' — ') || msg;
+        } catch {
+          /* keep msg */
+        }
+        throw new Error(msg);
+      }
+      cancelStockTypeEdit();
+      await loadStockClothingTypes();
+    } catch (err: unknown) {
+      const m = err instanceof Error ? err.message : 'Unable to delete category';
+      setStockTypesError(m);
+    } finally {
+      setStockTypeDeleteSaving(false);
     }
   };
 
@@ -525,7 +839,10 @@ const Config: React.FC = () => {
 
   return (
     <div className="config-container">
-      {error && activeMenu !== 'clothing-categories' && activeMenu !== 'brands' && (
+      {error &&
+        activeMenu !== 'clothing-categories' &&
+        activeMenu !== 'clothing-type-categories' &&
+        activeMenu !== 'brands' && (
         <div className="config-error">{error}</div>
       )}
 
@@ -559,10 +876,17 @@ const Config: React.FC = () => {
             </button>
             <button
               type="button"
+              className={`config-menu-item ${activeMenu === 'clothing-type-categories' ? 'active' : ''}`}
+              onClick={() => setActiveMenu('clothing-type-categories')}
+            >
+              Clothing type categories
+            </button>
+            <button
+              type="button"
               className={`config-menu-item ${activeMenu === 'clothing-categories' ? 'active' : ''}`}
               onClick={() => setActiveMenu('clothing-categories')}
             >
-              Clothing Category
+              Menswear Categories
             </button>
             <button
               type="button"
@@ -763,6 +1087,171 @@ const Config: React.FC = () => {
             </div>
           )}
 
+          {activeMenu === 'clothing-type-categories' && (
+            <div className="config-section config-section--brands">
+              {stockTypesError && <div className="config-error config-error--inline">{stockTypesError}</div>}
+
+              <div className="config-clothing-header">
+                <button
+                  type="button"
+                  className="config-clothing-add-button"
+                  onClick={() => {
+                    setStockTypesError(null);
+                    cancelStockTypeEdit();
+                    setStockTypeAddOpen((o) => !o);
+                  }}
+                  disabled={stockTypeDeleteSaving}
+                >
+                  {stockTypeAddOpen ? 'Cancel add' : 'Add category'}
+                </button>
+                <button
+                  type="button"
+                  className="config-refresh-button"
+                  onClick={() => void loadStockClothingTypes()}
+                  title="Refresh list"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+                  </svg>
+                </button>
+              </div>
+
+              <p className="config-stock-types-hint">
+                Rows come from the <strong>category</strong> database table (same types as Stock and eBay search). You
+                can only delete a type when no stock lines reference it.
+              </p>
+
+              {stockTypeAddOpen && (
+                <form className="config-clothing-add-form" onSubmit={handleStockTypeAddSubmit}>
+                  <label className="config-clothing-field">
+                    <span>Category name *</span>
+                    <input
+                      type="text"
+                      value={stockTypeAddName}
+                      onChange={(ev) => setStockTypeAddName(ev.target.value)}
+                      placeholder="e.g. Chelsea Boots"
+                      maxLength={500}
+                      required
+                      disabled={stockTypeAddSaving}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <div className="config-clothing-add-actions">
+                    <button type="submit" className="config-clothing-save-button" disabled={stockTypeAddSaving}>
+                      {stockTypeAddSaving ? 'Saving…' : 'Save category'}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {stockTypesLoading ? (
+                <div className="config-loading">Loading clothing types…</div>
+              ) : stockTypesError ? null : stockClothingTypes.length === 0 ? (
+                <div className="config-empty">No clothing types yet. Use Add category to create one.</div>
+              ) : (
+                <div className="config-clothing-table-wrap">
+                  <table className="config-clothing-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">ID</th>
+                        <th scope="col">Name</th>
+                        <th scope="col">Stock items</th>
+                        <th className="config-clothing-th-actions" scope="col">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stockClothingTypes.map((t) =>
+                        stockTypeEditingId === t.id ? (
+                          <tr key={t.id} className="config-clothing-row-edit">
+                            <td colSpan={4}>
+                              <div className="config-clothing-inline-edit">
+                                <p className="config-brand-edit-id">
+                                  <strong>ID</strong> {t.id}
+                                  {' · '}
+                                  <strong>Stock items</strong> {t.stock_count}
+                                </p>
+                                <label className="config-clothing-field">
+                                  <span>Category name *</span>
+                                  <input
+                                    type="text"
+                                    value={stockTypeEditName}
+                                    onChange={(ev) => setStockTypeEditName(ev.target.value)}
+                                    maxLength={500}
+                                    disabled={stockTypeEditSaving || stockTypeDeleteSaving}
+                                    autoComplete="off"
+                                  />
+                                </label>
+                                <div className="config-clothing-inline-edit-actions">
+                                  <button
+                                    type="button"
+                                    className="config-clothing-save-button"
+                                    onClick={() => void handleStockTypeEditSave()}
+                                    disabled={
+                                      stockTypeEditSaving ||
+                                      stockTypeDeleteSaving ||
+                                      !stockTypeEditName.trim()
+                                    }
+                                  >
+                                    {stockTypeEditSaving ? 'Saving…' : 'Save'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="config-clothing-cancel-edit-button"
+                                    onClick={cancelStockTypeEdit}
+                                    disabled={stockTypeEditSaving || stockTypeDeleteSaving}
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="config-clothing-delete-category-button"
+                                    onClick={() => void handleStockTypeDelete()}
+                                    disabled={
+                                      stockTypeEditSaving ||
+                                      stockTypeDeleteSaving ||
+                                      t.stock_count > 0
+                                    }
+                                    title={
+                                      t.stock_count > 0
+                                        ? `${t.stock_count} stock item${t.stock_count === 1 ? '' : 's'} use this category — reassign in Stock before deleting`
+                                        : 'Delete this clothing type'
+                                    }
+                                  >
+                                    {stockTypeDeleteSaving ? 'Deleting…' : 'Delete'}
+                                  </button>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : (
+                          <tr key={t.id}>
+                            <td>{t.id}</td>
+                            <td className="config-clothing-td-name">{t.category_name}</td>
+                            <td>{t.stock_count}</td>
+                            <td className="config-clothing-td-actions">
+                              <button
+                                type="button"
+                                className="config-clothing-edit-name-button"
+                                onClick={() => startStockTypeEdit(t)}
+                                disabled={
+                                  stockTypeEditSaving || stockTypeAddSaving || stockTypeDeleteSaving
+                                }
+                              >
+                                Edit
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
           {activeMenu === 'clothing-categories' && (
             <div className="config-section config-section--clothing-categories">
               {clothingError && <div className="config-error config-error--inline">{clothingError}</div>}
@@ -837,7 +1326,7 @@ const Config: React.FC = () => {
               {clothingLoading ? (
                 <div className="config-loading">Loading categories…</div>
               ) : clothingCategories.length === 0 ? (
-                <div className="config-empty">No clothing categories yet. Use Add category to create one.</div>
+                <div className="config-empty">No Menswear categories yet. Use Add category to create one.</div>
               ) : (
                 <div className="config-clothing-table-wrap">
                   <table className="config-clothing-table">
@@ -1105,6 +1594,27 @@ const Config: React.FC = () => {
                   </table>
                 </div>
               )}
+
+              <div className="config-brands-ask-ai-footer">
+                <button
+                  type="button"
+                  className="config-brands-ask-ai-button"
+                  onClick={() => void handleBrandsAskAiRank()}
+                  disabled={brandsLoading || brands.length === 0}
+                  title="Build a prompt with every brand and your menswear categories, copy to clipboard"
+                >
+                  Ask AI — rank brands by menswear categories
+                </button>
+                {brandsAskAiHint ? (
+                  <p className="config-brands-ask-ai-hint" role="status">
+                    {brandsAskAiHint}
+                  </p>
+                ) : null}
+                <p className="config-brands-ask-ai-explainer">
+                  Creates a prompt listing all brands and your Menswear categories (name, description, notes), and asks
+                  the model to rank brands per category and overall for UK resale.
+                </p>
+              </div>
             </div>
           )}
         </div>

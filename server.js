@@ -2649,7 +2649,7 @@ app.get('/api/menswear-categories/:id/brand-inventory-items', async (req, res) =
       [brandId, categoryId]
     );
     if (!brandCheck.rowCount) {
-      return res.status(404).json({ error: 'Brand is not in this clothing category' });
+      return res.status(404).json({ error: 'Brand is not in this Menswear category' });
     }
 
     const brandName = String(brandCheck.rows[0].brand_name ?? '');
@@ -3444,6 +3444,679 @@ app.get('/api/menswear-categories/inventory-by-category', async (req, res) => {
   }
 });
 
+/**
+ * Stock line `category_id` (clothing type) — sold revenue and counts.
+ * GET /api/stock-categories/sales-by-category?period=last_12_months|2026|2025
+ */
+app.get('/api/stock-categories/sales-by-category', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const rawPeriod = String(req.query.period ?? 'last_12_months').trim().toLowerCase();
+    const period =
+      rawPeriod === '2026' || rawPeriod === '2025' || rawPeriod === 'last_12_months'
+        ? rawPeriod
+        : 'last_12_months';
+
+    let dateFilterSql = '';
+    if (period === 'last_12_months') {
+      dateFilterSql = 'AND s.sale_date >= (CURRENT_DATE - INTERVAL \'12 months\')';
+    } else if (period === '2026') {
+      dateFilterSql = "AND s.sale_date >= DATE '2026-01-01' AND s.sale_date < DATE '2027-01-01'";
+    } else if (period === '2025') {
+      dateFilterSql = "AND s.sale_date >= DATE '2025-01-01' AND s.sale_date < DATE '2026-01-01'";
+    }
+
+    const result = await pool.query(
+      `WITH sales AS (
+         SELECT
+           s.category_id AS category_id,
+           COALESCE(SUM(
+             CASE
+               WHEN s.sale_price IS NOT NULL
+                AND TRIM(s.sale_price::text) <> ''
+                AND s.sale_price::numeric > 0
+               THEN s.sale_price::numeric
+               ELSE 0
+             END
+           ), 0)::numeric AS total_sales,
+           COUNT(s.id)::int AS sold_count
+         FROM stock s
+         WHERE s.sale_date IS NOT NULL
+           ${dateFilterSql}
+         GROUP BY s.category_id
+       )
+       SELECT
+         s.category_id AS category_id,
+         COALESCE(c.category_name, 'Uncategorized') AS category_name,
+         s.total_sales,
+         s.sold_count
+       FROM sales s
+       LEFT JOIN category c ON c.id = s.category_id
+       WHERE COALESCE(s.total_sales, 0) > 0 OR COALESCE(s.sold_count, 0) > 0
+       ORDER BY s.total_sales DESC NULLS LAST, category_name ASC`
+    );
+
+    res.json({ rows: result.rows, period });
+  } catch (error) {
+    console.error('stock-categories sales-by-category failed:', error);
+    res.status(500).json({ error: 'Failed to load clothing type sales', details: error.message });
+  }
+});
+
+/**
+ * Per clothing type: sold vs unsold counts and unsold_ratio = unsold / (sold + unsold).
+ * Only rows with unsold_count > 0. Ordered by unsold_ratio DESC (worst sell-through first).
+ * GET /api/stock-categories/inventory-by-category
+ */
+app.get('/api/stock-categories/inventory-by-category', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const result = await pool.query(
+      `WITH per_cat AS (
+         SELECT
+           c.id AS category_id,
+           c.category_name AS category_name,
+           COUNT(*) FILTER (WHERE s.sale_date IS NOT NULL)::int AS sold_count,
+           COUNT(*) FILTER (WHERE s.sale_date IS NULL)::int AS unsold_count
+         FROM category c
+         LEFT JOIN stock s ON s.category_id = c.id
+         GROUP BY c.id, c.category_name
+       ),
+       uncat AS (
+         SELECT
+           NULL::integer AS category_id,
+           'Uncategorized'::text AS category_name,
+           COUNT(*) FILTER (WHERE sale_date IS NOT NULL)::int AS sold_count,
+           COUNT(*) FILTER (WHERE sale_date IS NULL)::int AS unsold_count
+         FROM stock
+         WHERE category_id IS NULL
+       ),
+       combined AS (
+         SELECT * FROM per_cat WHERE unsold_count > 0
+         UNION ALL
+         SELECT * FROM uncat WHERE unsold_count > 0
+       )
+       SELECT
+         category_id,
+         category_name,
+         sold_count,
+         unsold_count,
+         (sold_count + unsold_count)::int AS total_count,
+         CASE
+           WHEN (sold_count + unsold_count) > 0
+           THEN (unsold_count::double precision / (sold_count + unsold_count))
+           ELSE 0::double precision
+         END AS unsold_ratio
+       FROM combined
+       ORDER BY
+         CASE
+           WHEN (sold_count + unsold_count) > 0
+           THEN (unsold_count::double precision / (sold_count + unsold_count))
+           ELSE 0::double precision
+         END DESC NULLS LAST,
+         unsold_count DESC,
+         category_name ASC`
+    );
+
+    res.json({ rows: result.rows ?? [] });
+  } catch (error) {
+    console.error('stock-categories inventory-by-category failed:', error);
+    res.status(500).json({ error: 'Failed to load inventory by clothing type', details: error.message });
+  }
+});
+
+/**
+ * @param {string} typeKey — `uncategorized` or stock `category.id`
+ * @returns {{ uncategorized: true, categoryId: null } | { uncategorized: false, categoryId: number } | null}
+ */
+function parseStockClothingTypeTypeKey(typeKey) {
+  const s = String(typeKey ?? '').trim().toLowerCase();
+  if (s === 'uncategorized') return { uncategorized: true, categoryId: null };
+  const n = parseInt(s, 10);
+  if (Number.isNaN(n) || n < 1) return null;
+  return { uncategorized: false, categoryId: n };
+}
+
+/**
+ * Brands with stock in this clothing type (stock.category_id), most sold first.
+ * GET /api/stock-categories/type/:typeKey/brands
+ */
+app.get('/api/stock-categories/type/:typeKey/brands', async (req, res) => {
+  try {
+    const parsed = parseStockClothingTypeTypeKey(req.params.typeKey);
+    if (!parsed) {
+      return res.status(400).json({ error: 'Invalid clothing type key' });
+    }
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    if (!parsed.uncategorized) {
+      const catCheck = await pool.query('SELECT id FROM category WHERE id = $1', [parsed.categoryId]);
+      if (!catCheck.rowCount) {
+        return res.status(404).json({ error: 'Category not found' });
+      }
+    }
+
+    const whereSql = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $1';
+    const params = parsed.uncategorized ? [] : [parsed.categoryId];
+
+    const result = await pool.query(
+      `SELECT
+         b.id,
+         b.brand_name,
+         COUNT(*) FILTER (WHERE s.sale_date IS NOT NULL)::int AS sold_count,
+         COUNT(*) FILTER (WHERE s.sale_date IS NULL)::int AS unsold_count,
+         COALESCE(SUM(
+           CASE
+             WHEN s.sale_price IS NOT NULL
+              AND TRIM(s.sale_price::text) <> ''
+              AND s.sale_price::numeric > 0
+             THEN s.sale_price::numeric
+             ELSE 0
+           END
+         ), 0)::numeric AS total_sales
+       FROM stock s
+       INNER JOIN brand b ON b.id = s.brand_id
+       WHERE ${whereSql}
+       GROUP BY b.id, b.brand_name
+       HAVING COUNT(*) >= 1
+       ORDER BY
+         COUNT(*) FILTER (WHERE s.sale_date IS NOT NULL) DESC NULLS LAST,
+         COUNT(*) FILTER (WHERE s.sale_date IS NULL) ASC NULLS LAST,
+         b.brand_name ASC`,
+      params
+    );
+
+    res.json({ rows: result.rows ?? [] });
+  } catch (error) {
+    console.error('stock-categories type brands failed:', error);
+    res.status(500).json({ error: 'Failed to load brands for clothing type', details: error.message });
+  }
+});
+
+/**
+ * Brand × stock category — at least one sale; most sold first (same shape as menswear buy-more).
+ * GET /api/stock-categories/type/:typeKey/buy-more-by-brand-category?limit=10
+ */
+app.get('/api/stock-categories/type/:typeKey/buy-more-by-brand-category', async (req, res) => {
+  try {
+    const parsed = parseStockClothingTypeTypeKey(req.params.typeKey);
+    if (!parsed) {
+      return res.status(400).json({ error: 'Invalid clothing type key' });
+    }
+
+    let limit = parseInt(String(req.query.limit ?? '10'), 10);
+    if (Number.isNaN(limit)) limit = 10;
+    limit = Math.min(200, Math.max(5, limit));
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    if (!parsed.uncategorized) {
+      const catCheck = await pool.query('SELECT id FROM category WHERE id = $1', [parsed.categoryId]);
+      if (!catCheck.rowCount) {
+        return res.status(404).json({ error: 'Category not found' });
+      }
+    }
+
+    const whereSql = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $1';
+    const params = parsed.uncategorized ? [limit] : [parsed.categoryId, limit];
+
+    const result = await pool.query(
+      `SELECT
+         b.id AS brand_id,
+         b.brand_name,
+         COALESCE(MAX(c.category_name), 'Uncategorized') AS category_name,
+         s.category_id AS category_id,
+         COUNT(s.id) FILTER (WHERE s.sale_date IS NULL)::int AS unsold_count,
+         COUNT(s.id) FILTER (WHERE s.sale_date IS NOT NULL)::int AS sold_count
+       FROM stock s
+       INNER JOIN brand b ON s.brand_id = b.id
+       LEFT JOIN category c ON s.category_id = c.id
+       WHERE ${whereSql}
+       GROUP BY b.id, b.brand_name, s.category_id
+       HAVING COUNT(s.id) FILTER (WHERE s.sale_date IS NOT NULL) >= 1
+       ORDER BY
+         (COUNT(s.id) FILTER (WHERE s.sale_date IS NOT NULL)) DESC NULLS LAST,
+         (COUNT(s.id) FILTER (WHERE s.sale_date IS NULL)) ASC NULLS LAST,
+         brand_name ASC,
+         category_name ASC
+       LIMIT $${parsed.uncategorized ? '1' : '2'}`,
+      params
+    );
+
+    res.json({
+      rows: result.rows ?? [],
+      type_key: req.params.typeKey,
+      limit,
+    });
+  } catch (error) {
+    console.error('stock-categories type buy-more-by-brand-category failed:', error);
+    res.status(500).json({ error: 'Failed to load buy-more rows', details: error.message });
+  }
+});
+
+/**
+ * Brand × stock category — unsold present; worst sell rate first (same shape as menswear avoid).
+ * GET /api/stock-categories/type/:typeKey/unsold-inventory-by-brand-category?limit=10
+ */
+app.get('/api/stock-categories/type/:typeKey/unsold-inventory-by-brand-category', async (req, res) => {
+  try {
+    const parsed = parseStockClothingTypeTypeKey(req.params.typeKey);
+    if (!parsed) {
+      return res.status(400).json({ error: 'Invalid clothing type key' });
+    }
+
+    let limit = parseInt(String(req.query.limit ?? '10'), 10);
+    if (Number.isNaN(limit)) limit = 10;
+    limit = Math.min(200, Math.max(5, limit));
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    if (!parsed.uncategorized) {
+      const catCheck = await pool.query('SELECT id FROM category WHERE id = $1', [parsed.categoryId]);
+      if (!catCheck.rowCount) {
+        return res.status(404).json({ error: 'Category not found' });
+      }
+    }
+
+    const whereSql = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $1';
+    const params = parsed.uncategorized ? [limit] : [parsed.categoryId, limit];
+
+    const result = await pool.query(
+      `SELECT
+         b.id AS brand_id,
+         b.brand_name,
+         COALESCE(MAX(c.category_name), 'Uncategorized') AS category_name,
+         s.category_id AS category_id,
+         COUNT(s.id) FILTER (WHERE s.sale_date IS NULL)::int AS unsold_count,
+         COUNT(s.id) FILTER (WHERE s.sale_date IS NOT NULL)::int AS sold_count
+       FROM stock s
+       INNER JOIN brand b ON s.brand_id = b.id
+       LEFT JOIN category c ON s.category_id = c.id
+       WHERE ${whereSql}
+       GROUP BY b.id, b.brand_name, s.category_id
+       HAVING COUNT(s.id) FILTER (WHERE s.sale_date IS NULL) >= 1
+       ORDER BY
+         (COUNT(s.id) FILTER (WHERE s.sale_date IS NOT NULL))::numeric / NULLIF(COUNT(s.id), 0) ASC NULLS LAST,
+         (COUNT(s.id) FILTER (WHERE s.sale_date IS NULL)) DESC NULLS LAST,
+         brand_name ASC,
+         category_name ASC
+       LIMIT $${parsed.uncategorized ? '1' : '2'}`,
+      params
+    );
+
+    res.json({
+      rows: result.rows ?? [],
+      type_key: req.params.typeKey,
+      limit,
+    });
+  } catch (error) {
+    console.error('stock-categories type unsold-inventory-by-brand-category failed:', error);
+    res.status(500).json({ error: 'Failed to load unsold by brand and category', details: error.message });
+  }
+});
+
+/**
+ * Stock lines for one brand scoped to this clothing type.
+ * GET /api/stock-categories/type/:typeKey/brand-inventory-items?brand_id=…
+ */
+app.get('/api/stock-categories/type/:typeKey/brand-inventory-items', async (req, res) => {
+  try {
+    const parsed = parseStockClothingTypeTypeKey(req.params.typeKey);
+    if (!parsed) {
+      return res.status(400).json({ error: 'Invalid clothing type key' });
+    }
+
+    const brandId = parseInt(String(req.query.brand_id ?? ''), 10);
+    if (Number.isNaN(brandId) || brandId < 1) {
+      return res.status(400).json({ error: 'brand_id is required' });
+    }
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    if (!parsed.uncategorized) {
+      const catCheck = await pool.query('SELECT id FROM category WHERE id = $1', [parsed.categoryId]);
+      if (!catCheck.rowCount) {
+        return res.status(404).json({ error: 'Category not found' });
+      }
+    }
+
+    const brandCheck = await pool.query('SELECT id, brand_name FROM brand WHERE id = $1', [brandId]);
+    if (!brandCheck.rowCount) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+
+    const typeWhere = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $2';
+    const stockCheckSql = parsed.uncategorized
+      ? 'SELECT 1 FROM stock WHERE brand_id = $1 AND category_id IS NULL LIMIT 1'
+      : 'SELECT 1 FROM stock WHERE brand_id = $1 AND category_id = $2 LIMIT 1';
+    const stockParams = parsed.uncategorized ? [brandId] : [brandId, parsed.categoryId];
+    const hasStock = await pool.query(stockCheckSql, stockParams);
+    if (!hasStock.rowCount) {
+      return res.status(404).json({ error: 'No stock for this brand in this clothing type' });
+    }
+
+    const brandName = String(brandCheck.rows[0].brand_name ?? '');
+    const qParams = parsed.uncategorized ? [brandId] : [brandId, parsed.categoryId];
+
+    const result = await pool.query(
+      `SELECT
+         s.id,
+         s.item_name,
+         s.purchase_price,
+         s.purchase_date,
+         s.sale_date,
+         s.category_id,
+         COALESCE(c.category_name, 'Uncategorized') AS category_name
+       FROM stock s
+       INNER JOIN brand b ON s.brand_id = b.id
+       LEFT JOIN category c ON s.category_id = c.id
+       WHERE b.id = $1
+         AND ${typeWhere}
+       ORDER BY s.purchase_date DESC NULLS LAST, s.id DESC
+       LIMIT 5000`,
+      qParams
+    );
+
+    res.json({
+      rows: result.rows ?? [],
+      brand_id: brandId,
+      brand_name: brandName,
+      stock_category_id: parsed.uncategorized ? null : parsed.categoryId,
+    });
+  } catch (error) {
+    console.error('stock-categories type brand-inventory-items failed:', error);
+    res.status(500).json({ error: 'Failed to load brand inventory items', details: error.message });
+  }
+});
+
+/**
+ * Clothing type overview: same spend/sell metrics shape as GET /api/brands/:id/stock-summary (period=all),
+ * plus every stock line in this type (all brands).
+ * GET /api/stock-categories/type/:typeKey/detail
+ */
+app.get('/api/stock-categories/type/:typeKey/detail', async (req, res) => {
+  try {
+    const parsed = parseStockClothingTypeTypeKey(req.params.typeKey);
+    if (!parsed) {
+      return res.status(400).json({ error: 'Invalid clothing type key' });
+    }
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    if (!parsed.uncategorized) {
+      const catCheck = await pool.query('SELECT id FROM category WHERE id = $1', [parsed.categoryId]);
+      if (!catCheck.rowCount) {
+        return res.status(404).json({ error: 'Category not found' });
+      }
+    }
+
+    const typeWhere = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $1';
+    const qParams = parsed.uncategorized ? [] : [parsed.categoryId];
+
+    const lifetimeCountResult = await pool.query(
+      `SELECT COUNT(*)::int AS c FROM stock s WHERE ${typeWhere}`,
+      qParams
+    );
+    const stockRowCountLifetime = Number(lifetimeCountResult.rows[0]?.c) || 0;
+
+    const countsResult = await pool.query(
+      `SELECT
+         COUNT(*)::int AS total_items,
+         COUNT(*) FILTER (
+           WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+         )::int AS sold_count,
+         COUNT(*) FILTER (
+           WHERE NOT (s.sale_price IS NOT NULL AND s.sale_price::numeric > 0)
+         )::int AS unsold_count
+       FROM stock s
+       WHERE ${typeWhere}`,
+      qParams
+    );
+    const countsRow = countsResult.rows[0] || {};
+    const totalItems = Number(countsRow.total_items) || 0;
+    const soldCount = Number(countsRow.sold_count) || 0;
+    const unsoldCount = Number(countsRow.unsold_count) || 0;
+
+    const moneyResult = await pool.query(
+      `SELECT
+         COALESCE(
+           SUM(s.purchase_price::numeric) FILTER (WHERE s.purchase_price IS NOT NULL),
+           0
+         )::numeric AS total_purchase_spend,
+         COALESCE(
+           SUM(s.sale_price::numeric) FILTER (
+             WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+           ),
+           0
+         )::numeric AS total_sold_revenue
+       FROM stock s
+       WHERE ${typeWhere}`,
+      qParams
+    );
+    const moneyRow = moneyResult.rows[0] || {};
+    const totalPurchaseSpend = Number(moneyRow.total_purchase_spend) || 0;
+    const totalSoldRevenue = Number(moneyRow.total_sold_revenue) || 0;
+    const brandNetPosition = totalSoldRevenue - totalPurchaseSpend;
+
+    const soldPriceStatsResult = await pool.query(
+      `SELECT
+         MIN(s.sale_price::numeric) FILTER (
+           WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+         ) AS min_sold_sale_price,
+         MAX(s.sale_price::numeric) FILTER (
+           WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+         ) AS max_sold_sale_price,
+         AVG(s.sale_price::numeric / NULLIF(s.purchase_price::numeric, 0)) FILTER (
+           WHERE s.sale_price IS NOT NULL
+             AND s.sale_price::numeric > 0
+             AND s.purchase_price IS NOT NULL
+             AND s.purchase_price::numeric > 0
+         ) AS avg_sold_profit_multiple
+       FROM stock s
+       WHERE ${typeWhere}`,
+      qParams
+    );
+    const soldPriceStats = soldPriceStatsResult.rows[0] || {};
+    const minSoldSalePriceRaw = soldPriceStats.min_sold_sale_price;
+    const maxSoldSalePriceRaw = soldPriceStats.max_sold_sale_price;
+    const minSoldSalePrice =
+      minSoldSalePriceRaw != null && Number.isFinite(Number(minSoldSalePriceRaw))
+        ? Number(minSoldSalePriceRaw)
+        : null;
+    const maxSoldSalePrice =
+      maxSoldSalePriceRaw != null && Number.isFinite(Number(maxSoldSalePriceRaw))
+        ? Number(maxSoldSalePriceRaw)
+        : null;
+    const avgSoldProfitMultipleRaw = soldPriceStats.avg_sold_profit_multiple;
+    const avgSoldProfitMultiple =
+      avgSoldProfitMultipleRaw != null && Number.isFinite(Number(avgSoldProfitMultipleRaw))
+        ? Number(avgSoldProfitMultipleRaw)
+        : null;
+
+    const itemsResult = await pool.query(
+      `SELECT
+         s.id,
+         s.item_name,
+         s.purchase_price,
+         s.purchase_date,
+         s.sale_date,
+         s.sale_price,
+         b.id AS brand_id,
+         b.brand_name,
+         s.ebay_id,
+         s.vinted_id
+       FROM stock s
+       INNER JOIN brand b ON b.id = s.brand_id
+       WHERE ${typeWhere}
+       ORDER BY s.purchase_date DESC NULLS LAST, s.id DESC
+       LIMIT 5000`,
+      qParams
+    );
+
+    res.json({
+      brandId: 0,
+      typeKey: req.params.typeKey,
+      period: 'all',
+      stockRowCountLifetime,
+      totalItems,
+      soldCount,
+      unsoldCount,
+      totalPurchaseSpend,
+      totalSoldRevenue,
+      brandNetPosition,
+      minSoldSalePrice,
+      maxSoldSalePrice,
+      avgSoldProfitMultiple,
+      bestSoldByCategory: [],
+      heavyUnsoldByCategory: [],
+      categorySoldUnsold: [],
+      rows: itemsResult.rows ?? [],
+    });
+  } catch (error) {
+    console.error('stock-categories type detail failed:', error);
+    res.status(500).json({ error: 'Failed to load clothing type detail', details: error.message });
+  }
+});
+
+/**
+ * Unsold lines for one brand within this clothing type (full type scope — no inner category filter).
+ * GET /api/stock-categories/type/:typeKey/unsold-stock-items?brand_id=…
+ */
+app.get('/api/stock-categories/type/:typeKey/unsold-stock-items', async (req, res) => {
+  try {
+    const parsed = parseStockClothingTypeTypeKey(req.params.typeKey);
+    if (!parsed) {
+      return res.status(400).json({ error: 'Invalid clothing type key' });
+    }
+
+    const brandId = parseInt(String(req.query.brand_id ?? ''), 10);
+    if (Number.isNaN(brandId) || brandId < 1) {
+      return res.status(400).json({ error: 'brand_id is required' });
+    }
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    if (!parsed.uncategorized) {
+      const catCheck = await pool.query('SELECT id FROM category WHERE id = $1', [parsed.categoryId]);
+      if (!catCheck.rowCount) {
+        return res.status(404).json({ error: 'Category not found' });
+      }
+    }
+
+    const typeSql = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $1';
+    const params = parsed.uncategorized ? [brandId] : [parsed.categoryId, brandId];
+    const brandSlot = parsed.uncategorized ? '$1' : '$2';
+
+    const result = await pool.query(
+      `SELECT
+         s.id,
+         s.item_name,
+         s.purchase_price,
+         s.purchase_date,
+         s.vinted_id,
+         s.ebay_id
+       FROM stock s
+       INNER JOIN brand b ON s.brand_id = b.id
+       WHERE ${typeSql}
+         AND b.id = ${brandSlot}
+         AND s.sale_date IS NULL
+       ORDER BY s.purchase_date DESC NULLS LAST, s.id DESC
+       LIMIT 500`,
+      params
+    );
+
+    res.json({ rows: result.rows ?? [], brand_id: brandId, type_key: req.params.typeKey });
+  } catch (error) {
+    console.error('stock-categories type unsold-stock-items failed:', error);
+    res.status(500).json({ error: 'Failed to load unsold stock items', details: error.message });
+  }
+});
+
+/**
+ * Sold lines for one brand within this clothing type.
+ * GET /api/stock-categories/type/:typeKey/sold-stock-items?brand_id=…
+ */
+app.get('/api/stock-categories/type/:typeKey/sold-stock-items', async (req, res) => {
+  try {
+    const parsed = parseStockClothingTypeTypeKey(req.params.typeKey);
+    if (!parsed) {
+      return res.status(400).json({ error: 'Invalid clothing type key' });
+    }
+
+    const brandId = parseInt(String(req.query.brand_id ?? ''), 10);
+    if (Number.isNaN(brandId) || brandId < 1) {
+      return res.status(400).json({ error: 'brand_id is required' });
+    }
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    if (!parsed.uncategorized) {
+      const catCheck = await pool.query('SELECT id FROM category WHERE id = $1', [parsed.categoryId]);
+      if (!catCheck.rowCount) {
+        return res.status(404).json({ error: 'Category not found' });
+      }
+    }
+
+    const typeSql = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $1';
+    const params = parsed.uncategorized ? [brandId] : [parsed.categoryId, brandId];
+    const brandSlot = parsed.uncategorized ? '$1' : '$2';
+
+    const result = await pool.query(
+      `SELECT
+         s.id,
+         s.item_name,
+         s.purchase_price,
+         s.purchase_date,
+         s.sale_date,
+         s.vinted_id,
+         s.ebay_id
+       FROM stock s
+       INNER JOIN brand b ON s.brand_id = b.id
+       WHERE ${typeSql}
+         AND b.id = ${brandSlot}
+         AND s.sale_date IS NOT NULL
+       ORDER BY s.sale_date DESC NULLS LAST, s.id DESC
+       LIMIT 500`,
+      params
+    );
+
+    res.json({ rows: result.rows ?? [], brand_id: brandId, type_key: req.params.typeKey });
+  } catch (error) {
+    console.error('stock-categories type sold-stock-items failed:', error);
+    res.status(500).json({ error: 'Failed to load sold stock items', details: error.message });
+  }
+});
+
 async function ensureBrandLinksTable(pool) {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS public.brand_links (
@@ -4234,9 +4907,13 @@ app.get('/api/categories', async (req, res) => {
       return res.status(500).json({ error: 'Database connection not configured' });
     }
 
-    const result = await pool.query(
-      'SELECT id, category_name FROM category ORDER BY category_name ASC'
-    );
+    const result = await pool.query(`
+      SELECT c.id, c.category_name, COUNT(s.id)::int AS stock_count
+      FROM category c
+      LEFT JOIN stock s ON s.category_id = c.id
+      GROUP BY c.id, c.category_name
+      ORDER BY c.category_name ASC
+    `);
 
     res.json({
       rows: result.rows ?? [],
@@ -4289,6 +4966,101 @@ app.post('/api/categories', async (req, res) => {
       return res.status(400).json({ error: 'Category already exists' });
     }
     res.status(500).json({ error: 'Failed to create category', details: error.message });
+  }
+});
+
+app.patch('/api/categories/:id', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id) || id < 1) {
+      return res.status(400).json({ error: 'Invalid category id' });
+    }
+
+    const { category_name } = req.body ?? {};
+
+    if (!category_name || typeof category_name !== 'string' || !category_name.trim()) {
+      return res.status(400).json({ error: 'Category name is required' });
+    }
+
+    const normalizedCategoryName = category_name.trim();
+
+    const existingResult = await pool.query(
+      'SELECT id FROM category WHERE LOWER(TRIM(category_name)) = LOWER($1) AND id <> $2',
+      [normalizedCategoryName, id]
+    );
+
+    if (existingResult.rowCount > 0) {
+      return res.status(400).json({ error: 'Category already exists' });
+    }
+
+    const updateQuery = `
+      UPDATE category
+      SET category_name = $1
+      WHERE id = $2
+      RETURNING id, category_name
+    `;
+
+    const result = await pool.query(updateQuery, [normalizedCategoryName, id]);
+
+    if (!result.rowCount) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+
+    res.json({ row: result.rows[0] });
+  } catch (error) {
+    console.error('Category update failed:', error);
+    if (error.code === '23505') {
+      return res.status(400).json({ error: 'Category already exists' });
+    }
+    res.status(500).json({ error: 'Failed to update category', details: error.message });
+  }
+});
+
+/**
+ * DELETE /api/categories/:id
+ * Allowed only when no stock row references this category_id.
+ */
+app.delete('/api/categories/:id', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id) || id < 1) {
+      return res.status(400).json({ error: 'Invalid category id' });
+    }
+
+    const countRes = await pool.query(
+      'SELECT COUNT(*)::int AS c FROM stock WHERE category_id = $1',
+      [id]
+    );
+    const stockCount = countRes.rows[0]?.c ?? 0;
+    if (stockCount > 0) {
+      return res.status(409).json({
+        error:
+          'Cannot delete this category while stock items are assigned to it. Reassign or clear those items first.',
+        stockCount,
+      });
+    }
+
+    const del = await pool.query('DELETE FROM category WHERE id = $1 RETURNING id', [id]);
+    if (!del.rowCount) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Category delete failed:', error);
+    res.status(500).json({ error: 'Failed to delete category', details: error.message });
   }
 });
 
@@ -4813,6 +5585,68 @@ app.get('/api/analytics/reporting', async (req, res) => {
     const salesByCategory = salesByCategoryResult.rows.map((row) => ({
       category: row.category || 'Uncategorized',
       totalSales: Number(row.total_sales)
+    }));
+
+    const soldCountByCategoryQuery = effectiveYear === null ? `
+        SELECT
+          COALESCE(c.category_name, 'Uncategorized') AS category,
+          COUNT(*)::int AS sold_count
+        FROM stock s
+        LEFT JOIN category c ON s.category_id = c.id
+        WHERE s.sale_date IS NOT NULL
+        GROUP BY COALESCE(c.category_name, 'Uncategorized')
+        HAVING COUNT(*) > 0
+        ORDER BY sold_count DESC
+      ` : `
+        SELECT
+          COALESCE(c.category_name, 'Uncategorized') AS category,
+          COUNT(*)::int AS sold_count
+        FROM stock s
+        LEFT JOIN category c ON s.category_id = c.id
+        WHERE s.sale_date IS NOT NULL
+          AND EXTRACT(YEAR FROM s.sale_date)::int = $1
+        GROUP BY COALESCE(c.category_name, 'Uncategorized')
+        HAVING COUNT(*) > 0
+        ORDER BY sold_count DESC
+      `;
+    const soldCountByCategoryResult = await pool.query(
+      soldCountByCategoryQuery,
+      effectiveYear === null ? [] : [effectiveYear]
+    );
+    const soldCountByCategory = soldCountByCategoryResult.rows.map((row) => ({
+      category: row.category || 'Uncategorized',
+      soldCount: Number(row.sold_count) || 0
+    }));
+
+    const soldCategoryNetQuery = effectiveYear === null ? `
+        SELECT
+          COALESCE(c.category_name, 'Uncategorized') AS category,
+          SUM(
+            COALESCE(s.sale_price, 0)::numeric - COALESCE(s.purchase_price, 0)::numeric
+          )::numeric AS net_profit
+        FROM stock s
+        LEFT JOIN category c ON s.category_id = c.id
+        WHERE s.sale_date IS NOT NULL
+        GROUP BY COALESCE(c.category_name, 'Uncategorized')
+      ` : `
+        SELECT
+          COALESCE(c.category_name, 'Uncategorized') AS category,
+          SUM(
+            COALESCE(s.sale_price, 0)::numeric - COALESCE(s.purchase_price, 0)::numeric
+          )::numeric AS net_profit
+        FROM stock s
+        LEFT JOIN category c ON s.category_id = c.id
+        WHERE s.sale_date IS NOT NULL
+          AND EXTRACT(YEAR FROM s.sale_date)::int = $1
+        GROUP BY COALESCE(c.category_name, 'Uncategorized')
+      `;
+    const soldCategoryNetResult = await pool.query(
+      soldCategoryNetQuery,
+      effectiveYear === null ? [] : [effectiveYear]
+    );
+    const soldCategoryNetProfit = soldCategoryNetResult.rows.map((row) => ({
+      category: row.category || 'Uncategorized',
+      netProfit: row.net_profit != null ? Number(row.net_profit) : 0
     }));
 
     const unsoldStockByCategoryQuery = effectiveYear === null ? `
@@ -5438,6 +6272,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
       monthlyProfit,
       monthlyExpenses,
       salesByCategory,
+      soldCountByCategory,
+      soldCategoryNetProfit,
       unsoldStockByCategory,
       salesByBrand,
       bestSellingBrandsByCategory,

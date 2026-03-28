@@ -67,6 +67,28 @@ interface UnsoldStockByCategoryDatum {
   itemCount: number;
 }
 
+interface SoldCountByCategoryDatum {
+  category: string;
+  soldCount: number;
+}
+
+interface SoldCategoryNetDatum {
+  category: string;
+  netProfit: number;
+}
+
+/** One row of the inventory vs sold stacked chart + tooltip / Ask AI context. */
+interface CategoryInventorySoldStackRow {
+  category: string;
+  inStock: number;
+  sold: number;
+  unsoldBuyInValue: number;
+  /** Net on sold lines in period (sale − buy); null if unknown. */
+  soldNetProfit: number | null;
+}
+
+const EMPTY_CATEGORY_STACK_ROWS: CategoryInventorySoldStackRow[] = [];
+
 interface SalesByBrandDatum {
   brand: string;
   totalSales: number;
@@ -143,6 +165,12 @@ interface StockRowForSalesData {
   purchase_price: number | string | null;
   sale_price: number | string | null;
   sold_platform?: string | null;
+  category_id?: number | string | null;
+}
+
+interface ReportingCategoryRow {
+  id: number;
+  category_name: string;
 }
 
 type ItemAnalysisPreset = 'current-month' | 'last-month' | 'custom-month' | 'current-year' | 'last-3-years';
@@ -234,6 +262,8 @@ interface ReportingResponse {
   monthlyAverageProfitPerItem: MonthlyAverageProfitPerItemDatum[];
   monthlyAverageProfitMultiple: MonthlyAverageProfitMultipleDatum[];
   salesByCategory: SalesByCategoryDatum[];
+  soldCountByCategory: SoldCountByCategoryDatum[];
+  soldCategoryNetProfit?: SoldCategoryNetDatum[];
   salesByBrand: SalesByBrandDatum[];
   bestSellingBrandsByCategory: SalesByBrandCategorySet;
   worstSellingBrands: WorstSellingBrandsDatum[];
@@ -277,6 +307,55 @@ const currencyFormatter = new Intl.NumberFormat('en-GB', {
 });
 
 const formatCurrency = (value: number) => currencyFormatter.format(value ?? 0);
+
+function buildStockAnalysisCategoryAskAiPrompt(args: {
+  periodLabel: string;
+  rows: CategoryInventorySoldStackRow[];
+  yearItemsStats: { listed: number; sold: number } | null;
+}): string {
+  const { periodLabel, rows, yearItemsStats } = args;
+  const lines: string[] = [
+    'I run a UK resale business. Below is **aggregated data from my stock system**: inventory vs sold **counts** by Menswear category, unsold **buy-in value** tied up, and **net P/L on sold lines** in the period (sum of sale_price − purchase_price per sold row).',
+    'Use only this data and clear inference. Be direct; no empty praise or generic encouragement.',
+    '',
+    '## Reporting period',
+    periodLabel,
+    '',
+  ];
+  if (yearItemsStats && (yearItemsStats.listed > 0 || yearItemsStats.sold > 0)) {
+    lines.push(
+      '## Portfolio snapshot (same reporting scope)',
+      `- Lines counted as listed: ${yearItemsStats.listed}`,
+      `- Lines counted as sold: ${yearItemsStats.sold}`,
+      ''
+    );
+  }
+  lines.push(
+    '## Per category',
+    '',
+    '| Category | In stock (items) | Sold (items) | Unsold buy-in value (£) | Sold net P/L (£) |',
+    '|---:|---:|---:|---:|---:|'
+  );
+  rows.forEach((r) => {
+    const pnl =
+      r.soldNetProfit != null && Number.isFinite(r.soldNetProfit)
+        ? formatCurrency(r.soldNetProfit)
+        : '—';
+    lines.push(
+      `| ${r.category.replace(/\|/g, '/')} | ${r.inStock} | ${r.sold} | ${formatCurrency(r.unsoldBuyInValue)} | ${pnl} |`
+    );
+  });
+  lines.push(
+    '',
+    '## What I want from you',
+    '1. **What should I avoid buying** (categories or patterns), grounded in stuck inventory vs what sells and P/L where it helps?',
+    '2. **What should I double down on** buying?',
+    '3. **What mistakes might I be making** (buying, pricing, category mix)?',
+    '',
+    'Answer in short sections with bullets. If the data is thin, say so and still give your best read.'
+  );
+  return lines.join('\n');
+}
 
 interface ReportingExpenseRow {
   id: number;
@@ -384,6 +463,9 @@ const Reporting: React.FC = () => {
   const [monthlyProfit, setMonthlyProfit] = useState<MonthlyProfitDatum[]>([]);
   const [salesByCategory, setSalesByCategory] = useState<SalesByCategoryDatum[]>([]);
   const [unsoldStockByCategory, setUnsoldStockByCategory] = useState<UnsoldStockByCategoryDatum[]>([]);
+  const [soldCountByCategory, setSoldCountByCategory] = useState<SoldCountByCategoryDatum[]>([]);
+  const [soldCategoryNetProfit, setSoldCategoryNetProfit] = useState<SoldCategoryNetDatum[]>([]);
+  const [reportingCategoryRows, setReportingCategoryRows] = useState<ReportingCategoryRow[]>([]);
   const [salesByBrand, setSalesByBrand] = useState<SalesByBrandDatum[]>([]);
   const [bestSellingBrandsByCategory, setBestSellingBrandsByCategory] = useState<SalesByBrandCategorySet>({
     trousers: [],
@@ -480,6 +562,14 @@ const Reporting: React.FC = () => {
         setAvailableYears(data.availableYears);
         setMonthlyProfit(data.monthlyProfit);
         setSalesByCategory(data.salesByCategory || []);
+        const rawSold =
+          data.soldCountByCategory ??
+          (data as { sold_count_by_category?: SoldCountByCategoryDatum[] }).sold_count_by_category;
+        setSoldCountByCategory(Array.isArray(rawSold) ? rawSold : []);
+        const rawPnl =
+          data.soldCategoryNetProfit ??
+          (data as { sold_category_net_profit?: SoldCategoryNetDatum[] }).sold_category_net_profit;
+        setSoldCategoryNetProfit(Array.isArray(rawPnl) ? rawPnl : []);
         setUnsoldStockByCategory(data.unsoldStockByCategory || []);
         setSalesByBrand(data.salesByBrand || []);
         setBestSellingBrandsByCategory(data.bestSellingBrandsByCategory || {
@@ -559,6 +649,33 @@ const Reporting: React.FC = () => {
       }
     };
     fetchStockRows();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(`${API_BASE}/api/categories`);
+        if (!response.ok) return;
+        const data = await response.json();
+        const rows = Array.isArray(data?.rows) ? data.rows : [];
+        if (cancelled) return;
+        const mapped: Array<ReportingCategoryRow | null> = rows.map(
+          (r: { id?: unknown; category_name?: unknown }): ReportingCategoryRow | null => {
+            const id = Number(r.id);
+            if (!Number.isFinite(id)) return null;
+            const nm = (r.category_name != null ? String(r.category_name) : '').trim();
+            return { id, category_name: nm || 'Uncategorized' };
+          }
+        );
+        setReportingCategoryRows(mapped.filter((r): r is ReportingCategoryRow => r != null));
+      } catch {
+        if (!cancelled) setReportingCategoryRows([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -1026,6 +1143,242 @@ const Reporting: React.FC = () => {
       ],
     };
   }, [unsoldStockByCategory]);
+
+  /** Prefer API field; if missing (old server), derive sold counts from stock rows + categories. */
+  const soldCountForInventoryStack = useMemo((): SoldCountByCategoryDatum[] => {
+    if (soldCountByCategory.length > 0) {
+      return soldCountByCategory;
+    }
+    if (reportingCategoryRows.length === 0 || stockRowsForSalesData.length === 0) {
+      return [];
+    }
+    const idToName = new Map(reportingCategoryRows.map((c) => [c.id, c.category_name]));
+    const yearAll = selectedYear === 'all';
+    const y = yearAll ? null : Number(selectedYear);
+    const counts = new Map<string, number>();
+    for (const row of stockRowsForSalesData) {
+      if (row.sale_date == null || String(row.sale_date).trim() === '') continue;
+      const d = new Date(row.sale_date);
+      if (Number.isNaN(d.getTime())) continue;
+      if (!yearAll && (y == null || !Number.isFinite(y) || d.getFullYear() !== y)) continue;
+      const raw = row.category_id;
+      const cid = raw != null && raw !== '' ? Number(raw) : NaN;
+      const name =
+        Number.isFinite(cid) && idToName.has(cid) ? idToName.get(cid)! : 'Uncategorized';
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    return Array.from(counts.entries()).map(([category, soldCount]) => ({ category, soldCount }));
+  }, [soldCountByCategory, reportingCategoryRows, stockRowsForSalesData, selectedYear]);
+
+  /** Map category → sum(sale − buy) on sold lines in reporting period; API first, else derive from stock rows. */
+  const soldPnlForInventoryStack = useMemo(() => {
+    const m = new Map<string, number>();
+    if (soldCategoryNetProfit.length > 0) {
+      soldCategoryNetProfit.forEach((r) => m.set(r.category, r.netProfit));
+      return m;
+    }
+    if (reportingCategoryRows.length === 0 || stockRowsForSalesData.length === 0) {
+      return m;
+    }
+    const idToName = new Map(reportingCategoryRows.map((c) => [c.id, c.category_name]));
+    const yearAll = selectedYear === 'all';
+    const y = yearAll ? null : Number(selectedYear);
+    for (const row of stockRowsForSalesData) {
+      if (row.sale_date == null || String(row.sale_date).trim() === '') continue;
+      const d = new Date(row.sale_date);
+      if (Number.isNaN(d.getTime())) continue;
+      if (!yearAll && (y == null || !Number.isFinite(y) || d.getFullYear() !== y)) continue;
+      const sale = parseStockNumber(row.sale_price);
+      if (sale == null || sale <= 0) continue;
+      const buy = parseStockNumber(row.purchase_price) ?? 0;
+      const raw = row.category_id;
+      const cid = raw != null && raw !== '' ? Number(raw) : NaN;
+      const name =
+        Number.isFinite(cid) && idToName.has(cid) ? idToName.get(cid)! : 'Uncategorized';
+      m.set(name, (m.get(name) ?? 0) + (sale - buy));
+    }
+    return m;
+  }, [soldCategoryNetProfit, reportingCategoryRows, stockRowsForSalesData, selectedYear]);
+
+  const stockAnalysisCategoryStackBundle = useMemo(() => {
+    const unsoldMapCount = new Map(unsoldStockByCategory.map((u) => [u.category, u.itemCount]));
+    const unsoldMapValue = new Map(unsoldStockByCategory.map((u) => [u.category, u.totalValue]));
+    const soldMap = new Map(soldCountForInventoryStack.map((s) => [s.category, s.soldCount]));
+    const categories = new Set<string>([
+      ...Array.from(unsoldMapCount.keys()),
+      ...Array.from(soldMap.keys()),
+    ]);
+    const rows: CategoryInventorySoldStackRow[] = Array.from(categories)
+      .map((category) => {
+        const sold = soldMap.get(category) ?? 0;
+        return {
+          category,
+          inStock: unsoldMapCount.get(category) ?? 0,
+          sold,
+          unsoldBuyInValue: unsoldMapValue.get(category) ?? 0,
+          soldNetProfit:
+            sold > 0 && soldPnlForInventoryStack.has(category)
+              ? soldPnlForInventoryStack.get(category)!
+              : null,
+        };
+      })
+      .filter((r) => r.inStock + r.sold > 0)
+      .sort((a, b) => {
+        if (b.inStock !== a.inStock) return b.inStock - a.inStock;
+        if (b.sold !== a.sold) return b.sold - a.sold;
+        return a.category.localeCompare(b.category, undefined, { sensitivity: 'base' });
+      });
+    if (rows.length === 0) return null;
+    const labelMax = 36;
+    const labels = rows.map((r) => {
+      let l = r.category;
+      if (l.length > labelMax) l = `${l.slice(0, labelMax - 1)}…`;
+      return l;
+    });
+    const data = {
+      labels,
+      datasets: [
+        {
+          label: 'In stock',
+          data: rows.map((r) => r.inStock),
+          backgroundColor: 'rgba(255, 165, 120, 0.72)',
+          borderColor: 'rgba(255, 214, 91, 0.45)',
+          borderWidth: 1,
+          stack: 'cat',
+        },
+        {
+          label: 'Sold',
+          data: rows.map((r) => r.sold),
+          backgroundColor: 'rgba(130, 210, 155, 0.78)',
+          borderColor: 'rgba(255, 214, 91, 0.45)',
+          borderWidth: 1,
+          stack: 'cat',
+        },
+      ],
+    };
+    return { data, rows };
+  }, [unsoldStockByCategory, soldCountForInventoryStack, soldPnlForInventoryStack]);
+
+  const stockAnalysisCategoryInventorySoldStackData = stockAnalysisCategoryStackBundle?.data ?? null;
+  const stockAnalysisCategoryInventorySoldStackRows =
+    stockAnalysisCategoryStackBundle?.rows ?? EMPTY_CATEGORY_STACK_ROWS;
+
+  const stockAnalysisCategoryInventorySoldStackOptions = useMemo<ChartOptions<'bar'>>(
+    () => ({
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: {
+        mode: 'index',
+        intersect: false,
+        axis: 'y',
+      },
+      plugins: {
+        legend: {
+          display: true,
+          position: 'bottom',
+          labels: {
+            color: 'rgba(255, 248, 226, 0.85)',
+            boxWidth: 12,
+            boxHeight: 12,
+            padding: 16,
+          },
+        },
+        tooltip: {
+          mode: 'index',
+          intersect: false,
+          axis: 'y',
+          callbacks: {
+            title(items) {
+              if (!items.length) return '';
+              const chart = items[0].chart;
+              const i = items[0].dataIndex;
+              const lab = chart.data.labels;
+              const raw = lab != null && i >= 0 && i < lab.length ? lab[i] : '';
+              return typeof raw === 'string' ? raw : String(raw ?? '');
+            },
+            label(ctx) {
+              const n = typeof ctx.raw === 'number' ? ctx.raw : Number(ctx.raw);
+              const label = ctx.dataset.label ?? '';
+              return `${label}: ${n} item${n === 1 ? '' : 's'}`;
+            },
+            footer(items) {
+              if (!items.length) return '';
+              const i = items[0].dataIndex;
+              const chart = items[0].chart;
+              const sum = chart.data.datasets.reduce(
+                (acc, d) => acc + Number(Array.isArray(d.data) ? d.data[i] : 0),
+                0
+              );
+              const row = stockAnalysisCategoryInventorySoldStackRows[i];
+              const parts = [`Total: ${sum} item${sum === 1 ? '' : 's'}`];
+              if (row) {
+                if (row.unsoldBuyInValue > 0) {
+                  parts.push(`Inventory buy-in: ${formatCurrency(row.unsoldBuyInValue)}`);
+                }
+                if (row.sold > 0) {
+                  if (row.soldNetProfit != null && Number.isFinite(row.soldNetProfit)) {
+                    parts.push(
+                      row.soldNetProfit >= 0
+                        ? `Sold P/L: ${formatCurrency(row.soldNetProfit)} profit`
+                        : `Sold P/L: ${formatCurrency(Math.abs(row.soldNetProfit))} loss`
+                    );
+                  } else {
+                    parts.push('Sold P/L: —');
+                  }
+                }
+              }
+              return parts.join('\n');
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          stacked: true,
+          beginAtZero: true,
+          title: {
+            display: true,
+            text: 'Number of items',
+            color: 'rgba(255, 248, 226, 0.65)',
+            font: { size: 12 },
+          },
+          ticks: {
+            color: 'rgba(255, 248, 226, 0.8)',
+            precision: 0,
+          },
+          grid: { color: 'rgba(255, 214, 91, 0.1)' },
+        },
+        y: {
+          stacked: true,
+          ticks: {
+            color: 'rgba(255, 248, 226, 0.88)',
+            font: { size: 11 },
+          },
+          grid: { display: false },
+        },
+      },
+    }),
+    [stockAnalysisCategoryInventorySoldStackRows]
+  );
+
+  const handleCopyStockCategoryAskAiPrompt = useCallback(async () => {
+    if (stockAnalysisCategoryInventorySoldStackRows.length === 0) return;
+    const periodLabel =
+      selectedYear === 'all'
+        ? 'All time (same scope as Reporting → Stock analysis year selector)'
+        : `Calendar year ${selectedYear} (sale date for sold metrics; purchase date year for unsold inventory value where applicable)`;
+    const text = buildStockAnalysisCategoryAskAiPrompt({
+      periodLabel,
+      rows: stockAnalysisCategoryInventorySoldStackRows,
+      yearItemsStats,
+    });
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (e) {
+      console.warn('Ask AI clipboard copy failed:', e);
+    }
+  }, [stockAnalysisCategoryInventorySoldStackRows, selectedYear, yearItemsStats]);
 
   // Line chart options for trailing inventory
   const lineChartOptions: ChartOptions<'line'> = {
@@ -2398,6 +2751,41 @@ const Reporting: React.FC = () => {
           </div>
         </div>
         <div className="reporting-grid">
+          <section className="reporting-card">
+            <div className="card-header">
+              <h2>Inventory and sold by category</h2>
+            </div>
+            {stockAnalysisCategoryInventorySoldStackData ? (
+              <>
+                <div
+                  className="chart-wrapper chart-wrapper--category-inventory-sold-stack"
+                  style={{
+                    height: `${Math.max(
+                      280,
+                      (stockAnalysisCategoryInventorySoldStackData.labels?.length ?? 0) * 40 + 120
+                    )}px`,
+                  }}
+                >
+                  <Bar
+                    data={stockAnalysisCategoryInventorySoldStackData}
+                    options={stockAnalysisCategoryInventorySoldStackOptions}
+                  />
+                </div>
+                <div className="reporting-stock-category-ask-ai-wrap">
+                  <button
+                    type="button"
+                    className="reporting-stock-category-ask-ai-btn"
+                    onClick={() => void handleCopyStockCategoryAskAiPrompt()}
+                  >
+                    Ask AI — copy prompt for ChatGPT
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="reporting-empty">No category inventory data for this period.</div>
+            )}
+          </section>
+
           <section className="reporting-card">
             <div className="card-header">
               <h2>Sales by Category</h2>

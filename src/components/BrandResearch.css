@@ -2361,7 +2361,7 @@ button.image-upload-label {
   text-align: center;
 }
 
-/* Brand tab: Visit website (50%) + clothing category stock link (50%) */
+/* Brand tab: Visit website (50%) + Menswear category stock link (50%) */
 .brand-tag-examples-website-category-split {
   display: flex;
   flex-direction: row;
@@ -2659,14 +2659,57 @@ button.image-upload-label {
   border-top: 1px solid rgba(255, 214, 91, 0.1);
 }
 
-.brand-research-brand-totals--five-cols {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  max-width: min(100%, 1100px);
+.brand-research-brand-sales-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
+  max-width: min(100%, 960px);
+  margin: 28px auto 0;
+  box-sizing: border-box;
 }
 
-@media (max-width: 960px) {
-  .brand-research-brand-totals--five-cols {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+/* Single 4×2 grid so row 1 and row 2 share column tracks (aligned with full-width divider). */
+.brand-research-brand-totals--sales-metrics-eight {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  column-gap: 24px;
+  row-gap: 0;
+  max-width: 100%;
+}
+
+.brand-research-brand-sales-metrics .brand-research-brand-totals--sales-metrics-eight {
+  margin-top: 0;
+  margin-bottom: 0;
+  padding: 20px 0 8px;
+  border-top: 1px solid rgba(255, 214, 91, 0.15);
+}
+
+.brand-research-brand-totals--sales-metrics-eight .brand-research-brand-totals-col:nth-child(-n + 4) {
+  padding-bottom: 14px;
+}
+
+.brand-research-brand-totals--sales-metrics-eight .brand-research-brand-totals-col:nth-child(n + 6) {
+  padding-top: 14px;
+}
+
+.brand-research-brand-metrics-row-divider {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0;
+  height: 0;
+  border: none;
+  border-top: 1px solid rgba(255, 214, 91, 0.1);
+}
+
+@media (max-width: 900px) {
+  .brand-research-brand-totals--sales-metrics-eight {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .brand-research-brand-totals.brand-research-brand-totals--sales-metrics-eight {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -2783,42 +2826,58 @@ button.image-upload-label {
   margin-top: 32px;
 }
 
+.brand-research-sales-table-block--to-buy {
+  margin-top: 36px;
+}
+
 .brand-research-sales-table-block--unsold {
   margin-top: 36px;
 }
 
-.brand-research-unsold-ask-ai-wrap {
-  margin-top: 16px;
+.brand-research-sales-table-block--to-buy + .brand-research-sales-table-block--unsold {
+  margin-top: 28px;
+}
+
+.brand-research-items-to-buy-tags,
+.brand-research-avoid-buying-tags {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  box-sizing: border-box;
 }
 
-.brand-research-unsold-ask-ai-button {
-  padding: 12px 22px;
+.brand-research-items-to-buy-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 14px;
   border-radius: 999px;
-  border: 1px solid rgba(96, 165, 250, 0.55);
-  background: rgba(37, 99, 235, 0.5);
-  color: #eff6ff;
-  font-size: 0.82rem;
-  font-weight: 700;
-  letter-spacing: 0.08rem;
-  text-transform: uppercase;
-  cursor: pointer;
-  transition:
-    background 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
-  box-shadow:
-    inset 0 0 14px rgba(59, 130, 246, 0.22),
-    0 1px 0 rgba(255, 255, 255, 0.06);
+  font-size: 0.84rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.25;
+  color: rgba(210, 255, 225, 0.96);
+  background: rgba(96, 255, 159, 0.2);
+  border: 1px solid rgba(96, 255, 159, 0.48);
+  box-shadow: 0 0 14px rgba(96, 255, 159, 0.14);
 }
 
-.brand-research-unsold-ask-ai-button:hover {
-  background: rgba(37, 99, 235, 0.68);
-  border-color: rgba(147, 197, 253, 0.75);
-  box-shadow: 0 0 18px rgba(59, 130, 246, 0.35);
+.brand-research-avoid-buying-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.25;
+  color: rgba(255, 236, 220, 0.95);
+  background: rgba(255, 125, 125, 0.16);
+  border: 1px solid rgba(255, 125, 125, 0.42);
+  box-shadow: 0 0 12px rgba(255, 100, 100, 0.12);
 }
 
 .brand-research-sales-table-scroll {
@@ -3540,7 +3599,7 @@ button.image-upload-label {
   text-decoration: underline;
 }
 
-/* Research: Clothing category tab (URL tab=menswear-categories) */
+/* Research: Menswear Categories tab (URL tab=menswear-categories) */
 .menswear-categories-page {
   width: 100%;
   max-width: 720px;
@@ -3554,6 +3613,362 @@ button.image-upload-label {
   max-width: min(1280px, 100%);
 }
 
+/* Clothing Types overview: full-width link grid above charts (nothing can overlap the list). */
+.clothing-types-browse {
+  position: relative;
+  z-index: 5;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 0 0 20px;
+  margin: 0 0 12px;
+  border-bottom: 1px solid rgba(255, 214, 91, 0.28);
+  text-align: left;
+  pointer-events: auto;
+}
+
+.clothing-types-browse-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 10px 12px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.clothing-types-browse-item {
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.clothing-types-browse-link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 214, 91, 0.28);
+  background: rgba(255, 214, 91, 0.08);
+  color: var(--neon-primary-strong);
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  pointer-events: auto;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.clothing-types-browse-link:hover {
+  border-color: rgba(255, 214, 91, 0.5);
+  background: rgba(255, 214, 91, 0.14);
+  box-shadow: 0 0 14px rgba(255, 214, 91, 0.12);
+}
+
+.clothing-types-browse-link:focus-visible {
+  outline: 2px solid var(--neon-primary-strong);
+  outline-offset: 2px;
+}
+
+.clothing-types-browse-link-sub {
+  font-size: 0.68rem;
+  font-weight: 500;
+  line-height: 1.3;
+  color: rgba(255, 248, 226, 0.48);
+}
+
+.clothing-types-charts-below {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 0 0;
+}
+
+.clothing-types-charts-below.menswear-categories-split-right {
+  border-left: none;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+/* Period filter shared by all three clothing-type pies */
+.clothing-types-charts-period-bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 20px 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Three pies: equal columns, equal chart canvas height, titles aligned */
+.clothing-types-three-pies-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 16px;
+  width: 100%;
+  box-sizing: border-box;
+  align-items: stretch;
+}
+
+.clothing-types-three-pies-row > .clothing-types-pie-column {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  min-height: 0;
+  text-align: center;
+}
+
+.clothing-types-three-pies-row .clothing-types-pie-column-header {
+  flex: 0 0 auto;
+  width: 100%;
+  min-height: 3.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  margin: 0 0 12px 0;
+  box-sizing: border-box;
+}
+
+.clothing-types-three-pies-row .menswear-categories-sales-pie-header.clothing-types-pie-column-header {
+  flex-direction: column;
+  gap: 0;
+  margin-bottom: 12px;
+}
+
+.clothing-types-three-pies-row .menswear-categories-sales-pie-header.clothing-types-pie-column-header .menswear-categories-sales-pie-title {
+  width: 100%;
+  padding-bottom: 0;
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.03rem;
+  line-height: 1.25;
+}
+
+.clothing-types-three-pies-row h4.clothing-types-pie-column-header {
+  margin: 0 0 12px 0;
+  font-size: 0.95rem;
+  line-height: 1.25;
+}
+
+.clothing-types-charts-below .clothing-types-three-pies-row .menswear-categories-sales-pie {
+  width: 100%;
+  max-width: none;
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.clothing-types-charts-below .clothing-types-three-pies-row .menswear-categories-inventory-block {
+  width: 100%;
+  max-width: none;
+  margin-top: 0;
+  margin-left: 0;
+  margin-right: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.clothing-types-charts-below .clothing-types-three-pies-row .menswear-categories-sales-pie-chart-wrap,
+.clothing-types-charts-below .clothing-types-three-pies-row .menswear-categories-inventory-chart-wrap {
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 100%;
+  height: 300px;
+  margin-left: auto;
+  margin-right: auto;
+  margin-top: 0;
+}
+
+@media (max-width: 1100px) {
+  .clothing-types-three-pies-row {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .clothing-types-three-pies-row > *:not(:first-child) {
+    border-top: 1px solid rgba(255, 214, 91, 0.18);
+    padding-top: 18px;
+    margin-top: 2px;
+  }
+
+  .clothing-types-charts-below .clothing-types-three-pies-row .menswear-categories-sales-pie-chart-wrap,
+  .clothing-types-charts-below .clothing-types-three-pies-row .menswear-categories-inventory-chart-wrap {
+    height: 300px;
+    max-width: min(100%, 520px);
+  }
+}
+
+/* Stacked bar + table: absolute sold vs unsold counts per type (below the three pies). */
+.clothing-types-invest-risk {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 28px;
+  padding-top: 22px;
+  border-top: 1px solid rgba(255, 214, 91, 0.18);
+  text-align: left;
+}
+
+.clothing-types-invest-risk-title {
+  margin: 0 0 10px 0;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.02rem;
+  color: rgba(255, 248, 226, 0.95);
+}
+
+.clothing-types-invest-risk-intro {
+  margin: 0 0 16px 0;
+  max-width: 52rem;
+  line-height: 1.45;
+}
+
+.clothing-types-invest-risk-chart-wrap {
+  width: 100%;
+  max-width: 100%;
+  height: 440px;
+  min-height: 280px;
+  margin: 0 0 8px 0;
+  box-sizing: border-box;
+}
+
+.clothing-types-invest-risk-table-caption {
+  margin: 12px 0 8px 0;
+  font-size: 0.85rem;
+}
+
+.clothing-types-invest-risk-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.clothing-types-invest-risk-table {
+  width: 100%;
+  min-width: 420px;
+  font-size: 0.88rem;
+}
+
+.clothing-types-invest-risk-type-link {
+  color: rgba(255, 214, 91, 0.95);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.clothing-types-invest-risk-type-link:hover {
+  color: rgba(255, 248, 226, 1);
+}
+
+.clothing-type-detail-metrics {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 20px 0;
+  padding: 0 8px;
+  text-align: left;
+}
+
+/* Match extended metrics block width to the items table below (full content width, no 960px cap). */
+.clothing-type-detail-metrics .brand-research-brand-sales-metrics {
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+.clothing-type-detail-metrics .brand-research-brand-totals.brand-research-brand-totals--sales-metrics-eight {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+.clothing-type-detail-error {
+  margin: 0 8px 12px 8px;
+}
+
+.clothing-type-detail-loading {
+  margin: 0 8px 16px 8px;
+}
+
+.clothing-type-detail-items-section {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 28px 0;
+  padding: 0 8px;
+  text-align: left;
+}
+
+.clothing-type-detail-items-heading {
+  margin: 0 0 8px 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.clothing-type-detail-items-hint {
+  margin: 0 0 14px 0;
+  font-size: 0.8rem;
+}
+
+.clothing-type-detail-items-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 214, 91, 0.15);
+}
+
+.clothing-type-detail-brand-filter-link {
+  color: var(--neon-primary-strong);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.clothing-type-detail-brand-filter-link:hover {
+  text-decoration: underline;
+}
+
+.clothing-type-detail-signals-heading {
+  margin: 24px 0 6px 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(255, 248, 226, 0.75);
+  text-align: left;
+  padding: 0 8px;
+}
+
+.clothing-type-detail-signals-hint {
+  margin: 0 0 18px 0;
+  padding: 0 8px;
+  text-align: left;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+a.menswear-categories-brand-link {
+  cursor: pointer;
+}
+
 .menswear-categories-split {
   display: flex;
   flex-direction: row;
@@ -3564,12 +3979,18 @@ button.image-upload-label {
   padding: 8px 0 0;
 }
 
+/* flex-shrink 0 + min-width: without this, min-width:0 lets the column shrink to 0 while list
+   text still paints (overflow visible), so clicks hit the chart column behind. */
 .menswear-categories-split-left {
-  flex: 0 1 40%;
+  flex: 0 0 40%;
+  width: 40%;
   max-width: 40%;
-  min-width: 0;
+  min-width: min(260px, 100%);
   box-sizing: border-box;
   padding: 4px 20px 4px 8px;
+  position: relative;
+  z-index: 2;
+  isolation: isolate;
 }
 
 .menswear-categories-split-right {
@@ -3578,6 +3999,10 @@ button.image-upload-label {
   box-sizing: border-box;
   padding: 4px 8px 4px 24px;
   border-left: 1px solid rgba(255, 214, 91, 0.28);
+  overflow: hidden;
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
 }
 
 .menswear-categories-subpanel-tabs {
@@ -3756,12 +4181,15 @@ button.image-upload-label {
 
   .menswear-categories-split-left {
     flex: 1 1 auto;
+    width: auto;
     max-width: none;
+    min-width: 0;
     padding: 4px 8px;
   }
 
   .menswear-categories-split-right {
     flex: 1 1 auto;
+    overflow: visible;
     border-left: none;
     padding: 20px 8px 4px;
     border-top: 1px solid rgba(255, 214, 91, 0.28);
@@ -3796,6 +4224,30 @@ button.image-upload-label {
   padding: 0 8px 0;
 }
 
+/* Clothing types tab — type detail: back left, title centered on same row */
+.clothing-type-detail-type-header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 12px 0;
+  padding: 4px 8px 0;
+}
+
+.clothing-type-detail-type-header-back {
+  flex: 0 0 auto;
+}
+
+.clothing-type-detail-type-header-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: center;
+}
+
+.clothing-type-detail-type-header .menswear-categories-detail-title {
+  margin: 0;
+}
+
 .menswear-categories-detail-split {
   display: flex;
   flex-direction: row;
@@ -3807,12 +4259,16 @@ button.image-upload-label {
 }
 
 .menswear-categories-detail-split-brands {
-  flex: 0 1 40%;
+  flex: 0 0 40%;
+  width: 40%;
   max-width: 40%;
-  min-width: 0;
+  min-width: min(260px, 100%);
   box-sizing: border-box;
   padding: 4px 20px 4px 8px;
   border-right: 1px solid rgba(255, 214, 91, 0.28);
+  position: relative;
+  z-index: 2;
+  isolation: isolate;
 }
 
 .menswear-categories-detail-split-brands .menswear-categories-detail {
@@ -3824,6 +4280,10 @@ button.image-upload-label {
   min-width: 0;
   box-sizing: border-box;
   padding: 4px 8px 4px 24px;
+  overflow: hidden;
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
 }
 
 .menswear-categories-detail-split-chart .menswear-categories-subpanel-tabs {
@@ -3915,7 +4375,9 @@ button.image-upload-label {
 
   .menswear-categories-detail-split-brands {
     flex: 1 1 auto;
+    width: auto;
     max-width: none;
+    min-width: 0;
     padding: 4px 8px;
     border-right: none;
     border-bottom: 1px solid rgba(255, 214, 91, 0.28);
@@ -3925,6 +4387,7 @@ button.image-upload-label {
 
   .menswear-categories-detail-split-chart {
     flex: 1 1 auto;
+    overflow: visible;
     padding: 4px 8px;
   }
 
@@ -4426,6 +4889,8 @@ button.image-upload-label {
   border: 1px solid rgba(255, 214, 91, 0.22);
   background: rgba(255, 214, 91, 0.06);
   color: inherit;
+  font: inherit;
+  text-decoration: none;
   cursor: pointer;
   transition:
     border-color 0.2s ease,
@@ -4441,6 +4906,11 @@ button.image-upload-label {
   border-color: rgba(255, 214, 91, 0.45);
   background: rgba(255, 214, 91, 0.1);
   box-shadow: var(--neon-shadow, 0 0 14px rgba(255, 214, 91, 0.12));
+}
+
+a.menswear-categories-card:focus-visible {
+  outline: 2px solid var(--neon-primary-strong);
+  outline-offset: 2px;
 }
 
 .menswear-categories-card-name {
@@ -4500,6 +4970,43 @@ button.image-upload-label {
   padding: 8px 10px;
 }
 
+.menswear-categories-sort-icons-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.menswear-categories-brands-edit-toggle {
+  padding: 6px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 214, 91, 0.35);
+  background: rgba(255, 214, 91, 0.08);
+  color: var(--text-strong);
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.menswear-categories-brands-edit-toggle:hover {
+  background: rgba(255, 214, 91, 0.14);
+  border-color: rgba(255, 214, 91, 0.5);
+}
+
+.menswear-categories-brands-edit-toggle--active {
+  border-color: rgba(248, 113, 113, 0.55);
+  background: rgba(248, 113, 113, 0.12);
+  color: #ffc9c9;
+}
+
+.menswear-categories-brands-edit-toggle--active:hover {
+  border-color: rgba(248, 113, 113, 0.75);
+  background: rgba(248, 113, 113, 0.18);
+}
+
 .menswear-categories-sort-left {
   display: flex;
   flex-wrap: wrap;
@@ -4539,6 +5046,12 @@ button.image-upload-label {
   border-color: rgba(140, 180, 255, 0.55);
   background: rgba(59, 130, 246, 0.18);
   box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.25);
+}
+
+.menswear-categories-icon-circle-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 .menswear-categories-add-brand-circle-btn {
@@ -4745,6 +5258,73 @@ button.image-upload-label {
   border-bottom: none;
 }
 
+.menswear-categories-brand-row--edit {
+  cursor: default;
+}
+
+.menswear-categories-brand-edit-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  font-size: 0.95rem;
+  color: var(--text-strong);
+}
+
+.menswear-categories-brand-edit-checkbox {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  accent-color: rgba(248, 113, 113, 0.85);
+  cursor: pointer;
+}
+
+.menswear-categories-brand-edit-name {
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.menswear-categories-remove-brands-footer {
+  margin-top: 20px;
+  padding: 16px 14px 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(248, 113, 113, 0.22);
+  background: rgba(248, 113, 113, 0.06);
+}
+
+.menswear-categories-remove-from-category-btn {
+  padding: 10px 18px;
+  border-radius: 10px;
+  border: 1px solid rgba(248, 113, 113, 0.5);
+  background: rgba(248, 113, 113, 0.16);
+  color: #ffc9c9;
+  font-weight: 600;
+  font-size: 0.92rem;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.menswear-categories-remove-from-category-btn:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.26);
+  border-color: rgba(248, 113, 113, 0.7);
+}
+
+.menswear-categories-remove-from-category-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.menswear-categories-remove-brands-hint {
+  margin: 10px 0 0 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  max-width: 36rem;
+}
+
 .menswear-categories-brand-link {
   color: var(--neon-primary-strong);
   text-decoration: none;
@@ -4796,7 +5376,12 @@ button.menswear-categories-brand-link {
 }
 
 .menswear-categories-brand-stock-lines-heading-row-end {
+  justify-self: end;
+  align-self: center;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .menswear-categories-brand-stock-lines-title {
@@ -4811,15 +5396,29 @@ button.menswear-categories-brand-link {
   max-width: min(100%, 28rem);
 }
 
-.menswear-categories-brand-stock-lines-actions-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px 20px;
-  margin-bottom: 16px;
-  width: 100%;
-  box-sizing: border-box;
+@media (max-width: 720px) {
+  .menswear-categories-brand-stock-lines-heading-row {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto;
+    row-gap: 12px;
+  }
+
+  .menswear-categories-brand-stock-lines-heading-row-start {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .menswear-categories-brand-stock-lines-heading-row-end {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+  }
+
+  .menswear-categories-brand-stock-lines-title {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    max-width: 100%;
+  }
 }
 
 .menswear-categories-brand-stock-lines-filter {
@@ -4828,6 +5427,13 @@ button.menswear-categories-brand-link {
   align-items: center;
   justify-content: flex-end;
   flex: 0 0 auto;
+  max-width: 100%;
+}
+
+.menswear-categories-brand-stock-lines-heading-row-end .menswear-categories-brand-stock-lines-filter-select {
+  min-width: 0;
+  width: 100%;
+  max-width: min(100%, 260px);
 }
 
 .menswear-categories-brand-stock-lines-filter-select {
@@ -4847,15 +5453,47 @@ button.menswear-categories-brand-link {
   box-sizing: border-box;
 }
 
+.menswear-categories-brand-stock-lines-sales-panel .brand-research-brand-sales-metrics,
 .menswear-categories-brand-stock-lines-sales-panel .brand-research-brand-totals {
   margin-top: 0;
   max-width: 100%;
+}
+
+.menswear-categories-brand-stock-lines-sales-panel .brand-research-brand-sales-metrics {
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .menswear-categories-brand-stock-lines-table-wrap {
   overflow-x: auto;
   border-radius: 12px;
   border: 1px solid rgba(255, 214, 91, 0.14);
+}
+
+.menswear-categories-brand-stock-category-chart-block {
+  margin-top: 24px;
+  width: 100%;
+  max-width: min(100%, 960px);
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 214, 91, 0.12);
+  text-align: left;
+}
+
+.menswear-categories-brand-stock-category-chart-heading {
+  margin: 0 0 14px 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: rgba(255, 248, 226, 0.9);
+  text-align: center;
+}
+
+.menswear-categories-brand-stock-category-chart-inner {
+  width: 100%;
+  position: relative;
 }
 
 .menswear-categories-brand-stock-lines-research-below {
@@ -4978,6 +5616,14 @@ button.menswear-categories-brand-link {
   font-weight: 600;
   letter-spacing: 0.03rem;
   color: var(--text-strong);
+}
+
+.menswear-categories-inventory-ratio-note {
+  margin: -8px auto 14px auto;
+  max-width: 520px;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  text-align: center;
 }
 
 .menswear-categories-inventory-loading {
