@@ -198,6 +198,28 @@ function buildStockInstagramAskAiPrompt(input: {
   return lines.join('\n');
 }
 
+function buildStockListingImageBackgroundPrompt(brandName: string): string {
+  const brand =
+    brandName.trim() && brandName.trim() !== '(not set)'
+      ? brandName.trim()
+      : '(specify the clothing brand — not set on this stock item)';
+  return [
+    'I will upload a product photo of a clothing item. Use my upload as the source image.',
+    '',
+    'Prepare the image to improve online sales:',
+    '',
+    '1. Remove the background so the garment is cleanly cut out.',
+    '2. Add a light, neutral grey gradient background, slightly brighter toward the centre (focal emphasis in the middle).',
+    '3. Keep clear space on both sides of the item; centre the garment if needed for a balanced composition.',
+    `4. Add the **${brand}** clothing brand logo.`,
+    '   - Use a thin, tall (vertical) lock-up rather than a wide horizontal logo if multiple layouts exist.',
+    '   - The logo must be at most **12% of the total image height**.',
+    '5. Make the clothing item as large as possible within the frame using the remaining space after the logo and margins — the product should dominate; the logo stays secondary.',
+    '',
+    'Deliver one polished listing-ready image suitable for marketplaces.',
+  ].join('\n');
+}
+
 const Stock: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -1733,6 +1755,24 @@ const Stock: React.FC = () => {
     }
   }, [editingRowId, brands, categories, createForm]);
 
+  const handleCopyListingImageBgPrompt = useCallback(async () => {
+    if (!editingRowId) return;
+    setError(null);
+    const brandName =
+      brands.find((b) => String(b.id) === String(createForm.brand_id))?.brand_name?.trim() ||
+      '(not set)';
+    const text = buildStockListingImageBackgroundPrompt(brandName);
+    try {
+      await navigator.clipboard.writeText(text);
+      setSuccessMessage(
+        'Listing image prompt copied — paste into ChatGPT, then upload your photo when asked.'
+      );
+      window.setTimeout(() => setSuccessMessage(null), 5000);
+    } catch {
+      setError('Could not copy to clipboard.');
+    }
+  }, [editingRowId, brands, createForm.brand_id]);
+
   const handleAddToOrders = async () => {
     if (!editingRowId || editingRowInOrders || addingToOrder) return;
 
@@ -1964,6 +2004,30 @@ const Stock: React.FC = () => {
                     }
                   >
                     <AddToOrdersIcon className="stock-add-to-order-icon" />
+                  </button>
+                  <button
+                    type="button"
+                    className="stock-edit-bg-prompt-btn"
+                    onClick={handleCopyListingImageBgPrompt}
+                    disabled={creating || deleting}
+                    aria-label="Copy ChatGPT prompt: remove background, grey gradient, brand logo"
+                    title="Copy prompt for ChatGPT: background removal, neutral grey gradient, brand logo (uses selected brand)"
+                  >
+                    <svg
+                      className="stock-edit-bg-prompt-btn-icon"
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.75"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden
+                    >
+                      <rect x="3" y="5" width="18" height="14" rx="2" />
+                      <circle cx="8.5" cy="10" r="1.75" />
+                      <path d="M21 17l-5.09-5.09a1.5 1.5 0 0 0-2.12 0L9 17" />
+                    </svg>
                   </button>
                   <button
                     type="button"

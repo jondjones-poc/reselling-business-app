@@ -185,6 +185,49 @@
   justify-content: center;
 }
 
+.stock-edit-bg-prompt-btn {
+  flex: 0 0 auto;
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(180, 210, 255, 0.42);
+  background: linear-gradient(
+    155deg,
+    rgba(100, 155, 255, 0.2) 0%,
+    rgba(255, 214, 91, 0.12) 55%,
+    rgba(140, 255, 195, 0.08) 100%
+  );
+  color: rgba(255, 248, 226, 0.95);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+  box-sizing: border-box;
+  align-self: center;
+}
+
+.stock-edit-bg-prompt-btn:hover:not(:disabled) {
+  border-color: rgba(210, 230, 255, 0.6);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+.stock-edit-bg-prompt-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.stock-edit-bg-prompt-btn-icon {
+  width: 24px;
+  height: 24px;
+}
+
 .stock-edit-row-1-metrics-box {
   flex: 0 1 auto;
   min-width: min-content;
@@ -2968,4 +3011,356 @@ button.stock-close-circle-btn:disabled {
 .export-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Expenses secondary tabs (Expenses | Projections) */
+.expenses-tabs {
+  display: flex;
+  gap: 0;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto 28px auto;
+  padding: 0;
+  border-radius: 16px;
+  border: 1px solid var(--neon-border);
+  background: rgba(5, 4, 3, 0.85);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.expenses-tab {
+  flex: 1 1 50%;
+  margin: 0;
+  padding: 14px 20px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 248, 226, 0.65);
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.06rem;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.expenses-tab:not(:last-child) {
+  border-right: 1px solid rgba(255, 214, 91, 0.18);
+}
+
+.expenses-tab:hover {
+  color: var(--neon-primary-strong);
+  background: rgba(255, 214, 91, 0.06);
+}
+
+.expenses-tab--active {
+  color: var(--neon-primary-strong);
+  background: rgba(255, 214, 91, 0.12);
+  box-shadow: inset 0 -3px 0 0 rgba(255, 214, 91, 0.55);
+}
+
+.expenses-projections {
+  width: 100%;
+}
+
+.expenses-projections-year {
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.expenses-projections-year label {
+  color: rgba(255, 248, 226, 0.75);
+  font-weight: 600;
+  letter-spacing: 0.04rem;
+}
+
+.expenses-projections-year select {
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 214, 91, 0.25);
+  background: rgba(5, 4, 3, 0.9);
+  color: var(--neon-primary-strong);
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.expenses-projections-chart-wrap {
+  position: relative;
+  width: 100%;
+  height: min(420px, 55vh);
+  margin-bottom: 28px;
+}
+
+.expenses-projections-summary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.expenses-projections-summary-card {
+  flex: 0 1 220px;
+  min-width: 200px;
+  max-width: 280px;
+  background: rgba(5, 4, 3, 0.65);
+  border: 1px solid rgba(255, 214, 91, 0.15);
+  border-radius: 16px;
+  padding: 16px 18px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.expenses-projections-summary-card .label {
+  display: block;
+  font-size: 0.75rem;
+  letter-spacing: 0.06rem;
+  text-transform: uppercase;
+  color: rgba(255, 248, 226, 0.55);
+  margin-bottom: 8px;
+}
+
+.expenses-projections-summary-card .value {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--neon-primary-strong);
+}
+
+.expenses-projections-listing-goal {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  justify-content: center;
+  gap: 10px 12px;
+  margin-bottom: 28px;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  box-sizing: border-box;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 2px;
+}
+
+.expenses-projections-listing-goal-col {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.expenses-projections-listing-goal-col--stat {
+  flex: 0 0 auto;
+  width: min(148px, 26vw);
+  min-width: 118px;
+  max-width: 160px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.expenses-projections-listing-goal-col--stat .expenses-projections-purchases-ytd-box {
+  flex: 1 1 auto;
+  min-height: 88px;
+}
+
+.expenses-projections-listing-goal-col--pace {
+  width: min(168px, 30vw);
+  min-width: 132px;
+  max-width: 200px;
+}
+
+.expenses-projections-purchases-ytd-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 214, 91, 0.15);
+  background: rgba(5, 4, 3, 0.65);
+  text-align: center;
+  box-sizing: border-box;
+  min-height: 88px;
+}
+
+.expenses-projections-purchases-ytd-box--goal {
+  padding: 6px 6px;
+  width: 100%;
+  align-items: stretch;
+  justify-content: stretch;
+}
+
+.expenses-projections-purchases-ytd-box--goal .expenses-projections-listing-goal-input {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  padding: 10px 6px;
+  font-size: 1.1rem;
+}
+
+.expenses-projections-purchases-ytd-box--pace-green {
+  border-color: rgba(140, 255, 195, 0.45);
+  background: rgba(140, 255, 195, 0.08);
+}
+
+.expenses-projections-purchases-ytd-box--pace-amber {
+  border-color: rgba(232, 192, 109, 0.5);
+  background: rgba(232, 192, 109, 0.1);
+}
+
+.expenses-projections-purchases-ytd-box--pace-red {
+  border-color: rgba(255, 176, 176, 0.45);
+  background: rgba(255, 120, 120, 0.08);
+}
+
+.expenses-projections-purchases-ytd-box--pace-muted {
+  border-color: rgba(255, 248, 226, 0.12);
+  background: rgba(5, 4, 3, 0.45);
+}
+
+.expenses-projections-pace-headline--green {
+  color: #8cffc3 !important;
+}
+
+.expenses-projections-pace-headline--amber {
+  color: #e8c06d !important;
+}
+
+.expenses-projections-pace-headline--red {
+  color: #ffb0b0 !important;
+}
+
+.expenses-projections-pace-headline--muted {
+  color: rgba(255, 248, 226, 0.45) !important;
+}
+
+.expenses-projections-purchases-ytd-value {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--neon-primary-strong);
+  line-height: 1.2;
+}
+
+.expenses-projections-avg-weekly-listings-value {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0;
+  max-width: 100%;
+}
+
+.expenses-projections-avg-weekly-listings-sep {
+  color: rgba(255, 248, 226, 0.42);
+  font-weight: 500;
+  padding: 0 2px;
+}
+
+.expenses-projections-purchases-ytd-meta {
+  font-size: 0.72rem;
+  line-height: 1.3;
+  color: rgba(255, 248, 226, 0.58);
+}
+
+.expenses-projections-listing-goal-col--stat > .expenses-projections-listing-goal-label {
+  text-align: center;
+  white-space: normal;
+  line-height: 1.25;
+  min-height: 2.25em;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.expenses-projections-listing-goal-label {
+  display: block;
+  font-size: 0.65rem;
+  letter-spacing: 0.06rem;
+  text-transform: uppercase;
+  color: rgba(255, 248, 226, 0.55);
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.expenses-projections-listing-goal-input {
+  border-radius: 10px;
+  border: 1px solid rgba(255, 214, 91, 0.28);
+  background: rgba(5, 4, 3, 0.9);
+  color: var(--neon-primary-strong);
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.expenses-projections-listing-goal-input::placeholder {
+  color: rgba(255, 248, 226, 0.35);
+}
+
+.expenses-projections-listing-goal-hint {
+  margin: 0;
+  color: rgba(255, 248, 226, 0.6);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.expenses-projections-listing-goal-hint--field {
+  margin-top: 6px;
+  font-size: 0.7rem;
+  max-width: 100%;
+  text-align: center;
+}
+
+.expenses-projections-purchases {
+  margin-top: 8px;
+  padding: 20px;
+  border-radius: 16px;
+  border: 1px solid rgba(140, 255, 195, 0.2);
+  background: rgba(140, 255, 195, 0.06);
+}
+
+.expenses-projections-purchases h3 {
+  margin: 0 0 12px 0;
+  color: #8cffc3;
+  font-size: 1.05rem;
+  letter-spacing: 0.06rem;
+}
+
+.expenses-projections-week-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 16px;
+  font-size: 0.9rem;
+}
+
+.expenses-projections-week-table th,
+.expenses-projections-week-table td {
+  padding: 10px 12px;
+  text-align: center;
+  border-bottom: 1px solid rgba(255, 214, 91, 0.1);
+  color: rgba(255, 248, 226, 0.85);
+}
+
+.expenses-projections-week-table th {
+  color: var(--neon-primary-strong);
+  font-weight: 600;
+  letter-spacing: 0.04rem;
+}
+
+.expenses-projections-week-table-vs--over {
+  color: #8cffc3;
+  font-weight: 600;
+}
+
+.expenses-projections-week-table-vs--under {
+  color: #ffb0b0;
+  font-weight: 600;
+}
+
+.expenses-projections-week-table-vs--even {
+  color: rgba(255, 248, 226, 0.55);
 }

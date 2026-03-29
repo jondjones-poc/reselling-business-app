@@ -5286,6 +5286,207 @@ app.delete('/api/expenses/:id', async (req, res) => {
   }
 });
 
+/**
+ * Calendar-year view for Expenses → Projections: monthly profit (sold lines), projected sales
+ * for remaining months, purchase counts and per-week breakdown vs a listing target (default 10/wk).
+ */
+app.get('/api/expenses/projections', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const now = new Date();
+    const calendarYear = now.getFullYear();
+    const yearParam = req.query.year !== undefined ? Number(req.query.year) : calendarYear;
+    if (!Number.isFinite(yearParam) || yearParam < 2000 || yearParam > calendarYear + 5) {
+      return res.status(400).json({ error: 'Invalid year' });
+    }
+
+    const targetYear = Math.floor(yearParam);
+
+    const soldByMonthResult = await pool.query(
+      `
+        SELECT
+          EXTRACT(MONTH FROM sale_date)::int AS month,
+          SUM(
+            CASE
+              WHEN net_profit IS NOT NULL AND TRIM(net_profit::text) <> ''
+              THEN net_profit::numeric
+              ELSE 0::numeric
+            END
+          )::numeric AS profit,
+          SUM(COALESCE(sale_price, 0))::numeric AS sales
+        FROM stock
+        WHERE sale_date IS NOT NULL
+          AND EXTRACT(YEAR FROM sale_date)::int = $1
+        GROUP BY 1
+        ORDER BY 1
+      `,
+      [targetYear]
+    );
+
+    const purchaseCountResult = await pool.query(
+      `
+        SELECT COUNT(*)::int AS cnt
+        FROM stock
+        WHERE purchase_date IS NOT NULL
+          AND EXTRACT(YEAR FROM purchase_date)::int = $1
+      `,
+      [targetYear]
+    );
+
+    const purchasesByWeekResult = await pool.query(
+      `
+        SELECT
+          LEAST(53, GREATEST(1, CEIL(EXTRACT(DOY FROM purchase_date) / 7.0)::int)) AS week_bucket,
+          COUNT(*)::int AS cnt
+        FROM stock
+        WHERE purchase_date IS NOT NULL
+          AND EXTRACT(YEAR FROM purchase_date)::int = $1
+        GROUP BY week_bucket
+        ORDER BY week_bucket
+      `,
+      [targetYear]
+    );
+
+    const purchasesYtdCurrentYearResult = await pool.query(
+      `
+        SELECT COUNT(*)::int AS cnt
+        FROM stock
+        WHERE purchase_date IS NOT NULL
+          AND EXTRACT(YEAR FROM purchase_date)::int = $1
+          AND purchase_date::date <= CURRENT_DATE
+      `,
+      [calendarYear]
+    );
+
+    const profitByMonth = new Map();
+    const salesByMonth = new Map();
+    for (const row of soldByMonthResult.rows || []) {
+      const m = Number(row.month);
+      profitByMonth.set(m, Number(row.profit));
+      salesByMonth.set(m, Number(row.sales));
+    }
+
+    let currentMonth;
+    if (targetYear < calendarYear) {
+      currentMonth = 12;
+    } else if (targetYear > calendarYear) {
+      currentMonth = 0;
+    } else {
+      currentMonth = now.getMonth() + 1;
+    }
+
+    let profitSumYtd = 0;
+    let salesSumYtd = 0;
+    for (let m = 1; m <= currentMonth; m += 1) {
+      profitSumYtd += profitByMonth.get(m) ?? 0;
+      salesSumYtd += salesByMonth.get(m) ?? 0;
+    }
+
+    const divisor = currentMonth > 0 ? currentMonth : 1;
+    const avgMonthlyProfit = profitSumYtd / divisor;
+    const avgMonthlySales = salesSumYtd / divisor;
+
+    const remainingMonths = Math.max(0, 12 - currentMonth);
+    const projectedYearEndProfit =
+      currentMonth >= 12 ? profitSumYtd : profitSumYtd + avgMonthlyProfit * remainingMonths;
+    const projectedYearEndSales =
+      currentMonth >= 12 ? salesSumYtd : salesSumYtd + avgMonthlySales * remainingMonths;
+
+    const monthShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = Array.from({ length: 12 }, (_v, i) => {
+      const m = i + 1;
+      const profitActual =
+        targetYear > calendarYear || (targetYear === calendarYear && m > currentMonth)
+          ? null
+          : profitByMonth.get(m) ?? 0;
+      const salesActual =
+        targetYear > calendarYear || (targetYear === calendarYear && m > currentMonth)
+          ? null
+          : salesByMonth.get(m) ?? 0;
+      const salesProjected =
+        targetYear < calendarYear ||
+        m <= currentMonth ||
+        currentMonth === 0 ||
+        targetYear > calendarYear
+          ? null
+          : avgMonthlySales;
+      return {
+        month: m,
+        label: monthShort[i],
+        profitActual,
+        salesActual,
+        salesProjected
+      };
+    });
+
+    const totalPurchases = purchaseCountResult.rows[0]?.cnt ?? 0;
+
+    let weeksUsedForAverage;
+    if (targetYear < calendarYear) {
+      weeksUsedForAverage = 52;
+    } else if (targetYear > calendarYear) {
+      weeksUsedForAverage = 1;
+    } else {
+      const start = new Date(calendarYear, 0, 1);
+      const end = now < start ? start : now;
+      const days = Math.floor((end - start) / 86400000) + 1;
+      weeksUsedForAverage = Math.max(1, Math.ceil(days / 7));
+    }
+
+    const purchasesPerWeekAverage = totalPurchases / weeksUsedForAverage;
+
+    const TARGET_PURCHASES_PER_WEEK = 10;
+    const purchasesByWeek = (purchasesByWeekResult.rows || []).map((row) => ({
+      week: Number(row.week_bucket),
+      count: Number(row.cnt)
+    }));
+
+    const purchasesYtdTotal = purchasesYtdCurrentYearResult.rows[0]?.cnt ?? 0;
+    const ytdYearStart = new Date(calendarYear, 0, 1);
+    const ytdYearEnd = now < ytdYearStart ? ytdYearStart : now;
+    const ytdDaysElapsed = Math.floor((ytdYearEnd - ytdYearStart) / 86400000) + 1;
+    const purchasesYtdWeeksUsed = Math.max(1, Math.ceil(ytdDaysElapsed / 7));
+    const purchasesYtdPerWeekAverage = purchasesYtdTotal / purchasesYtdWeeksUsed;
+
+    res.json({
+      year: targetYear,
+      currentMonth,
+      calendarYear,
+      months,
+      summary: {
+        profitYtd: profitSumYtd,
+        salesYtd: salesSumYtd,
+        avgMonthlyProfit,
+        avgMonthlySales,
+        projectedYearEndProfit,
+        projectedYearEndSales,
+        remainingMonths
+      },
+      purchases: {
+        total: totalPurchases,
+        weeksUsedForAverage,
+        perWeekAverage: purchasesPerWeekAverage,
+        byWeek: purchasesByWeek,
+        targetPerWeek: TARGET_PURCHASES_PER_WEEK
+      },
+      purchasesYearToDate: {
+        year: calendarYear,
+        total: purchasesYtdTotal,
+        weeksUsedForAverage: purchasesYtdWeeksUsed,
+        perWeekAverage: purchasesYtdPerWeekAverage
+      }
+    });
+  } catch (error) {
+    console.error('Expenses projections query failed:', error);
+    res.status(500).json({ error: 'Failed to load projections', details: error.message });
+  }
+});
+
 // Orders API endpoints
 app.get('/api/orders', async (req, res) => {
   try {
