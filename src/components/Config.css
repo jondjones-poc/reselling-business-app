@@ -530,14 +530,6 @@
   cursor: not-allowed;
 }
 
-.config-stock-types-hint {
-  margin: 0 0 20px 0;
-  font-size: 0.88rem;
-  line-height: 1.45;
-  color: rgba(255, 248, 226, 0.58);
-  max-width: 48rem;
-}
-
 .config-brand-edit-id {
   margin: 0 0 12px 0;
   font-size: 0.85rem;
@@ -590,11 +582,4 @@
   margin: 12px 0 0 0;
   font-size: 0.9rem;
   color: rgba(140, 255, 195, 0.9);
-}
-
-.config-brands-ask-ai-explainer {
-  margin: 10px 0 0 0;
-  font-size: 0.85rem;
-  line-height: 1.45;
-  color: rgba(255, 248, 226, 0.52);
 }

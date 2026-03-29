@@ -3508,7 +3508,8 @@ app.get('/api/stock-categories/sales-by-category', async (req, res) => {
 });
 
 /**
- * Per clothing type: sold vs unsold counts and unsold_ratio = unsold / (sold + unsold).
+ * Per clothing type: sold vs unsold counts, unsold_ratio, total_net_profit (sold lines),
+ * unsold_inventory_total (sum purchase_price on unsold lines).
  * Only rows with unsold_count > 0. Ordered by unsold_ratio DESC (worst sell-through first).
  * GET /api/stock-categories/inventory-by-category
  */
@@ -3525,7 +3526,25 @@ app.get('/api/stock-categories/inventory-by-category', async (req, res) => {
            c.id AS category_id,
            c.category_name AS category_name,
            COUNT(*) FILTER (WHERE s.sale_date IS NOT NULL)::int AS sold_count,
-           COUNT(*) FILTER (WHERE s.sale_date IS NULL)::int AS unsold_count
+           COUNT(*) FILTER (WHERE s.sale_date IS NULL)::int AS unsold_count,
+           COALESCE(SUM(
+             CASE
+               WHEN s.sale_date IS NOT NULL
+                AND s.net_profit IS NOT NULL
+                AND TRIM(s.net_profit::text) <> ''
+               THEN s.net_profit::numeric
+               ELSE 0::numeric
+             END
+           ), 0::numeric) AS total_net_profit,
+           COALESCE(SUM(
+             CASE
+               WHEN s.sale_date IS NULL
+                AND s.purchase_price IS NOT NULL
+                AND TRIM(s.purchase_price::text) <> ''
+               THEN s.purchase_price::numeric
+               ELSE 0::numeric
+             END
+           ), 0::numeric) AS unsold_inventory_total
          FROM category c
          LEFT JOIN stock s ON s.category_id = c.id
          GROUP BY c.id, c.category_name
@@ -3535,7 +3554,25 @@ app.get('/api/stock-categories/inventory-by-category', async (req, res) => {
            NULL::integer AS category_id,
            'Uncategorized'::text AS category_name,
            COUNT(*) FILTER (WHERE sale_date IS NOT NULL)::int AS sold_count,
-           COUNT(*) FILTER (WHERE sale_date IS NULL)::int AS unsold_count
+           COUNT(*) FILTER (WHERE sale_date IS NULL)::int AS unsold_count,
+           COALESCE(SUM(
+             CASE
+               WHEN sale_date IS NOT NULL
+                AND net_profit IS NOT NULL
+                AND TRIM(net_profit::text) <> ''
+               THEN net_profit::numeric
+               ELSE 0::numeric
+             END
+           ), 0::numeric) AS total_net_profit,
+           COALESCE(SUM(
+             CASE
+               WHEN sale_date IS NULL
+                AND purchase_price IS NOT NULL
+                AND TRIM(purchase_price::text) <> ''
+               THEN purchase_price::numeric
+               ELSE 0::numeric
+             END
+           ), 0::numeric) AS unsold_inventory_total
          FROM stock
          WHERE category_id IS NULL
        ),
@@ -3554,7 +3591,9 @@ app.get('/api/stock-categories/inventory-by-category', async (req, res) => {
            WHEN (sold_count + unsold_count) > 0
            THEN (unsold_count::double precision / (sold_count + unsold_count))
            ELSE 0::double precision
-         END AS unsold_ratio
+         END AS unsold_ratio,
+         total_net_profit,
+         unsold_inventory_total
        FROM combined
        ORDER BY
          CASE

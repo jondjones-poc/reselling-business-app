@@ -3689,6 +3689,252 @@ button.image-upload-label {
   color: rgba(255, 248, 226, 0.48);
 }
 
+/* Menswear categories list: same browse pattern as clothing types, tighter grid and type */
+.menswear-categories-browse-top.clothing-types-browse {
+  padding: 0 0 14px;
+  margin: 0 0 8px;
+}
+
+/* Max 6 category boxes per row (nav: Menswear categories — open category details) */
+.menswear-categories-browse-top .clothing-types-browse-list {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 7px 9px;
+}
+
+@media (max-width: 640px) {
+  .menswear-categories-browse-top .clothing-types-browse-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 641px) and (max-width: 900px) {
+  .menswear-categories-browse-top .clothing-types-browse-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 901px) and (max-width: 1100px) {
+  .menswear-categories-browse-top .clothing-types-browse-list {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.menswear-categories-browse-top .clothing-types-browse-link {
+  min-height: 36px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  font-size: 0.78rem;
+}
+
+.menswear-categories-overview-below {
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 214, 91, 0.18);
+  text-align: left;
+}
+
+.menswear-categories-list-ask-all-wrap {
+  display: flex;
+  justify-content: center;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 214, 91, 0.14);
+}
+
+.menswear-categories-list-strain-loading {
+  margin: 22px 0 0 0;
+  padding-top: 18px;
+  border-top: 1px solid rgba(255, 214, 91, 0.18);
+  text-align: center;
+}
+
+.menswear-categories-list-strain-section {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 22px 0 0 0;
+  padding: 20px 0 0;
+  border-top: 1px solid rgba(255, 214, 91, 0.2);
+  text-align: left;
+}
+
+.menswear-categories-list-strain-heading-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: nowrap;
+  gap: 10px;
+  margin: 0 0 14px 0;
+}
+
+/* .clothing-types-invest-risk-title is width:100% elsewhere; here it must share a row with the info icon */
+.menswear-categories-list-strain-heading-row .clothing-types-invest-risk-title.menswear-categories-list-strain-heading {
+  width: auto;
+  max-width: calc(100% - 42px);
+  margin: 0;
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 1.15rem;
+  text-align: center;
+  line-height: 1.25;
+}
+
+.menswear-strain-info-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.menswear-strain-info-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 214, 91, 0.35);
+  background: rgba(255, 214, 91, 0.1);
+  color: rgba(255, 248, 226, 0.85);
+  cursor: help;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.menswear-strain-info-btn:hover,
+.menswear-strain-info-btn:focus-visible {
+  border-color: rgba(255, 214, 91, 0.55);
+  background: rgba(255, 214, 91, 0.16);
+  outline: none;
+}
+
+.menswear-strain-info-btn:focus-visible {
+  box-shadow: 0 0 0 2px rgba(255, 214, 91, 0.35);
+}
+
+.menswear-strain-info-tooltip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  transform: translateX(-50%);
+  width: min(18.5rem, calc(100vw - 2rem));
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 214, 91, 0.35);
+  background: rgba(14, 18, 26, 0.97);
+  color: rgba(255, 248, 226, 0.9);
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.45;
+  text-align: left;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: 40;
+  transition:
+    opacity 0.15s ease,
+    visibility 0.15s ease;
+}
+
+.menswear-strain-info-tooltip strong {
+  color: var(--neon-primary-strong, #fde68a);
+  font-weight: 700;
+}
+
+.menswear-strain-info-wrap:hover .menswear-strain-info-tooltip,
+.menswear-strain-info-wrap:focus-within .menswear-strain-info-tooltip {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.menswear-strain-th-sort {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: color 0.15s ease;
+}
+
+.menswear-strain-th-sort--num {
+  justify-content: center;
+  text-align: center;
+}
+
+.menswear-strain-th-sort:hover,
+.menswear-strain-th-sort:focus-visible {
+  color: var(--neon-primary-strong, #fde68a);
+  outline: none;
+}
+
+.menswear-strain-th-sort:focus-visible {
+  box-shadow: 0 0 0 2px rgba(255, 214, 91, 0.35);
+  border-radius: 4px;
+}
+
+.menswear-strain-th-sort--active {
+  color: rgba(255, 248, 226, 0.95);
+}
+
+.menswear-strain-th-sort-icon {
+  flex-shrink: 0;
+  min-width: 0.85rem;
+  font-size: 0.58rem;
+  line-height: 1;
+  opacity: 0.95;
+}
+
+.menswear-categories-list-strain-table thead th {
+  vertical-align: middle;
+}
+
+.menswear-strain-table-empty {
+  text-align: center;
+  padding: 16px 12px;
+}
+
+.menswear-categories-list-strain-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  box-sizing: border-box;
+  -webkit-overflow-scrolling: touch;
+}
+
+.menswear-categories-list-strain-table {
+  min-width: min(100%, 720px);
+}
+
+.menswear-categories-list-strain-table .menswear-categories-overview-num {
+  white-space: nowrap;
+}
+
+.menswear-categories-list-buy-avoid {
+  margin: 0 0 18px 0;
+}
+
+/* Directly under the three pie charts, before overview tables */
+.menswear-categories-list-buy-avoid--under-charts {
+  margin: 4px 0 22px 0;
+}
+
 .clothing-types-charts-below {
   width: 100%;
   box-sizing: border-box;
@@ -3699,6 +3945,100 @@ button.image-upload-label {
   border-left: none;
   padding-left: 8px;
   padding-right: 8px;
+}
+
+/* One row: best vs worst clothing types (same data as inventory strain table). */
+.clothing-types-buy-avoid-strip {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 14px 0;
+  padding: 14px 12px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 214, 91, 0.18);
+  background: rgba(0, 0, 0, 0.22);
+  gap: 0;
+  min-height: 5.5rem;
+}
+
+.clothing-types-buy-avoid-col {
+  flex: 1 1 50%;
+  min-width: 0;
+  max-width: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  text-align: center;
+  gap: 12px;
+  padding: 4px 12px 8px;
+  box-sizing: border-box;
+}
+
+.clothing-types-buy-avoid-col:first-child {
+  padding-left: 6px;
+}
+
+.clothing-types-buy-avoid-col:last-child {
+  padding-right: 6px;
+}
+
+.clothing-types-buy-avoid-col--avoid {
+  border-left: 1px solid rgba(255, 214, 91, 0.14);
+}
+
+.clothing-types-buy-avoid-label {
+  width: 100%;
+  flex-shrink: 0;
+  font-weight: 700;
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  text-align: center;
+}
+
+.clothing-types-buy-avoid-names-block {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 4px 0;
+  box-sizing: border-box;
+}
+
+.clothing-types-buy-avoid-col--buy,
+.clothing-types-buy-avoid-col--buy .clothing-types-buy-avoid-names {
+  color: rgba(140, 255, 195, 0.95);
+}
+
+.clothing-types-buy-avoid-col--buy .clothing-types-buy-avoid-label {
+  color: rgba(120, 235, 175, 0.88);
+}
+
+.clothing-types-buy-avoid-col--avoid,
+.clothing-types-buy-avoid-col--avoid .clothing-types-buy-avoid-names {
+  color: rgba(255, 160, 160, 0.98);
+}
+
+.clothing-types-buy-avoid-col--avoid .clothing-types-buy-avoid-label {
+  color: rgba(255, 130, 130, 0.92);
+}
+
+.clothing-types-buy-avoid-names {
+  width: 100%;
+  max-width: 100%;
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: center;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+  hyphens: auto;
 }
 
 /* Period filter shared by all three clothing-type pies */
@@ -3825,17 +4165,13 @@ button.image-upload-label {
 }
 
 .clothing-types-invest-risk-title {
-  margin: 0 0 10px 0;
-  font-size: 1rem;
+  margin: 0 0 20px 0;
+  font-size: 1.45rem;
   font-weight: 600;
-  letter-spacing: 0.02rem;
+  letter-spacing: 0.03rem;
   color: rgba(255, 248, 226, 0.95);
-}
-
-.clothing-types-invest-risk-intro {
-  margin: 0 0 16px 0;
-  max-width: 52rem;
-  line-height: 1.45;
+  text-align: center;
+  width: 100%;
 }
 
 .clothing-types-invest-risk-chart-wrap {
@@ -3845,11 +4181,6 @@ button.image-upload-label {
   min-height: 280px;
   margin: 0 0 8px 0;
   box-sizing: border-box;
-}
-
-.clothing-types-invest-risk-table-caption {
-  margin: 12px 0 8px 0;
-  font-size: 0.85rem;
 }
 
 .clothing-types-invest-risk-table-wrap {
@@ -3862,7 +4193,7 @@ button.image-upload-label {
 
 .clothing-types-invest-risk-table {
   width: 100%;
-  min-width: 420px;
+  min-width: 640px;
   font-size: 0.88rem;
 }
 
@@ -4081,6 +4412,35 @@ a.menswear-categories-brand-link {
   font-size: 0.82rem;
 }
 
+/* List view: two stacked tables share column geometry so Sold revenue lines up */
+.menswear-categories-overview-below .menswear-categories-overview-table--list-pair {
+  table-layout: fixed;
+}
+
+.menswear-categories-overview-below .menswear-categories-overview-table--list-pair .menswear-categories-overview-category-col {
+  width: 40%;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  vertical-align: middle;
+}
+
+.menswear-categories-overview-below .menswear-categories-overview-table--list-pair th:nth-child(2),
+.menswear-categories-overview-below .menswear-categories-overview-table--list-pair td:nth-child(2) {
+  width: 15%;
+  vertical-align: middle;
+}
+
+.menswear-categories-overview-below .menswear-categories-overview-table--list-pair th:nth-child(3),
+.menswear-categories-overview-below .menswear-categories-overview-table--list-pair td:nth-child(3),
+.menswear-categories-overview-below .menswear-categories-overview-table--list-pair th:nth-child(4),
+.menswear-categories-overview-below .menswear-categories-overview-table--list-pair td:nth-child(4),
+.menswear-categories-overview-below .menswear-categories-overview-table--list-pair th:nth-child(5),
+.menswear-categories-overview-below .menswear-categories-overview-table--list-pair td:nth-child(5) {
+  width: 15%;
+  vertical-align: middle;
+}
+
 .menswear-categories-overview-table th,
 .menswear-categories-overview-table td {
   padding: 8px 10px;
@@ -4108,6 +4468,11 @@ a.menswear-categories-brand-link {
 .menswear-categories-overview-table th.menswear-categories-overview-num,
 .menswear-categories-overview-table td.menswear-categories-overview-num {
   text-align: right;
+}
+
+.menswear-categories-overview-table th.menswear-categories-overview-sold-revenue,
+.menswear-categories-overview-table td.menswear-categories-overview-sold-revenue {
+  text-align: center;
 }
 
 .menswear-categories-overview-metric {

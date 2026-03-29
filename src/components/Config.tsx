@@ -879,7 +879,7 @@ const Config: React.FC = () => {
               className={`config-menu-item ${activeMenu === 'clothing-type-categories' ? 'active' : ''}`}
               onClick={() => setActiveMenu('clothing-type-categories')}
             >
-              Clothing type categories
+              Clothing Type Categories
             </button>
             <button
               type="button"
@@ -1115,11 +1115,6 @@ const Config: React.FC = () => {
                   </svg>
                 </button>
               </div>
-
-              <p className="config-stock-types-hint">
-                Rows come from the <strong>category</strong> database table (same types as Stock and eBay search). You
-                can only delete a type when no stock lines reference it.
-              </p>
 
               {stockTypeAddOpen && (
                 <form className="config-clothing-add-form" onSubmit={handleStockTypeAddSubmit}>
@@ -1610,10 +1605,6 @@ const Config: React.FC = () => {
                     {brandsAskAiHint}
                   </p>
                 ) : null}
-                <p className="config-brands-ask-ai-explainer">
-                  Creates a prompt listing all brands and your Menswear categories (name, description, notes), and asks
-                  the model to rank brands per category and overall for UK resale.
-                </p>
               </div>
             </div>
           )}
