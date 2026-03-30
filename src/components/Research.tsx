@@ -430,6 +430,108 @@ function isUnreachableFetchError(err: unknown): boolean {
   );
 }
 
+/** Month chips for a meteorological season (winter = Dec–Feb). Labels use local calendar. */
+function buildMeteorologicalSeasonMonthCells(
+  seasonKey: string,
+  refYear: number
+): { year: number; month: number; label: string }[] {
+  const short = new Intl.DateTimeFormat('en-GB', { month: 'short' });
+  const add = (year: number, month: number) => ({
+    year,
+    month,
+    label: short.format(new Date(year, month - 1, 1)),
+  });
+  switch (seasonKey) {
+    case 'spring':
+      return [add(refYear, 3), add(refYear, 4), add(refYear, 5)];
+    case 'summer':
+      return [add(refYear, 6), add(refYear, 7), add(refYear, 8)];
+    case 'autumn':
+      return [add(refYear, 9), add(refYear, 10), add(refYear, 11)];
+    case 'winter':
+      return [add(refYear, 12), add(refYear + 1, 1), add(refYear + 1, 2)];
+    default:
+      return [];
+  }
+}
+
+/** Decorative season glyph above each column title (matches `seasonKey` from API). */
+function SeasonalInsightSeasonIcon({ seasonKey }: { seasonKey: string }) {
+  const sw = 2;
+  const svgProps = {
+    className: 'research-seasonal-season-icon-svg',
+    viewBox: '0 0 48 48',
+    fill: 'none' as const,
+    'aria-hidden': true as const,
+  };
+  switch (seasonKey) {
+    case 'spring':
+      return (
+        <svg {...svgProps}>
+          <path
+            d="M24 40V26M24 26Q14 20 11 12M24 26Q34 20 37 12M24 22Q24 12 24 8"
+            stroke="currentColor"
+            strokeWidth={sw}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      );
+    case 'summer':
+      return (
+        <svg {...svgProps}>
+          <circle cx="24" cy="24" r="9" stroke="currentColor" strokeWidth={sw} />
+          <path
+            d="M24 5v5M24 38v5M5 24h5M38 24h5M10 10l4 4M34 10l-4 4M10 38l4-4M34 38l-4-4"
+            stroke="currentColor"
+            strokeWidth={sw}
+            strokeLinecap="round"
+          />
+        </svg>
+      );
+    case 'autumn':
+      return (
+        <svg {...svgProps}>
+          <path
+            d="M24 8c10 8 14 20 0 32C10 28 14 16 24 8zM24 40v4"
+            stroke="currentColor"
+            strokeWidth={sw}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M24 18c-4 6-4 12 0 14"
+            stroke="currentColor"
+            strokeWidth={sw}
+            strokeLinecap="round"
+          />
+        </svg>
+      );
+    case 'winter':
+      return (
+        <svg {...svgProps}>
+          <g
+            stroke="currentColor"
+            strokeWidth={sw}
+            strokeLinecap="round"
+            transform="translate(24 24)"
+          >
+            <line x1="0" y1="-15" x2="0" y2="15" />
+            <line x1="0" y1="-15" x2="0" y2="15" transform="rotate(60)" />
+            <line x1="0" y1="-15" x2="0" y2="15" transform="rotate(-60)" />
+            <circle cx="0" cy="0" r="3" fill="currentColor" stroke="none" />
+          </g>
+        </svg>
+      );
+    default:
+      return (
+        <svg {...svgProps}>
+          <circle cx="24" cy="24" r="14" stroke="currentColor" strokeWidth={sw} />
+        </svg>
+      );
+  }
+}
+
 function isAbortError(err: unknown): boolean {
   if (err instanceof DOMException && err.name === 'AbortError') return true;
   return typeof err === 'object' && err !== null && (err as { name?: string }).name === 'AbortError';
@@ -1472,9 +1574,18 @@ const Research: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const brandQueryParam = searchParams.get('brand');
 
-  const researchTab = useMemo<'brand' | 'offline' | 'ai' | 'menswear-categories' | 'clothing-types'>(() => {
+  const researchTab = useMemo<
+    'brand' | 'offline' | 'ai' | 'menswear-categories' | 'clothing-types' | 'seasonal'
+  >(() => {
     const t = searchParams.get('tab');
-    if (t === 'offline' || t === 'ai' || t === 'menswear-categories' || t === 'clothing-types') return t;
+    if (
+      t === 'offline' ||
+      t === 'ai' ||
+      t === 'menswear-categories' ||
+      t === 'clothing-types' ||
+      t === 'seasonal'
+    )
+      return t;
     return 'brand';
   }, [searchParams]);
 
@@ -1522,7 +1633,9 @@ const Research: React.FC = () => {
   }, [researchTab, clothingTypeSelection, searchParams]);
 
   const setResearchTab = useCallback(
-    (tab: 'brand' | 'offline' | 'ai' | 'menswear-categories' | 'clothing-types') => {
+    (
+      tab: 'brand' | 'offline' | 'ai' | 'menswear-categories' | 'clothing-types' | 'seasonal'
+    ) => {
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -1645,6 +1758,31 @@ const Research: React.FC = () => {
   const [researchLoading, setResearchLoading] = useState(false);
   const [researchError, setResearchError] = useState<string | null>(null);
   const [researchResult, setResearchResult] = useState<string | null>(null);
+
+  type SeasonalInsightsColumn = {
+    seasonKey: string;
+    refYear: number;
+    displayLabel: string;
+    rangeStart: string;
+    rangeEnd: string;
+    isCurrentSeason: boolean;
+    topCategories: { name: string; count: number }[];
+    worstCategories: { name: string; count: number }[];
+    topBrands: { name: string; count: number }[];
+    saleCount: number;
+    hasSalesData: boolean;
+  };
+
+  type SeasonalInsightsPayload = {
+    columns: SeasonalInsightsColumn[];
+    totalSoldLines: number;
+    seasonsWithSalesCount: number;
+    emptyMessage: string | null;
+  };
+
+  const [seasonalInsights, setSeasonalInsights] = useState<SeasonalInsightsPayload | null>(null);
+  const [seasonalInsightsLoading, setSeasonalInsightsLoading] = useState(false);
+  const [seasonalInsightsError, setSeasonalInsightsError] = useState<string | null>(null);
 
   type MenswearCategoryRow = {
     id: number;
@@ -2475,6 +2613,56 @@ const Research: React.FC = () => {
       setClothingTypeBrandInventoryStockSummaryError(null);
       setClothingTypeBrandInventoryStockSummaryLoading(false);
     }
+  }, [researchTab]);
+
+  useEffect(() => {
+    if (researchTab !== 'seasonal') {
+      setSeasonalInsights(null);
+      setSeasonalInsightsError(null);
+      setSeasonalInsightsLoading(false);
+    }
+  }, [researchTab]);
+
+  useEffect(() => {
+    if (researchTab !== 'seasonal') return;
+    const ac = new AbortController();
+    let cancelled = false;
+    const load = async () => {
+      setSeasonalInsightsLoading(true);
+      setSeasonalInsightsError(null);
+      try {
+        const res = await fetch(apiUrl('/api/stock/seasonal-insights'), { signal: ac.signal });
+        const data = await readJsonResponse<SeasonalInsightsPayload>(res, 'seasonal-insights');
+        if (cancelled) return;
+        const rawCols = Array.isArray(data.columns) ? data.columns : [];
+        setSeasonalInsights({
+          columns: rawCols.map((col) => {
+            const c = col as SeasonalInsightsColumn;
+            return {
+              ...c,
+              worstCategories: Array.isArray(c.worstCategories) ? c.worstCategories : [],
+            };
+          }),
+          totalSoldLines: Number(data.totalSoldLines) || 0,
+          seasonsWithSalesCount: Number(data.seasonsWithSalesCount) || 0,
+          emptyMessage:
+            data.emptyMessage != null && String(data.emptyMessage).trim() !== ''
+              ? String(data.emptyMessage)
+              : null,
+        });
+      } catch (e) {
+        if (cancelled || isAbortError(e)) return;
+        setSeasonalInsights(null);
+        setSeasonalInsightsError(friendlyApiUnreachableMessage(e));
+      } finally {
+        if (!cancelled) setSeasonalInsightsLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
   }, [researchTab]);
 
   useEffect(() => {
@@ -6789,6 +6977,17 @@ const Research: React.FC = () => {
         <button
           type="button"
           role="tab"
+          id="research-tab-seasonal"
+          aria-selected={researchTab === 'seasonal'}
+          aria-controls="research-panel-seasonal"
+          className={`research-tab${researchTab === 'seasonal' ? ' active' : ''}`}
+          onClick={() => setResearchTab('seasonal')}
+        >
+          Seasonal
+        </button>
+        <button
+          type="button"
+          role="tab"
           id="research-tab-offline"
           aria-selected={researchTab === 'offline'}
           aria-controls="research-panel-offline"
@@ -11061,6 +11260,156 @@ const Research: React.FC = () => {
                   </div>
                 </div>
               )}
+          </div>
+        </div>
+      )}
+
+      {researchTab === 'seasonal' && (
+        <div
+          id="research-panel-seasonal"
+          role="tabpanel"
+          aria-labelledby="research-tab-seasonal"
+          className="research-tab-panel"
+        >
+          <div className="research-seasonal-page">
+            {seasonalInsightsLoading && (
+              <p className="menswear-categories-muted">Loading seasonal data…</p>
+            )}
+            {seasonalInsightsError && (
+              <div className="menswear-categories-error" role="alert">
+                {seasonalInsightsError}
+              </div>
+            )}
+            {!seasonalInsightsLoading && !seasonalInsightsError && seasonalInsights && (
+              <>
+                {seasonalInsights.emptyMessage ? (
+                  <div className="research-seasonal-banner" role="status">
+                    {seasonalInsights.emptyMessage}
+                  </div>
+                ) : null}
+                {(() => {
+                  const t = new Date();
+                  const cy = t.getFullYear();
+                  const cm = t.getMonth() + 1;
+                  return (
+                    <div className="research-seasonal-grid">
+                      {seasonalInsights.columns.map((col) => {
+                        const monthCells = buildMeteorologicalSeasonMonthCells(
+                          col.seasonKey,
+                          col.refYear
+                        );
+                        return (
+                          <section
+                            key={`${col.seasonKey}-${col.refYear}`}
+                            className={
+                              'research-seasonal-col' +
+                              (col.isCurrentSeason ? ' research-seasonal-col--current' : '')
+                            }
+                            aria-label={`${col.displayLabel}${col.isCurrentSeason ? ', current season' : ''}`}
+                          >
+                            <div className="research-seasonal-col-head">
+                              <div
+                                className="research-seasonal-badge-slot"
+                                aria-hidden={!col.isCurrentSeason}
+                              >
+                                {col.isCurrentSeason ? (
+                                  <span className="research-seasonal-badge">Current season</span>
+                                ) : null}
+                              </div>
+                              <div
+                                className={`research-seasonal-season-icon-wrap research-seasonal-season-icon-wrap--${col.seasonKey}`}
+                              >
+                                <SeasonalInsightSeasonIcon seasonKey={col.seasonKey} />
+                              </div>
+                              <h3 className="research-seasonal-col-title">{col.displayLabel}</h3>
+                              <p className="research-seasonal-col-range">
+                                {formatResearchShortDate(col.rangeStart)} —{' '}
+                                {formatResearchShortDate(col.rangeEnd)}
+                              </p>
+                              <div className="research-seasonal-months" aria-label="Months in this season">
+                                {monthCells.map((cell) => {
+                                  const isCurrentMonth = cy === cell.year && cm === cell.month;
+                                  return (
+                                    <span
+                                      key={`${cell.year}-${cell.month}`}
+                                      className={
+                                        'research-seasonal-month-pill' +
+                                        (isCurrentMonth ? ' research-seasonal-month-pill--current' : '')
+                                      }
+                                    >
+                                      {cell.label}
+                                      {cell.year !== cy ? ` ’${String(cell.year).slice(-2)}` : ''}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                            <div className="research-seasonal-block">
+                              <h4 className="research-seasonal-block-title">Top clothing types</h4>
+                              {col.hasSalesData && col.topCategories.length > 0 ? (
+                                <ol className="research-seasonal-list">
+                                  {col.topCategories.map((row) => (
+                                    <li key={row.name} className="research-seasonal-list-item">
+                                      <span className="research-seasonal-list-name">{row.name}</span>
+                                      <span className="research-seasonal-list-count">{row.count}</span>
+                                    </li>
+                                  ))}
+                                </ol>
+                              ) : (
+                                <p className="research-seasonal-empty" role="status">
+                                  No sales in this season in your data yet.
+                                </p>
+                              )}
+                            </div>
+                            <div className="research-seasonal-block">
+                              <h4 className="research-seasonal-block-title">Worst clothing types</h4>
+                              {col.hasSalesData && col.worstCategories.length > 0 ? (
+                                <ol className="research-seasonal-list">
+                                  {col.worstCategories.map((row) => (
+                                    <li key={`worst-${row.name}`} className="research-seasonal-list-item">
+                                      <span className="research-seasonal-list-name">{row.name}</span>
+                                      <span className="research-seasonal-list-count research-seasonal-list-count--worst">
+                                        {row.count}
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ol>
+                              ) : (
+                                <p className="research-seasonal-empty" role="status">
+                                  No sales in this season in your data yet.
+                                </p>
+                              )}
+                            </div>
+                            <div className="research-seasonal-block">
+                              <h4 className="research-seasonal-block-title">Top brands</h4>
+                              {col.hasSalesData && col.topBrands.length > 0 ? (
+                                <ol className="research-seasonal-list">
+                                  {col.topBrands.map((row) => (
+                                    <li key={row.name} className="research-seasonal-list-item">
+                                      <span className="research-seasonal-list-name">{row.name}</span>
+                                      <span className="research-seasonal-list-count">{row.count}</span>
+                                    </li>
+                                  ))}
+                                </ol>
+                              ) : (
+                                <p className="research-seasonal-empty" role="status">
+                                  No sales in this season in your data yet.
+                                </p>
+                              )}
+                            </div>
+                            {col.hasSalesData ? (
+                              <p className="research-seasonal-foot">
+                                {col.saleCount} sold line{col.saleCount === 1 ? '' : 's'} in window
+                              </p>
+                            ) : null}
+                          </section>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </>
+            )}
           </div>
         </div>
       )}

@@ -553,6 +553,225 @@
   overflow: visible;
 }
 
+/* Research → Seasonal tab */
+.research-seasonal-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 8px 48px;
+  box-sizing: border-box;
+}
+
+.research-seasonal-banner {
+  margin: 0 0 20px 0;
+  padding: 14px 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 214, 91, 0.35);
+  background: rgba(255, 214, 91, 0.08);
+  color: rgba(255, 248, 226, 0.9);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.research-seasonal-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+
+@media (max-width: 1024px) {
+  .research-seasonal-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .research-seasonal-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.research-seasonal-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 14px 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 214, 91, 0.22);
+  background: rgba(0, 0, 0, 0.2);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.research-seasonal-col--current {
+  border-color: rgba(140, 255, 195, 0.45);
+  background: rgba(140, 255, 195, 0.06);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.15),
+    0 0 0 1px rgba(140, 255, 195, 0.12);
+}
+
+/* Reserve the same vertical space in every column so the rule above “Top clothing types” lines up. */
+.research-seasonal-badge-slot {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  min-height: 30px;
+  margin-bottom: 8px;
+  box-sizing: border-box;
+}
+
+.research-seasonal-season-icon-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.research-seasonal-season-icon-svg {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+}
+
+.research-seasonal-season-icon-wrap--spring {
+  color: #9ee8b4;
+}
+
+.research-seasonal-season-icon-wrap--summer {
+  color: #ffd65a;
+}
+
+.research-seasonal-season-icon-wrap--autumn {
+  color: #e8a05d;
+}
+
+.research-seasonal-season-icon-wrap--winter {
+  color: #9fd3ff;
+}
+
+.research-seasonal-col--current .research-seasonal-season-icon-wrap {
+  filter: brightness(1.12);
+}
+
+.research-seasonal-badge {
+  display: inline-block;
+  margin: 0;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #0d1f14;
+  background: linear-gradient(135deg, #8cffc3, #5ed99a);
+}
+
+.research-seasonal-col-head {
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 214, 91, 0.15);
+}
+
+.research-seasonal-col-title {
+  margin: 0 0 6px 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-strong);
+  letter-spacing: 0.03em;
+}
+
+.research-seasonal-col-range {
+  margin: 0 0 12px 0;
+  font-size: 0.78rem;
+  color: rgba(255, 248, 226, 0.55);
+  line-height: 1.35;
+}
+
+.research-seasonal-months {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+.research-seasonal-month-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: rgba(255, 248, 226, 0.75);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.research-seasonal-month-pill--current {
+  color: #0d1f14;
+  background: rgba(255, 214, 91, 0.95);
+  border-color: rgba(255, 214, 91, 0.95);
+  box-shadow: 0 0 0 2px rgba(255, 214, 91, 0.25);
+}
+
+.research-seasonal-block-title {
+  margin: 0 0 8px 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 248, 226, 0.55);
+}
+
+.research-seasonal-list {
+  margin: 0;
+  padding: 0 0 0 1.1rem;
+  list-style: decimal;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: rgba(255, 248, 226, 0.88);
+}
+
+.research-seasonal-list-item {
+  margin-bottom: 6px;
+  padding-left: 4px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.research-seasonal-list-name {
+  min-width: 0;
+  word-break: break-word;
+}
+
+.research-seasonal-list-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: #8cffc3;
+  flex-shrink: 0;
+}
+
+.research-seasonal-list-count--worst {
+  color: #ff9a9a;
+}
+
+.research-seasonal-empty {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: rgba(255, 248, 226, 0.5);
+  font-style: italic;
+}
+
+.research-seasonal-foot {
+  margin: auto 0 0 0;
+  padding-top: 8px;
+  font-size: 0.72rem;
+  color: rgba(255, 248, 226, 0.45);
+}
+
 /* eBay sold comps (Brand research) */
 .brand-research-ebay-sold-section {
   width: 100%;

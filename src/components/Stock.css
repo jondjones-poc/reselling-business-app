@@ -258,6 +258,22 @@
   color: inherit;
 }
 
+.stock-edit-metrics-pipeline-value {
+  font-weight: 600;
+}
+
+.stock-edit-metrics-pipeline-value--positive {
+  color: #8cffc3;
+}
+
+.stock-edit-metrics-pipeline-value--negative {
+  color: #ff9a9a;
+}
+
+.stock-edit-metrics-pipeline-value--neutral {
+  color: inherit;
+}
+
 /* New stock: col1 = Projected | My Sales (50/50 one row); cols 2–3 = metrics; col4 = actions */
 .stock-new-entry-four-col-row {
   /* Match projected input border-box (taller than comps min by ~2px from borders) — caps pipeline when text wraps */
@@ -560,10 +576,9 @@ button.stock-close-circle-btn:disabled {
   }
 }
 
-/* Sale price + matching sold platform: emphasise that platform’s line(s) */
+/* Sale price + matching sold platform: emphasise that platform’s label; £ values use pos/neg tint */
 .stock-edit-metrics-pipeline-seg--sold-platform {
   font-weight: 700;
-  color: #8cffc3;
 }
 
 .stock-edit-metrics-pipeline-seg--sold-platform .stock-edit-metrics-pipeline-label {
@@ -571,10 +586,9 @@ button.stock-close-circle-btn:disabled {
   font-weight: 800;
 }
 
-/* Sale price set: emphasise realised Profit line */
+/* Sale price set: emphasise realised Profit label; value still green/red by sign */
 .stock-edit-metrics-pipeline-seg--profit-with-sale {
   font-weight: 700;
-  color: #f0a030;
 }
 
 .stock-edit-metrics-pipeline-seg--profit-with-sale .stock-edit-metrics-pipeline-label {

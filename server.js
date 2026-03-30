@@ -1358,6 +1358,184 @@ app.get('/api/stock/sold', async (req, res) => {
   }
 });
 
+/** UK-style meteorological seasons; winter is Dec(refYear)–Feb(refYear+1). */
+function meteorologicalCurrentSeasonFromDate(d) {
+  const y = d.getFullYear();
+  const m = d.getMonth() + 1;
+  if (m >= 3 && m <= 5) return { type: 'spring', refYear: y };
+  if (m >= 6 && m <= 8) return { type: 'summer', refYear: y };
+  if (m >= 9 && m <= 11) return { type: 'autumn', refYear: y };
+  if (m === 12) return { type: 'winter', refYear: y };
+  return { type: 'winter', refYear: y - 1 };
+}
+
+function meteorologicalSeasonPrev(spec) {
+  const forward = ['spring', 'summer', 'autumn', 'winter'];
+  const fi = forward.indexOf(spec.type);
+  if (fi <= 0) return { type: 'winter', refYear: spec.refYear - 1 };
+  return { type: forward[fi - 1], refYear: spec.refYear };
+}
+
+function meteorologicalSeasonBounds(spec) {
+  const pad = (n) => String(n).padStart(2, '0');
+  const febLast = (yy) => new Date(yy, 2, 0).getDate();
+  const y = spec.refYear;
+  switch (spec.type) {
+    case 'spring':
+      return { start: `${y}-03-01`, end: `${y}-05-31` };
+    case 'summer':
+      return { start: `${y}-06-01`, end: `${y}-08-31` };
+    case 'autumn':
+      return { start: `${y}-09-01`, end: `${y}-11-30` };
+    case 'winter':
+      return {
+        start: `${y}-12-01`,
+        end: `${y + 1}-02-${pad(febLast(y + 1))}`,
+      };
+    default:
+      throw new Error(`Unknown season type: ${spec.type}`);
+  }
+}
+
+function meteorologicalSeasonDisplayLabel(spec) {
+  const cap = spec.type.charAt(0).toUpperCase() + spec.type.slice(1);
+  if (spec.type === 'winter') {
+    const y2 = String(spec.refYear + 1).slice(-2);
+    return `${cap} ${spec.refYear}–${y2}`;
+  }
+  return `${cap} ${spec.refYear}`;
+}
+
+/**
+ * Four consecutive meteorological seasons: current first, then each prior season
+ * (same order as columns left → right). Top clothing types and brands from sold lines.
+ */
+app.get('/api/stock/seasonal-insights', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const today = new Date();
+    let cur = meteorologicalCurrentSeasonFromDate(today);
+    const seasons = [];
+    seasons.push(cur);
+    for (let k = 0; k < 3; k++) {
+      cur = meteorologicalSeasonPrev(cur);
+      seasons.push(cur);
+    }
+
+    const columns = [];
+    const currentSpec = meteorologicalCurrentSeasonFromDate(today);
+
+    for (const spec of seasons) {
+      const { start, end } = meteorologicalSeasonBounds(spec);
+
+      const saleCountRes = await pool.query(
+        `SELECT COUNT(*)::int AS c
+         FROM stock
+         WHERE sale_date IS NOT NULL
+           AND sale_date::date >= $1::date
+           AND sale_date::date <= $2::date`,
+        [start, end]
+      );
+      const saleCount = saleCountRes.rows[0]?.c ?? 0;
+
+      const catRes = await pool.query(
+        `SELECT COALESCE(cat.category_name, 'Uncategorized') AS name, COUNT(*)::int AS cnt
+         FROM stock s
+         LEFT JOIN category cat ON cat.id = s.category_id
+         WHERE s.sale_date IS NOT NULL
+           AND s.sale_date::date >= $1::date
+           AND s.sale_date::date <= $2::date
+         GROUP BY COALESCE(cat.category_name, 'Uncategorized')
+         ORDER BY cnt DESC NULLS LAST, name ASC
+         LIMIT 5`,
+        [start, end]
+      );
+
+      const catWorstRes = await pool.query(
+        `SELECT COALESCE(cat.category_name, 'Uncategorized') AS name, COUNT(*)::int AS cnt
+         FROM stock s
+         LEFT JOIN category cat ON cat.id = s.category_id
+         WHERE s.sale_date IS NOT NULL
+           AND s.sale_date::date >= $1::date
+           AND s.sale_date::date <= $2::date
+         GROUP BY COALESCE(cat.category_name, 'Uncategorized')
+         ORDER BY cnt ASC NULLS LAST, name ASC
+         LIMIT 5`,
+        [start, end]
+      );
+
+      const brandRes = await pool.query(
+        `SELECT COALESCE(NULLIF(TRIM(b.brand_name), ''), 'Unknown brand') AS name, COUNT(*)::int AS cnt
+         FROM stock s
+         LEFT JOIN brand b ON b.id = s.brand_id
+         WHERE s.sale_date IS NOT NULL
+           AND s.sale_date::date >= $1::date
+           AND s.sale_date::date <= $2::date
+           AND LOWER(TRIM(COALESCE(b.brand_name, ''))) <> 'misc'
+         GROUP BY COALESCE(NULLIF(TRIM(b.brand_name), ''), 'Unknown brand')
+         ORDER BY cnt DESC NULLS LAST, name ASC
+         LIMIT 5`,
+        [start, end]
+      );
+
+      const isCurrentSeason =
+        spec.type === currentSpec.type && spec.refYear === currentSpec.refYear;
+
+      columns.push({
+        seasonKey: spec.type,
+        refYear: spec.refYear,
+        displayLabel: meteorologicalSeasonDisplayLabel(spec),
+        rangeStart: start,
+        rangeEnd: end,
+        isCurrentSeason,
+        topCategories: (catRes.rows ?? []).map((r) => ({
+          name: String(r.name ?? 'Uncategorized'),
+          count: Number(r.cnt) || 0,
+        })),
+        worstCategories: (catWorstRes.rows ?? []).map((r) => ({
+          name: String(r.name ?? 'Uncategorized'),
+          count: Number(r.cnt) || 0,
+        })),
+        topBrands: (brandRes.rows ?? []).map((r) => ({
+          name: String(r.name ?? 'Unknown brand'),
+          count: Number(r.cnt) || 0,
+        })),
+        saleCount,
+        hasSalesData: saleCount > 0,
+      });
+    }
+
+    const totalSoldRes = await pool.query(
+      `SELECT COUNT(*)::int AS c FROM stock WHERE sale_date IS NOT NULL`
+    );
+    const totalSoldLines = totalSoldRes.rows[0]?.c ?? 0;
+    const seasonsWithSalesCount = columns.filter((c) => c.hasSalesData).length;
+
+    let emptyMessage = null;
+    if (totalSoldLines === 0) {
+      emptyMessage =
+        'No sold items with sale dates yet — seasonal breakdown will appear once you record sales.';
+    } else if (seasonsWithSalesCount === 0) {
+      emptyMessage =
+        'None of your sales fall in these four meteorological seasons — keep logging sale dates to build this view.';
+    }
+
+    res.json({
+      columns,
+      totalSoldLines,
+      seasonsWithSalesCount,
+      emptyMessage,
+    });
+  } catch (error) {
+    console.error('seasonal-insights failed:', error);
+    res.status(500).json({ error: 'Failed to load seasonal insights', details: error.message });
+  }
+});
+
 /** Legacy item id from DB (digits, v1|…|0, or itm URL). */
 function extractEbayLegacyItemId(raw) {
   if (raw == null || raw === '') return null;

@@ -220,6 +220,22 @@ function buildStockListingImageBackgroundPrompt(brandName: string): string {
   ].join('\n');
 }
 
+/** Parse £ / comma / space from money text fields; returns NaN if empty/invalid. */
+function parseStockMoneyInput(raw: string | undefined | null): number {
+  const s = String(raw ?? '')
+    .trim()
+    .replace(/[£,\s]/g, '');
+  if (s === '') return NaN;
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+/** Preserve numeric 0 from the API; avoid falsy checks that drop 0. */
+function stockDbNumberToFormString(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  return String(value).trim();
+}
+
 const Stock: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -487,16 +503,16 @@ const Stock: React.FC = () => {
           setCreateForm({
             item_name: rowToEdit.item_name ?? '',
             category_id: rowToEdit.category_id ? String(rowToEdit.category_id) : '',
-            purchase_price: rowToEdit.purchase_price ? String(rowToEdit.purchase_price) : '',
+            purchase_price: stockDbNumberToFormString(rowToEdit.purchase_price),
             purchase_date: normalizeDateInput(rowToEdit.purchase_date ?? ''),
             sale_date: normalizeDateInput(rowToEdit.sale_date ?? ''),
-            sale_price: rowToEdit.sale_price ? String(rowToEdit.sale_price) : '',
+            sale_price: stockDbNumberToFormString(rowToEdit.sale_price),
             sold_platform: rowToEdit.sold_platform ?? '',
             vinted_id: rowToEdit.vinted_id ?? '',
             ebay_id: rowToEdit.ebay_id ?? '',
             depop_id: rowToEdit.depop_id ?? '',
             brand_id: rowToEdit.brand_id ? String(rowToEdit.brand_id) : '',
-            projected_sale_price: rowToEdit.projected_sale_price ? String(rowToEdit.projected_sale_price) : ''
+            projected_sale_price: stockDbNumberToFormString(rowToEdit.projected_sale_price),
           });
           setShowNewEntry(true);
           setSuccessMessage(null);
@@ -1424,16 +1440,16 @@ const Stock: React.FC = () => {
     setCreateForm({
       item_name: row.item_name ?? '',
       category_id: row.category_id ? String(row.category_id) : '',
-      purchase_price: row.purchase_price ? String(row.purchase_price) : '',
+      purchase_price: stockDbNumberToFormString(row.purchase_price),
       purchase_date: normalizeDateInput(row.purchase_date ?? ''),
       sale_date: normalizeDateInput(row.sale_date ?? ''),
-      sale_price: row.sale_price ? String(row.sale_price) : '',
+      sale_price: stockDbNumberToFormString(row.sale_price),
       sold_platform: row.sold_platform ?? '',
       vinted_id: row.vinted_id ?? '',
       ebay_id: row.ebay_id ?? '',
       depop_id: row.depop_id ?? '',
       brand_id: row.brand_id ? String(row.brand_id) : '',
-      projected_sale_price: row.projected_sale_price ? String(row.projected_sale_price) : ''
+      projected_sale_price: stockDbNumberToFormString(row.projected_sale_price),
     });
     console.log('startEditingRow - row data:', row);
     console.log('startEditingRow - vinted_id:', row.vinted_id);
@@ -1820,36 +1836,42 @@ const Stock: React.FC = () => {
     const multStr = (profit: number, purchase: number) =>
       purchase > 0 ? `${(profit / purchase).toFixed(2)}x` : '—';
 
-    const hasPurchasePrice =
-      !!createForm.purchase_price && createForm.purchase_price.trim() !== '';
+    const purchaseParsed = parseStockMoneyInput(createForm.purchase_price);
+    const hasPurchasePrice = Number.isFinite(purchaseParsed);
 
-    const rawActualSale = String(createForm.sale_price ?? '').trim();
-    const actualSaleParsed = rawActualSale === '' ? NaN : parseFloat(rawActualSale);
-    const hasUsableActualSale = Number.isFinite(actualSaleParsed);
+    const actualSaleParsed = parseStockMoneyInput(createForm.sale_price);
+    /** Only treat as “sold at this price” when sale is a positive number; empty/0 keeps projected in play. */
+    const hasUsableActualSale = Number.isFinite(actualSaleParsed) && actualSaleParsed > 0;
 
-    const hasProjectedPrice =
-      !!createForm.projected_sale_price && createForm.projected_sale_price.trim() !== '';
-    const projectedSaleParsed = hasProjectedPrice ? parseFloat(createForm.projected_sale_price) || 0 : NaN;
+    const projectedRaw = String(createForm.projected_sale_price ?? '').trim();
+    const hasProjectedPrice = projectedRaw !== '';
+    const projectedSaleParsed = parseStockMoneyInput(createForm.projected_sale_price);
 
-    /** Sale price (£) wins for Vinted/eBay valuations when set; else projected sale price. */
+    /** Sale price wins for Vinted/eBay when there is a real sold price; otherwise use projected. */
     const saleForPlatforms = hasUsableActualSale
       ? actualSaleParsed
-      : hasProjectedPrice && Number.isFinite(projectedSaleParsed)
+      : hasProjectedPrice && Number.isFinite(projectedSaleParsed) && projectedSaleParsed >= 0
         ? projectedSaleParsed
         : null;
 
-    const rawSale = rawActualSale;
+    const rawSale = String(createForm.sale_price ?? '').trim();
     let profitAmt = 0;
     let profitMultOut = '—';
     if (rawSale !== '') {
-      const sp = parseFloat(rawSale);
-      const pp = parseFloat(String(createForm.purchase_price ?? '').trim());
+      const sp = parseStockMoneyInput(createForm.sale_price);
+      const pp = purchaseParsed;
       if (Number.isFinite(sp) && Number.isFinite(pp)) {
         profitAmt = sp - pp;
         profitMultOut = pp > 0 ? `${(profitAmt / pp).toFixed(2)}x` : '—';
       }
     }
     const profitSeg = `${fmt(profitAmt)} / ${profitMultOut}`;
+    const profitLineTone =
+      rawSale !== '' &&
+      Number.isFinite(parseStockMoneyInput(createForm.sale_price)) &&
+      Number.isFinite(purchaseParsed)
+        ? profitAmt
+        : null;
 
     const valuationsUseActualSale = hasUsableActualSale;
     const soldPlat = createForm.sold_platform;
@@ -1857,11 +1879,25 @@ const Stock: React.FC = () => {
     const highlightEbay = valuationsUseActualSale && soldPlatformIsEbayStock(soldPlat);
 
     type SegmentHighlight = false | 'sold-platform' | 'profit-with-sale';
-    const segment = (label: string, valuePart: string, highlight: SegmentHighlight = false) => {
+    const pipelineValueClass = (profitTone: number | null): string => {
+      if (profitTone === null || !Number.isFinite(profitTone)) {
+        return 'stock-edit-metrics-pipeline-value stock-edit-metrics-pipeline-value--neutral';
+      }
+      if (profitTone > 0) return 'stock-edit-metrics-pipeline-value stock-edit-metrics-pipeline-value--positive';
+      if (profitTone < 0) return 'stock-edit-metrics-pipeline-value stock-edit-metrics-pipeline-value--negative';
+      return 'stock-edit-metrics-pipeline-value stock-edit-metrics-pipeline-value--neutral';
+    };
+    const segment = (
+      label: string,
+      valuePart: string,
+      highlight: SegmentHighlight = false,
+      profitTone: number | null = null,
+    ) => {
       const body = (
         <>
           <strong className="stock-edit-metrics-pipeline-label">{label}</strong>
-          {`: ${valuePart}`}
+          {': '}
+          <span className={pipelineValueClass(profitTone)}>{valuePart}</span>
         </>
       );
       if (highlight === 'sold-platform') {
@@ -1886,25 +1922,25 @@ const Stock: React.FC = () => {
     const cannotComputePlatforms = !hasPurchasePrice || saleForPlatforms === null;
 
     if (cannotComputePlatforms) {
-      const itemPartial = hasPurchasePrice ? parseFloat(createForm.purchase_price) || 0 : 0;
+      const itemPartial = hasPurchasePrice ? purchaseParsed : 0;
       const multPlaceholder = itemPartial > 0 ? '0.00x' : '—';
       const z = `£0.00 / ${multPlaceholder}`;
       const plain = `Vinted: ${z} | eBay: ${z} | eBay with fee: ${z} | Profit: ${profitSeg}`;
       const content = (
         <>
-          {segment('Vinted', z)}
+          {segment('Vinted', z, false, null)}
           {' | '}
-          {segment('eBay', z)}
+          {segment('eBay', z, false, null)}
           {' | '}
-          {segment('eBay with fee', z)}
+          {segment('eBay with fee', z, false, null)}
           {' | '}
-          {segment('Profit', profitSeg, profitHighlight)}
+          {segment('Profit', profitSeg, profitHighlight, profitLineTone)}
         </>
       );
       return { plain, content };
     }
 
-    const item = parseFloat(createForm.purchase_price) || 0;
+    const item = hasPurchasePrice ? purchaseParsed : 0;
     const sale = saleForPlatforms;
     const listingFees = 0.1;
     const promotedPercent = 10;
@@ -1921,13 +1957,13 @@ const Stock: React.FC = () => {
       `Vinted: ${vintedPart} | eBay: ${ebayPart} | eBay with fee: ${ebayFeePart} | Profit: ${profitSeg}`;
     const content = (
       <>
-        {segment('Vinted', vintedPart, highlightVinted ? 'sold-platform' : false)}
+        {segment('Vinted', vintedPart, highlightVinted ? 'sold-platform' : false, vintedProfit)}
         {' | '}
-        {segment('eBay', ebayPart, highlightEbay ? 'sold-platform' : false)}
+        {segment('eBay', ebayPart, highlightEbay ? 'sold-platform' : false, ebayProfitWithoutPromo)}
         {' | '}
-        {segment('eBay with fee', ebayFeePart, highlightEbay ? 'sold-platform' : false)}
+        {segment('eBay with fee', ebayFeePart, highlightEbay ? 'sold-platform' : false, ebayProfitWithPromo)}
         {' | '}
-        {segment('Profit', profitSeg, profitHighlight)}
+        {segment('Profit', profitSeg, profitHighlight, profitLineTone)}
       </>
     );
     return { plain, content };
