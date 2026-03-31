@@ -86,6 +86,426 @@
   margin-bottom: 18px;
 }
 
+/* Row 1: name ~25%, brand, category, size, tag */
+.stock-new-entry-row-top {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 25%)
+    minmax(0, 1.05fr)
+    minmax(0, 1.05fr)
+    minmax(0, 110px)
+    minmax(0, 1.2fr);
+  gap: 16px;
+  width: 100%;
+  align-items: start;
+  box-sizing: border-box;
+}
+
+/* Row 2: purchase, projected (+ comps), purchase date, project sales calculations — full width */
+.stock-new-entry-row-prices {
+  flex: 1 1 100%;
+  width: 100%;
+  max-width: 100%;
+  display: grid;
+  grid-template-columns:
+    minmax(96px, 1fr)
+    minmax(0, 1.5fr)
+    minmax(118px, 1fr)
+    minmax(0, 1.9fr);
+  gap: 16px;
+  align-items: start;
+  box-sizing: border-box;
+}
+
+.stock-new-entry-row-prices > .new-entry-field {
+  flex: unset;
+  max-width: none;
+  min-width: 0;
+}
+
+.stock-new-entry-row2-projected {
+  max-width: none;
+  flex: unset;
+}
+
+.stock-new-entry-row2-projected .stock-edit-projected-label {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Price input + comps text on one horizontal band */
+.stock-new-entry-row2-inline {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.new-entry-field .stock-new-entry-row2-price-input {
+  width: 100%;
+  max-width: 92px;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.stock-new-entry-row2-comps {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-top: 0;
+  padding: 4px 8px;
+  min-height: calc(28px + 0.95rem * 1.2 + 2px);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 214, 91, 0.12);
+  background: rgba(255, 214, 91, 0.04);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.stock-new-entry-row2-comps .stock-edit-brand-category-comps__muted {
+  margin: 0;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stock-new-entry-row2-comps .stock-edit-brand-category-comps__stack {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: center;
+}
+
+.stock-new-entry-row2-comps .stock-edit-brand-category-comps__stat-line {
+  gap: 6px;
+  flex: 0 1 auto;
+}
+
+.stock-new-entry-row2-comps .stock-edit-brand-category-comps__muted,
+.stock-new-entry-row2-comps .stock-edit-brand-category-comps__stat-line {
+  font-size: 0.72rem;
+}
+
+.stock-new-entry-row2-pipeline {
+  max-width: none;
+  min-width: 0;
+}
+
+.stock-new-entry-row2-pipeline .stock-edit-projected-label {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.stock-new-entry-row2-pipeline-box {
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  box-sizing: border-box;
+}
+
+.stock-new-entry-row2-pipeline-box .stock-edit-metrics-pipeline {
+  font-size: 0.8rem;
+  line-height: 1.35;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  width: 100%;
+  min-width: 0;
+}
+
+.stock-new-entry-row-top .stock-new-entry-name-with-close,
+.stock-new-entry-row-top > .new-entry-field {
+  flex: unset;
+  max-width: none;
+  min-width: 0;
+}
+
+.stock-new-entry-row-prices .new-entry-field--stock-compact-price,
+.stock-new-entry-row-prices .new-entry-field--stock-compact-date {
+  min-width: 0;
+}
+
+/* Row 3: marketplace IDs (Vinted / eBay wider / Depop) + save far right */
+.stock-new-entry-row-ids {
+  flex: 1 1 100%;
+  width: 100%;
+  max-width: 100%;
+  display: grid;
+  grid-template-columns:
+    minmax(0, 0.92fr)
+    minmax(0, 1.45fr)
+    minmax(0, 1fr)
+    auto;
+  gap: 16px;
+  align-items: start;
+  box-sizing: border-box;
+}
+
+.stock-new-entry-row-ids > .new-entry-field {
+  flex: unset;
+  max-width: none;
+  min-width: 0;
+}
+
+.stock-new-entry-row-ids > .new-entry-field.stock-new-entry-id-field {
+  max-width: none;
+}
+
+.stock-new-entry-row3-save {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.stock-new-entry-row3-save-label-spacer {
+  min-height: 32px;
+  width: 100%;
+  box-sizing: border-box;
+  display: block;
+}
+
+.stock-new-entry-tags-field,
+.stock-new-entry-size-field {
+  min-width: 0;
+}
+
+.stock-brand-tag-dropdown {
+  position: relative;
+  width: 100%;
+}
+
+.stock-brand-tag-dropdown-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: calc(28px + 0.95rem * 1.2 + 2px);
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 214, 91, 0.28);
+  background: rgba(5, 4, 3, 0.6);
+  color: var(--text-strong);
+  font-size: 0.9rem;
+  cursor: pointer;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: 0.02rem;
+  box-sizing: border-box;
+}
+
+.stock-brand-tag-dropdown-trigger--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.stock-brand-tag-dropdown-trigger-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.stock-brand-tag-dropdown-trigger-thumb {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.stock-brand-tag-dropdown-trigger-thumb--empty {
+  display: block;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px dashed rgba(255, 214, 91, 0.22);
+}
+
+.stock-brand-tag-dropdown-trigger-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stock-brand-tag-dropdown-chevron {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  opacity: 0.7;
+}
+
+.stock-brand-tag-dropdown-panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 50;
+  max-height: 240px;
+  overflow-y: auto;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 214, 91, 0.35);
+  background: rgba(12, 10, 8, 0.98);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.stock-brand-tag-dropdown-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-bottom: 1px solid rgba(255, 214, 91, 0.08);
+  background: transparent;
+  color: rgba(255, 248, 226, 0.9);
+  font-size: 0.88rem;
+  text-transform: none;
+  letter-spacing: 0.02rem;
+  cursor: pointer;
+  text-align: left;
+  box-sizing: border-box;
+}
+
+.stock-brand-tag-dropdown-row:last-child {
+  border-bottom: none;
+}
+
+.stock-brand-tag-dropdown-row:hover {
+  background: rgba(255, 214, 91, 0.1);
+}
+
+.stock-brand-tag-dropdown-row--picked {
+  background: rgba(140, 255, 195, 0.08);
+}
+
+.stock-brand-tag-dropdown-row--muted {
+  cursor: default;
+  color: rgba(255, 248, 226, 0.5);
+  font-size: 0.82rem;
+}
+
+.stock-brand-tag-dropdown-row-thumb {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.stock-brand-tag-dropdown-row-thumb--none,
+.stock-brand-tag-dropdown-row-thumb--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 214, 91, 0.15);
+  font-weight: 700;
+  color: rgba(255, 248, 226, 0.35);
+}
+
+.stock-brand-tag-dropdown-row-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 1024px) {
+  .stock-new-entry-row-top {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stock-new-entry-row-top .stock-new-entry-name-with-close {
+    grid-column: 1 / -1;
+  }
+
+  .stock-new-entry-row-prices {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stock-new-entry-row-prices .new-entry-field--stock-compact-price,
+  .stock-new-entry-row-prices .new-entry-field--stock-compact-date {
+    max-width: none;
+  }
+
+  .stock-new-entry-row-ids {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .stock-new-entry-row-ids .stock-new-entry-row3-save {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    justify-content: flex-end;
+    align-items: center;
+    width: 100%;
+  }
+
+  .stock-new-entry-row-ids .stock-new-entry-row3-save-label-spacer {
+    display: none;
+  }
+
+  .stock-new-entry-row2-pipeline {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 560px) {
+  .stock-new-entry-row-top {
+    grid-template-columns: 1fr;
+  }
+
+  .stock-new-entry-row-prices {
+    grid-template-columns: 1fr;
+  }
+
+  .stock-new-entry-row2-inline {
+    flex-wrap: wrap;
+  }
+
+  .new-entry-field .stock-new-entry-row2-price-input {
+    max-width: 100%;
+  }
+
+  .stock-new-entry-row2-comps .stock-edit-brand-category-comps__muted {
+    white-space: normal;
+  }
+
+  .stock-new-entry-row-ids {
+    grid-template-columns: 1fr;
+  }
+
+  .stock-new-entry-row-ids .stock-new-entry-row3-save {
+    grid-column: 1;
+  }
+
+  .stock-new-entry-row-ids .stock-new-entry-row3-save-label-spacer {
+    display: block;
+  }
+}
+
 .new-entry-field {
   display: flex;
   flex-direction: column;
@@ -909,7 +1329,7 @@ button.stock-close-circle-btn:disabled {
   }
 }
 
-/* Round save control (floppy disk) — edit form row 4 beside Sold Platform */
+/* Round save control (floppy disk) — edit form row 3 beside marketplace IDs */
 .save-button.stock-edit-save-disk {
   flex-shrink: 0;
   width: 48px;
@@ -937,6 +1357,12 @@ button.stock-close-circle-btn:disabled {
 .stock-edit-sold-platform-field {
   flex: 1 1 0;
   min-width: 0;
+}
+
+.stock-edit-sold-platform-field--full {
+  flex: 1 1 100%;
+  min-width: 0;
+  width: 100%;
 }
 
 .stock-edit-save-in-row4 {

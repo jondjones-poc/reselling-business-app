@@ -24,7 +24,9 @@ interface StockRow {
   depop_id: Nullable<string>;
   brand_id: Nullable<number>;
   category_id: Nullable<number>;
+  brand_tag_image_id: Nullable<number>;
   projected_sale_price: Nullable<string | number>;
+  category_size_id: Nullable<number>;
 }
 
 interface Brand {
@@ -35,6 +37,20 @@ interface Brand {
 interface Category {
   id: number;
   category_name: string;
+}
+
+interface BrandTagImageRow {
+  id: number;
+  brand_id: number;
+  public_url?: string | null;
+  caption?: string | null;
+}
+
+interface CategorySizeRow {
+  id: number;
+  category_id: number;
+  size_label: string;
+  sort_order?: number;
 }
 
 interface StockApiResponse {
@@ -268,8 +284,17 @@ const Stock: React.FC = () => {
     ebay_id: '',
     depop_id: '',
     brand_id: '',
-    projected_sale_price: ''
+    brand_tag_image_id: '',
+    projected_sale_price: '',
+    category_size_id: ''
   });
+  const [categorySizes, setCategorySizes] = useState<CategorySizeRow[]>([]);
+  const [categorySizesLoading, setCategorySizesLoading] = useState(false);
+  const [brandTagImages, setBrandTagImages] = useState<BrandTagImageRow[]>([]);
+  const [brandTagImagesLoading, setBrandTagImagesLoading] = useState(false);
+  const [brandTagImagesError, setBrandTagImagesError] = useState<string | null>(null);
+  const [stockTagDropdownOpen, setStockTagDropdownOpen] = useState(false);
+  const stockTagDropdownRef = useRef<HTMLDivElement>(null);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [showTypeahead, setShowTypeahead] = useState(false);
@@ -512,7 +537,11 @@ const Stock: React.FC = () => {
             ebay_id: rowToEdit.ebay_id ?? '',
             depop_id: rowToEdit.depop_id ?? '',
             brand_id: rowToEdit.brand_id ? String(rowToEdit.brand_id) : '',
+            brand_tag_image_id:
+              rowToEdit.brand_tag_image_id != null ? String(rowToEdit.brand_tag_image_id) : '',
             projected_sale_price: stockDbNumberToFormString(rowToEdit.projected_sale_price),
+            category_size_id:
+              rowToEdit.category_size_id != null ? String(rowToEdit.category_size_id) : '',
           });
           setShowNewEntry(true);
           setSuccessMessage(null);
@@ -545,6 +574,124 @@ const Stock: React.FC = () => {
       }
     }
   }, [rows, loading, searchParams, editingRowId, creating, setSearchParams]);
+
+  useEffect(() => {
+    const bid = createForm.brand_id?.trim();
+    if (!bid) {
+      setBrandTagImages([]);
+      setBrandTagImagesError(null);
+      setBrandTagImagesLoading(false);
+      return;
+    }
+    const ac = new AbortController();
+    let cancelled = false;
+    (async () => {
+      setBrandTagImagesLoading(true);
+      setBrandTagImagesError(null);
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/brand-tag-images?brandId=${encodeURIComponent(bid)}`,
+          { signal: ac.signal }
+        );
+        const data = (await res.json()) as { rows?: BrandTagImageRow[]; error?: string; details?: string };
+        if (!res.ok) {
+          throw new Error(data?.details || data?.error || 'Failed to load brand tags');
+        }
+        const rows = Array.isArray(data.rows) ? data.rows : [];
+        if (cancelled) return;
+        setBrandTagImages(rows);
+        setCreateForm((prev) => {
+          if (!prev.brand_tag_image_id?.trim()) return prev;
+          const ok = rows.some((r) => String(r.id) === String(prev.brand_tag_image_id));
+          return ok ? prev : { ...prev, brand_tag_image_id: '' };
+        });
+      } catch (e) {
+        if (cancelled) return;
+        if (e instanceof DOMException && e.name === 'AbortError') return;
+        setBrandTagImages([]);
+        setBrandTagImagesError(e instanceof Error ? e.message : 'Failed to load brand tags');
+      } finally {
+        if (!cancelled) setBrandTagImagesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [createForm.brand_id]);
+
+  useEffect(() => {
+    const cid = createForm.category_id?.trim();
+    if (!cid) {
+      setCategorySizes([]);
+      setCategorySizesLoading(false);
+      return;
+    }
+    const ac = new AbortController();
+    let cancelled = false;
+    (async () => {
+      setCategorySizesLoading(true);
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/category-sizes?categoryId=${encodeURIComponent(cid)}`,
+          { signal: ac.signal }
+        );
+        const data = (await res.json()) as { rows?: CategorySizeRow[]; error?: string };
+        if (!res.ok) {
+          throw new Error(data?.error || 'Failed to load sizes');
+        }
+        const list = Array.isArray(data.rows) ? data.rows : [];
+        if (cancelled) return;
+        setCategorySizes(list);
+        setCreateForm((prev) => {
+          if (!prev.category_size_id?.trim()) return prev;
+          const ok = list.some((r) => String(r.id) === String(prev.category_size_id));
+          return ok ? prev : { ...prev, category_size_id: '' };
+        });
+      } catch (e) {
+        if (cancelled) return;
+        if (e instanceof DOMException && e.name === 'AbortError') return;
+        setCategorySizes([]);
+        setCreateForm((prev) =>
+          prev.category_size_id ? { ...prev, category_size_id: '' } : prev
+        );
+      } finally {
+        if (!cancelled) setCategorySizesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [createForm.category_id]);
+
+  useEffect(() => {
+    setStockTagDropdownOpen(false);
+  }, [createForm.brand_id]);
+
+  useEffect(() => {
+    if (!stockTagDropdownOpen) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      const el = stockTagDropdownRef.current;
+      if (el && !el.contains(e.target as Node)) {
+        setStockTagDropdownOpen(false);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setStockTagDropdownOpen(false);
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onDocMouseDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [stockTagDropdownOpen]);
+
+  const selectedBrandTagImage = useMemo(
+    () => brandTagImages.find((t) => String(t.id) === String(createForm.brand_tag_image_id)),
+    [brandTagImages, createForm.brand_tag_image_id]
+  );
 
   const loadCategories = async () => {
     try {
@@ -1449,7 +1596,9 @@ const Stock: React.FC = () => {
       ebay_id: row.ebay_id ?? '',
       depop_id: row.depop_id ?? '',
       brand_id: row.brand_id ? String(row.brand_id) : '',
+      brand_tag_image_id: row.brand_tag_image_id != null ? String(row.brand_tag_image_id) : '',
       projected_sale_price: stockDbNumberToFormString(row.projected_sale_price),
+      category_size_id: row.category_size_id != null ? String(row.category_size_id) : '',
     });
     console.log('startEditingRow - row data:', row);
     console.log('startEditingRow - vinted_id:', row.vinted_id);
@@ -1496,15 +1645,23 @@ const Stock: React.FC = () => {
       ebay_id: '',
       depop_id: '',
       brand_id: '',
-      projected_sale_price: ''
+      brand_tag_image_id: '',
+      projected_sale_price: '',
+      category_size_id: ''
     });
   };
 
   const handleCreateChange = (key: keyof typeof createForm, value: string) => {
-    setCreateForm((prev) => ({
-      ...prev,
-      [key]: value
-    }));
+    setCreateForm((prev) => {
+      const next = { ...prev, [key]: value };
+      if (key === 'brand_id' && value !== prev.brand_id) {
+        next.brand_tag_image_id = '';
+      }
+      if (key === 'category_id' && value !== prev.category_id) {
+        next.category_size_id = '';
+      }
+      return next;
+    });
   };
 
   const handleCreateSubmit = async (allowCreateDespiteEditIntent?: boolean) => {
@@ -1534,7 +1691,15 @@ const Stock: React.FC = () => {
         ebay_id: createForm.ebay_id ? createForm.ebay_id.trim() : null,
         depop_id: createForm.depop_id ? createForm.depop_id.trim() : null,
         brand_id: createForm.brand_id ? Number(createForm.brand_id) : null,
-        projected_sale_price: createForm.projected_sale_price || null
+        brand_tag_image_id:
+          createForm.brand_id && createForm.brand_tag_image_id.trim() !== ''
+            ? Number(createForm.brand_tag_image_id)
+            : null,
+        projected_sale_price: createForm.projected_sale_price || null,
+        category_size_id:
+          createForm.category_id && createForm.category_size_id.trim() !== ''
+            ? Number(createForm.category_size_id)
+            : null
       };
 
       console.log('Stock submit - Payload:', payload);
@@ -2120,8 +2285,8 @@ const Stock: React.FC = () => {
               </div>
             )}
 
-            {/* Row 2: Name, Category, Purchase Price (£), Purchase Date */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', width: '100%' }}>
+            {/* Row 1: Name, Brand, Category, Size, Tag */}
+            <div className="stock-new-entry-row-top">
               {!editingRowId ? (
                 <div className="stock-new-entry-name-with-close">
                   <div className="stock-new-entry-close-before-name">
@@ -2180,160 +2345,6 @@ const Stock: React.FC = () => {
                   />
                 </label>
               )}
-              <div className="new-entry-field" style={{ position: 'relative' }}>
-                  <div className="new-entry-field-label-row">
-                    <span id="stock-form-category-label">Category</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowAddCategory(!showAddCategory);
-                        setNewCategoryName('');
-                      }}
-                      style={{
-                        background: 'rgba(255, 214, 91, 0.15)',
-                        border: '1px solid rgba(255, 214, 91, 0.3)',
-                        borderRadius: '6px',
-                        color: 'var(--neon-primary-strong)',
-                        cursor: 'pointer',
-                        padding: '4px 8px',
-                        fontSize: '0.75rem',
-                        fontWeight: 600,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        minWidth: '24px',
-                        height: '24px',
-                        transition: 'all 0.2s ease'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'rgba(255, 214, 91, 0.25)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'rgba(255, 214, 91, 0.15)';
-                      }}
-                      title="Add new category"
-                    >
-                      +
-                    </button>
-                  </div>
-                  <select
-                    className="new-entry-select"
-                    aria-labelledby="stock-form-category-label"
-                    value={createForm.category_id}
-                    onChange={(event) => handleCreateChange('category_id', event.target.value)}
-                  >
-                    <option value="">Select category...</option>
-                    {categories.map((category) => (
-                      <option key={category.id} value={category.id}>
-                        {category.category_name}
-                      </option>
-                    ))}
-                  </select>
-                  {showAddCategory && (
-                    <div
-                      style={{
-                        display: 'flex',
-                        gap: '8px',
-                        alignItems: 'center',
-                        marginTop: '4px',
-                        padding: '8px',
-                        background: 'rgba(255, 214, 91, 0.08)',
-                        borderRadius: '8px',
-                        border: '1px solid rgba(255, 214, 91, 0.2)'
-                      }}
-                    >
-                      <input
-                        type="text"
-                        value={newCategoryName}
-                        onChange={(e) => setNewCategoryName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            handleAddCategory();
-                          } else if (e.key === 'Escape') {
-                            setShowAddCategory(false);
-                            setNewCategoryName('');
-                          }
-                        }}
-                        placeholder="New category name..."
-                        style={{
-                          flex: 1,
-                          padding: '8px 12px',
-                          borderRadius: '8px',
-                          border: '1px solid rgba(255, 214, 91, 0.28)',
-                          background: 'rgba(5, 4, 3, 0.6)',
-                          color: 'var(--text-strong)',
-                          fontSize: '0.9rem',
-                          outline: 'none'
-                        }}
-                        autoFocus
-                      />
-                      <button
-                        type="button"
-                        onClick={handleAddCategory}
-                        disabled={savingCategory || !newCategoryName.trim()}
-                        style={{
-                          padding: '8px 16px',
-                          borderRadius: '8px',
-                          border: '1px solid rgba(255, 214, 91, 0.3)',
-                          background: savingCategory ? 'rgba(255, 214, 91, 0.2)' : 'rgba(255, 214, 91, 0.15)',
-                          color: 'var(--neon-primary-strong)',
-                          cursor: savingCategory ? 'not-allowed' : 'pointer',
-                          fontSize: '0.85rem',
-                          fontWeight: 600,
-                          opacity: savingCategory || !newCategoryName.trim() ? 0.6 : 1
-                        }}
-                      >
-                        {savingCategory ? 'Saving...' : 'Add'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowAddCategory(false);
-                          setNewCategoryName('');
-                        }}
-                        style={{
-                          padding: '8px 12px',
-                          borderRadius: '8px',
-                          border: '1px solid rgba(255, 120, 120, 0.3)',
-                          background: 'rgba(255, 120, 120, 0.1)',
-                          color: '#ffb0b0',
-                          cursor: 'pointer',
-                          fontSize: '0.85rem',
-                          fontWeight: 600
-                        }}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  )}
-              </div>
-              <label className="new-entry-field">
-                <span>Purchase Price (£)</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={createForm.purchase_price}
-                  onChange={(event) => handleCreateChange('purchase_price', event.target.value)}
-                  placeholder="e.g. 45.00"
-                />
-              </label>
-              <label className="new-entry-field">
-                <span>Purchase Date</span>
-                <DatePicker
-                  selected={stringToDate(createForm.purchase_date)}
-                  onChange={(date) =>
-                    handleCreateChange('purchase_date', dateToIsoString(date ?? null))
-                  }
-                  dateFormat="yyyy-MM-dd"
-                  placeholderText="Select purchase date"
-                  className="date-picker-input"
-                  calendarClassName="date-picker-calendar"
-                  wrapperClassName="date-picker-wrapper"
-                />
-              </label>
-            </div>
-            {/* Row 3: Brand, Platform IDs */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', width: '100%' }}>
               <div className="new-entry-field" style={{ position: 'relative' }}>
                   <div className="new-entry-field-label-row">
                     <span id="stock-form-brand-label">Brand</span>
@@ -2463,68 +2474,304 @@ const Stock: React.FC = () => {
                     </div>
                   )}
               </div>
-              <label className="new-entry-field">
-                <span>Vinted ID</span>
-                <input
-                  type="text"
-                  value={createForm.vinted_id}
-                  onChange={(event) => handleCreateChange('vinted_id', event.target.value)}
-                  placeholder="Optional"
-                />
-              </label>
-              <label className="new-entry-field">
-                <span>eBay ID</span>
-                <input
-                  type="text"
-                  value={createForm.ebay_id}
-                  onChange={(event) => handleCreateChange('ebay_id', event.target.value)}
-                  placeholder="Optional"
-                />
-              </label>
-              <label className="new-entry-field">
-                <span>Depop ID</span>
-                <input
-                  type="text"
-                  value={createForm.depop_id}
-                  onChange={(event) => handleCreateChange('depop_id', event.target.value)}
-                  placeholder="Optional"
-                />
-              </label>
-            </div>
-            {/* Row 4 (edit): Sale Price, Projected Sale Price, Sale Date, Sold Platform */}
-            {editingRowId && (
-              <div
-                className="stock-edit-row-4"
-                style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', width: '100%', alignItems: 'flex-end' }}
-              >
-                <label className="new-entry-field">
-                  <span>Sale Price (£)</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={createForm.sale_price}
-                    onChange={(event) => handleCreateChange('sale_price', event.target.value)}
-                    placeholder="e.g. 95.00"
-                  />
-                </label>
-                <div className="new-entry-field stock-edit-projected-with-comps">
-                  <span className="stock-edit-projected-label stock-edit-projected-label--left">
-                    Projected Sale Price
-                  </span>
-                  <span className="stock-edit-projected-label stock-edit-projected-label--right">My Sales Price</span>
-                  <div className="stock-edit-projected-input-wrap">
-                    <input
-                      type="text"
-                      className="stock-edit-projected-price-input"
-                      value={createForm.projected_sale_price}
-                      onChange={(event) => handleCreateChange('projected_sale_price', event.target.value)}
-                      placeholder="0.00"
-                      style={{ textAlign: 'center' }}
-                      aria-label="Projected sale price"
-                    />
+              <div className="new-entry-field" style={{ position: 'relative' }}>
+                  <div className="new-entry-field-label-row">
+                    <span id="stock-form-category-label">Category</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAddCategory(!showAddCategory);
+                        setNewCategoryName('');
+                      }}
+                      style={{
+                        background: 'rgba(255, 214, 91, 0.15)',
+                        border: '1px solid rgba(255, 214, 91, 0.3)',
+                        borderRadius: '6px',
+                        color: 'var(--neon-primary-strong)',
+                        cursor: 'pointer',
+                        padding: '4px 8px',
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minWidth: '24px',
+                        height: '24px',
+                        transition: 'all 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(255, 214, 91, 0.25)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'rgba(255, 214, 91, 0.15)';
+                      }}
+                      title="Add new category"
+                    >
+                      +
+                    </button>
                   </div>
+                  <select
+                    className="new-entry-select"
+                    aria-labelledby="stock-form-category-label"
+                    value={createForm.category_id}
+                    onChange={(event) => handleCreateChange('category_id', event.target.value)}
+                  >
+                    <option value="">Select category...</option>
+                    {categories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.category_name}
+                      </option>
+                    ))}
+                  </select>
+                  {showAddCategory && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: '8px',
+                        alignItems: 'center',
+                        marginTop: '4px',
+                        padding: '8px',
+                        background: 'rgba(255, 214, 91, 0.08)',
+                        borderRadius: '8px',
+                        border: '1px solid rgba(255, 214, 91, 0.2)'
+                      }}
+                    >
+                      <input
+                        type="text"
+                        value={newCategoryName}
+                        onChange={(e) => setNewCategoryName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleAddCategory();
+                          } else if (e.key === 'Escape') {
+                            setShowAddCategory(false);
+                            setNewCategoryName('');
+                          }
+                        }}
+                        placeholder="New category name..."
+                        style={{
+                          flex: 1,
+                          padding: '8px 12px',
+                          borderRadius: '8px',
+                          border: '1px solid rgba(255, 214, 91, 0.28)',
+                          background: 'rgba(5, 4, 3, 0.6)',
+                          color: 'var(--text-strong)',
+                          fontSize: '0.9rem',
+                          outline: 'none'
+                        }}
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddCategory}
+                        disabled={savingCategory || !newCategoryName.trim()}
+                        style={{
+                          padding: '8px 16px',
+                          borderRadius: '8px',
+                          border: '1px solid rgba(255, 214, 91, 0.3)',
+                          background: savingCategory ? 'rgba(255, 214, 91, 0.2)' : 'rgba(255, 214, 91, 0.15)',
+                          color: 'var(--neon-primary-strong)',
+                          cursor: savingCategory ? 'not-allowed' : 'pointer',
+                          fontSize: '0.85rem',
+                          fontWeight: 600,
+                          opacity: savingCategory || !newCategoryName.trim() ? 0.6 : 1
+                        }}
+                      >
+                        {savingCategory ? 'Saving...' : 'Add'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowAddCategory(false);
+                          setNewCategoryName('');
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          borderRadius: '8px',
+                          border: '1px solid rgba(255, 120, 120, 0.3)',
+                          background: 'rgba(255, 120, 120, 0.1)',
+                          color: '#ffb0b0',
+                          cursor: 'pointer',
+                          fontSize: '0.85rem',
+                          fontWeight: 600
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  )}
+              </div>
+              <label className="new-entry-field stock-new-entry-size-field">
+                <span id="stock-form-size-label">Size</span>
+                <select
+                  className="new-entry-select"
+                  aria-labelledby="stock-form-size-label"
+                  value={createForm.category_size_id}
+                  onChange={(event) => handleCreateChange('category_size_id', event.target.value)}
+                  disabled={!createForm.category_id?.trim() || categorySizesLoading}
+                >
+                  <option value="">
+                    {!createForm.category_id?.trim()
+                      ? 'Select category first'
+                      : categorySizesLoading
+                        ? 'Loading…'
+                        : 'None'}
+                  </option>
+                  {categorySizes.map((siz) => (
+                    <option key={siz.id} value={String(siz.id)}>
+                      {siz.size_label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="new-entry-field stock-new-entry-tags-field">
+                <div className="new-entry-field-label-row">
+                  <span id="stock-form-tags-label">Tag</span>
+                </div>
+                <div className="stock-brand-tag-dropdown" ref={stockTagDropdownRef}>
+                  <button
+                    type="button"
+                    className={
+                      'stock-brand-tag-dropdown-trigger' +
+                      (!createForm.brand_id?.trim() ? ' stock-brand-tag-dropdown-trigger--disabled' : '')
+                    }
+                    aria-haspopup="listbox"
+                    aria-expanded={stockTagDropdownOpen}
+                    aria-labelledby="stock-form-tags-label"
+                    disabled={!createForm.brand_id?.trim()}
+                    onClick={() => {
+                      if (!createForm.brand_id?.trim()) return;
+                      setStockTagDropdownOpen((o) => !o);
+                    }}
+                  >
+                    <span className="stock-brand-tag-dropdown-trigger-inner">
+                      {selectedBrandTagImage?.public_url ? (
+                        <img
+                          src={selectedBrandTagImage.public_url}
+                          alt=""
+                          className="stock-brand-tag-dropdown-trigger-thumb"
+                        />
+                      ) : (
+                        <span className="stock-brand-tag-dropdown-trigger-thumb stock-brand-tag-dropdown-trigger-thumb--empty" />
+                      )}
+                      <span className="stock-brand-tag-dropdown-trigger-text">
+                        {!createForm.brand_id?.trim()
+                          ? 'Select a brand first'
+                          : brandTagImagesLoading
+                            ? 'Loading tags…'
+                            : brandTagImagesError
+                              ? 'Could not load tags'
+                              : brandTagImages.length === 0
+                                ? 'No tags for this brand'
+                                : selectedBrandTagImage
+                                  ? (selectedBrandTagImage.caption?.trim() || `Tag #${selectedBrandTagImage.id}`)
+                                  : 'Select tag…'}
+                      </span>
+                    </span>
+                    <span className="stock-brand-tag-dropdown-chevron" aria-hidden>
+                      ▾
+                    </span>
+                  </button>
+                  {stockTagDropdownOpen && createForm.brand_id?.trim() && (
+                    <div
+                      className="stock-brand-tag-dropdown-panel"
+                      role="listbox"
+                      aria-labelledby="stock-form-tags-label"
+                    >
+                      {brandTagImagesLoading ? (
+                        <div className="stock-brand-tag-dropdown-row stock-brand-tag-dropdown-row--muted">
+                          Loading…
+                        </div>
+                      ) : brandTagImagesError ? (
+                        <div className="stock-brand-tag-dropdown-row stock-brand-tag-dropdown-row--muted" role="alert">
+                          {brandTagImagesError}
+                        </div>
+                      ) : brandTagImages.length === 0 ? (
+                        <div className="stock-brand-tag-dropdown-row stock-brand-tag-dropdown-row--muted">
+                          No tag images for this brand.
+                        </div>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            role="option"
+                            className="stock-brand-tag-dropdown-row"
+                            aria-selected={createForm.brand_tag_image_id === ''}
+                            onClick={() => {
+                              handleCreateChange('brand_tag_image_id', '');
+                              setStockTagDropdownOpen(false);
+                            }}
+                          >
+                            <span className="stock-brand-tag-dropdown-row-thumb stock-brand-tag-dropdown-row-thumb--none" />
+                            <span>None</span>
+                          </button>
+                          {brandTagImages.map((t) => {
+                            const picked = String(createForm.brand_tag_image_id) === String(t.id);
+                            return (
+                              <button
+                                key={t.id}
+                                type="button"
+                                role="option"
+                                className={
+                                  'stock-brand-tag-dropdown-row' + (picked ? ' stock-brand-tag-dropdown-row--picked' : '')
+                                }
+                                aria-selected={picked}
+                                onClick={() => {
+                                  handleCreateChange('brand_tag_image_id', String(t.id));
+                                  setStockTagDropdownOpen(false);
+                                }}
+                              >
+                                {t.public_url ? (
+                                  <img
+                                    src={t.public_url}
+                                    alt=""
+                                    className="stock-brand-tag-dropdown-row-thumb"
+                                    loading="lazy"
+                                  />
+                                ) : (
+                                  <span className="stock-brand-tag-dropdown-row-thumb stock-brand-tag-dropdown-row-thumb--placeholder">
+                                    ?
+                                  </span>
+                                )}
+                                <span className="stock-brand-tag-dropdown-row-label">
+                                  {t.caption?.trim() || `Tag #${t.id}`}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            {/* Row 2: Purchase price, projected price, purchase date, project sales calculations */}
+            <div className="stock-new-entry-row-prices">
+              <label className="new-entry-field new-entry-field--stock-compact-price">
+                <span>Purchase Price (£)</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={createForm.purchase_price}
+                  onChange={(event) => handleCreateChange('purchase_price', event.target.value)}
+                  placeholder="e.g. 45.00"
+                />
+              </label>
+              <div className="new-entry-field stock-new-entry-row2-projected">
+                <span className="stock-edit-projected-label">Projected Price (£)</span>
+                <div className="stock-new-entry-row2-inline">
+                  <input
+                    type="text"
+                    className="stock-edit-projected-price-input stock-new-entry-row2-price-input"
+                    value={createForm.projected_sale_price}
+                    onChange={(event) => handleCreateChange('projected_sale_price', event.target.value)}
+                    placeholder="0.00"
+                    style={{ textAlign: 'center' }}
+                    aria-label="Projected price (£)"
+                  />
                   <div
-                    className="stock-edit-brand-category-comps"
+                    className="stock-edit-brand-category-comps stock-new-entry-row2-comps"
                     role="region"
                     aria-label="Average and top sale price for this brand and category"
                   >
@@ -2552,6 +2799,154 @@ const Stock: React.FC = () => {
                     )}
                   </div>
                 </div>
+              </div>
+              <label className="new-entry-field new-entry-field--stock-compact-date">
+                <span>Purchase Date</span>
+                <DatePicker
+                  selected={stringToDate(createForm.purchase_date)}
+                  onChange={(date) =>
+                    handleCreateChange('purchase_date', dateToIsoString(date ?? null))
+                  }
+                  dateFormat="yyyy-MM-dd"
+                  placeholderText="Select purchase date"
+                  className="date-picker-input"
+                  calendarClassName="date-picker-calendar"
+                  wrapperClassName="date-picker-wrapper"
+                />
+              </label>
+              <div className="new-entry-field stock-new-entry-row2-pipeline">
+                <span className="stock-edit-projected-label">Project sales calculations</span>
+                <div className="stock-edit-row-1-metrics-box stock-new-entry-row2-pipeline-box">
+                  <div
+                    className="stock-edit-metrics-pipeline"
+                    role="region"
+                    aria-label="Projected profit by platform"
+                    title={stockEditMetricsPipeline.plain}
+                  >
+                    {stockEditMetricsPipeline.content}
+                  </div>
+                </div>
+              </div>
+            </div>
+            {/* Row 3: Marketplace IDs + save (far right) */}
+            <div className="stock-new-entry-row-ids">
+              <label className="new-entry-field stock-new-entry-id-field stock-new-entry-id-field--vinted">
+                <span>Vinted ID</span>
+                <input
+                  type="text"
+                  value={createForm.vinted_id}
+                  onChange={(event) => handleCreateChange('vinted_id', event.target.value)}
+                  placeholder="Optional"
+                />
+              </label>
+              <label className="new-entry-field stock-new-entry-id-field stock-new-entry-id-field--ebay">
+                <span>eBay ID</span>
+                <input
+                  type="text"
+                  value={createForm.ebay_id}
+                  onChange={(event) => handleCreateChange('ebay_id', event.target.value)}
+                  placeholder="Optional"
+                />
+              </label>
+              <label className="new-entry-field stock-new-entry-id-field stock-new-entry-id-field--depop">
+                <span>Depop ID</span>
+                <input
+                  type="text"
+                  value={createForm.depop_id}
+                  onChange={(event) => handleCreateChange('depop_id', event.target.value)}
+                  placeholder="Optional"
+                />
+              </label>
+              <div className="stock-new-entry-row3-save">
+                <span className="stock-new-entry-row3-save-label-spacer" aria-hidden>
+                  &nbsp;
+                </span>
+                {editingRowId ? (
+                  <button
+                    type="button"
+                    className="save-button stock-edit-save-disk"
+                    onClick={() => {
+                      void handleCreateSubmit();
+                    }}
+                    disabled={creating || deleting}
+                    aria-label={creating ? 'Saving changes' : 'Save changes'}
+                    title={creating ? 'Saving…' : 'Save changes'}
+                  >
+                    {creating ? (
+                      <span className="stock-edit-save-disk-spinner" aria-hidden />
+                    ) : (
+                      <svg
+                        className="stock-edit-save-disk-icon"
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="22"
+                        height="22"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.75"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden
+                      >
+                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                        <polyline points="17 21 17 13 7 13 7 21" />
+                        <polyline points="7 3 7 8 15 8" />
+                      </svg>
+                    )}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="stock-new-entry-save-circle"
+                    onClick={() => {
+                      void handleCreateSubmit();
+                    }}
+                    disabled={creating || deleting}
+                    aria-label={creating ? 'Saving' : 'Save item'}
+                    title={creating ? 'Saving…' : 'Save'}
+                  >
+                    {creating ? (
+                      <span className="stock-new-entry-save-spinner" aria-hidden />
+                    ) : (
+                      <svg
+                        className="stock-new-entry-save-icon"
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden
+                      >
+                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                        <polyline points="17 21 17 13 7 13 7 21" />
+                        <polyline points="7 3 7 8 15 8" />
+                      </svg>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+            {/* Row 4 (edit): My Sales Price, Sale Date, Sold Platform */}
+            {editingRowId && (
+              <div
+                className="stock-edit-row-4"
+                style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', width: '100%', alignItems: 'flex-end' }}
+              >
+                <label className="new-entry-field new-entry-field--stock-compact-price">
+                  <span>My Sales Price (£)</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={createForm.sale_price}
+                    onChange={(event) => handleCreateChange('sale_price', event.target.value)}
+                    placeholder="e.g. 95.00"
+                    aria-label="My sales price or sale price"
+                  />
+                </label>
                 <label className="new-entry-field">
                   <span>Sale Date</span>
                   <DatePicker
@@ -2572,7 +2967,7 @@ const Stock: React.FC = () => {
                   ref={soldPlatformDropdownRef}
                 >
                   <div className="stock-edit-sold-platform-with-save-row">
-                    <div className="stock-edit-sold-platform-field">
+                    <div className="stock-edit-sold-platform-field stock-edit-sold-platform-field--full">
                   <label
                     style={{
                       display: 'flex',
@@ -2737,146 +3132,7 @@ const Stock: React.FC = () => {
                     )}
                   </label>
                     </div>
-                    <div className="stock-edit-save-in-row4">
-                      <span className="stock-edit-save-in-row4-label-spacer" aria-hidden>
-                        &nbsp;
-                      </span>
-                      <button
-                        type="button"
-                        className="save-button stock-edit-save-disk"
-                        onClick={() => {
-                          void handleCreateSubmit();
-                        }}
-                        disabled={creating || deleting}
-                        aria-label={creating ? 'Saving changes' : 'Save changes'}
-                        title={creating ? 'Saving…' : 'Save changes'}
-                      >
-                        {creating ? (
-                          <span className="stock-edit-save-disk-spinner" aria-hidden />
-                        ) : (
-                          <svg
-                            className="stock-edit-save-disk-icon"
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="22"
-                            height="22"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.75"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden
-                          >
-                            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                            <polyline points="17 21 17 13 7 13 7 21" />
-                            <polyline points="7 3 7 8 15 8" />
-                          </svg>
-                        )}
-                      </button>
-                    </div>
                   </div>
-                </div>
-              </div>
-            )}
-
-            {/* New stock: col1 = Projected | My Sales (50/50 same row); cols 2–3 = pipeline; col4 = actions */}
-            {!editingRowId && (
-              <div className="stock-new-entry-four-col-row">
-                <div className="stock-new-entry-col1-prices">
-                  <div className="stock-new-entry-col1-half">
-                    <label className="new-entry-field stock-new-entry-col1-field">
-                      <span className="stock-edit-projected-label">Projected Sale Price</span>
-                      <input
-                        type="text"
-                        className="stock-edit-projected-price-input"
-                        value={createForm.projected_sale_price}
-                        onChange={(event) => handleCreateChange('projected_sale_price', event.target.value)}
-                        placeholder="0.00"
-                        style={{ textAlign: 'center' }}
-                        aria-label="Projected sale price"
-                      />
-                    </label>
-                  </div>
-                  <div className="stock-new-entry-col1-half">
-                    <span className="stock-edit-projected-label stock-new-entry-mysales-label">
-                      My Sales Price
-                    </span>
-                    <div
-                      className="stock-edit-brand-category-comps stock-new-entry-comps-only"
-                      role="region"
-                      aria-label="Average and top sale price for this brand and category"
-                    >
-                      {!editFormBrandCategorySaleComps.ready && (
-                        <p className="stock-edit-brand-category-comps__muted">Select brand &amp; category</p>
-                      )}
-                      {editFormBrandCategorySaleComps.ready && editFormBrandCategorySaleComps.count === 0 && (
-                        <p className="stock-edit-brand-category-comps__muted">No sold comps</p>
-                      )}
-                      {editFormBrandCategorySaleComps.ready && editFormBrandCategorySaleComps.count > 0 && (
-                        <div className="stock-edit-brand-category-comps__stack">
-                          <div className="stock-edit-brand-category-comps__stat-line">
-                            <span className="stock-edit-brand-category-comps__key">Avg</span>
-                            <span className="stock-edit-brand-category-comps__val">
-                              {formatCurrency(editFormBrandCategorySaleComps.avg ?? 0)}
-                            </span>
-                          </div>
-                          <div className="stock-edit-brand-category-comps__stat-line">
-                            <span className="stock-edit-brand-category-comps__key">Top</span>
-                            <span className="stock-edit-brand-category-comps__val">
-                              {formatCurrency(editFormBrandCategorySaleComps.max ?? 0)}
-                            </span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <div className="stock-new-entry-col23-pipeline">
-                  <div className="stock-new-entry-pipeline-label-spacer" aria-hidden="true" />
-                  <div className="stock-edit-row-1-metrics-box stock-new-entry-span-pipeline-box">
-                    <div
-                      className="stock-edit-metrics-pipeline"
-                      role="region"
-                      aria-label="Projected profit by platform"
-                      title={stockEditMetricsPipeline.plain}
-                    >
-                      {stockEditMetricsPipeline.content}
-                    </div>
-                  </div>
-                </div>
-                <div className="stock-new-entry-col4-actions">
-                  <button
-                    type="button"
-                    className="stock-new-entry-save-circle"
-                    onClick={() => {
-                      void handleCreateSubmit();
-                    }}
-                    disabled={creating || deleting}
-                    aria-label={creating ? 'Saving' : 'Save item'}
-                    title={creating ? 'Saving…' : 'Save'}
-                  >
-                    {creating ? (
-                      <span className="stock-new-entry-save-spinner" aria-hidden />
-                    ) : (
-                      <svg
-                        className="stock-new-entry-save-icon"
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden
-                      >
-                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                        <polyline points="17 21 17 13 7 13 7 21" />
-                        <polyline points="7 3 7 8 15 8" />
-                      </svg>
-                    )}
-                  </button>
                 </div>
               </div>
             )}

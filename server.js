@@ -1319,7 +1319,7 @@ app.get('/api/stock', async (req, res) => {
     }
 
     const result = await pool.query(
-      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, projected_sale_price FROM stock ORDER BY purchase_date DESC NULLS LAST, item_name ASC'
+      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id FROM stock ORDER BY purchase_date DESC NULLS LAST, item_name ASC'
     );
 
     res.json({
@@ -1342,7 +1342,7 @@ app.get('/api/stock/sold', async (req, res) => {
     }
 
     const result = await pool.query(
-      `SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, projected_sale_price
+      `SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id
        FROM stock
        WHERE sale_date IS NOT NULL
        ORDER BY sale_date DESC NULLS LAST, id DESC`
@@ -1840,6 +1840,58 @@ app.post('/api/stock/ebay-sold-missing-stock-match', async (req, res) => {
   }
 });
 
+/** @returns {Promise<number|null>} */
+async function normalizeBrandTagImageIdForStock(pool, raw, brandId) {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const id = Number(raw);
+  if (!Number.isInteger(id) || id < 1) {
+    const err = new Error('brand_tag_image_id must be a positive integer');
+    err.status = 400;
+    throw err;
+  }
+  if (brandId === null || brandId === undefined || !Number.isFinite(Number(brandId))) {
+    const err = new Error('Cannot set tag image without a brand');
+    err.status = 400;
+    throw err;
+  }
+  const r = await pool.query(
+    'SELECT 1 FROM brand_tag_image WHERE id = $1 AND brand_id = $2',
+    [id, Number(brandId)]
+  );
+  if (!r.rowCount) {
+    const err = new Error('Tag image not found for this brand');
+    err.status = 400;
+    throw err;
+  }
+  return id;
+}
+
+/** @returns {Promise<number|null>} */
+async function normalizeCategorySizeIdForStock(pool, raw, categoryId) {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const id = Number(raw);
+  if (!Number.isInteger(id) || id < 1) {
+    const err = new Error('category_size_id must be a positive integer');
+    err.status = 400;
+    throw err;
+  }
+  if (categoryId === null || categoryId === undefined || !Number.isFinite(Number(categoryId))) {
+    const err = new Error('Cannot set size without a category');
+    err.status = 400;
+    throw err;
+  }
+  const r = await pool.query(
+    'SELECT 1 FROM category_size WHERE id = $1 AND category_id = $2',
+    [id, Number(categoryId)]
+  );
+  if (!r.rowCount) {
+    const err = new Error('Size option not found for this category');
+    err.status = 400;
+    throw err;
+  }
+  return id;
+}
+
 app.post('/api/stock', async (req, res) => {
   try {
     const pool = getDatabasePool();
@@ -1860,7 +1912,9 @@ app.post('/api/stock', async (req, res) => {
       ebay_id,
       depop_id,
       brand_id,
-      projected_sale_price
+      brand_tag_image_id,
+      projected_sale_price,
+      category_size_id
     } = req.body ?? {};
 
     const normalizedItemName = normalizeTextInput(item_name) ?? null;
@@ -1882,6 +1936,39 @@ app.post('/api/stock', async (req, res) => {
     const normalizedBrandId = brand_id === null || brand_id === undefined || brand_id === '' ? null : Number(brand_id);
     const normalizedProjectedSalePrice = normalizeDecimalInput(projected_sale_price, 'projected_sale_price');
 
+    let normalizedBrandTagImageId = null;
+    try {
+      normalizedBrandTagImageId = await normalizeBrandTagImageIdForStock(
+        pool,
+        brand_tag_image_id,
+        normalizedBrandId
+      );
+    } catch (e) {
+      if (e.status === 400) {
+        return res.status(400).json({ error: 'Invalid tag image', details: e.message });
+      }
+      throw e;
+    }
+    if (normalizedBrandId === null) {
+      normalizedBrandTagImageId = null;
+    }
+
+    let normalizedCategorySizeId = null;
+    if (normalizedCategoryId !== null) {
+      try {
+        normalizedCategorySizeId = await normalizeCategorySizeIdForStock(
+          pool,
+          category_size_id,
+          normalizedCategoryId
+        );
+      } catch (e) {
+        if (e.status === 400) {
+          return res.status(400).json({ error: 'Invalid size', details: e.message });
+        }
+        throw e;
+      }
+    }
+
     const insertQuery = `
       INSERT INTO stock (
         item_name,
@@ -1896,10 +1983,12 @@ app.post('/api/stock', async (req, res) => {
         ebay_id,
         depop_id,
         brand_id,
-        projected_sale_price
+        brand_tag_image_id,
+        projected_sale_price,
+        category_size_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-      RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, projected_sale_price
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id
     `;
 
     const result = await pool.query(insertQuery, [
@@ -1915,7 +2004,9 @@ app.post('/api/stock', async (req, res) => {
       normalizedEbayId,
       normalizedDepopId,
       normalizedBrandId,
-      normalizedProjectedSalePrice
+      normalizedBrandTagImageId,
+      normalizedProjectedSalePrice,
+      normalizedCategorySizeId
     ]);
 
     res.status(201).json({ row: result.rows[0] });
@@ -1944,7 +2035,7 @@ app.put('/api/stock/:id', async (req, res) => {
     console.log('PUT /api/stock/:id - Request body:', JSON.stringify(req.body, null, 2));
 
     const existingResult = await pool.query(
-      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, vinted_id, ebay_id, depop_id, brand_id, category_id, projected_sale_price FROM stock WHERE id = $1',
+      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id FROM stock WHERE id = $1',
       [stockId]
     );
 
@@ -2030,6 +2121,72 @@ app.put('/api/stock/:id', async (req, res) => {
       ? normalizeDecimalInput(req.body.projected_sale_price, 'projected_sale_price')
       : existingProjectedSalePrice;
 
+    const existingBrandTagImageId =
+      existing.brand_tag_image_id !== null && existing.brand_tag_image_id !== undefined
+        ? Number(existing.brand_tag_image_id)
+        : null;
+
+    let finalBrandTagImageId = null;
+    if (finalBrandId === null) {
+      finalBrandTagImageId = null;
+    } else if (hasProp('brand_tag_image_id')) {
+      try {
+        finalBrandTagImageId = await normalizeBrandTagImageIdForStock(
+          pool,
+          req.body.brand_tag_image_id,
+          finalBrandId
+        );
+      } catch (e) {
+        if (e.status === 400) {
+          return res.status(400).json({ error: 'Invalid tag image', details: e.message });
+        }
+        throw e;
+      }
+    } else if (
+      existingBrandTagImageId !== null &&
+      Number.isInteger(existingBrandTagImageId) &&
+      existingBrandTagImageId >= 1
+    ) {
+      const ok = await pool.query(
+        'SELECT 1 FROM brand_tag_image WHERE id = $1 AND brand_id = $2',
+        [existingBrandTagImageId, finalBrandId]
+      );
+      finalBrandTagImageId = ok.rowCount ? existingBrandTagImageId : null;
+    }
+
+    const existingCategorySizeId =
+      existing.category_size_id !== null && existing.category_size_id !== undefined
+        ? Number(existing.category_size_id)
+        : null;
+
+    let finalCategorySizeId = null;
+    if (finalCategoryId === null) {
+      finalCategorySizeId = null;
+    } else if (hasProp('category_size_id')) {
+      try {
+        finalCategorySizeId = await normalizeCategorySizeIdForStock(
+          pool,
+          req.body.category_size_id,
+          finalCategoryId
+        );
+      } catch (e) {
+        if (e.status === 400) {
+          return res.status(400).json({ error: 'Invalid size', details: e.message });
+        }
+        throw e;
+      }
+    } else if (
+      existingCategorySizeId !== null &&
+      Number.isInteger(existingCategorySizeId) &&
+      existingCategorySizeId >= 1
+    ) {
+      const ok = await pool.query(
+        'SELECT 1 FROM category_size WHERE id = $1 AND category_id = $2',
+        [existingCategorySizeId, finalCategoryId]
+      );
+      finalCategorySizeId = ok.rowCount ? existingCategorySizeId : null;
+    }
+
     const computedNetProfit =
       finalSalePrice !== null && finalPurchasePrice !== null
         ? finalSalePrice - finalPurchasePrice
@@ -2061,9 +2218,11 @@ app.put('/api/stock/:id', async (req, res) => {
           ebay_id = $10,
           depop_id = $11,
           brand_id = $12,
-          projected_sale_price = $13
-        WHERE id = $14
-        RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, projected_sale_price
+          brand_tag_image_id = $13,
+          projected_sale_price = $14,
+          category_size_id = $15
+        WHERE id = $16
+        RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id
       `,
       [
         finalItemName,
@@ -2078,7 +2237,9 @@ app.put('/api/stock/:id', async (req, res) => {
         finalEbayId,
         finalDepopId,
         finalBrandId,
+        finalBrandTagImageId,
         finalProjectedSalePrice,
+        finalCategorySizeId,
         stockId
       ]
     );
@@ -5139,6 +5300,209 @@ app.get('/api/categories', async (req, res) => {
   } catch (error) {
     console.error('Categories query failed:', error);
     res.status(500).json({ error: 'Failed to load categories data', details: error.message });
+  }
+});
+
+app.get('/api/category-sizes', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const raw = req.query.categoryId ?? req.query.category_id;
+    if (raw === undefined || raw === null || String(raw).trim() === '') {
+      return res.json({ rows: [], count: 0 });
+    }
+
+    const categoryId = Number(raw);
+    if (!Number.isInteger(categoryId) || categoryId < 1) {
+      return res.status(400).json({ error: 'categoryId must be a positive integer' });
+    }
+
+    const result = await pool.query(
+      `SELECT cs.id, cs.category_id, cs.size_label, cs.sort_order,
+              (SELECT COUNT(*)::int FROM stock s WHERE s.category_size_id = cs.id) AS stock_ref_count
+       FROM category_size cs
+       WHERE cs.category_id = $1
+       ORDER BY cs.sort_order ASC, cs.size_label ASC`,
+      [categoryId]
+    );
+
+    res.json({
+      rows: result.rows ?? [],
+      count: result.rowCount ?? 0
+    });
+  } catch (error) {
+    console.error('category-sizes query failed:', error);
+    res.status(500).json({ error: 'Failed to load category sizes', details: error.message });
+  }
+});
+
+app.post('/api/category-sizes', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const { category_id, size_label, sort_order } = req.body ?? {};
+    const cid = Number(category_id);
+    if (!Number.isInteger(cid) || cid < 1) {
+      return res.status(400).json({ error: 'category_id must be a positive integer' });
+    }
+    const label = normalizeTextInput(size_label);
+    if (!label) {
+      return res.status(400).json({ error: 'size_label is required' });
+    }
+
+    const catOk = await pool.query('SELECT 1 FROM category WHERE id = $1', [cid]);
+    if (!catOk.rowCount) {
+      return res.status(400).json({ error: 'Category not found' });
+    }
+
+    let sortVal;
+    if (sort_order === undefined || sort_order === null || sort_order === '') {
+      const maxR = await pool.query(
+        'SELECT COALESCE(MAX(sort_order), 0)::int AS m FROM category_size WHERE category_id = $1',
+        [cid]
+      );
+      sortVal = Number(maxR.rows[0]?.m ?? 0) + 1;
+    } else {
+      sortVal = Number(sort_order);
+      if (!Number.isInteger(sortVal)) {
+        return res.status(400).json({ error: 'sort_order must be an integer' });
+      }
+    }
+
+    const ins = await pool.query(
+      `INSERT INTO category_size (category_id, size_label, sort_order)
+       VALUES ($1, $2, $3)
+       RETURNING id, category_id, size_label, sort_order`,
+      [cid, label, sortVal]
+    );
+    const row = ins.rows[0];
+    res.status(201).json({
+      row: { ...row, stock_ref_count: 0 },
+    });
+  } catch (error) {
+    console.error('category-sizes insert failed:', error);
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'Duplicate size', details: 'This label already exists for the category.' });
+    }
+    res.status(500).json({ error: 'Failed to create size', details: error.message });
+  }
+});
+
+app.put('/api/category-sizes/:id', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) {
+      return res.status(400).json({ error: 'Invalid size id' });
+    }
+
+    const { size_label, sort_order } = req.body ?? {};
+    const hasLabel = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'size_label');
+    const hasSort = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'sort_order');
+
+    if (!hasLabel && !hasSort) {
+      return res.status(400).json({ error: 'Provide at least one of: size_label, sort_order' });
+    }
+
+    const existingR = await pool.query(
+      'SELECT id, category_id, size_label, sort_order FROM category_size WHERE id = $1',
+      [id]
+    );
+    if (!existingR.rowCount) {
+      return res.status(404).json({ error: 'Size not found' });
+    }
+    const ex = existingR.rows[0];
+
+    let nextLabel = ex.size_label;
+    if (hasLabel) {
+      const label = normalizeTextInput(size_label);
+      if (!label) {
+        return res.status(400).json({ error: 'size_label cannot be empty' });
+      }
+      nextLabel = label;
+    }
+
+    let nextSort = Number(ex.sort_order);
+    if (!Number.isInteger(nextSort)) {
+      nextSort = 0;
+    }
+    if (hasSort) {
+      if (sort_order === null || sort_order === '') {
+        return res.status(400).json({ error: 'sort_order cannot be empty when provided' });
+      }
+      const sv = Number(sort_order);
+      if (!Number.isInteger(sv)) {
+        return res.status(400).json({ error: 'sort_order must be an integer' });
+      }
+      nextSort = sv;
+    }
+
+    const upd = await pool.query(
+      `UPDATE category_size SET size_label = $1, sort_order = $2 WHERE id = $3
+       RETURNING id, category_id, size_label, sort_order`,
+      [nextLabel, nextSort, id]
+    );
+    const row = upd.rows[0];
+    const cntR = await pool.query(
+      'SELECT COUNT(*)::int AS c FROM stock WHERE category_size_id = $1',
+      [id]
+    );
+    res.json({
+      row: { ...row, stock_ref_count: cntR.rows[0]?.c ?? 0 },
+    });
+  } catch (error) {
+    console.error('category-sizes update failed:', error);
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'Duplicate size', details: 'This label already exists for the category.' });
+    }
+    res.status(500).json({ error: 'Failed to update size', details: error.message });
+  }
+});
+
+app.delete('/api/category-sizes/:id', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) {
+      return res.status(400).json({ error: 'Invalid size id' });
+    }
+
+    const cntR = await pool.query(
+      'SELECT COUNT(*)::int AS c FROM stock WHERE category_size_id = $1',
+      [id]
+    );
+    const refCount = cntR.rows[0]?.c ?? 0;
+    if (refCount > 0) {
+      return res.status(409).json({
+        error: 'Size is in use',
+        details: `${refCount} stock item(s) use this size. Remove the size from those items before deleting.`,
+        refCount,
+      });
+    }
+
+    const del = await pool.query('DELETE FROM category_size WHERE id = $1 RETURNING id', [id]);
+    if (!del.rowCount) {
+      return res.status(404).json({ error: 'Size not found' });
+    }
+    res.json({ ok: true, id });
+  } catch (error) {
+    console.error('category-sizes delete failed:', error);
+    res.status(500).json({ error: 'Failed to delete size', details: error.message });
   }
 });
 

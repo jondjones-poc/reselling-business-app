@@ -88,6 +88,7 @@ type ConfigMenu =
   | 'no-vinted-id'
   | 'clothing-type-categories'
   | 'clothing-categories'
+  | 'sizes'
   | 'brands';
 
 interface ConfigBrandRow {
@@ -112,6 +113,15 @@ interface StockClothingTypeRow {
   id: number;
   category_name: string;
   stock_count: number;
+}
+
+/** `category_size` row for Config → Sizes (includes stock usage count from API). */
+interface CategorySizeAdminRow {
+  id: number;
+  category_id: number;
+  size_label: string;
+  sort_order: number;
+  stock_ref_count: number;
 }
 
 /** Prompt: rank config brands using menswear category taxonomy (Research / Config “Menswear categories”). */
@@ -214,6 +224,20 @@ const Config: React.FC = () => {
   const [brandEditSaving, setBrandEditSaving] = useState(false);
   const [brandsAskAiHint, setBrandsAskAiHint] = useState<string | null>(null);
   const brandsAskAiHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [sizesCategoryId, setSizesCategoryId] = useState<string>('');
+  const [categorySizeRows, setCategorySizeRows] = useState<CategorySizeAdminRow[]>([]);
+  const [sizesLoading, setSizesLoading] = useState(false);
+  const [sizesError, setSizesError] = useState<string | null>(null);
+  const [sizeAddOpen, setSizeAddOpen] = useState(false);
+  const [sizeAddLabel, setSizeAddLabel] = useState('');
+  const [sizeAddSort, setSizeAddSort] = useState('');
+  const [sizeAddSaving, setSizeAddSaving] = useState(false);
+  const [sizeEditingId, setSizeEditingId] = useState<number | null>(null);
+  const [sizeEditLabel, setSizeEditLabel] = useState('');
+  const [sizeEditSort, setSizeEditSort] = useState('');
+  const [sizeEditSaving, setSizeEditSaving] = useState(false);
+  const [sizeDeleteSaving, setSizeDeleteSaving] = useState(false);
 
   const loadStock = async () => {
     try {
@@ -352,6 +376,80 @@ const Config: React.FC = () => {
       void loadStockClothingTypes();
     }
   }, [activeMenu, loadStockClothingTypes]);
+
+  const loadCategorySizesAdmin = useCallback(async (categoryId: number) => {
+    try {
+      setSizesLoading(true);
+      setSizesError(null);
+      const response = await fetch(
+        `${API_BASE}/api/category-sizes?categoryId=${encodeURIComponent(String(categoryId))}`,
+        { method: 'GET', headers: { 'Content-Type': 'application/json' } }
+      );
+      const text = await response.text();
+      if (!response.ok) {
+        let msg = text || 'Failed to load sizes';
+        try {
+          const j = JSON.parse(text) as { error?: string; details?: string };
+          msg = [j.error, j.details].filter(Boolean).join(' — ') || msg;
+        } catch {
+          /* keep */
+        }
+        throw new Error(msg);
+      }
+      const data = JSON.parse(text) as { rows?: unknown[] };
+      const raw = Array.isArray(data.rows) ? data.rows : [];
+      const rows: CategorySizeAdminRow[] = raw.map((r) => {
+        const o = r as Record<string, unknown>;
+        const id = Number(o.id);
+        const refRaw = o.stock_ref_count;
+        let ref = 0;
+        if (typeof refRaw === 'number' && Number.isFinite(refRaw)) ref = Math.max(0, Math.floor(refRaw));
+        else ref = Math.max(0, parseInt(String(refRaw ?? '0'), 10) || 0);
+        return {
+          id: Number.isFinite(id) ? Math.floor(id) : -1,
+          category_id: Math.floor(Number(o.category_id) || 0),
+          size_label: String(o.size_label ?? '').trim(),
+          sort_order: Math.floor(Number(o.sort_order) || 0),
+          stock_ref_count: ref,
+        };
+      });
+      setCategorySizeRows(rows.filter((x) => x.id >= 1));
+    } catch (err: unknown) {
+      console.error('Category sizes load error:', err);
+      const m = err instanceof Error ? err.message : 'Unable to load sizes';
+      if (m === 'Failed to fetch' || (err instanceof TypeError && err.name === 'TypeError')) {
+        setSizesError('Unable to connect to server (is the API running on port 5003?)');
+      } else {
+        setSizesError(m);
+      }
+      setCategorySizeRows([]);
+    } finally {
+      setSizesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeMenu === 'sizes') {
+      void loadStockClothingTypes();
+    }
+  }, [activeMenu, loadStockClothingTypes]);
+
+  useEffect(() => {
+    if (activeMenu !== 'sizes') return;
+    setSizeEditingId(null);
+    const raw = sizesCategoryId.trim();
+    if (!raw) {
+      setCategorySizeRows([]);
+      setSizesLoading(false);
+      return;
+    }
+    const id = Number(raw);
+    if (!Number.isInteger(id) || id < 1) {
+      setCategorySizeRows([]);
+      return;
+    }
+    void loadCategorySizesAdmin(id);
+  }, [activeMenu, sizesCategoryId, loadCategorySizesAdmin]);
 
   const loadBrands = useCallback(async () => {
     try {
@@ -837,12 +935,146 @@ const Config: React.FC = () => {
     }
   };
 
+  const cancelSizeEdit = () => {
+    setSizeEditingId(null);
+    setSizeEditLabel('');
+    setSizeEditSort('');
+  };
+
+  const startSizeEdit = (row: CategorySizeAdminRow) => {
+    setSizeEditingId(row.id);
+    setSizeEditLabel(row.size_label);
+    setSizeEditSort(String(row.sort_order));
+  };
+
+  const handleSizeAddSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const cid = Number(sizesCategoryId);
+    if (!Number.isInteger(cid) || cid < 1 || !sizeAddLabel.trim()) return;
+    try {
+      setSizeAddSaving(true);
+      setSizesError(null);
+      const body: { category_id: number; size_label: string; sort_order?: number } = {
+        category_id: cid,
+        size_label: sizeAddLabel.trim(),
+      };
+      const sortParsed = parseInt(sizeAddSort.trim(), 10);
+      if (sizeAddSort.trim() !== '' && Number.isInteger(sortParsed)) {
+        body.sort_order = sortParsed;
+      }
+      const response = await fetch(`${API_BASE}/api/category-sizes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        let msg = text || 'Failed to add size';
+        try {
+          const j = JSON.parse(text) as { error?: string; details?: string };
+          msg = [j.error, j.details].filter(Boolean).join(' — ') || msg;
+        } catch {
+          /* keep */
+        }
+        throw new Error(msg);
+      }
+      setSizeAddLabel('');
+      setSizeAddSort('');
+      setSizeAddOpen(false);
+      await loadCategorySizesAdmin(cid);
+    } catch (err: unknown) {
+      setSizesError(err instanceof Error ? err.message : 'Failed to add size');
+    } finally {
+      setSizeAddSaving(false);
+    }
+  };
+
+  const handleSizeEditSave = async () => {
+    if (sizeEditingId == null) return;
+    const sortNum = parseInt(sizeEditSort.trim(), 10);
+    if (!Number.isInteger(sortNum)) {
+      setSizesError('Sort order must be a whole number.');
+      return;
+    }
+    if (!sizeEditLabel.trim()) {
+      setSizesError('Size label cannot be empty.');
+      return;
+    }
+    try {
+      setSizeEditSaving(true);
+      setSizesError(null);
+      const response = await fetch(`${API_BASE}/api/category-sizes/${sizeEditingId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          size_label: sizeEditLabel.trim(),
+          sort_order: sortNum,
+        }),
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        let msg = text || 'Failed to save size';
+        try {
+          const j = JSON.parse(text) as { error?: string; details?: string };
+          msg = [j.error, j.details].filter(Boolean).join(' — ') || msg;
+        } catch {
+          /* keep */
+        }
+        throw new Error(msg);
+      }
+      cancelSizeEdit();
+      const cid = Number(sizesCategoryId);
+      if (Number.isInteger(cid) && cid >= 1) {
+        await loadCategorySizesAdmin(cid);
+      }
+    } catch (err: unknown) {
+      setSizesError(err instanceof Error ? err.message : 'Failed to save size');
+    } finally {
+      setSizeEditSaving(false);
+    }
+  };
+
+  const handleSizeDelete = async (row: CategorySizeAdminRow) => {
+    if (row.stock_ref_count > 0) return;
+    const label = row.size_label.trim() || `size #${row.id}`;
+    if (!window.confirm(`Delete “${label}”? This cannot be undone.`)) return;
+    try {
+      setSizeDeleteSaving(true);
+      setSizesError(null);
+      const response = await fetch(`${API_BASE}/api/category-sizes/${row.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        let msg = text || 'Failed to delete size';
+        try {
+          const j = JSON.parse(text) as { error?: string; details?: string };
+          msg = [j.error, j.details].filter(Boolean).join(' — ') || msg;
+        } catch {
+          /* keep */
+        }
+        throw new Error(msg);
+      }
+      cancelSizeEdit();
+      const cid = Number(sizesCategoryId);
+      if (Number.isInteger(cid) && cid >= 1) {
+        await loadCategorySizesAdmin(cid);
+      }
+    } catch (err: unknown) {
+      setSizesError(err instanceof Error ? err.message : 'Failed to delete size');
+    } finally {
+      setSizeDeleteSaving(false);
+    }
+  };
+
   return (
     <div className="config-container">
       {error &&
         activeMenu !== 'clothing-categories' &&
         activeMenu !== 'clothing-type-categories' &&
-        activeMenu !== 'brands' && (
+        activeMenu !== 'brands' &&
+        activeMenu !== 'sizes' && (
         <div className="config-error">{error}</div>
       )}
 
@@ -887,6 +1119,13 @@ const Config: React.FC = () => {
               onClick={() => setActiveMenu('clothing-categories')}
             >
               Menswear Categories
+            </button>
+            <button
+              type="button"
+              className={`config-menu-item ${activeMenu === 'sizes' ? 'active' : ''}`}
+              onClick={() => setActiveMenu('sizes')}
+            >
+              Sizes
             </button>
             <button
               type="button"
@@ -1606,6 +1845,224 @@ const Config: React.FC = () => {
                   </p>
                 ) : null}
               </div>
+            </div>
+          )}
+
+          {activeMenu === 'sizes' && (
+            <div className="config-section config-section--sizes">
+              {sizesError && <div className="config-error config-error--inline">{sizesError}</div>}
+              <div className="config-clothing-header">
+                <h3 className="config-section-title">Stock sizes by clothing type</h3>
+                <button
+                  type="button"
+                  className="config-refresh-button"
+                  onClick={() => {
+                    const cid = Number(sizesCategoryId);
+                    if (Number.isInteger(cid) && cid >= 1) void loadCategorySizesAdmin(cid);
+                    void loadStockClothingTypes();
+                  }}
+                  title="Refresh categories and sizes"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+                  </svg>
+                </button>
+              </div>
+              <p className="config-sizes-intro">
+                Choose a <strong>clothing type category</strong> (same list as Stock). Add or edit size labels for that
+                category. Delete is only allowed when no stock line uses that size.
+              </p>
+              <label className="config-clothing-field config-sizes-category-picker">
+                <span>Category</span>
+                <select
+                  value={sizesCategoryId}
+                  onChange={(ev) => {
+                    setSizesCategoryId(ev.target.value);
+                    setSizesError(null);
+                  }}
+                  disabled={stockTypesLoading}
+                >
+                  <option value="">Select category…</option>
+                  {stockClothingTypes.map((t) => (
+                    <option key={t.id} value={String(t.id)}>
+                      {t.category_name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {!sizesCategoryId.trim() ? (
+                <div className="config-empty">Select a category to manage sizes.</div>
+              ) : (
+                <>
+                  <div className="config-clothing-header config-sizes-add-row">
+                    <button
+                      type="button"
+                      className="config-clothing-add-button"
+                      onClick={() => {
+                        setSizeAddOpen((o) => !o);
+                        setSizeAddLabel('');
+                        setSizeAddSort('');
+                        setSizesError(null);
+                      }}
+                      disabled={sizeAddSaving || sizeEditSaving}
+                    >
+                      {sizeAddOpen ? 'Close add form' : 'Add size'}
+                    </button>
+                  </div>
+                  {sizeAddOpen && (
+                    <form className="config-clothing-add-form config-sizes-add-form" onSubmit={handleSizeAddSubmit}>
+                      <label className="config-clothing-field">
+                        <span>Size label</span>
+                        <input
+                          type="text"
+                          value={sizeAddLabel}
+                          onChange={(ev) => setSizeAddLabel(ev.target.value)}
+                          placeholder="e.g. Medium, 42R, 34W"
+                          maxLength={120}
+                          disabled={sizeAddSaving}
+                          autoComplete="off"
+                        />
+                      </label>
+                      <label className="config-clothing-field">
+                        <span>Sort order (optional)</span>
+                        <input
+                          type="number"
+                          step={1}
+                          value={sizeAddSort}
+                          onChange={(ev) => setSizeAddSort(ev.target.value)}
+                          placeholder="Auto if empty"
+                          disabled={sizeAddSaving}
+                        />
+                      </label>
+                      <div className="config-clothing-add-actions">
+                        <button type="submit" className="config-clothing-save-button" disabled={sizeAddSaving || !sizeAddLabel.trim()}>
+                          {sizeAddSaving ? 'Saving…' : 'Save size'}
+                        </button>
+                      </div>
+                    </form>
+                  )}
+
+                  {sizesLoading ? (
+                    <div className="config-loading">Loading sizes…</div>
+                  ) : categorySizeRows.length === 0 ? (
+                    <div className="config-empty">No sizes for this category yet. Use Add size to create one.</div>
+                  ) : (
+                    <div className="config-clothing-table-wrap">
+                      <table className="config-clothing-table config-sizes-table">
+                        <thead>
+                          <tr>
+                            <th scope="col">Label</th>
+                            <th scope="col">Sort</th>
+                            <th scope="col">Stock items</th>
+                            <th className="config-clothing-th-actions" scope="col">
+                              Actions
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {categorySizeRows.map((row) =>
+                            sizeEditingId === row.id ? (
+                              <tr key={row.id} className="config-clothing-row-edit">
+                                <td colSpan={4}>
+                                  <div className="config-clothing-inline-edit">
+                                    <p className="config-brand-edit-id">Size id: {row.id}</p>
+                                    <label className="config-clothing-field">
+                                      <span>Size label</span>
+                                      <input
+                                        type="text"
+                                        value={sizeEditLabel}
+                                        onChange={(ev) => setSizeEditLabel(ev.target.value)}
+                                        maxLength={120}
+                                        disabled={sizeEditSaving}
+                                        autoComplete="off"
+                                      />
+                                    </label>
+                                    <label className="config-clothing-field">
+                                      <span>Sort order</span>
+                                      <input
+                                        type="number"
+                                        step={1}
+                                        value={sizeEditSort}
+                                        onChange={(ev) => setSizeEditSort(ev.target.value)}
+                                        disabled={sizeEditSaving}
+                                      />
+                                    </label>
+                                    <div className="config-clothing-inline-edit-actions">
+                                      <button
+                                        type="button"
+                                        className="config-clothing-save-button"
+                                        onClick={() => void handleSizeEditSave()}
+                                        disabled={sizeEditSaving || !sizeEditLabel.trim()}
+                                      >
+                                        {sizeEditSaving ? 'Saving…' : 'Save'}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="config-clothing-cancel-edit-button"
+                                        onClick={cancelSizeEdit}
+                                        disabled={sizeEditSaving}
+                                      >
+                                        Cancel
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="config-clothing-delete-category-button"
+                                        onClick={() => void handleSizeDelete(row)}
+                                        disabled={
+                                          sizeEditSaving ||
+                                          sizeDeleteSaving ||
+                                          row.stock_ref_count > 0
+                                        }
+                                        title={
+                                          row.stock_ref_count > 0
+                                            ? `${row.stock_ref_count} stock item(s) use this size — clear them before deleting.`
+                                            : 'Delete this size'
+                                        }
+                                      >
+                                        {sizeDeleteSaving ? '…' : 'Delete'}
+                                      </button>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            ) : (
+                              <tr key={row.id}>
+                                <td className="config-clothing-td-name">{row.size_label}</td>
+                                <td>{row.sort_order}</td>
+                                <td>{row.stock_ref_count}</td>
+                                <td className="config-clothing-td-actions">
+                                  <button
+                                    type="button"
+                                    className="config-clothing-edit-name-button"
+                                    onClick={() => startSizeEdit(row)}
+                                    disabled={sizeEditSaving || sizeAddSaving || sizeDeleteSaving}
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="config-clothing-delete-category-button config-sizes-delete-inline"
+                                    onClick={() => void handleSizeDelete(row)}
+                                    disabled={sizeDeleteSaving || row.stock_ref_count > 0 || sizeEditingId !== null}
+                                    title={
+                                      row.stock_ref_count > 0
+                                        ? `${row.stock_ref_count} stock item(s) use this size — cannot delete.`
+                                        : 'Delete size'
+                                    }
+                                  >
+                                    Delete
+                                  </button>
+                                </td>
+                              </tr>
+                            )
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
         </div>

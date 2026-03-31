@@ -288,6 +288,61 @@
   gap: 12px;
 }
 
+.config-section-title {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  color: var(--neon-primary-strong);
+  font-size: 1.35rem;
+  letter-spacing: 0.06rem;
+}
+
+.config-sizes-intro {
+  margin: 0 0 18px 0;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: rgba(255, 248, 226, 0.72);
+  max-width: 52rem;
+}
+
+.config-sizes-category-picker {
+  max-width: 400px;
+  margin-bottom: 20px;
+}
+
+.config-sizes-category-picker select {
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 214, 91, 0.28);
+  background: rgba(5, 4, 3, 0.85);
+  color: var(--text-strong);
+  font-size: 0.95rem;
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.config-sizes-category-picker select:focus {
+  outline: none;
+  border-color: var(--neon-border-strong);
+}
+
+.config-sizes-add-row {
+  justify-content: flex-start;
+  margin-top: 4px;
+}
+
+.config-sizes-delete-inline {
+  margin-left: 8px;
+}
+
+.config-sizes-table .config-clothing-td-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
 .config-clothing-add-button {
   padding: 10px 20px;
   border-radius: 12px;
