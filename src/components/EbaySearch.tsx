@@ -1,47 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import BarcodeScanner from 'react-qr-barcode-scanner';
 import { augmentEbaySearchQuery } from '../utils/augmentEbaySearchQuery';
-import { apiUrl, getApiBase } from '../utils/apiBase';
+import { getApiBase } from '../utils/apiBase';
 import { pingDatabase } from '../utils/dbPing';
 import './EbaySearch.css';
-import './BrandResearch.css';
-
-type HomeBrandTagRow = {
-  id: number;
-  public_url: string | null;
-  caption: string | null;
-  image_kind: 'tag' | 'fake_check';
-  quality_tier: 'good' | 'average' | 'poor';
-};
-
-function homeTagQualityRank(tier: HomeBrandTagRow['quality_tier']): number {
-  if (tier === 'good') return 0;
-  if (tier === 'average') return 1;
-  return 2;
-}
-
-function normalizeHomeTagImage(raw: unknown): HomeBrandTagRow | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const r = raw as Record<string, unknown>;
-  const id = typeof r.id === 'number' ? r.id : parseInt(String(r.id ?? ''), 10);
-  if (!Number.isFinite(id)) return null;
-  const kindRaw = r.image_kind;
-  const image_kind: 'tag' | 'fake_check' =
-    kindRaw === 'fake_check' || kindRaw === 'fake' ? 'fake_check' : 'tag';
-  const public_url =
-    r.public_url === null || r.public_url === undefined ? null : String(r.public_url);
-  const cap = r.caption;
-  const caption = cap === null || cap === undefined ? null : String(cap);
-  let quality_tier: HomeBrandTagRow['quality_tier'] = 'average';
-  const qt = r.quality_tier;
-  if (qt === 'good' || qt === 'average' || qt === 'poor') {
-    quality_tier = qt;
-  } else if (typeof qt === 'string') {
-    const s = qt.trim().toLowerCase();
-    if (s === 'good' || s === 'average' || s === 'poor') quality_tier = s;
-  }
-  return { id, public_url, caption, image_kind, quality_tier };
-}
 
 interface AppSettings {
   categories: string[];
@@ -75,11 +38,9 @@ const EbaySearch: React.FC = () => {
   const [colors, setColors] = useState<string[]>([]);
   const [patterns, setPatterns] = useState<string[]>([]);
   const [brands, setBrands] = useState<string[]>([]);
-  /** Resolved from GET /api/brands — used for tag image brandId. */
+  /** Resolved from GET /api/brands — sold-price stats + Research links. */
   const [dbBrandRows, setDbBrandRows] = useState<{ id: number; brand_name: string }[]>([]);
-  const [homeTagRows, setHomeTagRows] = useState<HomeBrandTagRow[]>([]);
-  const [homeTagsLoading, setHomeTagsLoading] = useState(false);
-  const [homeTagsError, setHomeTagsError] = useState<string | null>(null);
+  const [dbCategoryRows, setDbCategoryRows] = useState<{ id: number; category_name: string }[]>([]);
   const [settingsLoading, setSettingsLoading] = useState(true);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState('');
@@ -94,7 +55,17 @@ const EbaySearch: React.FC = () => {
   const [ebayResearchLoading, setEbayResearchLoading] = useState(false);
   const [ebayResearchError, setEbayResearchError] = useState<string | null>(null);
   const [ebayResearchResult, setEbayResearchResult] = useState<ResearchResult | null>(null);
-  
+
+  const [soldPriceStats, setSoldPriceStats] = useState<{
+    soldCount: number;
+    unsoldCount: number;
+    avgPrice: number | null;
+    minPrice: number | null;
+    maxPrice: number | null;
+  } | null>(null);
+  const [soldPriceStatsLoading, setSoldPriceStatsLoading] = useState(false);
+  const [soldPriceStatsError, setSoldPriceStatsError] = useState<string | null>(null);
+
   // Potential Profit Calculator state
   const [itemPrice, setItemPrice] = useState('');
   const [salePrice, setSalePrice] = useState('');
@@ -243,14 +214,24 @@ const EbaySearch: React.FC = () => {
         if (!res.ok) {
           return;
         }
-        const data = (await res.json()) as { rows?: { category_name?: unknown }[] };
+        const data = (await res.json()) as { rows?: Record<string, unknown>[] };
         const raw = Array.isArray(data.rows) ? data.rows : [];
-        const names = raw
-          .map((r) => String(r.category_name ?? '').trim())
-          .filter((n) => n.length > 0);
-        const sanitized = sanitizeCategories(names);
-        if (sanitized.length > 0) {
-          setCategories(sanitized);
+        const mapped: { id: number; category_name: string }[] = [];
+        for (const row of raw) {
+          const idNum =
+            typeof row.id === 'number' && Number.isFinite(row.id)
+              ? Math.trunc(row.id)
+              : parseInt(String(row.id ?? '').trim(), 10);
+          const nm = String(row.category_name ?? '').trim();
+          if (!Number.isFinite(idNum) || idNum < 1 || !nm) continue;
+          mapped.push({ id: idNum, category_name: nm });
+        }
+        mapped.sort((a, b) =>
+          a.category_name.localeCompare(b.category_name, undefined, { sensitivity: 'base' })
+        );
+        if (mapped.length > 0) {
+          setDbCategoryRows(mapped);
+          setCategories(mapped.map((m) => m.category_name));
         }
       } catch {
         /* keep categories from settings / fallback */
@@ -397,59 +378,6 @@ const EbaySearch: React.FC = () => {
     setSelectedBrand(value);
   };
 
-  const handleLoadTags = async () => {
-    const name = selectedBrand.trim();
-    if (!name) {
-      setHomeTagsError('Select a brand in the Brands dropdown first.');
-      return;
-    }
-    const found = dbBrandRows.find((b) => b.brand_name === name);
-    if (!found) {
-      setHomeTagsError(
-        'Could not match that brand to the database list. Reload the page or pick another brand.'
-      );
-      return;
-    }
-    setHomeTagsLoading(true);
-    setHomeTagsError(null);
-    try {
-      const res = await fetch(
-        apiUrl(`/api/brandTagImages?brandId=${encodeURIComponent(String(found.id))}`)
-      );
-      const text = await res.text();
-      if (!res.ok) {
-        throw new Error(text.slice(0, 200) || `HTTP ${res.status}`);
-      }
-      let data: { rows?: unknown[] };
-      try {
-        data = JSON.parse(text) as { rows?: unknown[] };
-      } catch {
-        throw new Error('Invalid JSON from tag images API');
-      }
-      const raw = Array.isArray(data?.rows) ? data.rows : [];
-      const out: HomeBrandTagRow[] = [];
-      for (const item of raw) {
-        const n = normalizeHomeTagImage(item);
-        if (n) out.push(n);
-      }
-      out.sort((a, b) => {
-        const fa = a.image_kind === 'fake_check' ? 1 : 0;
-        const fb = b.image_kind === 'fake_check' ? 1 : 0;
-        if (fa !== fb) return fa - fb;
-        const qa = homeTagQualityRank(a.quality_tier);
-        const qb = homeTagQualityRank(b.quality_tier);
-        if (qa !== qb) return qa - qb;
-        return a.id - b.id;
-      });
-      setHomeTagRows(out);
-    } catch (e) {
-      setHomeTagsError(e instanceof Error ? e.message : 'Failed to load tag images');
-      setHomeTagRows([]);
-    } finally {
-      setHomeTagsLoading(false);
-    }
-  };
-
   /** Same formula as former “Item Sell Through Rate” button: sold / (sold + active) × 100 */
   const manualSellThroughPercent = useMemo(() => {
     if (!itemsSold?.trim() || !activeListings?.trim()) return null;
@@ -460,6 +388,69 @@ const EbaySearch: React.FC = () => {
     if (totalInventory <= 0) return null;
     return (sold / totalInventory) * 100;
   }, [itemsSold, activeListings]);
+
+  const resolvedHomeBrandCategoryIds = useMemo(() => {
+    const b = selectedBrand.trim();
+    const c = selectedCategory.trim();
+    if (!b || !c) return null;
+    const br = dbBrandRows.find((row) => row.brand_name === b);
+    const cat = dbCategoryRows.find((row) => row.category_name === c);
+    if (!br || !cat) return null;
+    return { brandId: br.id, categoryId: cat.id };
+  }, [selectedBrand, selectedCategory, dbBrandRows, dbCategoryRows]);
+
+  useEffect(() => {
+    if (!resolvedHomeBrandCategoryIds) {
+      setSoldPriceStats(null);
+      setSoldPriceStatsError(null);
+      setSoldPriceStatsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setSoldPriceStatsLoading(true);
+      setSoldPriceStatsError(null);
+      try {
+        const q = new URLSearchParams({
+          brandId: String(resolvedHomeBrandCategoryIds.brandId),
+          categoryId: String(resolvedHomeBrandCategoryIds.categoryId),
+        });
+        const res = await fetch(`${API_BASE}/api/stock/sold-price-stats?${q.toString()}`);
+        const text = await res.text();
+        if (!res.ok) {
+          throw new Error(text.slice(0, 200) || res.statusText);
+        }
+        const data = JSON.parse(text) as {
+          soldCount?: number;
+          unsoldCount?: number;
+          avgPrice?: number | null;
+          minPrice?: number | null;
+          maxPrice?: number | null;
+        };
+        if (cancelled) return;
+        setSoldPriceStats({
+          soldCount: Number(data.soldCount ?? 0),
+          unsoldCount: Number(data.unsoldCount ?? 0),
+          avgPrice: data.avgPrice ?? null,
+          minPrice: data.minPrice ?? null,
+          maxPrice: data.maxPrice ?? null,
+        });
+      } catch (e) {
+        if (!cancelled) {
+          setSoldPriceStats(null);
+          setSoldPriceStatsError(e instanceof Error ? e.message : 'Unable to load sold price stats');
+        }
+      } finally {
+        if (!cancelled) setSoldPriceStatsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedHomeBrandCategoryIds]);
+
+  const formatSoldStatGbp = (value: number | null) =>
+    value != null && Number.isFinite(value) ? `£${value.toFixed(2)}` : '—';
 
   const getSTRColor = (rate: number | null): string => {
     if (rate === null) return '';
@@ -1052,6 +1043,68 @@ const EbaySearch: React.FC = () => {
                 </div>
               );
             })()}
+
+            {selectedBrand.trim() && selectedCategory.trim() && (
+              <div className="potential-profit-stock-sold-prices" aria-live="polite">
+                <div className="potential-profit-stock-sold-prices-heading">
+                  {selectedBrand.trim()} {selectedCategory.trim()} Prices
+                </div>
+                {!resolvedHomeBrandCategoryIds ? (
+                  <p className="potential-profit-stock-sold-prices-hint">
+                    Match brand and category to the lists loaded from the database (reload if dropdowns
+                    don&apos;t align).
+                  </p>
+                ) : soldPriceStatsLoading ? (
+                  <p className="potential-profit-stock-sold-prices-hint">Loading sold prices…</p>
+                ) : soldPriceStatsError ? (
+                  <p className="potential-profit-stock-sold-prices-err">{soldPriceStatsError}</p>
+                ) : soldPriceStats ? (
+                  <>
+                    <div className="potential-profit-stock-sold-prices-grid">
+                      <div className="potential-profit-stock-sold-prices-item">
+                        <span className="potential-profit-stock-sold-prices-label">Avg sold</span>
+                        <span className="potential-profit-stock-sold-prices-value">
+                          {formatSoldStatGbp(soldPriceStats.avgPrice)}
+                        </span>
+                      </div>
+                      <div className="potential-profit-stock-sold-prices-item">
+                        <span className="potential-profit-stock-sold-prices-label">Lowest sold</span>
+                        <span className="potential-profit-stock-sold-prices-value">
+                          {formatSoldStatGbp(soldPriceStats.minPrice)}
+                        </span>
+                      </div>
+                      <div className="potential-profit-stock-sold-prices-item">
+                        <span className="potential-profit-stock-sold-prices-label">Highest sold</span>
+                        <span className="potential-profit-stock-sold-prices-value">
+                          {formatSoldStatGbp(soldPriceStats.maxPrice)}
+                        </span>
+                      </div>
+                      <div className="potential-profit-stock-sold-prices-count">
+                        {soldPriceStats.soldCount.toLocaleString()} items sold ·{' '}
+                        {soldPriceStats.unsoldCount.toLocaleString()} items in stock
+                      </div>
+                    </div>
+                    <div className="potential-profit-stock-sold-prices-links">
+                      <Link
+                        className="potential-profit-stock-sold-prices-link"
+                        to={`/research?brand=${encodeURIComponent(String(resolvedHomeBrandCategoryIds.brandId))}`}
+                      >
+                        Research
+                      </Link>
+                      <span className="potential-profit-stock-sold-prices-link-sep" aria-hidden>
+                        ·
+                      </span>
+                      <Link
+                        className="potential-profit-stock-sold-prices-link"
+                        to={`/research?tab=menswear-categories&menswearCategoryId=${resolvedHomeBrandCategoryIds.categoryId}&menswearBrandId=${resolvedHomeBrandCategoryIds.brandId}`}
+                      >
+                        Inventory
+                      </Link>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            )}
           </div>
 
           <div className="potential-profit-reset-container">
@@ -1076,125 +1129,6 @@ const EbaySearch: React.FC = () => {
         </div>
       </div>
     </div>
-
-    <section
-      className="ebay-search-container homepage-brand-tags-section"
-      aria-labelledby="homepage-brand-research-heading"
-    >
-        <h3 id="homepage-brand-research-heading" className="homepage-section-title">
-          Brand Research
-        </h3>
-        <div className="homepage-brand-tags-actions">
-          <button
-            type="button"
-            className="homepage-load-tags-button"
-            onClick={() => void handleLoadTags()}
-            disabled={homeTagsLoading || settingsLoading || !selectedBrand.trim()}
-          >
-            {homeTagsLoading ? 'Loading…' : 'Load...'}
-          </button>
-        </div>
-        {homeTagsError && (
-          <div className="settings-error homepage-brand-tags-error" role="alert">
-            {homeTagsError}
-          </div>
-        )}
-        {homeTagRows.length > 0 && (
-          <div className="homepage-brand-tags-results">
-            {(() => {
-              const tagRows = homeTagRows.filter((i) => i.image_kind !== 'fake_check');
-              const fakeRows = homeTagRows.filter((i) => i.image_kind === 'fake_check');
-              return (
-                <>
-                  {tagRows.length > 0 && (
-                    <div className="homepage-brand-tags-group">
-                      <ul className="brand-tag-examples-grid">
-                        {tagRows.map((img) => (
-                          <li
-                            key={img.id}
-                            className="brand-tag-examples-card"
-                          >
-                            <div className="brand-tag-examples-card-row">
-                              <div className="brand-tag-examples-card-media">
-                                {img.public_url ? (
-                                  <a
-                                    href={img.public_url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="brand-tag-examples-thumb-link"
-                                  >
-                                    <img
-                                      src={img.public_url}
-                                      alt={img.caption || 'Brand tag'}
-                                      className="brand-tag-examples-thumb"
-                                    />
-                                  </a>
-                                ) : (
-                                  <div className="brand-tag-examples-thumb-fallback">No image URL</div>
-                                )}
-                              </div>
-                              <div className="brand-tag-examples-caption-block">
-                                {img.caption ? (
-                                  <p className="brand-tag-examples-caption">{img.caption}</p>
-                                ) : (
-                                  <p className="brand-tag-examples-caption-placeholder">No description</p>
-                                )}
-                              </div>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {fakeRows.length > 0 && (
-                    <div className="homepage-brand-tags-group brand-tag-examples-image-section--fake">
-                      <h4 className="homepage-brand-tags-subheading brand-tag-examples-fake-heading">
-                        Fake warning signals
-                      </h4>
-                      <ul className="brand-tag-examples-grid brand-tag-examples-grid--fake">
-                        {fakeRows.map((img) => (
-                          <li
-                            key={img.id}
-                            className="brand-tag-examples-card brand-tag-examples-card--fake"
-                          >
-                            <div className="brand-tag-examples-card-row">
-                              <div className="brand-tag-examples-card-media">
-                                {img.public_url ? (
-                                  <a
-                                    href={img.public_url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="brand-tag-examples-thumb-link"
-                                  >
-                                    <img
-                                      src={img.public_url}
-                                      alt={img.caption || 'Fake check reference'}
-                                      className="brand-tag-examples-thumb"
-                                    />
-                                  </a>
-                                ) : (
-                                  <div className="brand-tag-examples-thumb-fallback">No image URL</div>
-                                )}
-                              </div>
-                              <div className="brand-tag-examples-caption-block">
-                                {img.caption ? (
-                                  <p className="brand-tag-examples-caption">{img.caption}</p>
-                                ) : (
-                                  <p className="brand-tag-examples-caption-placeholder">No description</p>
-                                )}
-                              </div>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </>
-              );
-            })()}
-          </div>
-        )}
-    </section>
 
     <section
       className="ebay-search-container homepage-ctr-research-section"

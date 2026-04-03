@@ -1052,12 +1052,121 @@
 
 .potential-profit-results {
   display: flex;
-  justify-content: center;
-  align-items: flex-start;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 18px;
   padding: 20px;
   background: rgba(255, 214, 91, 0.08);
   border-radius: 16px;
   border: 1px solid var(--neon-border);
+}
+
+.potential-profit-stock-sold-prices {
+  width: 100%;
+  max-width: 920px;
+  padding-top: 28px;
+  margin-top: 8px;
+  border-top: 1px solid rgba(255, 214, 91, 0.24);
+  box-sizing: border-box;
+}
+
+.potential-profit-stock-sold-prices-heading {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08rem;
+  text-transform: uppercase;
+  color: rgba(255, 248, 226, 0.78);
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.potential-profit-stock-sold-prices-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px 20px;
+  align-items: end;
+}
+
+.potential-profit-stock-sold-prices-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.potential-profit-stock-sold-prices-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.06rem;
+  text-transform: uppercase;
+  color: rgba(255, 248, 226, 0.62);
+}
+
+.potential-profit-stock-sold-prices-value {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--neon-primary-strong);
+  letter-spacing: 0.03rem;
+}
+
+.potential-profit-stock-sold-prices-count {
+  grid-column: 1 / -1;
+  text-align: center;
+  font-size: 0.72rem;
+  color: rgba(255, 248, 226, 0.52);
+  letter-spacing: 0.04rem;
+  margin-top: 4px;
+}
+
+.potential-profit-stock-sold-prices-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 10px;
+  margin-top: 14px;
+}
+
+.potential-profit-stock-sold-prices-link {
+  color: var(--neon-primary-strong);
+  font-size: 0.88rem;
+  font-weight: 600;
+  letter-spacing: 0.04rem;
+  text-decoration: none;
+}
+
+.potential-profit-stock-sold-prices-link:hover {
+  text-decoration: underline;
+}
+
+.potential-profit-stock-sold-prices-link-sep {
+  color: rgba(255, 248, 226, 0.35);
+  font-weight: 600;
+  user-select: none;
+}
+
+.potential-profit-stock-sold-prices-hint,
+.potential-profit-stock-sold-prices-err {
+  margin: 0;
+  font-size: 0.82rem;
+  text-align: center;
+  color: rgba(255, 248, 226, 0.58);
+  line-height: 1.45;
+}
+
+.potential-profit-stock-sold-prices-err {
+  color: #ffb0b0;
+}
+
+@media (max-width: 640px) {
+  .potential-profit-stock-sold-prices-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .potential-profit-stock-sold-prices-count {
+    grid-column: auto;
+  }
 }
 
 /* Vinted | eBay on one row; with-promo only under eBay (matches Stock projected profit grid) */

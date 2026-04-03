@@ -1358,6 +1358,69 @@ app.get('/api/stock/sold', async (req, res) => {
   }
 });
 
+/** Avg / min / max sale_price for sold rows matching brand + category (homepage price calculator). */
+app.get('/api/stock/sold-price-stats', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const brandId = Number(req.query.brandId);
+    const categoryId = Number(req.query.categoryId);
+    if (!Number.isFinite(brandId) || brandId < 1 || !Number.isFinite(categoryId) || categoryId < 1) {
+      return res.status(400).json({
+        error: 'Query parameters brandId and categoryId (positive integers) are required'
+      });
+    }
+
+    const result = await pool.query(
+      `
+        SELECT
+          COUNT(*) FILTER (
+            WHERE sale_date IS NOT NULL AND sale_price IS NOT NULL
+          )::int AS sold_count,
+          AVG(sale_price) FILTER (
+            WHERE sale_date IS NOT NULL AND sale_price IS NOT NULL
+          )::numeric AS avg_price,
+          MIN(sale_price) FILTER (
+            WHERE sale_date IS NOT NULL AND sale_price IS NOT NULL
+          )::numeric AS min_price,
+          MAX(sale_price) FILTER (
+            WHERE sale_date IS NOT NULL AND sale_price IS NOT NULL
+          )::numeric AS max_price,
+          COUNT(*) FILTER (WHERE sale_date IS NULL)::int AS unsold_count
+        FROM stock
+        WHERE brand_id = $1
+          AND category_id = $2
+      `,
+      [brandId, categoryId]
+    );
+
+    const row = result.rows[0] || {};
+    const soldCount = Number(row.sold_count || 0);
+    const unsoldCount = Number(row.unsold_count || 0);
+    const avg = row.avg_price != null ? Number(row.avg_price) : null;
+    const min = row.min_price != null ? Number(row.min_price) : null;
+    const max = row.max_price != null ? Number(row.max_price) : null;
+
+    res.json({
+      soldCount,
+      unsoldCount,
+      avgPrice:
+        soldCount > 0 && avg != null && Number.isFinite(avg) ? Math.round(avg * 100) / 100 : null,
+      minPrice:
+        soldCount > 0 && min != null && Number.isFinite(min) ? Math.round(min * 100) / 100 : null,
+      maxPrice:
+        soldCount > 0 && max != null && Number.isFinite(max) ? Math.round(max * 100) / 100 : null
+    });
+  } catch (error) {
+    console.error('Sold price stats query failed:', error);
+    res.status(500).json({ error: 'Failed to load sold price stats', details: error.message });
+  }
+});
+
 /** UK-style meteorological seasons; winter is Dec(refYear)–Feb(refYear+1). */
 function meteorologicalCurrentSeasonFromDate(d) {
   const y = d.getFullYear();
