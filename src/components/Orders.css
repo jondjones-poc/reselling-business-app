@@ -63,8 +63,61 @@
   margin-top: 8px;
 }
 
+.orders-sales-ebay-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 20px;
+  margin-bottom: 20px;
+}
+
+.orders-sales-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 28px;
+  align-items: baseline;
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: 0.04rem;
+  line-height: 1.4;
+  color: rgba(255, 248, 226, 0.88);
+  flex: 1 1 auto;
+  min-width: min(100%, 220px);
+}
+
+.orders-sales-stat strong {
+  color: var(--neon-primary-strong);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.orders-sales-stat-label {
+  font-weight: 700;
+  color: rgba(255, 248, 226, 0.78);
+}
+
+.orders-sales-stats-loading {
+  color: rgba(255, 248, 226, 0.65);
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: 0.04rem;
+}
+
+.orders-ebay-toolbar-connect {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-right: 4px;
+}
+
 .orders-vinted-ebay-check-bar {
   margin-bottom: 20px;
+}
+
+.orders-sales-ebay-toolbar .orders-vinted-ebay-check-bar.orders-sales-ebay-actions {
+  margin-bottom: 0;
 }
 
 .orders-sales-ebay-actions {
@@ -72,6 +125,60 @@
   flex-wrap: wrap;
   gap: 12px;
   align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.orders-sales-platform-filter-wrap {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+
+/* Match Stock edit / new-entry selects (.new-entry-field select + .new-entry-select) */
+.orders-sales-platform-select {
+  appearance: none;
+  min-width: 10rem;
+  width: auto;
+  padding: 14px 40px 14px 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 214, 91, 0.28);
+  background-color: rgba(255, 214, 91, 0.08);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23FFD65B' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 18px center;
+  background-size: 12px;
+  color: var(--text-strong);
+  font-size: 0.95rem;
+  font-weight: 500;
+  font-family: inherit;
+  line-height: 1.25;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.3s ease;
+  box-sizing: border-box;
+}
+
+.orders-sales-platform-select:focus {
+  border-color: var(--neon-border-strong);
+  box-shadow: var(--neon-shadow);
+  background-color: rgba(255, 214, 91, 0.16);
+}
+
+.orders-sales-platform-select option {
+  background-color: rgba(5, 4, 3, 0.98);
+  color: var(--text-strong);
+  padding: 8px 12px;
+}
+
+.orders-sales-platform-select option:hover,
+.orders-sales-platform-select option:checked,
+.orders-sales-platform-select option:focus {
+  background-color: rgba(255, 214, 91, 0.2);
+  color: var(--text-strong);
 }
 
 .orders-missing-ebay-order-button {
@@ -318,6 +425,23 @@
 .orders-sales-table .orders-table {
   table-layout: auto;
   width: 100%;
+  font-size: 1rem;
+}
+
+/* One type size for Sales headers and cells (overrides global .orders-table 1.5rem / 1.65rem) */
+.orders-sales-table .orders-table thead th,
+.orders-sales-table .orders-table tbody td {
+  font-size: 1rem;
+  line-height: 1.45;
+  letter-spacing: 0.02rem;
+}
+
+.orders-sales-table .orders-table thead th {
+  font-weight: 700;
+}
+
+.orders-sales-table .orders-table tbody td {
+  font-weight: 500;
 }
 
 /* SKU — as narrow as the digits allow */
@@ -325,8 +449,9 @@
 .orders-sales-table .orders-table td:nth-child(1) {
   width: 1%;
   white-space: nowrap;
-  padding: 14px 10px;
+  padding: 14px 12px;
   vertical-align: middle;
+  text-align: center;
 }
 
 /* Name — no fixed width; takes remaining space after narrow columns */
@@ -341,6 +466,8 @@
   color: var(--neon-primary-strong);
   text-decoration: underline;
   font-weight: 500;
+  font-size: inherit;
+  line-height: inherit;
   word-break: break-word;
   hyphens: auto;
 }
@@ -349,14 +476,11 @@
 .orders-sales-table .orders-table th:nth-child(3),
 .orders-sales-table .orders-table td:nth-child(3) {
   width: 1%;
-  max-width: 5.25rem;
+  max-width: 7rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 0.68rem;
-  line-height: 1.3;
-  letter-spacing: 0.03rem;
-  padding: 10px 6px;
+  padding: 14px 10px;
   text-align: center;
   vertical-align: middle;
 }
@@ -365,10 +489,8 @@
 .orders-sales-table .orders-table th:nth-child(4),
 .orders-sales-table .orders-table th:nth-child(5) {
   width: 1%;
-  max-width: 6.75rem;
-  font-size: 0.65rem;
-  letter-spacing: 0.03rem;
-  padding: 10px 4px;
+  max-width: 8.5rem;
+  padding: 14px 10px;
   text-align: center;
   vertical-align: middle;
 }
@@ -376,10 +498,8 @@
 .orders-sales-table .orders-table td:nth-child(4),
 .orders-sales-table .orders-table td:nth-child(5) {
   width: 1%;
-  max-width: 6.75rem;
-  font-size: 0.72rem;
-  line-height: 1.35;
-  padding: 10px 4px;
+  max-width: 8.5rem;
+  padding: 14px 10px;
   overflow: hidden;
   vertical-align: middle;
   text-align: center;
@@ -388,6 +508,9 @@
 .orders-sales-table .orders-table-external-link {
   color: var(--neon-primary-strong);
   text-decoration: underline;
+  font-size: inherit;
+  line-height: inherit;
+  font-weight: 500;
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;

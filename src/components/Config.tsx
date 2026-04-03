@@ -39,6 +39,7 @@ interface StockRow {
   depop_id: Nullable<string>;
   brand_id: Nullable<number>;
   category_id: Nullable<number>;
+  category_size_id: Nullable<number>;
 }
 
 interface StockApiResponse {
@@ -47,6 +48,21 @@ interface StockApiResponse {
 }
 
 const MISC_BRAND_ID = 39;
+
+/** Stock `category_id` values excluded from “Items With No Size” (sizes not applicable / not tracked). */
+const NO_SIZE_LIST_EXCLUDED_CATEGORY_IDS = new Set([
+  1, 2, 3, 7, 9, 13, 14, 26, 31, 38, 39,
+]);
+
+function stockRowIsOnNoSizeList(row: StockRow): boolean {
+  const sz = row.category_size_id;
+  if (sz != null && Number(sz) >= 1) return false;
+  const cid = row.category_id;
+  if (cid == null) return true;
+  const n = Number(cid);
+  if (!Number.isFinite(n)) return true;
+  return !NO_SIZE_LIST_EXCLUDED_CATEGORY_IDS.has(n);
+}
 
 const formatCurrency = (value: Nullable<string | number>) => {
   if (value === null || value === undefined || value === '') {
@@ -84,6 +100,7 @@ const formatDate = (value: Nullable<string>) => {
 
 type ConfigMenu =
   | 'untagged-brand'
+  | 'no-size'
   | 'no-ebay-id'
   | 'no-vinted-id'
   | 'clothing-type-categories'
@@ -122,6 +139,27 @@ interface CategorySizeAdminRow {
   size_label: string;
   sort_order: number;
   stock_ref_count: number;
+}
+
+/** True if the label is only an integer or decimal (dropdown ordering: numeric band). */
+function isPlainNumericSizeLabel(label: string): boolean {
+  const t = label.trim();
+  if (t === '') return false;
+  if (!/^-?\d+(\.\d+)?$/.test(t)) return false;
+  return Number.isFinite(Number(t));
+}
+
+/** Text labels first (A→Z), then numeric labels (high→low). */
+function sortSizePickerOptions(rows: CategorySizeAdminRow[]): CategorySizeAdminRow[] {
+  return [...rows].sort((a, b) => {
+    const aNum = isPlainNumericSizeLabel(a.size_label);
+    const bNum = isPlainNumericSizeLabel(b.size_label);
+    if (aNum !== bNum) return aNum ? 1 : -1;
+    if (!aNum) {
+      return a.size_label.localeCompare(b.size_label, undefined, { sensitivity: 'base', numeric: true });
+    }
+    return Number(b.size_label.trim()) - Number(a.size_label.trim());
+  });
 }
 
 /** Prompt: rank config brands using menswear category taxonomy (Research / Config “Menswear categories”). */
@@ -185,6 +223,14 @@ const Config: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [autoTaggingId, setAutoTaggingId] = useState<number | null>(null);
   const [autoTaggedHiddenIds, setAutoTaggedHiddenIds] = useState<Set<number>>(new Set());
+
+  /** Sizes per clothing-type category for Items With No Size picker (not the Sizes admin table state). */
+  const [noSizePickerSizesByCategory, setNoSizePickerSizesByCategory] = useState<
+    Record<number, CategorySizeAdminRow[]>
+  >({});
+  const [noSizePickerSizesLoading, setNoSizePickerSizesLoading] = useState(false);
+  const [noSizePickerError, setNoSizePickerError] = useState<string | null>(null);
+  const [noSizeAssignSavingId, setNoSizeAssignSavingId] = useState<number | null>(null);
 
   const [clothingCategories, setClothingCategories] = useState<ClothingCategoryRow[]>([]);
   const [clothingLoading, setClothingLoading] = useState(false);
@@ -377,6 +423,43 @@ const Config: React.FC = () => {
     }
   }, [activeMenu, loadStockClothingTypes]);
 
+  /** Load sizes for one category without touching Sizes admin table state. */
+  const fetchCategorySizesForPicker = useCallback(async (categoryId: number): Promise<CategorySizeAdminRow[]> => {
+    const response = await fetch(
+      `${API_BASE}/api/category-sizes?categoryId=${encodeURIComponent(String(categoryId))}`,
+      { method: 'GET', headers: { 'Content-Type': 'application/json' } }
+    );
+    const text = await response.text();
+    if (!response.ok) {
+      let msg = text || 'Failed to load sizes';
+      try {
+        const j = JSON.parse(text) as { error?: string; details?: string };
+        msg = [j.error, j.details].filter(Boolean).join(' — ') || msg;
+      } catch {
+        /* keep */
+      }
+      throw new Error(msg);
+    }
+    const data = JSON.parse(text) as { rows?: unknown[] };
+    const raw = Array.isArray(data.rows) ? data.rows : [];
+    const mapped: CategorySizeAdminRow[] = raw.map((r) => {
+      const o = r as Record<string, unknown>;
+      const id = Number(o.id);
+      const refRaw = o.stock_ref_count;
+      let ref = 0;
+      if (typeof refRaw === 'number' && Number.isFinite(refRaw)) ref = Math.max(0, Math.floor(refRaw));
+      else ref = Math.max(0, parseInt(String(refRaw ?? '0'), 10) || 0);
+      return {
+        id: Number.isFinite(id) ? Math.floor(id) : -1,
+        category_id: Math.floor(Number(o.category_id) || 0),
+        size_label: String(o.size_label ?? '').trim(),
+        sort_order: Math.floor(Number(o.sort_order) || 0),
+        stock_ref_count: ref,
+      };
+    });
+    return mapped.filter((x) => x.id >= 1);
+  }, []);
+
   const loadCategorySizesAdmin = useCallback(async (categoryId: number) => {
     try {
       setSizesLoading(true);
@@ -430,6 +513,12 @@ const Config: React.FC = () => {
 
   useEffect(() => {
     if (activeMenu === 'sizes') {
+      void loadStockClothingTypes();
+    }
+  }, [activeMenu, loadStockClothingTypes]);
+
+  useEffect(() => {
+    if (activeMenu === 'no-size') {
       void loadStockClothingTypes();
     }
   }, [activeMenu, loadStockClothingTypes]);
@@ -749,6 +838,9 @@ const Config: React.FC = () => {
         (row) => (row.brand_id === null || row.brand_id === undefined) && !autoTaggedHiddenIds.has(Number(row.id))
       );
     }
+    if (activeMenu === 'no-size') {
+      return rows.filter(stockRowIsOnNoSizeList);
+    }
     if (activeMenu === 'no-ebay-id') {
       return rows.filter(row => !row.ebay_id || row.ebay_id.trim() === '');
     }
@@ -758,8 +850,96 @@ const Config: React.FC = () => {
     return [];
   }, [rows, activeMenu, autoTaggedHiddenIds]);
 
+  const noSizePrefetchCategoryIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const row of rows) {
+      if (!stockRowIsOnNoSizeList(row)) continue;
+      const cid = row.category_id;
+      if (cid == null) continue;
+      const n = Number(cid);
+      if (Number.isFinite(n) && n >= 1) ids.add(Math.floor(n));
+    }
+    return Array.from(ids).sort((a, b) => a - b);
+  }, [rows]);
+
+  const stockCategoryNameById = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const t of stockClothingTypes) {
+      if (t.id >= 1 && t.category_name) m.set(t.id, t.category_name);
+    }
+    return m;
+  }, [stockClothingTypes]);
+
+  useEffect(() => {
+    if (activeMenu !== 'no-size') return;
+    let cancelled = false;
+    if (noSizePrefetchCategoryIds.length === 0) {
+      setNoSizePickerSizesByCategory({});
+      setNoSizePickerSizesLoading(false);
+      setNoSizePickerError(null);
+      return;
+    }
+    setNoSizePickerSizesLoading(true);
+    setNoSizePickerError(null);
+    void (async () => {
+      try {
+        const entries = await Promise.all(
+          noSizePrefetchCategoryIds.map(async (cid) => {
+            const list = await fetchCategorySizesForPicker(cid);
+            return [cid, list] as const;
+          })
+        );
+        if (cancelled) return;
+        setNoSizePickerSizesByCategory(Object.fromEntries(entries));
+      } catch (err: unknown) {
+        if (!cancelled) {
+          const m = err instanceof Error ? err.message : 'Unable to load size options';
+          setNoSizePickerError(m);
+          setNoSizePickerSizesByCategory({});
+        }
+      } finally {
+        if (!cancelled) setNoSizePickerSizesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeMenu, noSizePrefetchCategoryIds, fetchCategorySizesForPicker]);
+
   const handleEditItem = (row: StockRow) => {
     window.open(`/stock?editId=${row.id}`, '_blank');
+  };
+
+  const handleNoSizeAssign = async (stockId: number, categorySizeId: number): Promise<boolean> => {
+    setNoSizeAssignSavingId(stockId);
+    setError(null);
+    setNoSizePickerError(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/stock/${stockId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category_size_id: categorySizeId }),
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        let msg = text || 'Failed to save size';
+        try {
+          const j = JSON.parse(text) as { error?: string; details?: string };
+          msg = [j.error, j.details].filter(Boolean).join(' — ') || msg;
+        } catch {
+          /* keep */
+        }
+        throw new Error(msg);
+      }
+      await loadStock();
+      return true;
+    } catch (err: unknown) {
+      const m = err instanceof Error ? err.message : 'Unable to save size';
+      setNoSizePickerError(m);
+      return false;
+    } finally {
+      setNoSizeAssignSavingId(null);
+    }
   };
 
   const handleAutoTag = async (row: StockRow) => {
@@ -1082,7 +1262,7 @@ const Config: React.FC = () => {
         {/* Sidebar */}
         <div className="config-sidebar">
           <div className="config-sidebar-header">
-            <h2>Settings</h2>
+            <h2>Stock Management</h2>
           </div>
           <nav className="config-sidebar-menu">
             <button
@@ -1090,50 +1270,77 @@ const Config: React.FC = () => {
               className={`config-menu-item ${activeMenu === 'untagged-brand' ? 'active' : ''}`}
               onClick={() => setActiveMenu('untagged-brand')}
             >
-              UnTagged Brand
+              Items With No Brand
+            </button>
+            <button
+              type="button"
+              className={`config-menu-item ${activeMenu === 'no-size' ? 'active' : ''}`}
+              onClick={() => setActiveMenu('no-size')}
+            >
+              Items With No Size
             </button>
             <button
               type="button"
               className={`config-menu-item ${activeMenu === 'no-ebay-id' ? 'active' : ''}`}
               onClick={() => setActiveMenu('no-ebay-id')}
             >
-              No eBay ID
+              Items Not On eBay
             </button>
             <button
               type="button"
               className={`config-menu-item ${activeMenu === 'no-vinted-id' ? 'active' : ''}`}
               onClick={() => setActiveMenu('no-vinted-id')}
             >
-              No Vinted ID
+              Items Not On Vinted
             </button>
-            <button
-              type="button"
-              className={`config-menu-item ${activeMenu === 'clothing-type-categories' ? 'active' : ''}`}
-              onClick={() => setActiveMenu('clothing-type-categories')}
+            <div
+              className="config-sidebar-group"
+              role="group"
+              aria-labelledby="config-sidebar-category-management-label"
             >
-              Clothing Type Categories
-            </button>
-            <button
-              type="button"
-              className={`config-menu-item ${activeMenu === 'clothing-categories' ? 'active' : ''}`}
-              onClick={() => setActiveMenu('clothing-categories')}
-            >
-              Menswear Categories
-            </button>
-            <button
-              type="button"
-              className={`config-menu-item ${activeMenu === 'sizes' ? 'active' : ''}`}
-              onClick={() => setActiveMenu('sizes')}
-            >
-              Sizes
-            </button>
-            <button
-              type="button"
-              className={`config-menu-item ${activeMenu === 'brands' ? 'active' : ''}`}
-              onClick={() => setActiveMenu('brands')}
-            >
-              Brands
-            </button>
+              <div
+                id="config-sidebar-category-management-label"
+                className="config-sidebar-group-heading"
+              >
+                Category Management
+              </div>
+              <button
+                type="button"
+                className={`config-menu-item config-menu-item--in-group ${
+                  activeMenu === 'clothing-type-categories' ? 'active' : ''
+                }`}
+                onClick={() => setActiveMenu('clothing-type-categories')}
+              >
+                Clothing Type Categories
+              </button>
+              <button
+                type="button"
+                className={`config-menu-item config-menu-item--in-group ${
+                  activeMenu === 'clothing-categories' ? 'active' : ''
+                }`}
+                onClick={() => setActiveMenu('clothing-categories')}
+              >
+                Menswear Categories
+              </button>
+              <button
+                type="button"
+                className={`config-menu-item config-menu-item--in-group ${
+                  activeMenu === 'sizes' ? 'active' : ''
+                }`}
+                onClick={() => setActiveMenu('sizes')}
+              >
+                Sizes
+              </button>
+              <button
+                type="button"
+                className={`config-menu-item config-menu-item--in-group ${
+                  activeMenu === 'brands' ? 'active' : ''
+                }`}
+                onClick={() => setActiveMenu('brands')}
+              >
+                Brands
+              </button>
+            </div>
           </nav>
         </div>
 
@@ -1156,7 +1363,7 @@ const Config: React.FC = () => {
               {loading ? (
                 <div className="config-loading">Loading...</div>
               ) : filteredRows.length === 0 ? (
-                <div className="config-empty">No items found without a brand assigned.</div>
+                <div className="config-empty">No items found with no brand assigned.</div>
               ) : (
                 <div className="config-grid">
                   {filteredRows.map((row) => (
@@ -1204,6 +1411,123 @@ const Config: React.FC = () => {
             </div>
           )}
 
+          {activeMenu === 'no-size' && (
+            <div className="config-section">
+              <div className="config-section-header">
+                <button
+                  type="button"
+                  className="config-refresh-button"
+                  onClick={loadStock}
+                  title="Refresh list"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+                  </svg>
+                </button>
+              </div>
+              {noSizePickerError ? (
+                <div className="config-error config-error--inline" role="alert">
+                  {noSizePickerError}
+                </div>
+              ) : null}
+              {loading ? (
+                <div className="config-loading">Loading...</div>
+              ) : filteredRows.length === 0 ? (
+                <div className="config-empty">
+                  No items found without a size (excluding selected clothing-type categories).
+                </div>
+              ) : (
+                <>
+                  {noSizePickerSizesLoading ? (
+                    <p className="config-no-size-sizes-hint" role="status">
+                      Loading size options…
+                    </p>
+                  ) : null}
+                  <div className="config-grid">
+                    {filteredRows.map((row) => {
+                      const cid =
+                        row.category_id != null && Number.isFinite(Number(row.category_id))
+                          ? Math.floor(Number(row.category_id))
+                          : null;
+                      const szList = sortSizePickerOptions(
+                        cid != null ? noSizePickerSizesByCategory[cid] ?? [] : []
+                      );
+                      const categoryLabel =
+                        cid != null
+                          ? stockCategoryNameById.get(cid) ?? `Category #${cid}`
+                          : '—';
+                      const canPickSize =
+                        cid != null && szList.length > 0 && !noSizePickerSizesLoading;
+                      const placeholderLabel =
+                        cid == null
+                          ? 'Set clothing type on item first'
+                          : noSizePickerSizesLoading
+                            ? 'Loading sizes…'
+                            : szList.length === 0
+                              ? 'No sizes for this type — add in Sizes'
+                              : 'Select size…';
+                      return (
+                        <div key={row.id} className="config-grid-item">
+                          <div className="config-grid-item-header">
+                            <span className="config-grid-sku">SKU: {row.id}</span>
+                            <button
+                              type="button"
+                              className="config-grid-edit-button"
+                              onClick={() => handleEditItem(row)}
+                            >
+                              Edit
+                            </button>
+                          </div>
+                          <div className="config-grid-item-body">
+                            <div className="config-grid-field">
+                              <span className="config-grid-label">Item Name</span>
+                              <span className="config-grid-value">{row.item_name || '—'}</span>
+                            </div>
+                            <div className="config-grid-field">
+                              <span className="config-grid-label">Clothing type</span>
+                              <span className="config-grid-value">{categoryLabel}</span>
+                            </div>
+                            {row.purchase_date && (
+                              <div className="config-grid-field">
+                                <span className="config-grid-label">Purchase Date</span>
+                                <span className="config-grid-value">{formatDate(row.purchase_date)}</span>
+                              </div>
+                            )}
+                            <div className="config-grid-field config-grid-field--size-select">
+                              <label className="config-grid-label" htmlFor={`config-no-size-sel-${row.id}`}>
+                                Size
+                              </label>
+                              <select
+                                id={`config-no-size-sel-${row.id}`}
+                                className="config-no-size-select"
+                                defaultValue=""
+                                disabled={noSizeAssignSavingId === row.id || !canPickSize}
+                                aria-busy={noSizeAssignSavingId === row.id}
+                                onChange={async (e) => {
+                                  const v = e.target.value;
+                                  if (!v) return;
+                                  await handleNoSizeAssign(row.id, Number(v));
+                                  e.target.value = '';
+                                }}
+                              >
+                                <option value="">{placeholderLabel}</option>
+                                {szList.map((s) => (
+                                  <option key={s.id} value={s.id}>
+                                    {s.size_label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           {activeMenu === 'no-ebay-id' && (
             <div className="config-section">
               <div className="config-section-header">
@@ -1221,7 +1545,7 @@ const Config: React.FC = () => {
               {loading ? (
                 <div className="config-loading">Loading...</div>
               ) : filteredRows.length === 0 ? (
-                <div className="config-empty">No items found without an eBay ID.</div>
+                <div className="config-empty">No items found that are not on eBay.</div>
               ) : (
                 <div className="config-grid">
                   {filteredRows.map((row) => (
@@ -1282,7 +1606,7 @@ const Config: React.FC = () => {
               {loading ? (
                 <div className="config-loading">Loading...</div>
               ) : filteredRows.length === 0 ? (
-                <div className="config-empty">No items found without a Vinted ID.</div>
+                <div className="config-empty">No items found that are not on Vinted.</div>
               ) : (
                 <div className="config-grid">
                   {filteredRows.map((row) => (

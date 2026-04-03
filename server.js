@@ -3001,10 +3001,18 @@ app.get('/api/menswear-categories/:id/brand-inventory-items', async (req, res) =
          s.purchase_date,
          s.sale_date,
          s.category_id,
-         COALESCE(c.category_name, 'Uncategorized') AS category_name
+         COALESCE(c.category_name, 'Uncategorized') AS category_name,
+         s.category_size_id,
+         sz.size_label AS size_label,
+         sz.sort_order AS size_sort_order,
+         s.brand_tag_image_id,
+         bt.storage_path AS tag_storage_path,
+         bt.caption AS tag_caption
        FROM stock s
        INNER JOIN brand b ON s.brand_id = b.id
        LEFT JOIN category c ON s.category_id = c.id
+       LEFT JOIN category_size sz ON sz.id = s.category_size_id
+       LEFT JOIN brand_tag_image bt ON bt.id = s.brand_tag_image_id AND bt.brand_id = s.brand_id
        WHERE b.id = $1
          AND b.menswear_category_id = $2
        ORDER BY s.purchase_date DESC NULLS LAST, s.id DESC
@@ -3012,8 +3020,60 @@ app.get('/api/menswear-categories/:id/brand-inventory-items', async (req, res) =
       [brandId, categoryId]
     );
 
+    const rawRows = result.rows ?? [];
+    const pathByTagId = new Map();
+    for (const row of rawRows) {
+      const tid = row.brand_tag_image_id;
+      const p = row.tag_storage_path;
+      if (tid != null && p != null && String(p).trim() !== '') {
+        pathByTagId.set(Number(tid), String(p).trim());
+      }
+    }
+    const urlByTagId = new Map();
+    for (const [tid, storagePath] of pathByTagId) {
+      try {
+        const u = await resolveBrandTagImageUrl(storagePath);
+        if (u) urlByTagId.set(tid, u);
+      } catch (e) {
+        console.warn('brand-inventory-items tag URL resolve failed:', tid, e?.message || e);
+      }
+    }
+
+    const rows = rawRows.map((row) => {
+      const tid =
+        row.brand_tag_image_id != null && row.brand_tag_image_id !== undefined
+          ? Number(row.brand_tag_image_id)
+          : null;
+      const tagIdOk = tid != null && Number.isFinite(tid) && tid >= 1;
+      const rawSzId = row.category_size_id;
+      const szNum =
+        rawSzId === null || rawSzId === undefined ? NaN : Math.floor(Number(rawSzId));
+      const category_size_id = Number.isFinite(szNum) && szNum >= 1 ? szNum : null;
+      return {
+        id: row.id,
+        item_name: row.item_name,
+        purchase_price: row.purchase_price,
+        purchase_date: row.purchase_date,
+        sale_date: row.sale_date,
+        category_id: row.category_id,
+        category_name: row.category_name,
+        category_size_id,
+        size_label:
+          category_size_id != null && row.size_label != null && String(row.size_label).trim() !== ''
+            ? String(row.size_label).trim()
+            : null,
+        size_sort_order:
+          row.size_sort_order != null && row.size_sort_order !== undefined
+            ? Number(row.size_sort_order)
+            : null,
+        brand_tag_image_id: tagIdOk ? tid : null,
+        tag_caption: row.tag_caption != null ? String(row.tag_caption) : null,
+        tag_public_url: tagIdOk ? urlByTagId.get(tid) ?? null : null,
+      };
+    });
+
     res.json({
-      rows: result.rows ?? [],
+      rows,
       brand_id: brandId,
       brand_name: brandName,
       menswear_category_id: categoryId,

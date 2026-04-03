@@ -59,6 +59,33 @@
   gap: 8px;
 }
 
+.config-sidebar-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 214, 91, 0.18);
+}
+
+/* Match .config-sidebar-header h2 (Stock Management) */
+.config-sidebar-group-heading {
+  margin: 0 0 12px 0;
+  padding: 0;
+  color: var(--neon-primary-strong);
+  font-size: 1.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08rem;
+  text-transform: uppercase;
+}
+
+.config-menu-item--in-group {
+  margin-left: 4px;
+  padding-left: 20px;
+  border-left: 2px solid rgba(255, 214, 91, 0.22);
+  border-radius: 12px 12px 12px 10px;
+}
+
 .config-menu-item {
   padding: 12px 16px;
   border-radius: 12px;
@@ -325,6 +352,43 @@
 .config-sizes-category-picker select:focus {
   outline: none;
   border-color: var(--neon-border-strong);
+}
+
+.config-no-size-sizes-hint {
+  margin: 0 0 14px 0;
+  font-size: 0.9rem;
+  color: rgba(255, 248, 226, 0.65);
+}
+
+.config-grid-field--size-select {
+  margin-top: 4px;
+}
+
+.config-grid-field--size-select .config-grid-label {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.config-no-size-select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 214, 91, 0.28);
+  background: rgba(5, 4, 3, 0.85);
+  color: var(--text-strong);
+  font-size: 0.95rem;
+  font-family: inherit;
+}
+
+.config-no-size-select:focus {
+  outline: none;
+  border-color: var(--neon-border-strong);
+}
+
+.config-no-size-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .config-sizes-add-row {

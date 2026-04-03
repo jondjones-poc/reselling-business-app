@@ -855,6 +855,15 @@ const Reporting: React.FC = () => {
     [reportingExpensesAll, monthlySummaryYear, monthlySummaryMonth]
   );
 
+  const reportingExpensesAllTimeTotal = useMemo(
+    () =>
+      reportingExpensesAll.reduce((sum, r) => {
+        const c = typeof r.cost === 'number' ? r.cost : parseFloat(String(r.cost ?? 0));
+        return sum + (Number.isFinite(c) ? c : 0);
+      }, 0),
+    [reportingExpensesAll]
+  );
+
   const totalProfit = useMemo(() => {
     // Use year-specific totals if available (matches Stock page calculation)
     if (yearSpecificTotals) {
@@ -870,6 +879,12 @@ const Reporting: React.FC = () => {
       return sum + (totalSales - totalPurchase);
     }, 0);
   }, [monthlyProfit, yearSpecificTotals]);
+
+  /** Stock net (sales − inventory purchases) minus all rows in the expenses table — Sales Data / all-time scope only. */
+  const allTimeCompanyProfit = useMemo(
+    () => totalProfit - reportingExpensesAllTimeTotal,
+    [totalProfit, reportingExpensesAllTimeTotal]
+  );
 
   const salesByCategoryData = useMemo(() => {
     if (salesByCategory.length === 0) {
@@ -2360,13 +2375,29 @@ const Reporting: React.FC = () => {
           )}
 
           <h2 className="reporting-section-heading">All Time Sales</h2>
-          <div className="reporting-summary">
+          <div className="reporting-summary reporting-summary--grid-4">
             <div className="total-profit-card">
               <div className="total-profit-label">Total Company Profit (All Time)</div>
-              <div className={`total-profit-value ${totalProfit >= 0 ? 'positive' : 'negative'}`}>
-                {formatCurrency(totalProfit)}
+              {reportingExpensesLoading ? (
+                <div className="total-profit-value" style={{ fontSize: '1.1rem', color: 'rgba(255,248,226,0.75)' }}>
+                  …
+                </div>
+              ) : (
+                <div
+                  className={`total-profit-value ${
+                    (reportingExpensesError ? totalProfit : allTimeCompanyProfit) >= 0 ? 'positive' : 'negative'
+                  }`}
+                >
+                  {formatCurrency(reportingExpensesError ? totalProfit : allTimeCompanyProfit)}
+                </div>
+              )}
+              <div className="total-profit-description">
+                {reportingExpensesLoading
+                  ? 'Sales − purchases − expenses (loading expenses…)'
+                  : reportingExpensesError
+                    ? 'Sales − purchases only (expenses table could not be loaded)'
+                    : 'Sales − stock purchases − expenses (sum of expenses table)'}
               </div>
-              <div className="total-profit-description">All sales - all expenses (all time)</div>
             </div>
             {yearSpecificTotals && (
               <div className="total-profit-card">
@@ -2383,19 +2414,30 @@ const Reporting: React.FC = () => {
                 <div className="total-profit-value negative">
                   {formatCurrency(yearSpecificTotals.totalPurchase)}
                 </div>
-                <div className="total-profit-description">All items purchased</div>
+                <div className="total-profit-description">All items purchased (stock)</div>
               </div>
             )}
-            {unsoldInventoryValue && (
-              <div className="total-profit-card">
-                <div className="total-profit-label">Unsold Inventory Value</div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: 0 }}>
-                  <div className="total-profit-value negative">
-                    {formatCurrency(-unsoldInventoryValue.value)}
-                  </div>
+            <div className="total-profit-card">
+              <div className="total-profit-label">Total Expenses (All Time)</div>
+              {reportingExpensesError ? (
+                <div className="total-profit-value negative" style={{ fontSize: '1rem' }}>
+                  —
                 </div>
+              ) : reportingExpensesLoading ? (
+                <div className="total-profit-value" style={{ fontSize: '1.1rem', color: 'rgba(255,248,226,0.75)' }}>
+                  …
+                </div>
+              ) : (
+                <div className={`total-profit-value${reportingExpensesAllTimeTotal > 0 ? ' negative' : ''}`}>
+                  {formatCurrency(reportingExpensesAllTimeTotal)}
+                </div>
+              )}
+              <div className="total-profit-description">
+                {reportingExpensesError
+                  ? reportingExpensesError
+                  : 'Sum of all rows in the expenses table'}
               </div>
-            )}
+            </div>
           </div>
 
           <div className="reporting-summary reporting-summary--grid-4">
@@ -2408,6 +2450,17 @@ const Reporting: React.FC = () => {
                 <div className="total-profit-description">Purchase cost of sold items</div>
               </div>
             )}
+            {unsoldInventoryValue && (
+              <div className="total-profit-card">
+                <div className="total-profit-label">Unsold Inventory Value</div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: 0 }}>
+                  <div className="total-profit-value negative">
+                    {formatCurrency(-unsoldInventoryValue.value)}
+                  </div>
+                </div>
+                <div className="total-profit-description">Current unsold stock at cost</div>
+              </div>
+            )}
             {yearSpecificTotals?.totalProfitFromSoldItems !== undefined && (
               <div className="total-profit-card">
                 <div className="total-profit-label">Total Profit from Sold Items (All Time)</div>
@@ -2417,28 +2470,18 @@ const Reporting: React.FC = () => {
                 <div className="total-profit-description">Sale − purchase on sold lines</div>
               </div>
             )}
-            {averageProfitPerItem && (
+            {yearItemsStats && activeListingsCount && (
               <div className="total-profit-card">
-                <div className="total-profit-label">Average Profit per Item</div>
-                <div className={`total-profit-value ${averageProfitPerItem.average >= 0 ? 'positive' : 'negative'}`}>
-                  {formatCurrency(averageProfitPerItem.average)}
-                </div>
-                <div className="total-profit-description">
-                  {formatCurrency(averageProfitPerItem.netProfit)} ÷ {averageProfitPerItem.soldCount.toLocaleString()} items
-                </div>
-              </div>
-            )}
-            {averageSellingPrice && (
-              <div className="total-profit-card">
-                <div className="total-profit-label">Average Selling Price</div>
+                <div className="total-profit-label">Items Sold / Not Sold</div>
                 <div className="total-profit-value positive">
-                  {formatCurrency(averageSellingPrice.average)}
+                  {yearItemsStats.sold.toLocaleString()} / {activeListingsCount.count.toLocaleString()}
                 </div>
-                <div className="total-profit-description">
-                  {formatCurrency(averageSellingPrice.totalSales)} ÷ {averageSellingPrice.soldCount.toLocaleString()} items
-                </div>
+                <div className="total-profit-description">All-time sold / current not sold</div>
               </div>
             )}
+          </div>
+
+          <div className="reporting-summary reporting-summary--grid-4 reporting-summary--grid-3">
             {allTimeAverageProfitMultiple !== null && (
               <div className="total-profit-card">
                 <div className="total-profit-label">Average Profit Multiple (All Time)</div>
@@ -2466,13 +2509,29 @@ const Reporting: React.FC = () => {
                 <div className="total-profit-description">Live items</div>
               </div>
             )}
-            {yearItemsStats && (
+          </div>
+
+          <div className="reporting-summary reporting-summary--grid-4 reporting-summary--grid-3">
+            {averageProfitPerItem && (
               <div className="total-profit-card">
-                <div className="total-profit-label">Items (All Time)</div>
-                <div className="total-profit-value positive">
-                  {yearItemsStats.sold.toLocaleString()} / {yearItemsStats.listed.toLocaleString()}
+                <div className="total-profit-label">Average Profit per Item</div>
+                <div className={`total-profit-value ${averageProfitPerItem.average >= 0 ? 'positive' : 'negative'}`}>
+                  {formatCurrency(averageProfitPerItem.average)}
                 </div>
-                <div className="total-profit-description">Sold / listed</div>
+                <div className="total-profit-description">
+                  {formatCurrency(averageProfitPerItem.netProfit)} ÷ {averageProfitPerItem.soldCount.toLocaleString()} items
+                </div>
+              </div>
+            )}
+            {averageSellingPrice && (
+              <div className="total-profit-card">
+                <div className="total-profit-label">Average Selling Price</div>
+                <div className="total-profit-value positive">
+                  {formatCurrency(averageSellingPrice.average)}
+                </div>
+                <div className="total-profit-description">
+                  {formatCurrency(averageSellingPrice.totalSales)} ÷ {averageSellingPrice.soldCount.toLocaleString()} items
+                </div>
               </div>
             )}
             {roi && (

@@ -101,17 +101,18 @@
   box-sizing: border-box;
 }
 
-/* Row 2: purchase, projected (+ comps), purchase date, project sales calculations — full width */
+/* Row 2: purchase, projected, date (equal 1fr) | Avg/Top 168px | pipeline (unchanged max track) */
 .stock-new-entry-row-prices {
   flex: 1 1 100%;
   width: 100%;
   max-width: 100%;
   display: grid;
   grid-template-columns:
-    minmax(96px, 1fr)
-    minmax(0, 1.5fr)
-    minmax(118px, 1fr)
-    minmax(0, 1.9fr);
+    minmax(0, 1fr)
+    minmax(0, 1fr)
+    minmax(0, 1fr)
+    168px
+    minmax(200px, min(42vw, 400px));
   gap: 16px;
   align-items: start;
   box-sizing: border-box;
@@ -123,41 +124,28 @@
   min-width: 0;
 }
 
-.stock-new-entry-row2-projected {
-  max-width: none;
-  flex: unset;
+.stock-new-entry-row2-comps-column {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+  max-width: 168px;
+  box-sizing: border-box;
 }
 
-.stock-new-entry-row2-projected .stock-edit-projected-label {
+.stock-new-entry-row2-comps-column-spacer {
   min-height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
   width: 100%;
   box-sizing: border-box;
-}
-
-/* Price input + comps text on one horizontal band */
-.stock-new-entry-row2-inline {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-}
-
-.new-entry-field .stock-new-entry-row2-price-input {
-  width: 100%;
-  max-width: 92px;
-  flex: 0 0 auto;
-  min-width: 0;
+  display: block;
 }
 
 .stock-new-entry-row2-comps {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 168px;
   min-width: 0;
   margin-top: 0;
   padding: 4px 8px;
@@ -172,21 +160,25 @@
 
 .stock-new-entry-row2-comps .stock-edit-brand-category-comps__muted {
   margin: 0;
-  text-align: left;
+  text-align: center;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .stock-new-entry-row2-comps .stock-edit-brand-category-comps__stack {
-  flex-direction: row;
-  flex-wrap: wrap;
-  gap: 6px 14px;
+  flex-direction: column;
+  flex-wrap: nowrap;
   align-items: center;
+  justify-content: center;
+  width: 100%;
+  gap: 6px;
 }
 
 .stock-new-entry-row2-comps .stock-edit-brand-category-comps__stat-line {
-  gap: 6px;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
   flex: 0 1 auto;
 }
 
@@ -243,20 +235,53 @@
   min-width: 0;
 }
 
-/* Row 3: marketplace IDs (Vinted / eBay wider / Depop) + save far right */
+.stock-new-entry-row-prices .new-entry-field--stock-row2-equal {
+  min-width: 0;
+}
+
+/* Left-align this label only; row 2 other fields stay label-centered */
+.stock-new-entry-row-prices .stock-new-entry-row2-projected-label {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+/* Row 3: marketplace IDs + save; when editing, same row adds sales price, date, platform */
 .stock-new-entry-row-ids {
   flex: 1 1 100%;
   width: 100%;
   max-width: 100%;
   display: grid;
-  grid-template-columns:
-    minmax(0, 0.92fr)
-    minmax(0, 1.45fr)
-    minmax(0, 1fr)
-    auto;
   gap: 16px;
   align-items: start;
   box-sizing: border-box;
+}
+
+/*
+ * Create only: same 5-column template as row 2 so Vinted / eBay / Depop match Purchase / Projected / Purchase Date widths.
+ * Save sits in the comps + pipeline tracks (right).
+ */
+.stock-new-entry-row-ids:not(.stock-new-entry-row-ids--edit) {
+  grid-template-columns:
+    minmax(0, 1fr)
+    minmax(0, 1fr)
+    minmax(0, 1fr)
+    168px
+    minmax(200px, min(42vw, 400px));
+}
+
+.stock-new-entry-row-ids:not(.stock-new-entry-row-ids--edit) > .stock-new-entry-row3-save {
+  grid-column: 4 / -1;
+  justify-self: end;
+  align-self: end;
+}
+
+.stock-new-entry-row-ids--edit {
+  grid-template-columns: repeat(6, minmax(0, 1fr)) auto;
+}
+
+.stock-new-entry-row-ids--edit .new-entry-field--stock-compact-price,
+.stock-new-entry-row-ids--edit .new-entry-field--stock-compact-date {
+  min-width: 0;
 }
 
 .stock-new-entry-row-ids > .new-entry-field {
@@ -267,6 +292,27 @@
 
 .stock-new-entry-row-ids > .new-entry-field.stock-new-entry-id-field {
   max-width: none;
+}
+
+/* Match other row-ids fields: outer .new-entry-field’s first child is <label>, so plain > span:first-child rules don’t apply */
+.stock-new-entry-sold-platform-field > label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  cursor: default;
+}
+
+.stock-new-entry-sold-platform-field > label > span:first-child {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  text-align: center;
+  width: 100%;
 }
 
 .stock-new-entry-row3-save {
@@ -442,8 +488,41 @@
     grid-column: 1 / -1;
   }
 
+  /* Row1: purchase | projected | date; row2: Avg/Top (168px) | pipeline */
   .stock-new-entry-row-prices {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-auto-rows: auto;
+  }
+
+  .stock-new-entry-row-prices > :nth-child(1) {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .stock-new-entry-row-prices > :nth-child(2) {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+  }
+
+  .stock-new-entry-row-prices > :nth-child(3) {
+    grid-column: 3;
+    grid-row: 1;
+    min-width: 0;
+  }
+
+  .stock-new-entry-row-prices > :nth-child(4) {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
+    width: 168px;
+    max-width: 168px;
+  }
+
+  .stock-new-entry-row-prices > :nth-child(5) {
+    grid-column: 2 / -1;
+    grid-row: 2;
+    min-width: 0;
   }
 
   .stock-new-entry-row-prices .new-entry-field--stock-compact-price,
@@ -451,8 +530,8 @@
     max-width: none;
   }
 
-  .stock-new-entry-row-ids {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  .stock-new-entry-row-ids:not(.stock-new-entry-row-ids--edit) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .stock-new-entry-row-ids .stock-new-entry-row3-save {
@@ -466,9 +545,46 @@
   .stock-new-entry-row-ids .stock-new-entry-row3-save-label-spacer {
     display: none;
   }
+}
 
-  .stock-new-entry-row2-pipeline {
+@media (max-width: 1024px) and (min-width: 561px) {
+  .stock-new-entry-row-ids.stock-new-entry-row-ids--edit {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .stock-new-entry-row-ids.stock-new-entry-row-ids--edit > :nth-child(1) {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .stock-new-entry-row-ids.stock-new-entry-row-ids--edit > :nth-child(2) {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .stock-new-entry-row-ids.stock-new-entry-row-ids--edit > :nth-child(3) {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .stock-new-entry-row-ids.stock-new-entry-row-ids--edit > :nth-child(4) {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .stock-new-entry-row-ids.stock-new-entry-row-ids--edit > :nth-child(5) {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .stock-new-entry-row-ids.stock-new-entry-row-ids--edit > :nth-child(6) {
+    grid-column: 3;
+    grid-row: 2;
+  }
+
+  .stock-new-entry-row-ids.stock-new-entry-row-ids--edit > .stock-new-entry-row3-save {
     grid-column: 1 / -1;
+    grid-row: 3;
   }
 }
 
@@ -481,11 +597,11 @@
     grid-template-columns: 1fr;
   }
 
-  .stock-new-entry-row2-inline {
-    flex-wrap: wrap;
+  .stock-new-entry-row2-comps-column {
+    max-width: 100%;
   }
 
-  .new-entry-field .stock-new-entry-row2-price-input {
+  .stock-new-entry-row2-comps {
     max-width: 100%;
   }
 
@@ -572,23 +688,13 @@
   box-sizing: border-box;
 }
 
-.stock-edit-row-1-center {
-  flex: 1 1 auto;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  align-self: stretch;
-  min-width: 0;
-  padding: 0 8px;
-  box-sizing: border-box;
-}
-
 .stock-edit-row-1-end {
   flex: 0 0 auto;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  margin-left: auto;
   box-sizing: border-box;
 }
 
@@ -600,52 +706,58 @@
   font-size: 0.72rem;
   letter-spacing: 0.06rem;
   font-weight: 600;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
 }
 
-.stock-edit-bg-prompt-btn {
-  flex: 0 0 auto;
-  width: 48px;
-  height: 48px;
-  min-width: 48px;
-  padding: 0;
-  border-radius: 50%;
-  border: 1px solid rgba(180, 210, 255, 0.42);
-  background: linear-gradient(
-    155deg,
-    rgba(100, 155, 255, 0.2) 0%,
-    rgba(255, 214, 91, 0.12) 55%,
-    rgba(140, 255, 195, 0.08) 100%
-  );
+.stock-instagram-prompt-btn-icon {
+  flex-shrink: 0;
+  display: block;
+}
+
+/* Grey pill — same footprint as Instagram prompt in edit row 1 */
+.stock-image-prompt-btn {
+  padding: 16px 24px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 248, 226, 0.2);
+  background: rgba(110, 115, 125, 0.42);
   color: rgba(255, 248, 226, 0.95);
+  font-weight: 600;
+  letter-spacing: 0.06rem;
+  text-transform: uppercase;
   cursor: pointer;
+  transition: all 0.3s ease;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease,
-    border-color 0.2s ease;
+  gap: 8px;
   box-sizing: border-box;
-  align-self: center;
 }
 
-.stock-edit-bg-prompt-btn:hover:not(:disabled) {
-  border-color: rgba(210, 230, 255, 0.6);
+.stock-image-prompt-btn:hover:not(:disabled) {
+  background: rgba(125, 130, 140, 0.52);
+  border-color: rgba(255, 248, 226, 0.28);
   transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--neon-shadow);
 }
 
-.stock-edit-bg-prompt-btn:disabled {
-  opacity: 0.45;
+.stock-image-prompt-btn:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
-.stock-edit-bg-prompt-btn-icon {
-  width: 24px;
-  height: 24px;
+.stock-image-prompt-btn-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.stock-edit-row-1 .stock-image-prompt-btn.stock-edit-row-1-image-prompt {
+  align-self: center;
+  flex: 0 0 auto;
+  padding: 14px 16px;
+  min-height: 48px;
+  font-size: 0.72rem;
+  letter-spacing: 0.06rem;
+  font-weight: 600;
 }
 
 .stock-edit-row-1-metrics-box {
@@ -670,6 +782,13 @@
   letter-spacing: 0.02rem;
   line-height: 1.15;
   color: var(--text-strong);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2em;
+}
+
+.stock-edit-metrics-pipeline-row {
   white-space: nowrap;
 }
 
@@ -1037,8 +1156,7 @@ button.stock-close-circle-btn:disabled {
 }
 
 /*
- * Metrics row: own line when the *edit card* is narrow (split view / half browser on large monitors).
- * Viewport media alone missed those cases because half of e.g. 2560px is still > 1024px.
+ * Edit row 1 wraps when the card is narrow; Project sales pipeline (row 2) can use full width.
  */
 @container stock-edit-card (max-width: 1480px) {
   .stock-edit-row-1 {
@@ -1061,17 +1179,6 @@ button.stock-close-circle-btn:disabled {
     align-self: center;
   }
 
-  .stock-edit-row-1-center {
-    order: 3;
-    flex: 1 1 100%;
-    width: 100%;
-    max-width: 100%;
-    min-width: 0;
-    padding: 0;
-    justify-content: stretch;
-    align-self: stretch;
-  }
-
   .stock-edit-row-1-metrics-box {
     width: 100%;
     max-width: 100%;
@@ -1090,6 +1197,12 @@ button.stock-close-circle-btn:disabled {
     line-height: 1.35;
     text-align: left;
   }
+
+  .stock-edit-metrics-pipeline-row {
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
 }
 
 /* Tablet: a bit more top clearance so the edit card clears the app header */
@@ -1104,11 +1217,6 @@ button.stock-close-circle-btn:disabled {
   .stock-edit-row-1-left {
     flex: 0 0 auto;
     width: auto;
-  }
-
-  .stock-edit-row-1-center {
-    flex: 1 1 100%;
-    padding: 0;
   }
 
   .stock-edit-row-1-end {
@@ -1133,27 +1241,40 @@ button.stock-close-circle-btn:disabled {
   box-sizing: border-box;
 }
 
-.stock-edit-row-1 .stock-sku-button.stock-add-to-order-btn {
-  width: 44px;
+/* Pill + icon — same row as Image / Instagram prompts; green when actionable */
+.stock-edit-row-1 .stock-add-to-order-btn.stock-edit-row-1-add-to-order {
   flex: 0 0 auto;
-  min-width: 44px;
-  max-width: 44px;
-  height: 44px;
-  padding: 0;
-  font-size: 0;
-  line-height: 0;
-  border-radius: 50%;
-  text-transform: none;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22);
-  border-color: rgba(140, 255, 195, 0.4);
-  background: rgba(140, 255, 195, 0.14);
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 16px;
+  min-height: 48px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06rem;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-sizing: border-box;
+  border: 1px solid rgba(140, 255, 195, 0.32);
+  background: rgba(140, 255, 195, 0.2);
   color: #8cffc3;
+  box-shadow: none;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  line-height: 1.2;
 }
 
-.stock-edit-row-1 .stock-sku-button.stock-add-to-order-btn:hover:not(:disabled) {
-  background: rgba(140, 255, 195, 0.26);
-  border-color: rgba(140, 255, 195, 0.55);
+.stock-edit-row-1 .stock-add-to-order-btn.stock-edit-row-1-add-to-order:hover:not(:disabled) {
+  background: rgba(140, 255, 195, 0.32);
+  border-color: rgba(140, 255, 195, 0.48);
   color: #b8ffd9;
+  transform: translateY(-1px);
+  box-shadow: var(--neon-shadow);
 }
 
 .stock-add-to-order-icon {
@@ -1163,30 +1284,47 @@ button.stock-close-circle-btn:disabled {
 }
 
 .stock-edit-row-1 .stock-add-to-order-icon {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
 }
 
-/* Saving to orders — disabled, looks active */
-.stock-sku-button.stock-add-to-order-btn.stock-add-to-order-btn--adding:disabled:not(.stock-add-to-order-btn--in-orders) {
+/* Saving to orders — disabled, still reads as in-progress */
+.stock-add-to-order-btn.stock-add-to-order-btn--adding:disabled:not(.stock-add-to-order-btn--in-orders) {
   opacity: 1;
   cursor: wait;
-  background: rgba(140, 255, 195, 0.2);
-  border-color: rgba(140, 255, 195, 0.5);
+  background: rgba(140, 255, 195, 0.22);
+  border-color: rgba(140, 255, 195, 0.42);
   color: #8cffc3;
   transform: none;
-  box-shadow: inset 0 0 0 1px rgba(140, 255, 195, 0.15);
+  box-shadow: inset 0 0 0 1px rgba(140, 255, 195, 0.12);
 }
 
-/* In orders — disabled + grey (already on list) */
-.stock-sku-button.stock-add-to-order-btn.stock-add-to-order-btn--in-orders:disabled {
+.stock-add-to-order-btn.stock-add-to-order-btn--adding:disabled:not(.stock-add-to-order-btn--in-orders):hover {
+  transform: none;
+  box-shadow: inset 0 0 0 1px rgba(140, 255, 195, 0.12);
+}
+
+/* In orders — disabled + muted pill, icon + label stay clear */
+.stock-add-to-order-btn.stock-add-to-order-btn--in-orders:disabled {
   opacity: 1;
   cursor: not-allowed;
-  background: rgba(120, 120, 130, 0.42);
-  border-color: rgba(160, 160, 172, 0.55);
-  color: rgba(220, 220, 228, 0.85);
+  background: rgba(110, 115, 125, 0.38);
+  border-color: rgba(255, 248, 226, 0.16);
+  color: rgba(220, 222, 228, 0.78);
   transform: none;
-  box-shadow: inset 0 0 0 1px rgba(90, 90, 100, 0.2);
+  box-shadow: none;
+}
+
+.stock-add-to-order-btn.stock-add-to-order-btn--in-orders:disabled:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.stock-edit-row-1 .stock-add-to-order-btn.stock-edit-row-1-add-to-order:disabled:not(.stock-add-to-order-btn--adding):not(.stock-add-to-order-btn--in-orders) {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 /* Edit row close: explicit circle (44px); not mixed with pill-style .cancel-button padding */
@@ -1546,6 +1684,7 @@ button.stock-close-circle-btn:disabled {
   padding-bottom: 0;
   padding-left: 18px;
   padding-right: 18px;
+  text-align: left;
 }
 
 .new-entry-field input:focus,
@@ -2096,6 +2235,11 @@ button.stock-close-circle-btn:disabled {
   text-transform: uppercase;
   cursor: pointer;
   transition: all 0.3s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-sizing: border-box;
 }
 
 .stock-instagram-ai-button:hover:not(:disabled) {

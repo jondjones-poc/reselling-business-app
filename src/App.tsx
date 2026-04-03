@@ -77,22 +77,22 @@ function App() {
                   </NavLink>
                 )
               )}
-              {/* Settings menu item for mobile only */}
+              {/* Stock Management menu item for mobile only */}
               <NavLink
                 to="/config"
                 className={({ isActive }) =>
                   `nav-button${isActive ? ' active' : ''} nav-button-mobile-only`
                 }
               >
-                Settings
+                Stock Management
               </NavLink>
-              {/* Settings icon for desktop only */}
+              {/* Stock Management icon for desktop only */}
               <NavLink
                 to="/config"
                 className={({ isActive }) =>
                   `nav-settings-icon${isActive ? ' active' : ''} nav-settings-icon-desktop`
                 }
-                title="Settings"
+                title="Stock Management"
               >
                 ⚙️
               </NavLink>

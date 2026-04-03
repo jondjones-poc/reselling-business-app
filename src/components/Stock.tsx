@@ -121,7 +121,7 @@ function soldPlatformIsVintedStock(p: string | null | undefined): boolean {
   return t === 'Vinted' || t?.toLowerCase() === 'vinted';
 }
 
-/** Price tag — sold / listing item (Add to orders). */
+/** Envelope — add item to orders (postage / dispatch). */
 function AddToOrdersIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -134,13 +134,19 @@ function AddToOrdersIcon({ className }: { className?: string }) {
       aria-hidden
     >
       <path
-        d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.82 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"
+        d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      <circle cx="7" cy="7" r="1.5" fill="none" stroke="currentColor" strokeWidth="1.75" />
+      <path
+        d="m22 6-10 7L2 6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -1928,7 +1934,7 @@ const Stock: React.FC = () => {
     try {
       await navigator.clipboard.writeText(text);
       setSuccessMessage(
-        'Instagram prompt copied — points people to your store via bio only (no item / marketplace links). Paste into your AI tool.'
+        'Instagram Prompt copied — points people to your store via bio only (no item / marketplace links). Paste into your AI tool.'
       );
       window.setTimeout(() => setSuccessMessage(null), 5000);
     } catch {
@@ -1946,7 +1952,7 @@ const Stock: React.FC = () => {
     try {
       await navigator.clipboard.writeText(text);
       setSuccessMessage(
-        'Listing image prompt copied — paste into ChatGPT, then upload your photo when asked.'
+        'Image Prompt copied — paste into ChatGPT, then upload your photo when asked.'
       );
       window.setTimeout(() => setSuccessMessage(null), 5000);
     } catch {
@@ -2090,16 +2096,19 @@ const Stock: React.FC = () => {
       const itemPartial = hasPurchasePrice ? purchaseParsed : 0;
       const multPlaceholder = itemPartial > 0 ? '0.00x' : '—';
       const z = `£0.00 / ${multPlaceholder}`;
-      const plain = `Vinted: ${z} | eBay: ${z} | eBay with fee: ${z} | Profit: ${profitSeg}`;
+      const plain = `Vinted: ${z} | eBay: ${z}\neBay with fee: ${z} | Profit: ${profitSeg}`;
       const content = (
         <>
-          {segment('Vinted', z, false, null)}
-          {' | '}
-          {segment('eBay', z, false, null)}
-          {' | '}
-          {segment('eBay with fee', z, false, null)}
-          {' | '}
-          {segment('Profit', profitSeg, profitHighlight, profitLineTone)}
+          <span className="stock-edit-metrics-pipeline-row">
+            {segment('Vinted', z, false, null)}
+            {' | '}
+            {segment('eBay', z, false, null)}
+          </span>
+          <span className="stock-edit-metrics-pipeline-row">
+            {segment('eBay with fee', z, false, null)}
+            {' | '}
+            {segment('Profit', profitSeg, profitHighlight, profitLineTone)}
+          </span>
         </>
       );
       return { plain, content };
@@ -2119,16 +2128,19 @@ const Stock: React.FC = () => {
     const ebayPart = `${fmt(ebayProfitWithoutPromo)} / ${multStr(ebayProfitWithoutPromo, item)}`;
     const ebayFeePart = `${fmt(ebayProfitWithPromo)} / ${multStr(ebayProfitWithPromo, item)}`;
     const plain =
-      `Vinted: ${vintedPart} | eBay: ${ebayPart} | eBay with fee: ${ebayFeePart} | Profit: ${profitSeg}`;
+      `Vinted: ${vintedPart} | eBay: ${ebayPart}\neBay with fee: ${ebayFeePart} | Profit: ${profitSeg}`;
     const content = (
       <>
-        {segment('Vinted', vintedPart, highlightVinted ? 'sold-platform' : false, vintedProfit)}
-        {' | '}
-        {segment('eBay', ebayPart, highlightEbay ? 'sold-platform' : false, ebayProfitWithoutPromo)}
-        {' | '}
-        {segment('eBay with fee', ebayFeePart, highlightEbay ? 'sold-platform' : false, ebayProfitWithPromo)}
-        {' | '}
-        {segment('Profit', profitSeg, profitHighlight, profitLineTone)}
+        <span className="stock-edit-metrics-pipeline-row">
+          {segment('Vinted', vintedPart, highlightVinted ? 'sold-platform' : false, vintedProfit)}
+          {' | '}
+          {segment('eBay', ebayPart, highlightEbay ? 'sold-platform' : false, ebayProfitWithoutPromo)}
+        </span>
+        <span className="stock-edit-metrics-pipeline-row">
+          {segment('eBay with fee', ebayFeePart, highlightEbay ? 'sold-platform' : false, ebayProfitWithPromo)}
+          {' | '}
+          {segment('Profit', profitSeg, profitHighlight, profitLineTone)}
+        </span>
       </>
     );
     return { plain, content };
@@ -2144,7 +2156,7 @@ const Stock: React.FC = () => {
       {showNewEntry && (
         <div className="new-entry-card" ref={editFormRef}>
           <div className="new-entry-grid">
-            {/* Edit row 1: left (Close, SKU, Add To Order, Instagram…) | flex space | centered metrics | delete right */}
+            {/* Edit row 1: left actions | delete right (metrics live in Project sales calculations row) */}
             {editingRowId && (
               <div className="stock-edit-row-1">
                 <div className="stock-edit-row-1-left">
@@ -2186,7 +2198,7 @@ const Stock: React.FC = () => {
                   </div>
                   <button
                     type="button"
-                    className={`stock-sku-button stock-add-to-order-btn${editingRowInOrders ? ' stock-add-to-order-btn--in-orders' : ''}${addingToOrder ? ' stock-add-to-order-btn--adding' : ''}`}
+                    className={`stock-add-to-order-btn stock-edit-row-1-add-to-order${editingRowInOrders ? ' stock-add-to-order-btn--in-orders' : ''}${addingToOrder ? ' stock-add-to-order-btn--adding' : ''}`}
                     onClick={handleAddToOrders}
                     disabled={creating || deleting || editingRowInOrders || addingToOrder}
                     aria-label={
@@ -2205,17 +2217,22 @@ const Stock: React.FC = () => {
                     }
                   >
                     <AddToOrdersIcon className="stock-add-to-order-icon" />
+                    {editingRowInOrders
+                      ? 'In orders'
+                      : addingToOrder
+                        ? 'Adding…'
+                        : 'Add to orders'}
                   </button>
                   <button
                     type="button"
-                    className="stock-edit-bg-prompt-btn"
+                    className="stock-image-prompt-btn stock-edit-row-1-image-prompt"
                     onClick={handleCopyListingImageBgPrompt}
                     disabled={creating || deleting}
-                    aria-label="Copy ChatGPT prompt: remove background, grey gradient, brand logo"
+                    aria-label="Copy Image Prompt: ChatGPT — remove background, grey gradient, brand logo"
                     title="Copy prompt for ChatGPT: background removal, neutral grey gradient, brand logo (uses selected brand)"
                   >
                     <svg
-                      className="stock-edit-bg-prompt-btn-icon"
+                      className="stock-image-prompt-btn-icon"
                       xmlns="http://www.w3.org/2000/svg"
                       viewBox="0 0 24 24"
                       fill="none"
@@ -2229,29 +2246,35 @@ const Stock: React.FC = () => {
                       <circle cx="8.5" cy="10" r="1.75" />
                       <path d="M21 17l-5.09-5.09a1.5 1.5 0 0 0-2.12 0L9 17" />
                     </svg>
+                    Image Prompt
                   </button>
                   <button
                     type="button"
                     className="stock-instagram-ai-button stock-edit-row-1-instagram"
                     onClick={handleInstagramAskAi}
                     disabled={creating || deleting}
-                    aria-label="Copy AI prompt: Instagram caption and hashtags (shop link in bio only, no item URLs)"
+                    aria-label="Copy Instagram Prompt: caption and hashtags (shop link in bio only, no item URLs)"
                     title="Copy AI prompt: caption + hashtags — points people to your bio, no listing links"
                   >
-                    Instagram
-                  </button>
-                </div>
-                <div className="stock-edit-row-1-center">
-                  <div className="stock-edit-row-1-metrics-box">
-                    <div
-                      className="stock-edit-metrics-pipeline"
-                      role="region"
-                      aria-label="Projected profit by platform"
-                      title={stockEditMetricsPipeline.plain}
+                    <svg
+                      className="stock-instagram-prompt-btn-icon"
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden
                     >
-                      {stockEditMetricsPipeline.content}
-                    </div>
-                  </div>
+                      <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
+                      <circle cx="12" cy="12" r="4" />
+                      <circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none" />
+                    </svg>
+                    Instagram Prompt
+                  </button>
                 </div>
                 <div className="stock-edit-row-1-end">
                   <button
@@ -2746,9 +2769,9 @@ const Stock: React.FC = () => {
                 </div>
               </div>
             </div>
-            {/* Row 2: Purchase price, projected price, purchase date, project sales calculations */}
+            {/* Row 2: Purchase, Projected, Date (equal width) | Avg/Top (fixed) | Pipeline (fixed track) */}
             <div className="stock-new-entry-row-prices">
-              <label className="new-entry-field new-entry-field--stock-compact-price">
+              <label className="new-entry-field new-entry-field--stock-compact-price new-entry-field--stock-row2-equal">
                 <span>Purchase Price (£)</span>
                 <input
                   type="number"
@@ -2758,49 +2781,18 @@ const Stock: React.FC = () => {
                   placeholder="e.g. 45.00"
                 />
               </label>
-              <div className="new-entry-field stock-new-entry-row2-projected">
-                <span className="stock-edit-projected-label">Projected Price (£)</span>
-                <div className="stock-new-entry-row2-inline">
-                  <input
-                    type="text"
-                    className="stock-edit-projected-price-input stock-new-entry-row2-price-input"
-                    value={createForm.projected_sale_price}
-                    onChange={(event) => handleCreateChange('projected_sale_price', event.target.value)}
-                    placeholder="0.00"
-                    style={{ textAlign: 'center' }}
-                    aria-label="Projected price (£)"
-                  />
-                  <div
-                    className="stock-edit-brand-category-comps stock-new-entry-row2-comps"
-                    role="region"
-                    aria-label="Average and top sale price for this brand and category"
-                  >
-                    {!editFormBrandCategorySaleComps.ready && (
-                      <p className="stock-edit-brand-category-comps__muted">Select brand &amp; category</p>
-                    )}
-                    {editFormBrandCategorySaleComps.ready && editFormBrandCategorySaleComps.count === 0 && (
-                      <p className="stock-edit-brand-category-comps__muted">No sold comps</p>
-                    )}
-                    {editFormBrandCategorySaleComps.ready && editFormBrandCategorySaleComps.count > 0 && (
-                      <div className="stock-edit-brand-category-comps__stack">
-                        <div className="stock-edit-brand-category-comps__stat-line">
-                          <span className="stock-edit-brand-category-comps__key">Avg</span>
-                          <span className="stock-edit-brand-category-comps__val">
-                            {formatCurrency(editFormBrandCategorySaleComps.avg ?? 0)}
-                          </span>
-                        </div>
-                        <div className="stock-edit-brand-category-comps__stat-line">
-                          <span className="stock-edit-brand-category-comps__key">Top</span>
-                          <span className="stock-edit-brand-category-comps__val">
-                            {formatCurrency(editFormBrandCategorySaleComps.max ?? 0)}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <label className="new-entry-field new-entry-field--stock-compact-date">
+              <label className="new-entry-field new-entry-field--stock-compact-price new-entry-field--stock-row2-equal">
+                <span className="stock-new-entry-row2-projected-label">Projected Price (£)</span>
+                <input
+                  type="text"
+                  className="stock-edit-projected-price-input"
+                  value={createForm.projected_sale_price}
+                  onChange={(event) => handleCreateChange('projected_sale_price', event.target.value)}
+                  placeholder="0.00"
+                  aria-label="Projected price (£)"
+                />
+              </label>
+              <label className="new-entry-field new-entry-field--stock-compact-date new-entry-field--stock-row2-equal">
                 <span>Purchase Date</span>
                 <DatePicker
                   selected={stringToDate(createForm.purchase_date)}
@@ -2814,6 +2806,39 @@ const Stock: React.FC = () => {
                   wrapperClassName="date-picker-wrapper"
                 />
               </label>
+              <div className="new-entry-field stock-new-entry-row2-comps-column">
+                <span className="stock-new-entry-row2-comps-column-spacer" aria-hidden>
+                  &nbsp;
+                </span>
+                <div
+                  className="stock-edit-brand-category-comps stock-new-entry-row2-comps"
+                  role="region"
+                  aria-label="Average and top sale price for this brand and category"
+                >
+                  {!editFormBrandCategorySaleComps.ready && (
+                    <p className="stock-edit-brand-category-comps__muted">Select brand &amp; category</p>
+                  )}
+                  {editFormBrandCategorySaleComps.ready && editFormBrandCategorySaleComps.count === 0 && (
+                    <p className="stock-edit-brand-category-comps__muted">No sold comps</p>
+                  )}
+                  {editFormBrandCategorySaleComps.ready && editFormBrandCategorySaleComps.count > 0 && (
+                    <div className="stock-edit-brand-category-comps__stack">
+                      <div className="stock-edit-brand-category-comps__stat-line">
+                        <span className="stock-edit-brand-category-comps__key">Avg</span>
+                        <span className="stock-edit-brand-category-comps__val">
+                          {formatCurrency(editFormBrandCategorySaleComps.avg ?? 0)}
+                        </span>
+                      </div>
+                      <div className="stock-edit-brand-category-comps__stat-line">
+                        <span className="stock-edit-brand-category-comps__key">Top</span>
+                        <span className="stock-edit-brand-category-comps__val">
+                          {formatCurrency(editFormBrandCategorySaleComps.max ?? 0)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
               <div className="new-entry-field stock-new-entry-row2-pipeline">
                 <span className="stock-edit-projected-label">Project sales calculations</span>
                 <div className="stock-edit-row-1-metrics-box stock-new-entry-row2-pipeline-box">
@@ -2828,8 +2853,14 @@ const Stock: React.FC = () => {
                 </div>
               </div>
             </div>
-            {/* Row 3: Marketplace IDs + save (far right) */}
-            <div className="stock-new-entry-row-ids">
+            {/* Row 3 (+ edit sales fields): IDs, My Sales / date / platform when editing, save */}
+            <div
+              className={
+                editingRowId
+                  ? 'stock-new-entry-row-ids stock-new-entry-row-ids--edit'
+                  : 'stock-new-entry-row-ids'
+              }
+            >
               <label className="new-entry-field stock-new-entry-id-field stock-new-entry-id-field--vinted">
                 <span>Vinted ID</span>
                 <input
@@ -2857,6 +2888,206 @@ const Stock: React.FC = () => {
                   placeholder="Optional"
                 />
               </label>
+              {editingRowId && (
+                <>
+                  <label className="new-entry-field new-entry-field--stock-compact-price">
+                    <span>My Sales Price (£)</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={createForm.sale_price}
+                      onChange={(event) => handleCreateChange('sale_price', event.target.value)}
+                      placeholder="e.g. 95.00"
+                      aria-label="My sales price or sale price"
+                    />
+                  </label>
+                  <label className="new-entry-field new-entry-field--stock-compact-date">
+                    <span>Sale Date</span>
+                    <DatePicker
+                      selected={stringToDate(createForm.sale_date)}
+                      onChange={(date) =>
+                        handleCreateChange('sale_date', dateToIsoString(date ?? null))
+                      }
+                      dateFormat="yyyy-MM-dd"
+                      placeholderText="Select sale date"
+                      className="date-picker-input"
+                      calendarClassName="date-picker-calendar"
+                      wrapperClassName="date-picker-wrapper"
+                    />
+                  </label>
+                  <div
+                    className="new-entry-field stock-new-entry-sold-platform-field"
+                    style={{ position: 'relative' }}
+                    ref={soldPlatformDropdownRef}
+                  >
+                    <label
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px',
+                        color: 'rgba(255, 248, 226, 0.7)',
+                        letterSpacing: '0.05rem',
+                        position: 'relative',
+                        margin: 0,
+                        width: '100%',
+                      }}
+                    >
+                      <span>Sold Platform</span>
+                      <div
+                        className="new-entry-select stock-edit-sold-platform-trigger"
+                        style={{
+                          position: 'relative',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          padding: '11px 13px',
+                          borderRadius: '14px',
+                          border: '1px solid rgba(255, 214, 91, 0.28)',
+                          background: 'rgba(255, 214, 91, 0.08)',
+                          color: 'var(--text-strong)',
+                          gap: '6px',
+                          minHeight: '46px',
+                          height: 'auto',
+                          lineHeight: '1.2',
+                          boxSizing: 'border-box',
+                        }}
+                        onClick={() => setShowSoldPlatformDropdown(!showSoldPlatformDropdown)}
+                      >
+                        {createForm.sold_platform ? (
+                          (() => {
+                            const getIconSrc = (platform: string) => {
+                              if (platform === 'Vinted') return '/images/vinted-icon.svg';
+                              if (platform === 'eBay') return '/images/ebay-icon.svg';
+                              if (platform === 'Not Listed') return '/images/to-list-icon.svg';
+                              return null;
+                            };
+                            const iconSrc = getIconSrc(createForm.sold_platform);
+                            return (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                {iconSrc && (
+                                  <img
+                                    src={iconSrc}
+                                    alt={`${createForm.sold_platform} icon`}
+                                    style={{
+                                      width: '12px',
+                                      height: '12px',
+                                      display: 'inline-block',
+                                      flexShrink: 0,
+                                    }}
+                                  />
+                                )}
+                                {createForm.sold_platform}
+                              </span>
+                            );
+                          })()
+                        ) : (
+                          <span style={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: '0.95rem' }}>
+                            Select platform...
+                          </span>
+                        )}
+                      </div>
+                      {showSoldPlatformDropdown && (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            top: '100%',
+                            left: 0,
+                            right: 0,
+                            marginTop: '4px',
+                            background: 'rgba(5, 4, 3, 0.98)',
+                            border: '1px solid rgba(255, 214, 91, 0.28)',
+                            borderRadius: '16px',
+                            padding: '8px',
+                            zIndex: 1000,
+                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              padding: '10px 12px',
+                              cursor: 'pointer',
+                              borderRadius: '8px',
+                              transition: 'background 0.2s ease',
+                              background:
+                                createForm.sold_platform === '' ? 'rgba(255, 214, 91, 0.1)' : 'transparent',
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = 'rgba(255, 214, 91, 0.1)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background =
+                                createForm.sold_platform === '' ? 'rgba(255, 214, 91, 0.1)' : 'transparent';
+                            }}
+                            onClick={() => {
+                              handleCreateChange('sold_platform', '');
+                              setShowSoldPlatformDropdown(false);
+                            }}
+                          >
+                            <span style={{ color: 'var(--text-strong)', fontSize: '0.95rem' }}>
+                              Select platform...
+                            </span>
+                          </div>
+                          {PLATFORMS.map((platform) => {
+                            const getIconSrc = (plat: string) => {
+                              if (plat === 'Vinted') return '/images/vinted-icon.svg';
+                              if (plat === 'eBay') return '/images/ebay-icon.svg';
+                              if (plat === 'Not Listed') return '/images/to-list-icon.svg';
+                              return null;
+                            };
+                            const iconSrc = getIconSrc(platform);
+                            const isSelected = createForm.sold_platform === platform;
+                            return (
+                              <div
+                                key={platform}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  padding: '10px 12px',
+                                  cursor: 'pointer',
+                                  borderRadius: '8px',
+                                  transition: 'background 0.2s ease',
+                                  background: isSelected ? 'rgba(255, 214, 91, 0.1)' : 'transparent',
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.background = 'rgba(255, 214, 91, 0.1)';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.background = isSelected
+                                    ? 'rgba(255, 214, 91, 0.1)'
+                                    : 'transparent';
+                                }}
+                                onClick={() => {
+                                  handleCreateChange('sold_platform', platform);
+                                  setShowSoldPlatformDropdown(false);
+                                }}
+                              >
+                                {iconSrc && (
+                                  <img
+                                    src={iconSrc}
+                                    alt={`${platform} icon`}
+                                    style={{
+                                      width: '12px',
+                                      height: '12px',
+                                      display: 'inline-block',
+                                      flexShrink: 0,
+                                    }}
+                                  />
+                                )}
+                                <span style={{ color: 'var(--text-strong)', fontSize: '0.95rem' }}>{platform}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </label>
+                  </div>
+                </>
+              )}
               <div className="stock-new-entry-row3-save">
                 <span className="stock-new-entry-row3-save-label-spacer" aria-hidden>
                   &nbsp;
@@ -2930,212 +3161,6 @@ const Stock: React.FC = () => {
                 )}
               </div>
             </div>
-            {/* Row 4 (edit): My Sales Price, Sale Date, Sold Platform */}
-            {editingRowId && (
-              <div
-                className="stock-edit-row-4"
-                style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', width: '100%', alignItems: 'flex-end' }}
-              >
-                <label className="new-entry-field new-entry-field--stock-compact-price">
-                  <span>My Sales Price (£)</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={createForm.sale_price}
-                    onChange={(event) => handleCreateChange('sale_price', event.target.value)}
-                    placeholder="e.g. 95.00"
-                    aria-label="My sales price or sale price"
-                  />
-                </label>
-                <label className="new-entry-field">
-                  <span>Sale Date</span>
-                  <DatePicker
-                    selected={stringToDate(createForm.sale_date)}
-                    onChange={(date) =>
-                      handleCreateChange('sale_date', dateToIsoString(date ?? null))
-                    }
-                    dateFormat="yyyy-MM-dd"
-                    placeholderText="Select sale date"
-                    className="date-picker-input"
-                    calendarClassName="date-picker-calendar"
-                    wrapperClassName="date-picker-wrapper"
-                  />
-                </label>
-                <div
-                  className="new-entry-field stock-edit-sold-platform-with-save"
-                  style={{ position: 'relative' }}
-                  ref={soldPlatformDropdownRef}
-                >
-                  <div className="stock-edit-sold-platform-with-save-row">
-                    <div className="stock-edit-sold-platform-field stock-edit-sold-platform-field--full">
-                  <label
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '8px',
-                      color: 'rgba(255, 248, 226, 0.7)',
-                      letterSpacing: '0.05rem',
-                      position: 'relative',
-                    }}
-                  >
-                    <span>Sold Platform</span>
-                    <div
-                      className="new-entry-select stock-edit-sold-platform-trigger"
-                      style={{
-                        position: 'relative',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        padding: '11px 13px',
-                        borderRadius: '14px',
-                        border: '1px solid rgba(255, 214, 91, 0.28)',
-                        background: 'rgba(255, 214, 91, 0.08)',
-                        color: 'var(--text-strong)',
-                        gap: '6px',
-                        minHeight: '46px',
-                        height: 'auto',
-                        lineHeight: '1.2',
-                        boxSizing: 'border-box',
-                      }}
-                      onClick={() => setShowSoldPlatformDropdown(!showSoldPlatformDropdown)}
-                    >
-                      {createForm.sold_platform ? (
-                        (() => {
-                          const getIconSrc = (platform: string) => {
-                            if (platform === 'Vinted') return '/images/vinted-icon.svg';
-                            if (platform === 'eBay') return '/images/ebay-icon.svg';
-                            if (platform === 'Not Listed') return '/images/to-list-icon.svg';
-                            return null;
-                          };
-                          const iconSrc = getIconSrc(createForm.sold_platform);
-                          return (
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                              {iconSrc && (
-                                <img
-                                  src={iconSrc}
-                                  alt={`${createForm.sold_platform} icon`}
-                                  style={{
-                                    width: '12px',
-                                    height: '12px',
-                                    display: 'inline-block',
-                                    flexShrink: 0,
-                                  }}
-                                />
-                              )}
-                              {createForm.sold_platform}
-                            </span>
-                          );
-                        })()
-                      ) : (
-                        <span style={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: '0.95rem' }}>
-                          Select platform...
-                        </span>
-                      )}
-                    </div>
-                    {showSoldPlatformDropdown && (
-                      <div
-                        style={{
-                          position: 'absolute',
-                          top: '100%',
-                          left: 0,
-                          right: 0,
-                          marginTop: '4px',
-                          background: 'rgba(5, 4, 3, 0.98)',
-                          border: '1px solid rgba(255, 214, 91, 0.28)',
-                          borderRadius: '16px',
-                          padding: '8px',
-                          zIndex: 1000,
-                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            padding: '10px 12px',
-                            cursor: 'pointer',
-                            borderRadius: '8px',
-                            transition: 'background 0.2s ease',
-                            background:
-                              createForm.sold_platform === '' ? 'rgba(255, 214, 91, 0.1)' : 'transparent',
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.background = 'rgba(255, 214, 91, 0.1)';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.background =
-                              createForm.sold_platform === '' ? 'rgba(255, 214, 91, 0.1)' : 'transparent';
-                          }}
-                          onClick={() => {
-                            handleCreateChange('sold_platform', '');
-                            setShowSoldPlatformDropdown(false);
-                          }}
-                        >
-                          <span style={{ color: 'var(--text-strong)', fontSize: '0.95rem' }}>
-                            Select platform...
-                          </span>
-                        </div>
-                        {PLATFORMS.map((platform) => {
-                          const getIconSrc = (plat: string) => {
-                            if (plat === 'Vinted') return '/images/vinted-icon.svg';
-                            if (plat === 'eBay') return '/images/ebay-icon.svg';
-                            if (plat === 'Not Listed') return '/images/to-list-icon.svg';
-                            return null;
-                          };
-                          const iconSrc = getIconSrc(platform);
-                          const isSelected = createForm.sold_platform === platform;
-                          return (
-                            <div
-                              key={platform}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                padding: '10px 12px',
-                                cursor: 'pointer',
-                                borderRadius: '8px',
-                                transition: 'background 0.2s ease',
-                                background: isSelected ? 'rgba(255, 214, 91, 0.1)' : 'transparent',
-                              }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.background = 'rgba(255, 214, 91, 0.1)';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.background = isSelected
-                                  ? 'rgba(255, 214, 91, 0.1)'
-                                  : 'transparent';
-                              }}
-                              onClick={() => {
-                                handleCreateChange('sold_platform', platform);
-                                setShowSoldPlatformDropdown(false);
-                              }}
-                            >
-                              {iconSrc && (
-                                <img
-                                  src={iconSrc}
-                                  alt={`${platform} icon`}
-                                  style={{
-                                    width: '12px',
-                                    height: '12px',
-                                    display: 'inline-block',
-                                    flexShrink: 0,
-                                  }}
-                                />
-                              )}
-                              <span style={{ color: 'var(--text-strong)', fontSize: '0.95rem' }}>{platform}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </label>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       )}
