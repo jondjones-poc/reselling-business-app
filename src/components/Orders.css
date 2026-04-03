@@ -130,11 +130,30 @@
   margin-left: auto;
 }
 
+.orders-sales-filters-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+
+.orders-sales-date-filter-wrap {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.orders-sales-date-filter-select {
+  min-width: 11.5rem;
+}
+
 .orders-sales-platform-filter-wrap {
   display: flex;
   flex-direction: row;
   align-items: center;
-  margin-left: 4px;
+  margin-left: 0;
   flex-shrink: 0;
 }
 

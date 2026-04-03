@@ -114,6 +114,34 @@ function parseSoldRowDate(row: StockRow): Date | null {
 
 type SalesPlatformFilter = 'all' | 'ebay' | 'vinted';
 
+type SalesDateRangeFilter = 'all' | 'current-month' | 'last-month';
+
+function getLocalMonthStartEnd(year: number, monthIndex: number): { start: Date; end: Date } {
+  const start = new Date(year, monthIndex, 1, 0, 0, 0, 0);
+  const end = new Date(year, monthIndex + 1, 0, 23, 59, 59, 999);
+  return { start, end };
+}
+
+function soldRowMatchesDateRange(row: StockRow, filter: SalesDateRangeFilter): boolean {
+  if (filter === 'all') return true;
+  const d = parseSoldRowDate(row);
+  if (!d) return false;
+  const ref = new Date();
+  const y = ref.getFullYear();
+  const m = ref.getMonth();
+  if (filter === 'current-month') {
+    const { start, end } = getLocalMonthStartEnd(y, m);
+    return d >= start && d <= end;
+  }
+  if (filter === 'last-month') {
+    const lm = m === 0 ? 11 : m - 1;
+    const ly = m === 0 ? y - 1 : y;
+    const { start, end } = getLocalMonthStartEnd(ly, lm);
+    return d >= start && d <= end;
+  }
+  return true;
+}
+
 function soldRowMatchesPlatformFilter(row: StockRow, filter: SalesPlatformFilter): boolean {
   if (filter === 'all') return true;
   const p = row.sold_platform?.trim().toLowerCase() ?? '';
@@ -222,6 +250,7 @@ const Orders: React.FC = () => {
   const [soldLoading, setSoldLoading] = useState(false);
   const [soldError, setSoldError] = useState<string | null>(null);
   const [salesPlatformFilter, setSalesPlatformFilter] = useState<SalesPlatformFilter>('all');
+  const [salesDateRangeFilter, setSalesDateRangeFilter] = useState<SalesDateRangeFilter>('all');
   const [vintedEbayCheckLoading, setVintedEbayCheckLoading] = useState(false);
   const [vintedEbayViolations, setVintedEbayViolations] = useState<VintedEbayViolation[]>([]);
   const [vintedEbayCheckError, setVintedEbayCheckError] = useState<string | null>(null);
@@ -443,7 +472,10 @@ const Orders: React.FC = () => {
   }, [ordersTab, searchParams, setSearchParams]);
 
   useEffect(() => {
-    if (ordersTab !== 'sales') setSalesPlatformFilter('all');
+    if (ordersTab !== 'sales') {
+      setSalesPlatformFilter('all');
+      setSalesDateRangeFilter('all');
+    }
   }, [ordersTab]);
 
   // Search results - search all items
@@ -474,9 +506,14 @@ const Orders: React.FC = () => {
       .slice(0, 10); // Limit to 10 results
   }, [searchTerm, allStock]);
 
-  const soldRowsFiltered = useMemo(
+  const soldByPlatformOnly = useMemo(
     () => soldRows.filter((r) => soldRowMatchesPlatformFilter(r, salesPlatformFilter)),
     [soldRows, salesPlatformFilter]
+  );
+
+  const soldRowsFiltered = useMemo(
+    () => soldByPlatformOnly.filter((r) => soldRowMatchesDateRange(r, salesDateRangeFilter)),
+    [soldByPlatformOnly, salesDateRangeFilter]
   );
 
   const salesStats = useMemo(() => {
@@ -493,13 +530,22 @@ const Orders: React.FC = () => {
       if (d >= weekStart && d <= weekEnd) thisWeekMonSun += 1;
     }
     const currentMonthName = now.toLocaleString('en-GB', { month: 'long' });
+    let periodLabel: string | null = null;
+    if (salesDateRangeFilter === 'current-month') {
+      periodLabel = now.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
+    } else if (salesDateRangeFilter === 'last-month') {
+      const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      periodLabel = d.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
+    }
     return {
       total: soldRowsFiltered.length,
       thisMonth,
       thisWeekMonSun,
       currentMonthName,
+      dateRangeFilter: salesDateRangeFilter,
+      periodLabel,
     };
-  }, [soldRowsFiltered]);
+  }, [soldRowsFiltered, salesDateRangeFilter]);
 
   const handleAddItem = async (item: StockRow) => {
     // Check if item is already in the order (client-side check)
@@ -1030,7 +1076,7 @@ const Orders: React.FC = () => {
             <div className="orders-sales-stats" aria-live="polite">
               {soldLoading ? (
                 <span className="orders-sales-stats-loading">Updating sold counts…</span>
-              ) : (
+              ) : salesStats.dateRangeFilter === 'all' ? (
                 <>
                   <span className="orders-sales-stat">
                     <strong>{salesStats.total}</strong>
@@ -1045,6 +1091,14 @@ const Orders: React.FC = () => {
                     <span className="orders-sales-stat-label"> this week (Mon–Sun)</span>
                   </span>
                 </>
+              ) : (
+                <span className="orders-sales-stat">
+                  <strong>{salesStats.total}</strong>
+                  <span className="orders-sales-stat-label">
+                    {' '}
+                    in {salesStats.periodLabel ?? 'selected period'}
+                  </span>
+                </span>
               )}
             </div>
             <div className="orders-vinted-ebay-check-bar orders-sales-ebay-actions">
@@ -1091,18 +1145,33 @@ const Orders: React.FC = () => {
                   {missingEbayCheckLoading ? 'Checking…' : 'Missing eBay order'}
                 </span>
               </button>
-              <div className="orders-sales-platform-filter-wrap">
-                <select
-                  id="orders-sales-platform-filter"
-                  className="orders-sales-platform-select"
-                  value={salesPlatformFilter}
-                  onChange={(e) => setSalesPlatformFilter(e.target.value as SalesPlatformFilter)}
-                  aria-label="Filter sold items by sales channel (eBay or Vinted)"
-                >
-                  <option value="all">All platforms</option>
-                  <option value="ebay">eBay only</option>
-                  <option value="vinted">Vinted only</option>
-                </select>
+              <div className="orders-sales-filters-group">
+                <div className="orders-sales-date-filter-wrap">
+                  <select
+                    id="orders-sales-date-filter"
+                    className="orders-sales-platform-select orders-sales-date-filter-select"
+                    value={salesDateRangeFilter}
+                    onChange={(e) => setSalesDateRangeFilter(e.target.value as SalesDateRangeFilter)}
+                    aria-label="Filter sold items by sale date (all time, current month, or last month)"
+                  >
+                    <option value="all">All time</option>
+                    <option value="current-month">Current month</option>
+                    <option value="last-month">Last month</option>
+                  </select>
+                </div>
+                <div className="orders-sales-platform-filter-wrap">
+                  <select
+                    id="orders-sales-platform-filter"
+                    className="orders-sales-platform-select"
+                    value={salesPlatformFilter}
+                    onChange={(e) => setSalesPlatformFilter(e.target.value as SalesPlatformFilter)}
+                    aria-label="Filter sold items by sales channel (eBay or Vinted)"
+                  >
+                    <option value="all">All platforms</option>
+                    <option value="ebay">eBay only</option>
+                    <option value="vinted">Vinted only</option>
+                  </select>
+                </div>
               </div>
             </div>
           </div>
@@ -1273,8 +1342,17 @@ const Orders: React.FC = () => {
             </div>
           ) : soldRowsFiltered.length === 0 ? (
             <div className="orders-empty-state">
-              <p>No sold items match this platform filter.</p>
-              <p>Choose &quot;All platforms&quot; or another option above.</p>
+              {soldByPlatformOnly.length === 0 ? (
+                <>
+                  <p>No sold items match this platform filter.</p>
+                  <p>Choose &quot;All platforms&quot; or another option above.</p>
+                </>
+              ) : (
+                <>
+                  <p>No sold items in this period for the selected filters.</p>
+                  <p>Try &quot;All time&quot; or a different month or platform.</p>
+                </>
+              )}
             </div>
           ) : (
             <div className="table-wrapper orders-sales-table">

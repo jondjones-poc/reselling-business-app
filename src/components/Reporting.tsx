@@ -504,6 +504,7 @@ const Reporting: React.FC = () => {
   });
   const [vintedData, setVintedData] = useState<{ purchases: number; sales: number; profit: number }>({ purchases: 0, sales: 0, profit: 0 });
   const [ebayData, setEbayData] = useState<{ purchases: number; sales: number; profit: number }>({ purchases: 0, sales: 0, profit: 0 });
+  const [depopData, setDepopData] = useState<{ purchases: number; sales: number; profit: number }>({ purchases: 0, sales: 0, profit: 0 });
   const [unsoldPurchases, setUnsoldPurchases] = useState<number>(0);
   const [cashFlowProfit, setCashFlowProfit] = useState<number>(0);
   const [untaggedItems, setUntaggedItems] = useState<Array<{
@@ -526,6 +527,7 @@ const Reporting: React.FC = () => {
   const [monthlySummaryData, setMonthlySummaryData] = useState<{
     ebaySales: number;
     vintedSales: number;
+    depopSales: number;
     monthProfit: number;
     unsoldInventoryValue: number;
   } | null>(null);
@@ -718,35 +720,14 @@ const Reporting: React.FC = () => {
         try {
           setMonthlyLoading(true);
           const url = `${API_BASE}/api/analytics/monthly-platform?year=${monthlySummaryYear}&month=${monthlySummaryMonth}`;
-          console.log('[Monthly Platform] Fetching data from:', url);
           const response = await fetch(url);
           if (!response.ok) {
             throw new Error('Failed to load monthly platform data');
           }
           const data = await response.json();
-          console.log('[Monthly Platform] Full API response:', data);
-          console.log('[Monthly Platform] Vinted data:', data.vinted);
-          console.log('[Monthly Platform] eBay data:', data.ebay);
-          console.log('[Monthly Platform] Unsold purchases:', data.unsoldPurchases);
-          console.log('[Monthly Platform] Cash flow profit:', data.cashFlowProfit);
-          const calcVintedProfit = data.vinted?.profit || 0;
-          const calcEbayProfit = data.ebay?.profit || 0;
-          const calcUnsoldPurchases = data.unsoldPurchases || 0;
-          const calculatedCashFlow = calcVintedProfit + calcEbayProfit - calcUnsoldPurchases;
-          console.log('[Monthly Platform] Cash flow calculation check:', {
-            vintedProfit: calcVintedProfit,
-            ebayProfit: calcEbayProfit,
-            unsoldPurchases: calcUnsoldPurchases,
-            calculated: calculatedCashFlow,
-            formula: `(${calcVintedProfit} + ${calcEbayProfit}) - ${calcUnsoldPurchases} = ${calculatedCashFlow}`
-          });
-          console.log('[Monthly Platform] API returned cashFlowProfit:', data.cashFlowProfit, 'vs calculated:', calculatedCashFlow);
-          console.log('[Monthly Platform] Untagged items count:', data.untaggedItems?.length || 0);
-          if (data.untaggedItems && data.untaggedItems.length > 0) {
-            console.log('[Monthly Platform] Sample untagged items:', data.untaggedItems.slice(0, 3));
-          }
           setVintedData(data.vinted || { purchases: 0, sales: 0, profit: 0 });
           setEbayData(data.ebay || { purchases: 0, sales: 0, profit: 0 });
+          setDepopData(data.depop || { purchases: 0, sales: 0, profit: 0 });
           setUnsoldPurchases(data.unsoldPurchases || 0);
           setCashFlowProfit(data.cashFlowProfit || 0);
           setUntaggedItems(data.untaggedItems || []);
@@ -754,6 +735,7 @@ const Reporting: React.FC = () => {
           console.error('[Monthly Platform] Fetch error:', err);
           setVintedData({ purchases: 0, sales: 0, profit: 0 });
           setEbayData({ purchases: 0, sales: 0, profit: 0 });
+          setDepopData({ purchases: 0, sales: 0, profit: 0 });
           setUnsoldPurchases(0);
           setCashFlowProfit(0);
           setUntaggedItems([]);
@@ -780,6 +762,7 @@ const Reporting: React.FC = () => {
           setMonthlySummaryData({
             ebaySales: data.ebay?.sales || 0,
             vintedSales: data.vinted?.sales || 0,
+            depopSales: data.depop?.sales || 0,
             monthProfit: data.totalMonthProfit || 0,
             unsoldInventoryValue: data.unsoldInventoryValue || 0
           });
@@ -788,6 +771,7 @@ const Reporting: React.FC = () => {
           setMonthlySummaryData({
             ebaySales: 0,
             vintedSales: 0,
+            depopSales: 0,
             monthProfit: 0,
             unsoldInventoryValue: 0
           });
@@ -853,6 +837,12 @@ const Reporting: React.FC = () => {
         return sum + (Number.isFinite(c) ? c : 0);
       }, 0),
     [reportingExpensesAll, monthlySummaryYear, monthlySummaryMonth]
+  );
+
+  /** Selected month: sum of sales where sold_platform is Vinted, eBay, or Depop (matches platform rows above). */
+  const monthlyCombinedPlatformSales = useMemo(
+    () => vintedData.sales + ebayData.sales + depopData.sales,
+    [vintedData.sales, ebayData.sales, depopData.sales]
   );
 
   const reportingExpensesAllTimeTotal = useMemo(
@@ -2229,6 +2219,12 @@ const Reporting: React.FC = () => {
                     {monthlySummaryLoading ? '...' : formatCurrency(monthlySummaryData?.ebaySales || 0)}
                   </div>
                 </div>
+                <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ fontSize: '0.9rem', color: 'rgba(255, 248, 226, 0.7)', letterSpacing: '0.05rem', fontWeight: 600 }}>Depop =</div>
+                  <div className="total-profit-value positive" style={{ fontSize: '1.1rem', margin: 0 }}>
+                    {monthlySummaryLoading ? '...' : formatCurrency(monthlySummaryData?.depopSales || 0)}
+                  </div>
+                </div>
               </div>
             </div>
             <div className="total-profit-card">
@@ -2270,7 +2266,7 @@ const Reporting: React.FC = () => {
                 <div className="platform-logo-cell">
                   <div className="platform-logo-tooltip">
                     <img src="/images/vinted-icon.svg" alt="Vinted" className="platform-logo" />
-                    <span className="platform-icon-tooltip-text">Vinted monthly summary</span>
+                    <span className="platform-icon-tooltip-text">Vinted monthly summary (sold_platform = Vinted)</span>
                   </div>
                 </div>
                 <div className="platform-stat-cell">
@@ -2297,7 +2293,7 @@ const Reporting: React.FC = () => {
                 <div className="platform-logo-cell">
                   <div className="platform-logo-tooltip">
                     <img src="/images/ebay-icon.svg" alt="eBay" className="platform-logo" />
-                    <span className="platform-icon-tooltip-text">eBay monthly summary</span>
+                    <span className="platform-icon-tooltip-text">eBay monthly summary (sold_platform = eBay)</span>
                   </div>
                 </div>
                 <div className="platform-stat-cell">
@@ -2323,19 +2319,56 @@ const Reporting: React.FC = () => {
               <div className="monthly-platform-row">
                 <div className="platform-logo-cell">
                   <div className="platform-logo-tooltip">
-                    <img src="/images/to-list-icon.svg" alt="To List" className="platform-logo" />
-                    <span className="platform-icon-tooltip-text">Unsold stock and cash flow summary</span>
+                    <div className="platform-logo-depop" aria-hidden>
+                      Depop
+                    </div>
+                    <span className="platform-icon-tooltip-text">Depop monthly summary (sold_platform = Depop)</span>
                   </div>
                 </div>
                 <div className="platform-stat-cell">
                   <div className="platform-stat-label">Stock Cost</div>
                   <div className="platform-stat-value negative">
+                    {formatCurrency(depopData.purchases)}
+                  </div>
+                </div>
+                <div className="platform-stat-cell">
+                  <div className="platform-stat-label">Total Sales</div>
+                  <div className="platform-stat-value positive">
+                    {formatCurrency(depopData.sales)}
+                  </div>
+                </div>
+                <div className="platform-stat-cell">
+                  <div className="platform-stat-label">Profit</div>
+                  <div className={`platform-stat-value ${depopData.profit >= 0 ? 'positive' : 'negative'}`}>
+                    {formatCurrency(depopData.profit)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="monthly-platform-row">
+                <div className="platform-logo-cell">
+                  <div className="platform-logo-tooltip">
+                    <img src="/images/unsold-icon.svg" alt="" className="platform-logo" aria-hidden />
+                    <span className="platform-icon-tooltip-text">
+                      Unsold stock bought in {monthLabels[monthlySummaryMonth - 1]} {monthlySummaryYear}, plus month
+                      sales and net profit
+                    </span>
+                  </div>
+                </div>
+                <div className="platform-stat-cell">
+                  <div className="platform-stat-label">Unsold stock cost</div>
+                  <div className="platform-stat-value negative">
                     {formatCurrency(unsoldPurchases)}
                   </div>
                 </div>
-                <div className="platform-stat-cell" />
                 <div className="platform-stat-cell">
-                  <div className="platform-stat-label">Cash Flow Profit</div>
+                  <div className="platform-stat-label">Total sales</div>
+                  <div className="platform-stat-value positive">
+                    {formatCurrency(monthlyCombinedPlatformSales)}
+                  </div>
+                </div>
+                <div className="platform-stat-cell">
+                  <div className="platform-stat-label">Net Profit</div>
                   <div className={`platform-stat-value ${cashFlowProfit >= 0 ? 'positive' : 'negative'}`}>
                     {formatCurrency(cashFlowProfit)}
                   </div>

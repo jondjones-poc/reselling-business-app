@@ -7193,41 +7193,8 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
       return res.status(400).json({ error: 'Invalid year or month parameter' });
     }
 
-    // Debug: Check all sales for this month to see what we're working with
-    const debugResult = await pool.query(
-      `
-        SELECT
-          id,
-          item_name,
-          sale_date,
-          sale_price,
-          sold_platform,
-          vinted_id,
-          ebay_id,
-          EXTRACT(YEAR FROM sale_date)::int AS sale_year,
-          EXTRACT(MONTH FROM sale_date)::int AS sale_month
-        FROM stock
-        WHERE sale_date IS NOT NULL
-          AND EXTRACT(YEAR FROM sale_date)::int = $1
-          AND EXTRACT(MONTH FROM sale_date)::int = $2
-        ORDER BY sale_date DESC
-      `,
-      [requestedYear, requestedMonth]
-    );
-    console.log(`[Monthly Platform] Debug: Found ${debugResult.rows.length} items sold in ${requestedMonth}/${requestedYear}`);
-    if (debugResult.rows.length > 0) {
-      const totalSales = debugResult.rows.reduce((sum, r) => sum + (Number(r.sale_price) || 0), 0);
-      console.log(`[Monthly Platform] Total sales amount: £${totalSales.toFixed(2)}`);
-      console.log('[Monthly Platform] All items with sold_platform values:');
-      debugResult.rows.forEach(r => {
-        console.log(`  - ${r.item_name}: sold_platform="${r.sold_platform}" (type: ${typeof r.sold_platform}), vinted_id=${r.vinted_id || 'null'}, ebay_id=${r.ebay_id || 'null'}, sale_price=£${r.sale_price}`);
-      });
-      console.log('[Monthly Platform] Unique sold_platform values:', [...new Set(debugResult.rows.map(r => r.sold_platform))]);
-    }
-
-    // Vinted: Calculate total purchases, sales, and profit for items sold on Vinted in this month
-    // Include items where sold_platform = 'Vinted' OR vinted_id has a value
-    // Exclude items explicitly marked as eBay (sold_platform = 'eBay' AND ebay_id has a value AND vinted_id is null/empty)
+    // Platform rows: attribute sales only by sold_platform (case-insensitive). Do not infer from listing IDs,
+    // or the same sale can appear under both Vinted and eBay when both IDs exist.
     const vintedResult = await pool.query(
       `
         SELECT
@@ -7238,22 +7205,15 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
         WHERE sale_date IS NOT NULL
           AND EXTRACT(YEAR FROM sale_date)::int = $1
           AND EXTRACT(MONTH FROM sale_date)::int = $2
-          AND (
-            sold_platform = 'Vinted'
-            OR (vinted_id IS NOT NULL AND vinted_id != '')
-          )
-          AND NOT (sold_platform = 'eBay' AND ebay_id IS NOT NULL AND ebay_id != '' AND (vinted_id IS NULL OR vinted_id = ''))
+          AND LOWER(TRIM(COALESCE(sold_platform, ''))) = 'vinted'
       `,
       [requestedYear, requestedMonth]
     );
-    console.log(`[Monthly Platform] Vinted result:`, vintedResult.rows[0]);
 
     const vintedPurchases = Number(vintedResult.rows[0]?.total_purchases || 0);
     const vintedSales = Number(vintedResult.rows[0]?.total_sales || 0);
     const vintedProfit = Number(vintedResult.rows[0]?.total_profit || 0);
 
-    // eBay: Calculate total purchases, sales, and profit for items sold on eBay in this month
-    // Filter by sale_date matching the month AND sold_platform = 'eBay'
     const ebayResult = await pool.query(
       `
         SELECT
@@ -7264,7 +7224,7 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
         WHERE sale_date IS NOT NULL
           AND EXTRACT(YEAR FROM sale_date)::int = $1
           AND EXTRACT(MONTH FROM sale_date)::int = $2
-          AND sold_platform = 'eBay'
+          AND LOWER(TRIM(COALESCE(sold_platform, ''))) = 'ebay'
       `,
       [requestedYear, requestedMonth]
     );
@@ -7272,37 +7232,25 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
     const ebayPurchases = Number(ebayResult.rows[0]?.total_purchases || 0);
     const ebaySales = Number(ebayResult.rows[0]?.total_sales || 0);
     const ebayProfit = Number(ebayResult.rows[0]?.total_profit || 0);
-    console.log(`[Monthly Platform] eBay result:`, ebayResult.rows[0]);
 
-    // Unsold purchases: Items purchased this month but not sold (no sale_date)
-    // Debug: First check what items exist
-    const unsoldDebugResult = await pool.query(
+    const depopResult = await pool.query(
       `
         SELECT
-          id,
-          item_name,
-          purchase_date,
-          purchase_price,
-          sale_date,
-          EXTRACT(YEAR FROM purchase_date)::int AS purchase_year,
-          EXTRACT(MONTH FROM purchase_date)::int AS purchase_month
+          SUM(COALESCE(purchase_price, 0))::numeric AS total_purchases,
+          SUM(COALESCE(sale_price, 0))::numeric AS total_sales,
+          SUM(COALESCE(sale_price, 0) - COALESCE(purchase_price, 0))::numeric AS total_profit
         FROM stock
-        WHERE purchase_date IS NOT NULL
-          AND sale_date IS NULL
-        ORDER BY purchase_date DESC
-      `
+        WHERE sale_date IS NOT NULL
+          AND EXTRACT(YEAR FROM sale_date)::int = $1
+          AND EXTRACT(MONTH FROM sale_date)::int = $2
+          AND LOWER(TRIM(COALESCE(sold_platform, ''))) = 'depop'
+      `,
+      [requestedYear, requestedMonth]
     );
-    console.log(`[Monthly Platform] Debug: Found ${unsoldDebugResult.rows.length} total unsold items`);
-    const matchingUnsold = unsoldDebugResult.rows.filter(r => 
-      Number(r.purchase_year) === requestedYear && Number(r.purchase_month) === requestedMonth
-    );
-    console.log(`[Monthly Platform] Debug: ${matchingUnsold.length} unsold items match ${requestedMonth}/${requestedYear}`);
-    if (matchingUnsold.length > 0) {
-      console.log('[Monthly Platform] Debug: Matching unsold items:');
-      matchingUnsold.forEach(r => {
-        console.log(`  - ${r.item_name}: purchase_price=£${r.purchase_price}, purchase_date=${r.purchase_date}, year=${r.purchase_year}, month=${r.purchase_month}`);
-      });
-    }
+
+    const depopPurchases = Number(depopResult.rows[0]?.total_purchases || 0);
+    const depopSales = Number(depopResult.rows[0]?.total_sales || 0);
+    const depopProfit = Number(depopResult.rows[0]?.total_profit || 0);
 
     const unsoldPurchasesResult = await pool.query(
       `
@@ -7317,30 +7265,40 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
       [requestedYear, requestedMonth]
     );
     const unsoldPurchases = Number(unsoldPurchasesResult.rows[0]?.total_purchases || 0);
-    console.log(`[Monthly Platform] Unsold purchases result:`, unsoldPurchasesResult.rows[0]);
-    console.log(`[Monthly Platform] Unsold purchases calculated: £${unsoldPurchases}`);
 
-    // Cash flow profit = (Vinted Profit + eBay Profit) - Unsold Purchases
-    // Ensure profits are positive (they should be, but handle negative cases)
+    const unsoldInPeriodResult = await pool.query(
+      `
+        SELECT
+          id,
+          item_name,
+          purchase_price,
+          purchase_date
+        FROM stock
+        WHERE purchase_date IS NOT NULL
+          AND sale_date IS NULL
+          AND EXTRACT(YEAR FROM purchase_date)::int = $1
+          AND EXTRACT(MONTH FROM purchase_date)::int = $2
+        ORDER BY purchase_date DESC NULLS LAST, id DESC
+      `,
+      [requestedYear, requestedMonth]
+    );
+
+    const unsoldPurchasedInPeriodItems = unsoldInPeriodResult.rows.map((row) => ({
+      id: row.id,
+      item_name: row.item_name,
+      purchase_price: row.purchase_price != null ? Number(row.purchase_price) : null,
+      purchase_date: row.purchase_date
+    }));
+
+    // Cash flow profit = (Vinted + eBay + Depop profit) - Unsold purchases (stock cost tied up)
     const vintedProfitPositive = Math.max(0, vintedProfit);
     const ebayProfitPositive = Math.max(0, ebayProfit);
+    const depopProfitPositive = Math.max(0, depopProfit);
     const unsoldPurchasesPositive = Math.max(0, unsoldPurchases);
-    const totalProfit = vintedProfitPositive + ebayProfitPositive;
-    // Cash flow profit = Total profits from sales - Money tied up in unsold inventory
-    // Formula: (Vinted Profit + eBay Profit) - Unsold Purchases
-    const cashFlowProfit = totalProfit - unsoldPurchasesPositive;
-    // Ensure the result matches the expected calculation
-    const expectedCashFlow = (vintedProfitPositive + ebayProfitPositive) - unsoldPurchasesPositive;
-    console.log(`[Monthly Platform] Cash flow calculation: (${vintedProfitPositive} + ${ebayProfitPositive}) - ${unsoldPurchasesPositive} = ${expectedCashFlow}`);
-    console.log(`[Monthly Platform] Actual cashFlowProfit value: ${cashFlowProfit}`);
-    
-    // Return the correctly calculated value
-    const finalCashFlowProfit = expectedCashFlow;
-    console.log(`[Monthly Platform] Raw values - vintedProfit: ${vintedProfit}, ebayProfit: ${ebayProfit}, unsoldPurchases: ${unsoldPurchases}`);
-    console.log(`[Monthly Platform] Positive values - vintedProfit: ${vintedProfitPositive}, ebayProfit: ${ebayProfitPositive}, unsoldPurchases: ${unsoldPurchasesPositive}`);
-    console.log(`[Monthly Platform] Cash flow calculation: (${vintedProfitPositive} + ${ebayProfitPositive}) - ${unsoldPurchasesPositive} = ${cashFlowProfit}`);
+    const finalCashFlowProfit =
+      vintedProfitPositive + ebayProfitPositive + depopProfitPositive - unsoldPurchasesPositive;
 
-    // Items not tagged correctly: sold in this month but sold_platform is null/empty or not 'Vinted'/'eBay'
+    // Sold this month but sold_platform missing or not Vinted / eBay / Depop
     const untaggedItemsResult = await pool.query(
       `
         SELECT
@@ -7358,9 +7316,9 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
           AND EXTRACT(YEAR FROM sale_date)::int = $1
           AND EXTRACT(MONTH FROM sale_date)::int = $2
           AND (
-            sold_platform IS NULL 
-            OR sold_platform = ''
-            OR (sold_platform != 'Vinted' AND sold_platform != 'eBay')
+            sold_platform IS NULL
+            OR TRIM(COALESCE(sold_platform, '')) = ''
+            OR LOWER(TRIM(COALESCE(sold_platform, ''))) NOT IN ('vinted', 'ebay', 'depop')
           )
         ORDER BY sale_date DESC, item_name ASC
       `,
@@ -7389,8 +7347,7 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
     );
     const unsoldInventoryValue = Number(unsoldInventoryResult.rows[0]?.total_value || 0);
 
-    // Calculate total profit for the month (sales - purchases)
-    const totalMonthProfit = vintedProfit + ebayProfit;
+    const totalMonthProfit = vintedProfit + ebayProfit + depopProfit;
 
     res.json({
       year: requestedYear,
@@ -7405,7 +7362,17 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
         sales: ebaySales,
         profit: ebayProfit
       },
+      depop: {
+        purchases: depopPurchases,
+        sales: depopSales,
+        profit: depopProfit
+      },
       unsoldPurchases,
+      unsoldPurchasedInPeriod: {
+        items: unsoldPurchasedInPeriodItems,
+        count: unsoldPurchasedInPeriodItems.length,
+        totalPurchaseCost: unsoldPurchases
+      },
       cashFlowProfit: finalCashFlowProfit,
       untaggedItems,
       unsoldInventoryValue,

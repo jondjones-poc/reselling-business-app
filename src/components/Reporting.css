@@ -564,6 +564,25 @@
   opacity: 1;
 }
 
+.platform-logo-depop {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #2d2463, #5b4fcf);
+  color: #f5f3ff;
+  font-size: 0.52rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+  text-align: center;
+  text-transform: uppercase;
+  box-sizing: border-box;
+  padding: 4px;
+}
+
 .platform-stat-cell {
   flex: 1;
   display: flex;
