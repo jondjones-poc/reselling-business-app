@@ -4275,6 +4275,56 @@ app.get('/api/stock-categories/type/:typeKey/unsold-inventory-by-brand-category'
 });
 
 /**
+ * Sold vs in-stock counts by size (category_size) within this clothing type.
+ * GET /api/stock-categories/type/:typeKey/sold-and-stock-by-size
+ */
+app.get('/api/stock-categories/type/:typeKey/sold-and-stock-by-size', async (req, res) => {
+  try {
+    const parsed = parseStockClothingTypeTypeKey(req.params.typeKey);
+    if (!parsed) {
+      return res.status(400).json({ error: 'Invalid clothing type key' });
+    }
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    if (!parsed.uncategorized) {
+      const catCheck = await pool.query('SELECT id FROM category WHERE id = $1', [parsed.categoryId]);
+      if (!catCheck.rowCount) {
+        return res.status(404).json({ error: 'Category not found' });
+      }
+    }
+
+    const typeWhere = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $1';
+    const qParams = parsed.uncategorized ? [] : [parsed.categoryId];
+
+    const result = await pool.query(
+      `SELECT
+         s.category_size_id,
+         COALESCE(
+           sz.size_label,
+           CASE WHEN s.category_size_id IS NULL THEN '(no size)' ELSE '(unknown size)' END
+         ) AS size_label,
+         COUNT(*) FILTER (WHERE s.sale_date IS NOT NULL)::int AS sold_count,
+         COUNT(*) FILTER (WHERE s.sale_date IS NULL)::int AS in_stock_count
+       FROM stock s
+       LEFT JOIN category_size sz ON sz.id = s.category_size_id
+       WHERE ${typeWhere}
+       GROUP BY s.category_size_id, sz.size_label, sz.sort_order
+       ORDER BY COALESCE(sz.sort_order, 2147483647) ASC, size_label ASC`,
+      qParams
+    );
+
+    res.json({ rows: result.rows ?? [], type_key: req.params.typeKey });
+  } catch (error) {
+    console.error('stock-categories type sold-and-stock-by-size failed:', error);
+    res.status(500).json({ error: 'Failed to load size breakdown', details: error.message });
+  }
+});
+
+/**
  * Stock lines for one brand scoped to this clothing type.
  * GET /api/stock-categories/type/:typeKey/brand-inventory-items?brand_id=…
  */

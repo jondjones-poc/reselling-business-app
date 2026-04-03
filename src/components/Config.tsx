@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { getApiBase } from '../utils/apiBase';
 import './Config.css';
+import './Stock.css';
 
 const API_BASE = getApiBase();
 
@@ -40,7 +41,20 @@ interface StockRow {
   brand_id: Nullable<number>;
   category_id: Nullable<number>;
   category_size_id: Nullable<number>;
+  brand_tag_image_id?: Nullable<number>;
 }
+
+interface BrandTagImageRow {
+  id: number;
+  caption?: string | null;
+  image_kind?: string | null;
+  public_url?: string | null;
+}
+
+type NoTagsTagCacheEntry =
+  | { state: 'loading' }
+  | { state: 'ready'; rows: BrandTagImageRow[] }
+  | { state: 'error'; message: string };
 
 interface StockApiResponse {
   rows: StockRow[];
@@ -100,6 +114,7 @@ const formatDate = (value: Nullable<string>) => {
 
 type ConfigMenu =
   | 'untagged-brand'
+  | 'no-tags'
   | 'no-size'
   | 'no-ebay-id'
   | 'no-vinted-id'
@@ -224,6 +239,11 @@ const Config: React.FC = () => {
   const [autoTaggingId, setAutoTaggingId] = useState<number | null>(null);
   const [autoTaggedHiddenIds, setAutoTaggedHiddenIds] = useState<Set<number>>(new Set());
 
+  const [noTagsBrandFilter, setNoTagsBrandFilter] = useState<string>('');
+  const [tagImageCache, setTagImageCache] = useState<Record<number, NoTagsTagCacheEntry>>({});
+  const [noTagsTagError, setNoTagsTagError] = useState<string | null>(null);
+  const [assigningTagStockId, setAssigningTagStockId] = useState<number | null>(null);
+
   /** Sizes per clothing-type category for Items With No Size picker (not the Sizes admin table state). */
   const [noSizePickerSizesByCategory, setNoSizePickerSizesByCategory] = useState<
     Record<number, CategorySizeAdminRow[]>
@@ -325,6 +345,145 @@ const Config: React.FC = () => {
   useEffect(() => {
     loadStock();
   }, []);
+
+  const noTagsRowsWithoutTag = useMemo(() => {
+    return rows.filter((row) => {
+      const tid = row.brand_tag_image_id;
+      if (tid != null && tid !== undefined && Number(tid) >= 1) return false;
+      return true;
+    });
+  }, [rows]);
+
+  const noTagsFilteredRows = useMemo(() => {
+    if (noTagsBrandFilter === '') return noTagsRowsWithoutTag;
+    const bid = Number(noTagsBrandFilter);
+    if (!Number.isInteger(bid) || bid < 1) return noTagsRowsWithoutTag;
+    return noTagsRowsWithoutTag.filter((row) => row.brand_id === bid);
+  }, [noTagsRowsWithoutTag, noTagsBrandFilter]);
+
+  const noTagsBrandIdsToLoad = useMemo(() => {
+    const s = new Set<number>();
+    for (const row of noTagsRowsWithoutTag) {
+      const b = row.brand_id;
+      if (b != null && Number(b) >= 1) s.add(Math.floor(Number(b)));
+    }
+    return Array.from(s).sort((a, b) => a - b);
+  }, [noTagsRowsWithoutTag]);
+
+  const noTagsBrandIdsWithUntaggedStock = useMemo(() => {
+    const s = new Set<number>();
+    for (const row of noTagsRowsWithoutTag) {
+      const b = row.brand_id;
+      if (b != null && Number(b) >= 1) s.add(Math.floor(Number(b)));
+    }
+    return s;
+  }, [noTagsRowsWithoutTag]);
+
+  const brandsSortedForFilter = useMemo(() => {
+    return [...brands].sort((a, b) =>
+      (a.brand_name || '').localeCompare(b.brand_name || '', undefined, { sensitivity: 'base' })
+    );
+  }, [brands]);
+
+  const brandNameById = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const b of brands) {
+      m.set(b.id, (b.brand_name || '').trim() || `Brand #${b.id}`);
+    }
+    return m;
+  }, [brands]);
+
+  const noTagsDisplayRows = useMemo(() => {
+    return noTagsFilteredRows.filter((row) => {
+      const bid =
+        row.brand_id != null && Number.isFinite(Number(row.brand_id))
+          ? Math.floor(Number(row.brand_id))
+          : null;
+      if (bid == null) return false;
+      const e = tagImageCache[bid];
+      return e?.state === 'ready' && e.rows.length > 0;
+    });
+  }, [noTagsFilteredRows, tagImageCache]);
+
+  const noTagsBrandFilterOptions = useMemo(() => {
+    return brandsSortedForFilter.filter((b) => {
+      if (!noTagsBrandIdsWithUntaggedStock.has(b.id)) return false;
+      const e = tagImageCache[b.id];
+      return e?.state === 'ready' && e.rows.length > 0;
+    });
+  }, [brandsSortedForFilter, noTagsBrandIdsWithUntaggedStock, tagImageCache]);
+
+  const noTagsBrandTagsStillLoading = useMemo(() => {
+    for (const bid of noTagsBrandIdsToLoad) {
+      const e = tagImageCache[bid];
+      if (e === undefined || e.state === 'loading') return true;
+    }
+    return false;
+  }, [noTagsBrandIdsToLoad, tagImageCache]);
+
+  useEffect(() => {
+    if (activeMenu !== 'no-tags' || noTagsBrandIdsToLoad.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      for (const brandId of noTagsBrandIdsToLoad) {
+        if (cancelled) return;
+        setTagImageCache((prev) => {
+          const ex = prev[brandId];
+          if (ex?.state === 'ready' || ex?.state === 'loading') return prev;
+          return { ...prev, [brandId]: { state: 'loading' } };
+        });
+        try {
+          const res = await fetch(
+            `${API_BASE}/api/brand-tag-images?brandId=${encodeURIComponent(String(brandId))}`,
+            { headers: { 'Content-Type': 'application/json' } }
+          );
+          const text = await res.text();
+          if (!res.ok) {
+            let msg = text || 'Failed to load tags';
+            try {
+              const j = JSON.parse(text) as { error?: string };
+              if (j.error) msg = j.error;
+            } catch {
+              /* keep */
+            }
+            throw new Error(msg);
+          }
+          const data = JSON.parse(text) as { rows?: BrandTagImageRow[] };
+          const tagRows = Array.isArray(data.rows) ? data.rows : [];
+          if (cancelled) return;
+          setTagImageCache((prev) => ({
+            ...prev,
+            [brandId]: { state: 'ready', rows: tagRows },
+          }));
+        } catch (e) {
+          if (cancelled) return;
+          const msg = e instanceof Error ? e.message : 'Failed to load tags';
+          setTagImageCache((prev) => ({
+            ...prev,
+            [brandId]: { state: 'error', message: msg },
+          }));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeMenu, noTagsBrandIdsToLoad]);
+
+  useEffect(() => {
+    if (activeMenu !== 'no-tags') return;
+    if (noTagsBrandFilter === '') return;
+    const bid = Number(noTagsBrandFilter);
+    if (!Number.isInteger(bid) || bid < 1) {
+      setNoTagsBrandFilter('');
+      return;
+    }
+    const e = tagImageCache[bid];
+    if (e === undefined || e.state === 'loading') return;
+    if (e.state === 'error' || (e.state === 'ready' && e.rows.length === 0)) {
+      setNoTagsBrandFilter('');
+    }
+  }, [activeMenu, noTagsBrandFilter, tagImageCache]);
 
   const loadClothingCategories = useCallback(async () => {
     try {
@@ -581,6 +740,12 @@ const Config: React.FC = () => {
       void loadClothingCategories();
     }
   }, [activeMenu, loadBrands, loadClothingCategories]);
+
+  useEffect(() => {
+    if (activeMenu === 'no-tags') {
+      void loadBrands();
+    }
+  }, [activeMenu, loadBrands]);
 
   const handleBrandsAskAiRank = useCallback(async () => {
     setBrandsError(null);
@@ -908,6 +1073,55 @@ const Config: React.FC = () => {
 
   const handleEditItem = (row: StockRow) => {
     window.open(`/stock?editId=${row.id}`, '_blank');
+  };
+
+  const formatBrandTagOptionLabel = (t: BrandTagImageRow): string => {
+    const cap = t.caption != null ? String(t.caption).trim() : '';
+    if (cap.length > 0) return cap;
+    const kind = t.image_kind === 'fake_check' ? 'Fake check' : 'Tag';
+    return `${kind} #${t.id}`;
+  };
+
+  const handleAssignBrandTag = async (stockId: number, tagImageId: number): Promise<boolean> => {
+    setAssigningTagStockId(stockId);
+    setNoTagsTagError(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/stock/${stockId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brand_tag_image_id: tagImageId }),
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        let msg = text || 'Failed to save tag';
+        try {
+          const j = JSON.parse(text) as { error?: string; details?: string };
+          msg = [j.error, j.details].filter(Boolean).join(' — ') || msg;
+        } catch {
+          /* keep */
+        }
+        throw new Error(msg);
+      }
+      const data = JSON.parse(text) as { row?: Record<string, unknown> };
+      const r = data.row;
+      if (r && r.id != null) {
+        const bt = r.brand_tag_image_id;
+        const nextTag =
+          bt != null && bt !== undefined && Number(bt) >= 1 ? Math.floor(Number(bt)) : null;
+        setRows((prev) =>
+          prev.map((row) => (row.id === stockId ? { ...row, brand_tag_image_id: nextTag } : row))
+        );
+      } else {
+        await loadStock();
+      }
+      return true;
+    } catch (err: unknown) {
+      const m = err instanceof Error ? err.message : 'Unable to save tag';
+      setNoTagsTagError(m);
+      return false;
+    } finally {
+      setAssigningTagStockId(null);
+    }
   };
 
   const handleNoSizeAssign = async (stockId: number, categorySizeId: number): Promise<boolean> => {
@@ -1274,6 +1488,13 @@ const Config: React.FC = () => {
             </button>
             <button
               type="button"
+              className={`config-menu-item ${activeMenu === 'no-tags' ? 'active' : ''}`}
+              onClick={() => setActiveMenu('no-tags')}
+            >
+              Items With No Tags
+            </button>
+            <button
+              type="button"
               className={`config-menu-item ${activeMenu === 'no-size' ? 'active' : ''}`}
               onClick={() => setActiveMenu('no-size')}
             >
@@ -1406,6 +1627,128 @@ const Config: React.FC = () => {
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeMenu === 'no-tags' && (
+            <div className="config-section">
+              <div className="stock-header config-no-tags-stock-header">
+                <div className="header-actions">
+                  <div className="stock-filters config-no-tags-stock-filters">
+                    <div className="filter-group view-group">
+                      <select
+                        id="config-no-tags-brand-filter"
+                        value={noTagsBrandFilter}
+                        onChange={(e) => setNoTagsBrandFilter(e.target.value)}
+                        className="filter-select"
+                        disabled={brandsLoading}
+                        aria-label="Limit list to one brand"
+                      >
+                        <option value="">All brands</option>
+                        {noTagsBrandFilterOptions.map((b) => (
+                          <option key={b.id} value={String(b.id)}>
+                            {b.brand_name || `Brand #${b.id}`}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className="stock-refresh-icon-button"
+                        onClick={loadStock}
+                        title="Refresh list"
+                        aria-label="Refresh list"
+                      >
+                        ↻
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {brandsError ? (
+                <div className="config-error config-error--inline" role="alert">
+                  {brandsError}
+                </div>
+              ) : null}
+              {noTagsTagError ? (
+                <div className="config-error config-error--inline" role="alert">
+                  {noTagsTagError}
+                </div>
+              ) : null}
+              {loading || noTagsBrandTagsStillLoading ? (
+                <div className="config-loading">Loading...</div>
+              ) : noTagsRowsWithoutTag.length === 0 ? (
+                <div className="config-empty">No stock items missing a tag.</div>
+              ) : noTagsDisplayRows.length === 0 ? (
+                <div className="config-empty">
+                  No items to show. Untagged lines only appear here when the item has a brand and that
+                  brand has at least one tag image (upload tags in Research → Brand).
+                </div>
+              ) : (
+                <div className="config-grid">
+                  {noTagsDisplayRows.map((row) => {
+                    const bid =
+                      row.brand_id != null && Number.isFinite(Number(row.brand_id))
+                        ? Math.floor(Number(row.brand_id))
+                        : null;
+                    const brandLabel =
+                      bid != null ? brandNameById.get(bid) ?? `Brand #${bid}` : '—';
+                    const cacheEntry = bid != null ? tagImageCache[bid] : undefined;
+                    const tagRows = cacheEntry?.state === 'ready' ? cacheEntry.rows : [];
+                    return (
+                      <div key={row.id} className="config-grid-item">
+                        <div className="config-grid-item-header">
+                          <span className="config-grid-sku">SKU: {row.id}</span>
+                          <button
+                            type="button"
+                            className="config-grid-edit-button"
+                            onClick={() => handleEditItem(row)}
+                          >
+                            Edit
+                          </button>
+                        </div>
+                        <div className="config-grid-item-body">
+                          <div className="config-grid-field">
+                            <span className="config-grid-label">Item name</span>
+                            <span className="config-grid-value">{row.item_name || '—'}</span>
+                          </div>
+                          <div className="config-grid-field">
+                            <span className="config-grid-label">Brand</span>
+                            <span className="config-grid-value">{brandLabel}</span>
+                          </div>
+                          <label className="new-entry-field stock-new-entry-tags-field config-no-tags-tag-field">
+                            <span>Tag</span>
+                            <select
+                              id={`config-no-tags-sel-${row.id}`}
+                              className="new-entry-select"
+                              defaultValue=""
+                              disabled={assigningTagStockId === row.id}
+                              aria-busy={assigningTagStockId === row.id}
+                              onChange={async (e) => {
+                                const v = e.target.value;
+                                const sel = e.target;
+                                if (!v || bid == null) return;
+                                const tagId = parseInt(v, 10);
+                                if (!Number.isInteger(tagId) || tagId < 1) return;
+                                const ok = await handleAssignBrandTag(row.id, tagId);
+                                if (!ok) sel.value = '';
+                              }}
+                            >
+                              <option value="" disabled>
+                                Select tag…
+                              </option>
+                              {tagRows.map((t) => (
+                                <option key={t.id} value={String(t.id)}>
+                                  {formatBrandTagOptionLabel(t)}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

@@ -1918,6 +1918,13 @@ const Research: React.FC = () => {
     vinted_id: string | null;
   };
 
+  type ClothingTypeSizeSoldStockRow = {
+    category_size_id: number | null;
+    size_label: string;
+    sold_count: number;
+    in_stock_count: number;
+  };
+
   const [menswearCategories, setMenswearCategories] = useState<MenswearCategoryRow[]>([]);
   const [menswearCategoriesLoading, setMenswearCategoriesLoading] = useState(false);
   const [menswearCategoriesError, setMenswearCategoriesError] = useState<string | null>(null);
@@ -2031,6 +2038,11 @@ const Research: React.FC = () => {
   const [clothingTypeUnsoldBrandCategoryError, setClothingTypeUnsoldBrandCategoryError] = useState<
     string | null
   >(null);
+  const [clothingTypeSizeSoldStock, setClothingTypeSizeSoldStock] = useState<ClothingTypeSizeSoldStockRow[]>(
+    []
+  );
+  const [clothingTypeSizeSoldStockLoading, setClothingTypeSizeSoldStockLoading] = useState(false);
+  const [clothingTypeSizeSoldStockError, setClothingTypeSizeSoldStockError] = useState<string | null>(null);
   const [clothingTypeStockDrilldown, setClothingTypeStockDrilldown] =
     useState<MenswearStockDrilldownKey | null>(null);
   const [clothingTypeDrilldownItems, setClothingTypeDrilldownItems] = useState<
@@ -3179,6 +3191,57 @@ const Research: React.FC = () => {
         setClothingTypeUnsoldBrandCategoryError(friendlyApiUnreachableMessage(e));
       } finally {
         if (!cancelled) setClothingTypeUnsoldBrandCategoryLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [researchTab, clothingTypeApiPathKey]);
+
+  useEffect(() => {
+    if (researchTab !== 'clothing-types' || clothingTypeApiPathKey == null) {
+      setClothingTypeSizeSoldStock([]);
+      setClothingTypeSizeSoldStockError(null);
+      setClothingTypeSizeSoldStockLoading(false);
+      return;
+    }
+    const ac = new AbortController();
+    let cancelled = false;
+    const load = async () => {
+      setClothingTypeSizeSoldStockLoading(true);
+      setClothingTypeSizeSoldStockError(null);
+      try {
+        const res = await fetch(
+          apiUrl(
+            `/api/stock-categories/type/${encodeURIComponent(clothingTypeApiPathKey)}/sold-and-stock-by-size`
+          ),
+          { signal: ac.signal }
+        );
+        const data = await readJsonResponse<{ rows?: ClothingTypeSizeSoldStockRow[] }>(
+          res,
+          'clothing-type-size-sold-stock'
+        );
+        if (cancelled) return;
+        const raw = Array.isArray(data.rows) ? data.rows : [];
+        setClothingTypeSizeSoldStock(
+          raw.map((r) => ({
+            category_size_id:
+              r.category_size_id === null || r.category_size_id === undefined
+                ? null
+                : Math.floor(Number(r.category_size_id) || 0) || null,
+            size_label: String(r.size_label ?? '—'),
+            sold_count: Math.max(0, Math.floor(Number(r.sold_count) || 0)),
+            in_stock_count: Math.max(0, Math.floor(Number(r.in_stock_count) || 0)),
+          }))
+        );
+      } catch (e) {
+        if (cancelled || isAbortError(e)) return;
+        setClothingTypeSizeSoldStock([]);
+        setClothingTypeSizeSoldStockError(friendlyApiUnreachableMessage(e));
+      } finally {
+        if (!cancelled) setClothingTypeSizeSoldStockLoading(false);
       }
     };
     void load();
@@ -11005,9 +11068,6 @@ const Research: React.FC = () => {
                   <div className="menswear-categories-detail-split">
                     <div className="menswear-categories-detail-split-brands">
                       <h3 className="menswear-categories-overview-heading">Brands</h3>
-                      <p className="menswear-categories-muted">
-                        Most sold at the top; fewest sold at the bottom.
-                      </p>
                       {clothingTypeBrandsError && (
                         <div className="menswear-categories-error" role="alert">
                           {clothingTypeBrandsError}
@@ -11350,6 +11410,55 @@ const Research: React.FC = () => {
                                           </tr>
                                         );
                                       })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              ))}
+                          </div>
+                          <div className="menswear-categories-overview-block">
+                            <h4 className="menswear-categories-overview-heading">
+                              Sold and in stock by size
+                            </h4>
+                            {clothingTypeSizeSoldStockError && (
+                              <div className="menswear-categories-error menswear-categories-error--inline" role="alert">
+                                {clothingTypeSizeSoldStockError}
+                              </div>
+                            )}
+                            {clothingTypeSizeSoldStockLoading && (
+                              <p className="menswear-categories-muted">Loading…</p>
+                            )}
+                            {!clothingTypeSizeSoldStockLoading &&
+                              !clothingTypeSizeSoldStockError &&
+                              (clothingTypeSizeSoldStock.length === 0 ? (
+                                <p className="menswear-categories-muted">
+                                  No stock lines in this clothing type yet.
+                                </p>
+                              ) : (
+                                <div className="menswear-categories-overview-table-wrap">
+                                  <table className="menswear-categories-overview-table">
+                                    <thead>
+                                      <tr>
+                                        <th scope="col">Size</th>
+                                        <th scope="col" className="menswear-categories-overview-metric">
+                                          Sold
+                                        </th>
+                                        <th scope="col" className="menswear-categories-overview-metric">
+                                          In stock
+                                        </th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {clothingTypeSizeSoldStock.map((row) => (
+                                        <tr key={row.category_size_id ?? `no-size-${row.size_label}`}>
+                                          <td>{row.size_label}</td>
+                                          <td className="menswear-categories-overview-metric">
+                                            {row.sold_count}
+                                          </td>
+                                          <td className="menswear-categories-overview-metric">
+                                            {row.in_stock_count}
+                                          </td>
+                                        </tr>
+                                      ))}
                                     </tbody>
                                   </table>
                                 </div>

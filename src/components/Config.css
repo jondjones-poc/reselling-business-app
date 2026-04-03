@@ -702,3 +702,19 @@
   font-size: 0.9rem;
   color: rgba(140, 255, 195, 0.9);
 }
+
+/* Items With No Tags — header row matches Stock page (.stock-header / .filter-select / .stock-refresh-icon-button) */
+.config-no-tags-stock-header.stock-header {
+  margin-bottom: 24px;
+  justify-content: flex-end;
+}
+
+.config-no-tags-stock-filters.stock-filters {
+  margin-bottom: 0;
+}
+
+.config-grid-item .new-entry-field.stock-new-entry-tags-field.config-no-tags-tag-field {
+  max-width: none;
+  flex: 1 1 100%;
+  width: 100%;
+}
