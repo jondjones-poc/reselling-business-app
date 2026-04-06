@@ -1319,7 +1319,7 @@ app.get('/api/stock', async (req, res) => {
     }
 
     const result = await pool.query(
-      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id FROM stock ORDER BY purchase_date DESC NULLS LAST, item_name ASC'
+      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location FROM stock ORDER BY purchase_date DESC NULLS LAST, item_name ASC'
     );
 
     res.json({
@@ -1342,7 +1342,7 @@ app.get('/api/stock/sold', async (req, res) => {
     }
 
     const result = await pool.query(
-      `SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id
+      `SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location
        FROM stock
        WHERE sale_date IS NOT NULL
        ORDER BY sale_date DESC NULLS LAST, id DESC`
@@ -1596,6 +1596,163 @@ app.get('/api/stock/seasonal-insights', async (req, res) => {
   } catch (error) {
     console.error('seasonal-insights failed:', error);
     res.status(500).json({ error: 'Failed to load seasonal insights', details: error.message });
+  }
+});
+
+/** Normalized `sourced_location` for reporting (matches app default for unknown values). */
+const SOURCED_INSIGHTS_SRC_SQL = `CASE 
+  WHEN TRIM(COALESCE(s.sourced_location::text, '')) IN ('charity_shop', 'bootsale', 'online_flip') 
+  THEN TRIM(COALESCE(s.sourced_location::text, ''))
+  ELSE 'charity_shop' 
+END`;
+
+/**
+ * Per acquisition source: sold vs inventory, sell-through, aggregate sale÷cost on sold lines,
+ * top categories by sales count, and 5 worst categories (lowest aggregate sale÷cost, then unsold cost).
+ */
+app.get('/api/stock/sourced-insights', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const aggRes = await pool.query(
+      `SELECT src,
+        COUNT(*) FILTER (WHERE sale_date IS NOT NULL)::int AS sold_count,
+        COUNT(*) FILTER (WHERE sale_date IS NULL)::int AS inventory_count,
+        COALESCE(SUM(sale_price::numeric) FILTER (WHERE sale_date IS NOT NULL AND COALESCE(purchase_price::numeric, 0) > 0), 0)::numeric AS sum_sale_sold,
+        COALESCE(SUM(purchase_price::numeric) FILTER (WHERE sale_date IS NOT NULL AND COALESCE(purchase_price::numeric, 0) > 0), 0)::numeric AS sum_purchase_sold
+       FROM (
+         SELECT s.*, (${SOURCED_INSIGHTS_SRC_SQL}) AS src FROM stock s
+       ) x
+       GROUP BY src`
+    );
+
+    const aggBySrc = {};
+    for (const row of aggRes.rows ?? []) {
+      aggBySrc[String(row.src)] = row;
+    }
+
+    const sourceSpecs = [
+      { key: 'charity_shop', label: 'Charity shop' },
+      { key: 'bootsale', label: 'Boot sale' },
+      { key: 'online_flip', label: 'Flipped / online' },
+    ];
+
+    const columns = [];
+    for (const { key, label } of sourceSpecs) {
+      const row = aggBySrc[key] ?? {
+        sold_count: 0,
+        inventory_count: 0,
+        sum_sale_sold: 0,
+        sum_purchase_sold: 0,
+      };
+      const soldCount = Number(row.sold_count) || 0;
+      const inventoryCount = Number(row.inventory_count) || 0;
+      const total = soldCount + inventoryCount;
+      const sellThroughRatePct = total > 0 ? (100 * soldCount) / total : 0;
+      const sumSale = Number(row.sum_sale_sold) || 0;
+      const sumPurch = Number(row.sum_purchase_sold) || 0;
+      const profitMultiple = sumPurch > 0 ? sumSale / sumPurch : null;
+
+      const catRes = await pool.query(
+        `SELECT COALESCE(cat.category_name, 'Uncategorized') AS name, COUNT(*)::int AS cnt
+         FROM stock s
+         LEFT JOIN category cat ON cat.id = s.category_id
+         WHERE s.sale_date IS NOT NULL
+           AND (${SOURCED_INSIGHTS_SRC_SQL}) = $1
+         GROUP BY COALESCE(cat.category_name, 'Uncategorized')
+         ORDER BY cnt DESC NULLS LAST, name ASC
+         LIMIT 5`,
+        [key]
+      );
+
+      const worstRes = await pool.query(
+        `WITH cat_agg AS (
+           SELECT COALESCE(cat.category_name, 'Uncategorized') AS name,
+             COUNT(*) FILTER (WHERE s.sale_date IS NOT NULL)::int AS sold_count,
+             COUNT(*) FILTER (WHERE s.sale_date IS NULL)::int AS inv_count,
+             COALESCE(
+               SUM(s.sale_price::numeric) FILTER (
+                 WHERE s.sale_date IS NOT NULL AND COALESCE(s.purchase_price::numeric, 0) > 0
+               ),
+               0
+             ) AS sum_sale_sold,
+             COALESCE(
+               SUM(s.purchase_price::numeric) FILTER (
+                 WHERE s.sale_date IS NOT NULL AND COALESCE(s.purchase_price::numeric, 0) > 0
+               ),
+               0
+             ) AS sum_purch_sold,
+             COALESCE(
+               SUM(s.purchase_price::numeric) FILTER (WHERE s.sale_date IS NULL),
+               0
+             ) AS sum_purch_inv
+           FROM stock s
+           LEFT JOIN category cat ON cat.id = s.category_id
+           WHERE (${SOURCED_INSIGHTS_SRC_SQL}) = $1
+           GROUP BY COALESCE(cat.category_name, 'Uncategorized')
+         )
+         SELECT name,
+           sold_count,
+           inv_count,
+           CASE WHEN sum_purch_sold::numeric > 0 THEN sum_sale_sold::numeric / sum_purch_sold::numeric END AS profit_multiple
+         FROM cat_agg
+         ORDER BY
+           CASE WHEN sum_purch_sold::numeric > 0 THEN sum_sale_sold::numeric / sum_purch_sold::numeric END ASC NULLS LAST,
+           sum_purch_inv::numeric DESC NULLS LAST,
+           name ASC
+         LIMIT 5`,
+        [key]
+      );
+
+      columns.push({
+        sourceKey: key,
+        displayLabel: label,
+        soldCount,
+        inventoryCount,
+        sellThroughRatePct: Math.round(sellThroughRatePct * 10) / 10,
+        profitMultiple: profitMultiple != null ? Math.round(profitMultiple * 100) / 100 : null,
+        topCategories: (catRes.rows ?? []).map((r) => ({
+          name: String(r.name ?? 'Uncategorized'),
+          count: Number(r.cnt) || 0,
+        })),
+        worstCategories: (worstRes.rows ?? []).map((r) => {
+          const sc = Number(r.sold_count) || 0;
+          const ic = Number(r.inv_count) || 0;
+          const pm =
+            r.profit_multiple != null && r.profit_multiple !== ''
+              ? Number(r.profit_multiple)
+              : null;
+          return {
+            name: String(r.name ?? 'Uncategorized'),
+            soldCount: sc,
+            inventoryCount: ic,
+            profitMultiple:
+              pm != null && Number.isFinite(pm) ? Math.round(pm * 100) / 100 : null,
+          };
+        }),
+        hasSalesData: soldCount > 0,
+      });
+    }
+
+    const totalStockRes = await pool.query('SELECT COUNT(*)::int AS c FROM stock');
+    const totalStockLines = totalStockRes.rows[0]?.c ?? 0;
+    let emptyMessage = null;
+    if (totalStockLines === 0) {
+      emptyMessage =
+        'No stock rows yet — sourced breakdown will appear once you add inventory.';
+    }
+
+    res.json({
+      columns,
+      totalStockLines,
+      emptyMessage,
+    });
+  } catch (error) {
+    console.error('sourced-insights failed:', error);
+    res.status(500).json({ error: 'Failed to load sourced insights', details: error.message });
   }
 });
 
@@ -1955,6 +2112,18 @@ async function normalizeCategorySizeIdForStock(pool, raw, categoryId) {
   return id;
 }
 
+const SOURCED_LOCATION_VALUES = ['charity_shop', 'bootsale', 'online_flip'];
+
+/** @returns {string} */
+function normalizeSourcedLocation(raw) {
+  if (raw === null || raw === undefined || raw === '') return 'charity_shop';
+  const s = String(raw).trim();
+  if (SOURCED_LOCATION_VALUES.includes(s)) return s;
+  const err = new Error('sourced_location must be charity_shop, bootsale, or online_flip');
+  err.status = 400;
+  throw err;
+}
+
 app.post('/api/stock', async (req, res) => {
   try {
     const pool = getDatabasePool();
@@ -1977,7 +2146,8 @@ app.post('/api/stock', async (req, res) => {
       brand_id,
       brand_tag_image_id,
       projected_sale_price,
-      category_size_id
+      category_size_id,
+      sourced_location
     } = req.body ?? {};
 
     const normalizedItemName = normalizeTextInput(item_name) ?? null;
@@ -2032,6 +2202,16 @@ app.post('/api/stock', async (req, res) => {
       }
     }
 
+    let normalizedSourcedLocation = 'charity_shop';
+    try {
+      normalizedSourcedLocation = normalizeSourcedLocation(sourced_location);
+    } catch (e) {
+      if (e.status === 400) {
+        return res.status(400).json({ error: 'Invalid sourced location', details: e.message });
+      }
+      throw e;
+    }
+
     const insertQuery = `
       INSERT INTO stock (
         item_name,
@@ -2048,10 +2228,11 @@ app.post('/api/stock', async (req, res) => {
         brand_id,
         brand_tag_image_id,
         projected_sale_price,
-        category_size_id
+        category_size_id,
+        sourced_location
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-      RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+      RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location
     `;
 
     const result = await pool.query(insertQuery, [
@@ -2069,7 +2250,8 @@ app.post('/api/stock', async (req, res) => {
       normalizedBrandId,
       normalizedBrandTagImageId,
       normalizedProjectedSalePrice,
-      normalizedCategorySizeId
+      normalizedCategorySizeId,
+      normalizedSourcedLocation
     ]);
 
     res.status(201).json({ row: result.rows[0] });
@@ -2098,7 +2280,7 @@ app.put('/api/stock/:id', async (req, res) => {
     console.log('PUT /api/stock/:id - Request body:', JSON.stringify(req.body, null, 2));
 
     const existingResult = await pool.query(
-      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id FROM stock WHERE id = $1',
+      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location FROM stock WHERE id = $1',
       [stockId]
     );
 
@@ -2250,6 +2432,22 @@ app.put('/api/stock/:id', async (req, res) => {
       finalCategorySizeId = ok.rowCount ? existingCategorySizeId : null;
     }
 
+    const existingSourcedLocation =
+      existing.sourced_location != null && String(existing.sourced_location).trim() !== ''
+        ? String(existing.sourced_location).trim()
+        : 'charity_shop';
+    let finalSourcedLocation = existingSourcedLocation;
+    if (hasProp('sourced_location')) {
+      try {
+        finalSourcedLocation = normalizeSourcedLocation(req.body.sourced_location);
+      } catch (e) {
+        if (e.status === 400) {
+          return res.status(400).json({ error: 'Invalid sourced location', details: e.message });
+        }
+        throw e;
+      }
+    }
+
     const computedNetProfit =
       finalSalePrice !== null && finalPurchasePrice !== null
         ? finalSalePrice - finalPurchasePrice
@@ -2283,9 +2481,10 @@ app.put('/api/stock/:id', async (req, res) => {
           brand_id = $12,
           brand_tag_image_id = $13,
           projected_sale_price = $14,
-          category_size_id = $15
-        WHERE id = $16
-        RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id
+          category_size_id = $15,
+          sourced_location = $16
+        WHERE id = $17
+        RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location
       `,
       [
         finalItemName,
@@ -2303,6 +2502,7 @@ app.put('/api/stock/:id', async (req, res) => {
         finalBrandTagImageId,
         finalProjectedSalePrice,
         finalCategorySizeId,
+        finalSourcedLocation,
         stockId
       ]
     );

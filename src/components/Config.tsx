@@ -42,6 +42,7 @@ interface StockRow {
   category_id: Nullable<number>;
   category_size_id: Nullable<number>;
   brand_tag_image_id?: Nullable<number>;
+  sourced_location?: Nullable<string>;
 }
 
 interface BrandTagImageRow {

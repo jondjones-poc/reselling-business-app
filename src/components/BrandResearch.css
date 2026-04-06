@@ -772,6 +772,152 @@
   color: rgba(255, 248, 226, 0.45);
 }
 
+/* Research → Sourced tab */
+.research-sourced-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 8px 48px;
+  box-sizing: border-box;
+}
+
+.research-sourced-grid {
+  display: grid;
+  /* Equal-width columns with a stable minimum so the three stacks line up */
+  grid-template-columns: repeat(3, minmax(280px, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+
+@media (max-width: 900px) {
+  .research-sourced-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.research-sourced-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 14px 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 214, 91, 0.22);
+  background: rgba(0, 0, 0, 0.2);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.research-sourced-col-head {
+  flex-shrink: 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 214, 91, 0.15);
+  /* Icon + title + 2×2 metrics — keeps “Top 5 categories” row aligned across columns */
+  min-height: 12.5rem;
+}
+
+/* Reserve space for title + five list rows or empty copy so lower sections start on one line */
+.research-sourced-block--top-categories {
+  flex-shrink: 0;
+  min-height: 13.25rem;
+  box-sizing: border-box;
+}
+
+/* Hint + up to five worst rows — matches sparse vs full columns */
+.research-sourced-block--worst-categories {
+  flex-shrink: 0;
+  min-height: 19.5rem;
+  box-sizing: border-box;
+}
+
+.research-sourced-icon-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.research-sourced-source-icon-svg {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+}
+
+.research-sourced-icon-wrap--charity_shop {
+  color: #ff9aab;
+}
+
+.research-sourced-icon-wrap--bootsale {
+  color: #d4a574;
+}
+
+.research-sourced-icon-wrap--online_flip {
+  color: #7dd3fc;
+}
+
+.research-sourced-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+  margin: 12px 0 0 0;
+}
+
+.research-sourced-metric {
+  margin: 0;
+}
+
+.research-sourced-metric dt {
+  margin: 0 0 2px 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 248, 226, 0.5);
+}
+
+.research-sourced-metric dd {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 248, 226, 0.92);
+}
+
+.research-sourced-worst-hint {
+  margin: -4px 0 10px 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: rgba(255, 248, 226, 0.45);
+  font-style: italic;
+}
+
+.research-sourced-worst-list {
+  margin: 0;
+  padding: 0 0 0 1.1rem;
+  list-style: decimal;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: rgba(255, 248, 226, 0.88);
+}
+
+.research-sourced-worst-item {
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.research-sourced-worst-name {
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.research-sourced-worst-meta {
+  font-size: 0.78rem;
+  color: rgba(255, 248, 226, 0.55);
+  word-break: break-word;
+}
+
 /* eBay sold comps (Brand research) */
 .brand-research-ebay-sold-section {
   width: 100%;

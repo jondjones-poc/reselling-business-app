@@ -64,12 +64,17 @@
 }
 
 .orders-sales-ebay-toolbar {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px 20px;
+  column-gap: 12px;
+  row-gap: 12px;
   margin-bottom: 20px;
+  /* Wider than viewport → scroll horizontally; eBay/actions stay one line */
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
 }
 
 .orders-sales-stats {
@@ -112,6 +117,83 @@
   margin-right: 4px;
 }
 
+/* Sales tab: keep Connect + Linked + buttons + filters on one horizontal line */
+.orders-sales-ebay-toolbar .orders-ebay-toolbar-connect {
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+  white-space: nowrap;
+  margin-right: 0;
+  gap: 6px 10px;
+}
+
+.orders-sales-ebay-toolbar .orders-sales-ebay-actions {
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: none;
+  flex-shrink: 0;
+  margin-left: 0;
+}
+
+.orders-sales-ebay-toolbar .orders-sales-stats {
+  min-width: 0;
+}
+
+.orders-sales-ebay-toolbar .orders-sales-filters-group {
+  flex-wrap: nowrap;
+  gap: 8px;
+  margin-left: 0;
+  flex-shrink: 0;
+}
+
+.orders-sales-ebay-toolbar .orders-vinted-ebay-check-button {
+  padding: 8px 12px 8px 8px;
+  gap: 6px;
+  font-size: 0.78rem;
+  letter-spacing: 0.04rem;
+}
+
+.orders-sales-ebay-toolbar .orders-unlist-ebay-logo {
+  width: 34px;
+}
+
+.orders-sales-ebay-toolbar .orders-sales-platform-select {
+  padding: 10px 30px 10px 12px;
+  font-size: 0.82rem;
+  border-radius: 14px;
+}
+
+.orders-sales-ebay-toolbar .orders-sales-date-filter-wrap .orders-sales-platform-select {
+  width: 8rem;
+  min-width: 8rem;
+  max-width: 8rem;
+}
+
+.orders-sales-ebay-toolbar .orders-sales-platform-filter-wrap .orders-sales-platform-select {
+  width: 8.25rem;
+  min-width: 8.25rem;
+  max-width: 8.25rem;
+}
+
+.orders-sales-ebay-toolbar .orders-sales-brand-filter-select {
+  width: 7.5rem;
+  max-width: 7.5rem;
+  min-width: 7.5rem;
+}
+
+.orders-sales-ebay-toolbar .orders-ebay-oauth-connect {
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.orders-sales-ebay-toolbar .orders-ebay-oauth-status {
+  max-width: 11rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .orders-vinted-ebay-check-bar {
   margin-bottom: 20px;
 }
@@ -128,6 +210,27 @@
   justify-content: flex-end;
   flex: 0 0 auto;
   margin-left: auto;
+}
+
+@media (min-width: 768px) {
+  .orders-sales-stats {
+    flex: unset;
+    min-width: 0;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 12px 18px;
+    font-size: 1.05rem;
+  }
+
+  .orders-sales-stat {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .orders-sales-ebay-actions {
+    margin-left: 0;
+    justify-content: flex-end;
+  }
 }
 
 .orders-sales-filters-group {
@@ -155,6 +258,19 @@
   align-items: center;
   margin-left: 0;
   flex-shrink: 0;
+}
+
+.orders-sales-brand-filter-wrap {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.orders-sales-brand-filter-select {
+  min-width: 6.75rem;
+  max-width: 9.5rem;
+  width: 9.5rem;
 }
 
 /* Match Stock edit / new-entry selects (.new-entry-field select + .new-entry-select) */

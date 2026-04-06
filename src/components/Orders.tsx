@@ -20,6 +20,7 @@ interface StockRow {
   vinted_id: Nullable<string>;
   ebay_id: Nullable<string>;
   depop_id: Nullable<string>;
+  brand_id: Nullable<number>;
   category_id: Nullable<number>;
 }
 
@@ -158,6 +159,15 @@ function soldRowMatchesPlatformFilter(row: StockRow, filter: SalesPlatformFilter
   return true;
 }
 
+/** `filterBrandId` is numeric string for a brand row id, or `'all'`. */
+function soldRowMatchesBrandFilter(row: StockRow, filterBrandId: string): boolean {
+  if (filterBrandId === 'all') return true;
+  const id = parseInt(filterBrandId, 10);
+  if (!Number.isFinite(id)) return true;
+  const bid = row.brand_id;
+  return bid != null && Number(bid) === id;
+}
+
 const formatCurrency = (value: Nullable<string | number>) => {
   if (value === null || value === undefined || value === '') {
     return '—';
@@ -250,6 +260,9 @@ const Orders: React.FC = () => {
   const [soldLoading, setSoldLoading] = useState(false);
   const [soldError, setSoldError] = useState<string | null>(null);
   const [salesPlatformFilter, setSalesPlatformFilter] = useState<SalesPlatformFilter>('all');
+  const [salesBrandFilter, setSalesBrandFilter] = useState<string>('all');
+  const [salesBrands, setSalesBrands] = useState<Array<{ id: number; brand_name: string }>>([]);
+  const [salesBrandsLoading, setSalesBrandsLoading] = useState(false);
   const [salesDateRangeFilter, setSalesDateRangeFilter] = useState<SalesDateRangeFilter>('all');
   const [vintedEbayCheckLoading, setVintedEbayCheckLoading] = useState(false);
   const [vintedEbayViolations, setVintedEbayViolations] = useState<VintedEbayViolation[]>([]);
@@ -474,9 +487,55 @@ const Orders: React.FC = () => {
   useEffect(() => {
     if (ordersTab !== 'sales') {
       setSalesPlatformFilter('all');
+      setSalesBrandFilter('all');
       setSalesDateRangeFilter('all');
     }
   }, [ordersTab]);
+
+  useEffect(() => {
+    if (ordersTab !== 'sales') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        setSalesBrandsLoading(true);
+        const response = await fetch(`${API_BASE}/api/brands`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (!response.ok) {
+          throw new Error('Failed to load brands');
+        }
+        const data = await response.json();
+        const rows = Array.isArray(data.rows) ? data.rows : [];
+        const mapped = rows
+          .map((b: { id?: unknown; brand_name?: unknown }) => ({
+            id: Number(b.id),
+            brand_name: b.brand_name != null ? String(b.brand_name).trim() : '',
+          }))
+          .filter((b: { id: number }) => Number.isFinite(b.id) && b.id >= 1)
+          .sort((a: { brand_name: string }, b: { brand_name: string }) =>
+            a.brand_name.localeCompare(b.brand_name, 'en-GB', { sensitivity: 'base' })
+          );
+        if (!cancelled) setSalesBrands(mapped);
+      } catch (e) {
+        console.error('Sales tab brands load error:', e);
+        if (!cancelled) setSalesBrands([]);
+      } finally {
+        if (!cancelled) setSalesBrandsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ordersTab]);
+
+  useEffect(() => {
+    if (salesBrandFilter === 'all' || salesBrands.length === 0) return;
+    const id = parseInt(salesBrandFilter, 10);
+    if (!Number.isFinite(id) || !salesBrands.some((b) => b.id === id)) {
+      setSalesBrandFilter('all');
+    }
+  }, [salesBrands, salesBrandFilter]);
 
   // Search results - search all items
   // Uses AND logic: all words must match (order doesn't matter)
@@ -511,9 +570,14 @@ const Orders: React.FC = () => {
     [soldRows, salesPlatformFilter]
   );
 
+  const soldByPlatformAndBrand = useMemo(
+    () => soldByPlatformOnly.filter((r) => soldRowMatchesBrandFilter(r, salesBrandFilter)),
+    [soldByPlatformOnly, salesBrandFilter]
+  );
+
   const soldRowsFiltered = useMemo(
-    () => soldByPlatformOnly.filter((r) => soldRowMatchesDateRange(r, salesDateRangeFilter)),
-    [soldByPlatformOnly, salesDateRangeFilter]
+    () => soldByPlatformAndBrand.filter((r) => soldRowMatchesDateRange(r, salesDateRangeFilter)),
+    [soldByPlatformAndBrand, salesDateRangeFilter]
   );
 
   const salesStats = useMemo(() => {
@@ -1172,6 +1236,23 @@ const Orders: React.FC = () => {
                     <option value="vinted">Vinted only</option>
                   </select>
                 </div>
+                <div className="orders-sales-brand-filter-wrap">
+                  <select
+                    id="orders-sales-brand-filter"
+                    className="orders-sales-platform-select orders-sales-brand-filter-select"
+                    value={salesBrandFilter}
+                    onChange={(e) => setSalesBrandFilter(e.target.value)}
+                    disabled={salesBrandsLoading && salesBrands.length === 0}
+                    aria-label="Filter sold items by brand"
+                  >
+                    <option value="all">All brands</option>
+                    {salesBrands.map((b) => (
+                      <option key={b.id} value={String(b.id)}>
+                        {b.brand_name || `Brand #${b.id}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
           </div>
@@ -1347,10 +1428,15 @@ const Orders: React.FC = () => {
                   <p>No sold items match this platform filter.</p>
                   <p>Choose &quot;All platforms&quot; or another option above.</p>
                 </>
+              ) : soldByPlatformAndBrand.length === 0 ? (
+                <>
+                  <p>No sold items match this brand filter.</p>
+                  <p>Choose &quot;All brands&quot; or a different brand above.</p>
+                </>
               ) : (
                 <>
                   <p>No sold items in this period for the selected filters.</p>
-                  <p>Try &quot;All time&quot; or a different month or platform.</p>
+                  <p>Try &quot;All time&quot; or adjust platform, brand, or month.</p>
                 </>
               )}
             </div>

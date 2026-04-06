@@ -27,6 +27,7 @@ interface StockRow {
   brand_tag_image_id: Nullable<number>;
   projected_sale_price: Nullable<string | number>;
   category_size_id: Nullable<number>;
+  sourced_location?: Nullable<string>;
 }
 
 interface Brand {
@@ -76,6 +77,18 @@ const MONTHS = [
 // Removed unused CATEGORIES constant - now using categories from database
 
 const PLATFORMS = ['Not Listed', 'Vinted', 'eBay'];
+
+const SOURCED_LOCATION_OPTIONS: { value: string; label: string }[] = [
+  { value: 'charity_shop', label: 'Charity shop' },
+  { value: 'bootsale', label: 'Bootsale' },
+  { value: 'online_flip', label: 'Online flip' },
+];
+
+function sourcedLocationFromRow(row: { sourced_location?: Nullable<string> }): string {
+  const v = row.sourced_location;
+  if (v === 'charity_shop' || v === 'bootsale' || v === 'online_flip') return v;
+  return 'charity_shop';
+}
 
 const formatCurrency = (value: Nullable<string | number>) => {
   if (value === null || value === undefined || value === '') {
@@ -292,7 +305,8 @@ const Stock: React.FC = () => {
     brand_id: '',
     brand_tag_image_id: '',
     projected_sale_price: '',
-    category_size_id: ''
+    category_size_id: '',
+    sourced_location: 'charity_shop'
   });
   const [categorySizes, setCategorySizes] = useState<CategorySizeRow[]>([]);
   const [categorySizesLoading, setCategorySizesLoading] = useState(false);
@@ -548,6 +562,7 @@ const Stock: React.FC = () => {
             projected_sale_price: stockDbNumberToFormString(rowToEdit.projected_sale_price),
             category_size_id:
               rowToEdit.category_size_id != null ? String(rowToEdit.category_size_id) : '',
+            sourced_location: sourcedLocationFromRow(rowToEdit),
           });
           setShowNewEntry(true);
           setSuccessMessage(null);
@@ -1605,6 +1620,7 @@ const Stock: React.FC = () => {
       brand_tag_image_id: row.brand_tag_image_id != null ? String(row.brand_tag_image_id) : '',
       projected_sale_price: stockDbNumberToFormString(row.projected_sale_price),
       category_size_id: row.category_size_id != null ? String(row.category_size_id) : '',
+      sourced_location: sourcedLocationFromRow(row),
     });
     console.log('startEditingRow - row data:', row);
     console.log('startEditingRow - vinted_id:', row.vinted_id);
@@ -1653,7 +1669,8 @@ const Stock: React.FC = () => {
       brand_id: '',
       brand_tag_image_id: '',
       projected_sale_price: '',
-      category_size_id: ''
+      category_size_id: '',
+      sourced_location: 'charity_shop'
     });
   };
 
@@ -1705,7 +1722,8 @@ const Stock: React.FC = () => {
         category_size_id:
           createForm.category_id && createForm.category_size_id.trim() !== ''
             ? Number(createForm.category_size_id)
-            : null
+            : null,
+        sourced_location: createForm.sourced_location || 'charity_shop'
       };
 
       console.log('Stock submit - Payload:', payload);
@@ -2156,46 +2174,55 @@ const Stock: React.FC = () => {
       {showNewEntry && (
         <div className="new-entry-card" ref={editFormRef}>
           <div className="new-entry-grid">
-            {/* Edit row 1: left actions | delete right (metrics live in Project sales calculations row) */}
-            {editingRowId && (
-              <div className="stock-edit-row-1">
-                <div className="stock-edit-row-1-left">
-                  <button
-                    type="button"
-                    className="cancel-button stock-edit-row-1-close-btn stock-close-circle-btn stock-close-circle-btn--edit"
-                    onClick={() => {
-                      if (!creating && !deleting) {
-                        setShowNewEntry(false);
-                        setEditingRowId(null);
-                        setFormIntent('create');
-                        setShowCreateInsteadOfEditConfirm(false);
-                        resetCreateForm();
-                        setShowDeleteConfirm(false);
-                      }
-                    }}
-                    disabled={creating || deleting}
-                    aria-label="Close"
-                    title="Close"
+            <div className="stock-new-entry-top-bar">
+              <div
+                className={
+                  'stock-new-entry-top-bar-row-1' +
+                  (editingRowId ? ' stock-new-entry-top-bar-row-1--edit' : '')
+                }
+              >
+              <div className="stock-new-entry-top-bar-left">
+                <button
+                  type="button"
+                  className={`cancel-button stock-close-circle-btn${editingRowId ? ' stock-close-circle-btn--edit' : ''}`}
+                  onClick={() => {
+                    if (!creating && !deleting) {
+                      setShowNewEntry(false);
+                      setEditingRowId(null);
+                      setFormIntent('create');
+                      setShowCreateInsteadOfEditConfirm(false);
+                      resetCreateForm();
+                      setShowDeleteConfirm(false);
+                    }
+                  }}
+                  disabled={creating || deleting}
+                  aria-label="Close"
+                  title="Close"
+                >
+                  <svg
+                    className="stock-close-circle-icon"
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.25"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
                   >
-                    <svg
-                      className="stock-close-circle-icon"
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.25"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden
-                    >
-                      <path d="M18 6 6 18M6 6l12 12" />
-                    </svg>
-                  </button>
+                    <path d="M18 6 6 18M6 6l12 12" />
+                  </svg>
+                </button>
+                {editingRowId ? (
                   <div className="stock-edit-sku-id-circle" title={`SKU ${editingRowId}`}>
                     {editingRowId}
                   </div>
+                ) : null}
+              </div>
+              {editingRowId ? (
+                <div className="stock-new-entry-top-bar-edit-actions">
                   <button
                     type="button"
                     className={`stock-add-to-order-btn stock-edit-row-1-add-to-order${editingRowInOrders ? ' stock-add-to-order-btn--in-orders' : ''}${addingToOrder ? ' stock-add-to-order-btn--adding' : ''}`}
@@ -2276,7 +2303,53 @@ const Stock: React.FC = () => {
                     Instagram Prompt
                   </button>
                 </div>
-                <div className="stock-edit-row-1-end">
+              ) : null}
+              <div className="stock-new-entry-top-bar-metrics">
+                <div className="new-entry-field stock-new-entry-top-bar-comps-field">
+                  <div
+                    className="stock-edit-brand-category-comps stock-new-entry-top-bar-comps"
+                    role="region"
+                    aria-label="Average and top sale price for this brand and category"
+                  >
+                    {!editFormBrandCategorySaleComps.ready && (
+                      <p className="stock-edit-brand-category-comps__muted">Select brand &amp; category</p>
+                    )}
+                    {editFormBrandCategorySaleComps.ready && editFormBrandCategorySaleComps.count === 0 && (
+                      <p className="stock-edit-brand-category-comps__muted">No sold comps</p>
+                    )}
+                    {editFormBrandCategorySaleComps.ready && editFormBrandCategorySaleComps.count > 0 && (
+                      <div className="stock-edit-brand-category-comps__stack">
+                        <div className="stock-edit-brand-category-comps__stat-line">
+                          <span className="stock-edit-brand-category-comps__key">Avg</span>
+                          <span className="stock-edit-brand-category-comps__val">
+                            {formatCurrency(editFormBrandCategorySaleComps.avg ?? 0)}
+                          </span>
+                        </div>
+                        <div className="stock-edit-brand-category-comps__stat-line">
+                          <span className="stock-edit-brand-category-comps__key">Top</span>
+                          <span className="stock-edit-brand-category-comps__val">
+                            {formatCurrency(editFormBrandCategorySaleComps.max ?? 0)}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="new-entry-field stock-new-entry-top-bar-pipeline">
+                  <div className="stock-edit-row-1-metrics-box stock-new-entry-row2-pipeline-box">
+                    <div
+                      className="stock-edit-metrics-pipeline"
+                      role="region"
+                      aria-label="Projected profit by platform"
+                      title={stockEditMetricsPipeline.plain}
+                    >
+                      {stockEditMetricsPipeline.content}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {editingRowId ? (
+                <div className="stock-new-entry-top-bar-edit-end">
                   <button
                     type="button"
                     className="delete-button stock-edit-row1-delete-btn"
@@ -2305,48 +2378,10 @@ const Stock: React.FC = () => {
                     </svg>
                   </button>
                 </div>
+              ) : null}
               </div>
-            )}
-
-            {/* Row 1: Name, Brand, Category, Size, Tag */}
-            <div className="stock-new-entry-row-top">
-              {!editingRowId ? (
-                <div className="stock-new-entry-name-with-close">
-                  <div className="stock-new-entry-close-before-name">
-                    <button
-                      type="button"
-                      className="stock-close-circle-btn"
-                      onClick={() => {
-                        if (!creating && !deleting) {
-                          setShowNewEntry(false);
-                          setEditingRowId(null);
-                          setFormIntent('create');
-                          setShowCreateInsteadOfEditConfirm(false);
-                          resetCreateForm();
-                          setShowDeleteConfirm(false);
-                        }
-                      }}
-                      disabled={creating || deleting}
-                      aria-label="Close"
-                      title="Close"
-                    >
-                      <svg
-                        className="stock-close-circle-icon"
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="20"
-                        height="20"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.25"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden
-                      >
-                        <path d="M18 6 6 18M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
+              <div className="stock-new-entry-top-bar-row-2">
+                <div className="stock-new-entry-top-bar-fields">
                   <label className="new-entry-field stock-new-entry-name-field">
                     <span>Name</span>
                     <input
@@ -2356,420 +2391,410 @@ const Stock: React.FC = () => {
                       placeholder="e.g. Barbour jacket"
                     />
                   </label>
-                </div>
-              ) : (
-                <label className="new-entry-field">
-                  <span>Name</span>
-                  <input
-                    type="text"
-                    value={createForm.item_name}
-                    onChange={(event) => handleCreateChange('item_name', event.target.value)}
-                    placeholder="e.g. Barbour jacket"
-                  />
-                </label>
-              )}
-              <div className="new-entry-field" style={{ position: 'relative' }}>
-                  <div className="new-entry-field-label-row">
-                    <span id="stock-form-brand-label">Brand</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowAddBrand(!showAddBrand);
-                        setNewBrandName('');
-                      }}
-                      style={{
-                        background: 'rgba(255, 214, 91, 0.15)',
-                        border: '1px solid rgba(255, 214, 91, 0.3)',
-                        borderRadius: '6px',
-                        color: 'var(--neon-primary-strong)',
-                        cursor: 'pointer',
-                        padding: '4px 8px',
-                        fontSize: '0.75rem',
-                        fontWeight: 600,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        minWidth: '24px',
-                        height: '24px',
-                        transition: 'all 0.2s ease'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'rgba(255, 214, 91, 0.25)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'rgba(255, 214, 91, 0.15)';
-                      }}
-                      title="Add new brand"
-                    >
-                      +
-                    </button>
-                  </div>
-                  <select
-                    className="new-entry-select"
-                    aria-labelledby="stock-form-brand-label"
-                    value={createForm.brand_id}
-                    onChange={(event) => handleCreateChange('brand_id', event.target.value)}
-                  >
-                    <option value="">-- No Brand --</option>
-                    {brands.map((brand) => (
-                      <option key={brand.id} value={String(brand.id)}>
-                        {brand.brand_name}
-                      </option>
-                    ))}
-                  </select>
-                  {showAddBrand && (
-                    <div
-                      style={{
-                        display: 'flex',
-                        gap: '8px',
-                        alignItems: 'center',
-                        marginTop: '4px',
-                        padding: '8px',
-                        background: 'rgba(255, 214, 91, 0.08)',
-                        borderRadius: '8px',
-                        border: '1px solid rgba(255, 214, 91, 0.2)'
-                      }}
-                    >
-                      <input
-                        type="text"
-                        value={newBrandName}
-                        onChange={(e) => setNewBrandName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            handleAddBrand();
-                          } else if (e.key === 'Escape') {
-                            setShowAddBrand(false);
-                            setNewBrandName('');
-                          }
-                        }}
-                        placeholder="New brand name..."
-                        style={{
-                          flex: 1,
-                          padding: '8px 12px',
-                          borderRadius: '8px',
-                          border: '1px solid rgba(255, 214, 91, 0.28)',
-                          background: 'rgba(5, 4, 3, 0.6)',
-                          color: 'var(--text-strong)',
-                          fontSize: '0.9rem',
-                          outline: 'none'
-                        }}
-                        autoFocus
-                      />
-                      <button
-                        type="button"
-                        onClick={handleAddBrand}
-                        disabled={savingBrand || !newBrandName.trim()}
-                        style={{
-                          padding: '8px 16px',
-                          background: 'var(--neon-primary-strong)',
-                          color: '#000',
-                          border: 'none',
-                          borderRadius: '8px',
-                          cursor: 'pointer',
-                          fontWeight: 600,
-                          fontSize: '0.85rem',
-                          opacity: savingBrand || !newBrandName.trim() ? 0.6 : 1
-                        }}
-                      >
-                        {savingBrand ? 'Saving...' : 'Add'}
-                      </button>
+                  <div className="new-entry-field stock-new-entry-brand-field" style={{ position: 'relative' }}>
+                    <div className="new-entry-field-label-row">
+                      <span id="stock-form-brand-label">Brand</span>
                       <button
                         type="button"
                         onClick={() => {
-                          setShowAddBrand(false);
+                          setShowAddBrand(!showAddBrand);
                           setNewBrandName('');
                         }}
-                        disabled={savingBrand}
                         style={{
-                          padding: '8px 12px',
-                          background: 'transparent',
-                          color: 'rgba(255, 248, 226, 0.7)',
-                          border: '1px solid rgba(255, 248, 226, 0.3)',
-                          borderRadius: '8px',
+                          background: 'rgba(255, 214, 91, 0.15)',
+                          border: '1px solid rgba(255, 214, 91, 0.3)',
+                          borderRadius: '6px',
+                          color: 'var(--neon-primary-strong)',
                           cursor: 'pointer',
-                          fontSize: '1.2rem',
+                          padding: '4px 8px',
+                          fontSize: '0.75rem',
                           fontWeight: 600,
-                          opacity: savingBrand ? 0.6 : 1
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          minWidth: '24px',
+                          height: '24px',
+                          transition: 'all 0.2s ease'
                         }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = 'rgba(255, 214, 91, 0.25)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'rgba(255, 214, 91, 0.15)';
+                        }}
+                        title="Add new brand"
                       >
-                        ×
+                        +
                       </button>
                     </div>
-                  )}
-              </div>
-              <div className="new-entry-field" style={{ position: 'relative' }}>
-                  <div className="new-entry-field-label-row">
-                    <span id="stock-form-category-label">Category</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowAddCategory(!showAddCategory);
-                        setNewCategoryName('');
-                      }}
-                      style={{
-                        background: 'rgba(255, 214, 91, 0.15)',
-                        border: '1px solid rgba(255, 214, 91, 0.3)',
-                        borderRadius: '6px',
-                        color: 'var(--neon-primary-strong)',
-                        cursor: 'pointer',
-                        padding: '4px 8px',
-                        fontSize: '0.75rem',
-                        fontWeight: 600,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        minWidth: '24px',
-                        height: '24px',
-                        transition: 'all 0.2s ease'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'rgba(255, 214, 91, 0.25)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'rgba(255, 214, 91, 0.15)';
-                      }}
-                      title="Add new category"
+                    <select
+                      className="new-entry-select"
+                      aria-labelledby="stock-form-brand-label"
+                      value={createForm.brand_id}
+                      onChange={(event) => handleCreateChange('brand_id', event.target.value)}
                     >
-                      +
-                    </button>
-                  </div>
-                  <select
-                    className="new-entry-select"
-                    aria-labelledby="stock-form-category-label"
-                    value={createForm.category_id}
-                    onChange={(event) => handleCreateChange('category_id', event.target.value)}
-                  >
-                    <option value="">Select category...</option>
-                    {categories.map((category) => (
-                      <option key={category.id} value={category.id}>
-                        {category.category_name}
-                      </option>
-                    ))}
-                  </select>
-                  {showAddCategory && (
-                    <div
-                      style={{
-                        display: 'flex',
-                        gap: '8px',
-                        alignItems: 'center',
-                        marginTop: '4px',
-                        padding: '8px',
-                        background: 'rgba(255, 214, 91, 0.08)',
-                        borderRadius: '8px',
-                        border: '1px solid rgba(255, 214, 91, 0.2)'
-                      }}
-                    >
-                      <input
-                        type="text"
-                        value={newCategoryName}
-                        onChange={(e) => setNewCategoryName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            handleAddCategory();
-                          } else if (e.key === 'Escape') {
-                            setShowAddCategory(false);
-                            setNewCategoryName('');
-                          }
-                        }}
-                        placeholder="New category name..."
+                      <option value="">-- No Brand --</option>
+                      {brands.map((brand) => (
+                        <option key={brand.id} value={String(brand.id)}>
+                          {brand.brand_name}
+                        </option>
+                      ))}
+                    </select>
+                    {showAddBrand && (
+                      <div
                         style={{
-                          flex: 1,
-                          padding: '8px 12px',
+                          display: 'flex',
+                          gap: '8px',
+                          alignItems: 'center',
+                          marginTop: '4px',
+                          padding: '8px',
+                          background: 'rgba(255, 214, 91, 0.08)',
                           borderRadius: '8px',
-                          border: '1px solid rgba(255, 214, 91, 0.28)',
-                          background: 'rgba(5, 4, 3, 0.6)',
-                          color: 'var(--text-strong)',
-                          fontSize: '0.9rem',
-                          outline: 'none'
-                        }}
-                        autoFocus
-                      />
-                      <button
-                        type="button"
-                        onClick={handleAddCategory}
-                        disabled={savingCategory || !newCategoryName.trim()}
-                        style={{
-                          padding: '8px 16px',
-                          borderRadius: '8px',
-                          border: '1px solid rgba(255, 214, 91, 0.3)',
-                          background: savingCategory ? 'rgba(255, 214, 91, 0.2)' : 'rgba(255, 214, 91, 0.15)',
-                          color: 'var(--neon-primary-strong)',
-                          cursor: savingCategory ? 'not-allowed' : 'pointer',
-                          fontSize: '0.85rem',
-                          fontWeight: 600,
-                          opacity: savingCategory || !newCategoryName.trim() ? 0.6 : 1
+                          border: '1px solid rgba(255, 214, 91, 0.2)'
                         }}
                       >
-                        {savingCategory ? 'Saving...' : 'Add'}
-                      </button>
+                        <input
+                          type="text"
+                          value={newBrandName}
+                          onChange={(e) => setNewBrandName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              handleAddBrand();
+                            } else if (e.key === 'Escape') {
+                              setShowAddBrand(false);
+                              setNewBrandName('');
+                            }
+                          }}
+                          placeholder="New brand name..."
+                          style={{
+                            flex: 1,
+                            padding: '8px 12px',
+                            borderRadius: '8px',
+                            border: '1px solid rgba(255, 214, 91, 0.28)',
+                            background: 'rgba(5, 4, 3, 0.6)',
+                            color: 'var(--text-strong)',
+                            fontSize: '0.9rem',
+                            outline: 'none'
+                          }}
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          onClick={handleAddBrand}
+                          disabled={savingBrand || !newBrandName.trim()}
+                          style={{
+                            padding: '8px 16px',
+                            background: 'var(--neon-primary-strong)',
+                            color: '#000',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontWeight: 600,
+                            fontSize: '0.85rem',
+                            opacity: savingBrand || !newBrandName.trim() ? 0.6 : 1
+                          }}
+                        >
+                          {savingBrand ? 'Saving...' : 'Add'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAddBrand(false);
+                            setNewBrandName('');
+                          }}
+                          disabled={savingBrand}
+                          style={{
+                            padding: '8px 12px',
+                            background: 'transparent',
+                            color: 'rgba(255, 248, 226, 0.7)',
+                            border: '1px solid rgba(255, 248, 226, 0.3)',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontSize: '1.2rem',
+                            fontWeight: 600,
+                            opacity: savingBrand ? 0.6 : 1
+                          }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <div className="new-entry-field stock-new-entry-category-field" style={{ position: 'relative' }}>
+                    <div className="new-entry-field-label-row">
+                      <span id="stock-form-category-label">Category</span>
                       <button
                         type="button"
                         onClick={() => {
-                          setShowAddCategory(false);
+                          setShowAddCategory(!showAddCategory);
                           setNewCategoryName('');
                         }}
                         style={{
-                          padding: '8px 12px',
-                          borderRadius: '8px',
-                          border: '1px solid rgba(255, 120, 120, 0.3)',
-                          background: 'rgba(255, 120, 120, 0.1)',
-                          color: '#ffb0b0',
+                          background: 'rgba(255, 214, 91, 0.15)',
+                          border: '1px solid rgba(255, 214, 91, 0.3)',
+                          borderRadius: '6px',
+                          color: 'var(--neon-primary-strong)',
                           cursor: 'pointer',
-                          fontSize: '0.85rem',
-                          fontWeight: 600
+                          padding: '4px 8px',
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          minWidth: '24px',
+                          height: '24px',
+                          transition: 'all 0.2s ease'
                         }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = 'rgba(255, 214, 91, 0.25)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'rgba(255, 214, 91, 0.15)';
+                        }}
+                        title="Add new category"
                       >
-                        ×
+                        +
                       </button>
                     </div>
-                  )}
-              </div>
-              <label className="new-entry-field stock-new-entry-size-field">
-                <span id="stock-form-size-label">Size</span>
-                <select
-                  className="new-entry-select"
-                  aria-labelledby="stock-form-size-label"
-                  value={createForm.category_size_id}
-                  onChange={(event) => handleCreateChange('category_size_id', event.target.value)}
-                  disabled={!createForm.category_id?.trim() || categorySizesLoading}
-                >
-                  <option value="">
-                    {!createForm.category_id?.trim()
-                      ? 'Select category first'
-                      : categorySizesLoading
-                        ? 'Loading…'
-                        : 'None'}
-                  </option>
-                  {categorySizes.map((siz) => (
-                    <option key={siz.id} value={String(siz.id)}>
-                      {siz.size_label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="new-entry-field stock-new-entry-tags-field">
-                <div className="new-entry-field-label-row">
-                  <span id="stock-form-tags-label">Tag</span>
-                </div>
-                <div className="stock-brand-tag-dropdown" ref={stockTagDropdownRef}>
-                  <button
-                    type="button"
-                    className={
-                      'stock-brand-tag-dropdown-trigger' +
-                      (!createForm.brand_id?.trim() ? ' stock-brand-tag-dropdown-trigger--disabled' : '')
-                    }
-                    aria-haspopup="listbox"
-                    aria-expanded={stockTagDropdownOpen}
-                    aria-labelledby="stock-form-tags-label"
-                    disabled={!createForm.brand_id?.trim()}
-                    onClick={() => {
-                      if (!createForm.brand_id?.trim()) return;
-                      setStockTagDropdownOpen((o) => !o);
-                    }}
-                  >
-                    <span className="stock-brand-tag-dropdown-trigger-inner">
-                      {selectedBrandTagImage?.public_url ? (
-                        <img
-                          src={selectedBrandTagImage.public_url}
-                          alt=""
-                          className="stock-brand-tag-dropdown-trigger-thumb"
-                        />
-                      ) : (
-                        <span className="stock-brand-tag-dropdown-trigger-thumb stock-brand-tag-dropdown-trigger-thumb--empty" />
-                      )}
-                      <span className="stock-brand-tag-dropdown-trigger-text">
-                        {!createForm.brand_id?.trim()
-                          ? 'Select a brand first'
-                          : brandTagImagesLoading
-                            ? 'Loading tags…'
-                            : brandTagImagesError
-                              ? 'Could not load tags'
-                              : brandTagImages.length === 0
-                                ? 'No tags for this brand'
-                                : selectedBrandTagImage
-                                  ? (selectedBrandTagImage.caption?.trim() || `Tag #${selectedBrandTagImage.id}`)
-                                  : 'Select tag…'}
-                      </span>
-                    </span>
-                    <span className="stock-brand-tag-dropdown-chevron" aria-hidden>
-                      ▾
-                    </span>
-                  </button>
-                  {stockTagDropdownOpen && createForm.brand_id?.trim() && (
-                    <div
-                      className="stock-brand-tag-dropdown-panel"
-                      role="listbox"
-                      aria-labelledby="stock-form-tags-label"
+                    <select
+                      className="new-entry-select"
+                      aria-labelledby="stock-form-category-label"
+                      value={createForm.category_id}
+                      onChange={(event) => handleCreateChange('category_id', event.target.value)}
                     >
-                      {brandTagImagesLoading ? (
-                        <div className="stock-brand-tag-dropdown-row stock-brand-tag-dropdown-row--muted">
-                          Loading…
-                        </div>
-                      ) : brandTagImagesError ? (
-                        <div className="stock-brand-tag-dropdown-row stock-brand-tag-dropdown-row--muted" role="alert">
-                          {brandTagImagesError}
-                        </div>
-                      ) : brandTagImages.length === 0 ? (
-                        <div className="stock-brand-tag-dropdown-row stock-brand-tag-dropdown-row--muted">
-                          No tag images for this brand.
-                        </div>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            role="option"
-                            className="stock-brand-tag-dropdown-row"
-                            aria-selected={createForm.brand_tag_image_id === ''}
-                            onClick={() => {
-                              handleCreateChange('brand_tag_image_id', '');
-                              setStockTagDropdownOpen(false);
-                            }}
-                          >
-                            <span className="stock-brand-tag-dropdown-row-thumb stock-brand-tag-dropdown-row-thumb--none" />
-                            <span>None</span>
-                          </button>
-                          {brandTagImages.map((t) => {
-                            const picked = String(createForm.brand_tag_image_id) === String(t.id);
-                            return (
+                      <option value="">Select category...</option>
+                      {categories.map((category) => (
+                        <option key={category.id} value={category.id}>
+                          {category.category_name}
+                        </option>
+                      ))}
+                    </select>
+                    {showAddCategory && (
+                      <div
+                        style={{
+                          display: 'flex',
+                          gap: '8px',
+                          alignItems: 'center',
+                          marginTop: '4px',
+                          padding: '8px',
+                          background: 'rgba(255, 214, 91, 0.08)',
+                          borderRadius: '8px',
+                          border: '1px solid rgba(255, 214, 91, 0.2)'
+                        }}
+                      >
+                        <input
+                          type="text"
+                          value={newCategoryName}
+                          onChange={(e) => setNewCategoryName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              handleAddCategory();
+                            } else if (e.key === 'Escape') {
+                              setShowAddCategory(false);
+                              setNewCategoryName('');
+                            }
+                          }}
+                          placeholder="New category name..."
+                          style={{
+                            flex: 1,
+                            padding: '8px 12px',
+                            borderRadius: '8px',
+                            border: '1px solid rgba(255, 214, 91, 0.28)',
+                            background: 'rgba(5, 4, 3, 0.6)',
+                            color: 'var(--text-strong)',
+                            fontSize: '0.9rem',
+                            outline: 'none'
+                          }}
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          onClick={handleAddCategory}
+                          disabled={savingCategory || !newCategoryName.trim()}
+                          style={{
+                            padding: '8px 16px',
+                            borderRadius: '8px',
+                            border: '1px solid rgba(255, 214, 91, 0.3)',
+                            background: savingCategory ? 'rgba(255, 214, 91, 0.2)' : 'rgba(255, 214, 91, 0.15)',
+                            color: 'var(--neon-primary-strong)',
+                            cursor: savingCategory ? 'not-allowed' : 'pointer',
+                            fontSize: '0.85rem',
+                            fontWeight: 600,
+                            opacity: savingCategory || !newCategoryName.trim() ? 0.6 : 1
+                          }}
+                        >
+                          {savingCategory ? 'Saving...' : 'Add'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAddCategory(false);
+                            setNewCategoryName('');
+                          }}
+                          style={{
+                            padding: '8px 12px',
+                            borderRadius: '8px',
+                            border: '1px solid rgba(255, 120, 120, 0.3)',
+                            background: 'rgba(255, 120, 120, 0.1)',
+                            color: '#ffb0b0',
+                            cursor: 'pointer',
+                            fontSize: '0.85rem',
+                            fontWeight: 600
+                          }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <label className="new-entry-field stock-new-entry-size-field">
+                    <span id="stock-form-size-label">Size</span>
+                    <select
+                      className="new-entry-select"
+                      aria-labelledby="stock-form-size-label"
+                      value={createForm.category_size_id}
+                      onChange={(event) => handleCreateChange('category_size_id', event.target.value)}
+                      disabled={!createForm.category_id?.trim() || categorySizesLoading}
+                    >
+                      <option value="">
+                        {!createForm.category_id?.trim()
+                          ? 'Select category first'
+                          : categorySizesLoading
+                            ? 'Loading…'
+                            : 'None'}
+                      </option>
+                      {categorySizes.map((siz) => (
+                        <option key={siz.id} value={String(siz.id)}>
+                          {siz.size_label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="new-entry-field stock-new-entry-tags-field">
+                    <div className="new-entry-field-label-row">
+                      <span id="stock-form-tags-label">Tag</span>
+                    </div>
+                    <div className="stock-brand-tag-dropdown" ref={stockTagDropdownRef}>
+                      <button
+                        type="button"
+                        className={
+                          'stock-brand-tag-dropdown-trigger' +
+                          (!createForm.brand_id?.trim() ? ' stock-brand-tag-dropdown-trigger--disabled' : '')
+                        }
+                        aria-haspopup="listbox"
+                        aria-expanded={stockTagDropdownOpen}
+                        aria-labelledby="stock-form-tags-label"
+                        disabled={!createForm.brand_id?.trim()}
+                        onClick={() => {
+                          if (!createForm.brand_id?.trim()) return;
+                          setStockTagDropdownOpen((o) => !o);
+                        }}
+                      >
+                        <span className="stock-brand-tag-dropdown-trigger-inner">
+                          {selectedBrandTagImage?.public_url ? (
+                            <img
+                              src={selectedBrandTagImage.public_url}
+                              alt=""
+                              className="stock-brand-tag-dropdown-trigger-thumb"
+                            />
+                          ) : (
+                            <span className="stock-brand-tag-dropdown-trigger-thumb stock-brand-tag-dropdown-trigger-thumb--empty" />
+                          )}
+                          <span className="stock-brand-tag-dropdown-trigger-text">
+                            {!createForm.brand_id?.trim()
+                              ? 'Select a brand first'
+                              : brandTagImagesLoading
+                                ? 'Loading tags…'
+                                : brandTagImagesError
+                                  ? 'Could not load tags'
+                                  : brandTagImages.length === 0
+                                    ? 'No tags for this brand'
+                                    : selectedBrandTagImage
+                                      ? (selectedBrandTagImage.caption?.trim() || `Tag #${selectedBrandTagImage.id}`)
+                                      : 'Select tag…'}
+                          </span>
+                        </span>
+                        <span className="stock-brand-tag-dropdown-chevron" aria-hidden>
+                          ▾
+                        </span>
+                      </button>
+                      {stockTagDropdownOpen && createForm.brand_id?.trim() && (
+                        <div
+                          className="stock-brand-tag-dropdown-panel"
+                          role="listbox"
+                          aria-labelledby="stock-form-tags-label"
+                        >
+                          {brandTagImagesLoading ? (
+                            <div className="stock-brand-tag-dropdown-row stock-brand-tag-dropdown-row--muted">
+                              Loading…
+                            </div>
+                          ) : brandTagImagesError ? (
+                            <div className="stock-brand-tag-dropdown-row stock-brand-tag-dropdown-row--muted" role="alert">
+                              {brandTagImagesError}
+                            </div>
+                          ) : brandTagImages.length === 0 ? (
+                            <div className="stock-brand-tag-dropdown-row stock-brand-tag-dropdown-row--muted">
+                              No tag images for this brand.
+                            </div>
+                          ) : (
+                            <>
                               <button
-                                key={t.id}
                                 type="button"
                                 role="option"
-                                className={
-                                  'stock-brand-tag-dropdown-row' + (picked ? ' stock-brand-tag-dropdown-row--picked' : '')
-                                }
-                                aria-selected={picked}
+                                className="stock-brand-tag-dropdown-row"
+                                aria-selected={createForm.brand_tag_image_id === ''}
                                 onClick={() => {
-                                  handleCreateChange('brand_tag_image_id', String(t.id));
+                                  handleCreateChange('brand_tag_image_id', '');
                                   setStockTagDropdownOpen(false);
                                 }}
                               >
-                                {t.public_url ? (
-                                  <img
-                                    src={t.public_url}
-                                    alt=""
-                                    className="stock-brand-tag-dropdown-row-thumb"
-                                    loading="lazy"
-                                  />
-                                ) : (
-                                  <span className="stock-brand-tag-dropdown-row-thumb stock-brand-tag-dropdown-row-thumb--placeholder">
-                                    ?
-                                  </span>
-                                )}
-                                <span className="stock-brand-tag-dropdown-row-label">
-                                  {t.caption?.trim() || `Tag #${t.id}`}
-                                </span>
+                                <span className="stock-brand-tag-dropdown-row-thumb stock-brand-tag-dropdown-row-thumb--none" />
+                                <span>None</span>
                               </button>
-                            );
-                          })}
-                        </>
+                              {brandTagImages.map((t) => {
+                                const picked = String(createForm.brand_tag_image_id) === String(t.id);
+                                return (
+                                  <button
+                                    key={t.id}
+                                    type="button"
+                                    role="option"
+                                    className={
+                                      'stock-brand-tag-dropdown-row' + (picked ? ' stock-brand-tag-dropdown-row--picked' : '')
+                                    }
+                                    aria-selected={picked}
+                                    onClick={() => {
+                                      handleCreateChange('brand_tag_image_id', String(t.id));
+                                      setStockTagDropdownOpen(false);
+                                    }}
+                                  >
+                                    {t.public_url ? (
+                                      <img
+                                        src={t.public_url}
+                                        alt=""
+                                        className="stock-brand-tag-dropdown-row-thumb"
+                                        loading="lazy"
+                                      />
+                                    ) : (
+                                      <span className="stock-brand-tag-dropdown-row-thumb stock-brand-tag-dropdown-row-thumb--placeholder">
+                                        ?
+                                      </span>
+                                    )}
+                                    <span className="stock-brand-tag-dropdown-row-label">
+                                      {t.caption?.trim() || `Tag #${t.id}`}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </>
+                          )}
+                        </div>
                       )}
                     </div>
-                  )}
+                  </div>
                 </div>
               </div>
             </div>
-            {/* Row 2: Purchase, Projected, Date (equal width) | Avg/Top (fixed) | Pipeline (fixed track) */}
+            {/* Purchase, projected, date, sourced */}
             <div className="stock-new-entry-row-prices">
               <label className="new-entry-field new-entry-field--stock-compact-price new-entry-field--stock-row2-equal">
                 <span>Purchase Price (£)</span>
@@ -2806,52 +2831,21 @@ const Stock: React.FC = () => {
                   wrapperClassName="date-picker-wrapper"
                 />
               </label>
-              <div className="new-entry-field stock-new-entry-row2-comps-column">
-                <span className="stock-new-entry-row2-comps-column-spacer" aria-hidden>
-                  &nbsp;
-                </span>
-                <div
-                  className="stock-edit-brand-category-comps stock-new-entry-row2-comps"
-                  role="region"
-                  aria-label="Average and top sale price for this brand and category"
+              <label className="new-entry-field new-entry-field--stock-compact-source new-entry-field--stock-row2-equal">
+                <span>Sourced</span>
+                <select
+                  className="new-entry-select"
+                  value={createForm.sourced_location}
+                  onChange={(event) => handleCreateChange('sourced_location', event.target.value)}
+                  aria-label="Where the item was sourced"
                 >
-                  {!editFormBrandCategorySaleComps.ready && (
-                    <p className="stock-edit-brand-category-comps__muted">Select brand &amp; category</p>
-                  )}
-                  {editFormBrandCategorySaleComps.ready && editFormBrandCategorySaleComps.count === 0 && (
-                    <p className="stock-edit-brand-category-comps__muted">No sold comps</p>
-                  )}
-                  {editFormBrandCategorySaleComps.ready && editFormBrandCategorySaleComps.count > 0 && (
-                    <div className="stock-edit-brand-category-comps__stack">
-                      <div className="stock-edit-brand-category-comps__stat-line">
-                        <span className="stock-edit-brand-category-comps__key">Avg</span>
-                        <span className="stock-edit-brand-category-comps__val">
-                          {formatCurrency(editFormBrandCategorySaleComps.avg ?? 0)}
-                        </span>
-                      </div>
-                      <div className="stock-edit-brand-category-comps__stat-line">
-                        <span className="stock-edit-brand-category-comps__key">Top</span>
-                        <span className="stock-edit-brand-category-comps__val">
-                          {formatCurrency(editFormBrandCategorySaleComps.max ?? 0)}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="new-entry-field stock-new-entry-row2-pipeline">
-                <span className="stock-edit-projected-label">Project sales calculations</span>
-                <div className="stock-edit-row-1-metrics-box stock-new-entry-row2-pipeline-box">
-                  <div
-                    className="stock-edit-metrics-pipeline"
-                    role="region"
-                    aria-label="Projected profit by platform"
-                    title={stockEditMetricsPipeline.plain}
-                  >
-                    {stockEditMetricsPipeline.content}
-                  </div>
-                </div>
-              </div>
+                  {SOURCED_LOCATION_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
             {/* Row 3 (+ edit sales fields): IDs, My Sales / date / platform when editing, save */}
             <div

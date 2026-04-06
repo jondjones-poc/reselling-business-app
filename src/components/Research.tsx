@@ -532,6 +532,62 @@ function SeasonalInsightSeasonIcon({ seasonKey }: { seasonKey: string }) {
   }
 }
 
+/** Decorative glyph for Research → Sourced tab (`sourceKey` from API). */
+function SourcedLocationInsightIcon({ sourceKey }: { sourceKey: string }) {
+  const sw = 2;
+  const svgProps = {
+    className: 'research-sourced-source-icon-svg',
+    viewBox: '0 0 48 48',
+    fill: 'none' as const,
+    'aria-hidden': true as const,
+  };
+  switch (sourceKey) {
+    case 'charity_shop':
+      return (
+        <svg {...svgProps}>
+          <path
+            d="M24 38c-8-6-14-12-14-19a7 7 0 0 1 13-3 1 1 0 0 0 2 0 7 7 0 0 1 13 3c0 7-6 13-14 19z"
+            stroke="currentColor"
+            strokeWidth={sw}
+            strokeLinejoin="round"
+          />
+        </svg>
+      );
+    case 'bootsale':
+      return (
+        <svg {...svgProps}>
+          <path
+            d="M14 32h22l-2-10H16l-2 10zM18 22l3-12h6l3 12"
+            stroke="currentColor"
+            strokeWidth={sw}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path d="M12 32h26" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" />
+        </svg>
+      );
+    case 'online_flip':
+      return (
+        <svg {...svgProps}>
+          <path
+            d="M14 18h12v-6M26 12l4 4-4 4M34 30H22v6m12-6-4-4 4-4"
+            stroke="currentColor"
+            strokeWidth={sw}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <rect x="10" y="16" width="28" height="16" rx="3" stroke="currentColor" strokeWidth={sw} />
+        </svg>
+      );
+    default:
+      return (
+        <svg {...svgProps}>
+          <circle cx="24" cy="24" r="14" stroke="currentColor" strokeWidth={sw} />
+        </svg>
+      );
+  }
+}
+
 function isAbortError(err: unknown): boolean {
   if (err instanceof DOMException && err.name === 'AbortError') return true;
   return typeof err === 'object' && err !== null && (err as { name?: string }).name === 'AbortError';
@@ -1575,7 +1631,13 @@ const Research: React.FC = () => {
   const brandQueryParam = searchParams.get('brand');
 
   const researchTab = useMemo<
-    'brand' | 'offline' | 'ai' | 'menswear-categories' | 'clothing-types' | 'seasonal'
+    | 'brand'
+    | 'offline'
+    | 'ai'
+    | 'menswear-categories'
+    | 'clothing-types'
+    | 'seasonal'
+    | 'sourced'
   >(() => {
     const t = searchParams.get('tab');
     if (
@@ -1583,7 +1645,8 @@ const Research: React.FC = () => {
       t === 'ai' ||
       t === 'menswear-categories' ||
       t === 'clothing-types' ||
-      t === 'seasonal'
+      t === 'seasonal' ||
+      t === 'sourced'
     )
       return t;
     return 'brand';
@@ -1634,7 +1697,14 @@ const Research: React.FC = () => {
 
   const setResearchTab = useCallback(
     (
-      tab: 'brand' | 'offline' | 'ai' | 'menswear-categories' | 'clothing-types' | 'seasonal'
+      tab:
+        | 'brand'
+        | 'offline'
+        | 'ai'
+        | 'menswear-categories'
+        | 'clothing-types'
+        | 'seasonal'
+        | 'sourced'
     ) => {
       setSearchParams(
         (prev) => {
@@ -1783,6 +1853,35 @@ const Research: React.FC = () => {
   const [seasonalInsights, setSeasonalInsights] = useState<SeasonalInsightsPayload | null>(null);
   const [seasonalInsightsLoading, setSeasonalInsightsLoading] = useState(false);
   const [seasonalInsightsError, setSeasonalInsightsError] = useState<string | null>(null);
+
+  type SourcedInsightWorstCategory = {
+    name: string;
+    soldCount: number;
+    inventoryCount: number;
+    profitMultiple: number | null;
+  };
+
+  type SourcedInsightsColumn = {
+    sourceKey: string;
+    displayLabel: string;
+    soldCount: number;
+    inventoryCount: number;
+    sellThroughRatePct: number;
+    profitMultiple: number | null;
+    topCategories: { name: string; count: number }[];
+    worstCategories: SourcedInsightWorstCategory[];
+    hasSalesData: boolean;
+  };
+
+  type SourcedInsightsPayload = {
+    columns: SourcedInsightsColumn[];
+    totalStockLines: number;
+    emptyMessage: string | null;
+  };
+
+  const [sourcedInsights, setSourcedInsights] = useState<SourcedInsightsPayload | null>(null);
+  const [sourcedInsightsLoading, setSourcedInsightsLoading] = useState(false);
+  const [sourcedInsightsError, setSourcedInsightsError] = useState<string | null>(null);
 
   type MenswearCategoryRow = {
     id: number;
@@ -2645,6 +2744,14 @@ const Research: React.FC = () => {
   }, [researchTab]);
 
   useEffect(() => {
+    if (researchTab !== 'sourced') {
+      setSourcedInsights(null);
+      setSourcedInsightsError(null);
+      setSourcedInsightsLoading(false);
+    }
+  }, [researchTab]);
+
+  useEffect(() => {
     if (researchTab !== 'seasonal') return;
     const ac = new AbortController();
     let cancelled = false;
@@ -2677,6 +2784,48 @@ const Research: React.FC = () => {
         setSeasonalInsightsError(friendlyApiUnreachableMessage(e));
       } finally {
         if (!cancelled) setSeasonalInsightsLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [researchTab]);
+
+  useEffect(() => {
+    if (researchTab !== 'sourced') return;
+    const ac = new AbortController();
+    let cancelled = false;
+    const load = async () => {
+      setSourcedInsightsLoading(true);
+      setSourcedInsightsError(null);
+      try {
+        const res = await fetch(apiUrl('/api/stock/sourced-insights'), { signal: ac.signal });
+        const data = await readJsonResponse<SourcedInsightsPayload>(res, 'sourced-insights');
+        if (cancelled) return;
+        const rawCols = Array.isArray(data.columns) ? data.columns : [];
+        setSourcedInsights({
+          columns: rawCols.map((col) => {
+            const c = col as SourcedInsightsColumn;
+            return {
+              ...c,
+              topCategories: Array.isArray(c.topCategories) ? c.topCategories : [],
+              worstCategories: Array.isArray(c.worstCategories) ? c.worstCategories : [],
+            };
+          }),
+          totalStockLines: Number(data.totalStockLines) || 0,
+          emptyMessage:
+            data.emptyMessage != null && String(data.emptyMessage).trim() !== ''
+              ? String(data.emptyMessage)
+              : null,
+        });
+      } catch (e) {
+        if (cancelled || isAbortError(e)) return;
+        setSourcedInsights(null);
+        setSourcedInsightsError(friendlyApiUnreachableMessage(e));
+      } finally {
+        if (!cancelled) setSourcedInsightsLoading(false);
       }
     };
     void load();
@@ -7296,6 +7445,17 @@ const Research: React.FC = () => {
         <button
           type="button"
           role="tab"
+          id="research-tab-sourced"
+          aria-selected={researchTab === 'sourced'}
+          aria-controls="research-panel-sourced"
+          className={`research-tab${researchTab === 'sourced' ? ' active' : ''}`}
+          onClick={() => setResearchTab('sourced')}
+        >
+          Sourced
+        </button>
+        <button
+          type="button"
+          role="tab"
           id="research-tab-offline"
           aria-selected={researchTab === 'offline'}
           aria-controls="research-panel-offline"
@@ -11764,6 +11924,126 @@ const Research: React.FC = () => {
                   </div>
                 </div>
               )}
+          </div>
+        </div>
+      )}
+
+      {researchTab === 'sourced' && (
+        <div
+          id="research-panel-sourced"
+          role="tabpanel"
+          aria-labelledby="research-tab-sourced"
+          className="research-tab-panel"
+        >
+          <div className="research-sourced-page">
+            {sourcedInsightsLoading && (
+              <p className="menswear-categories-muted">Loading sourced data…</p>
+            )}
+            {sourcedInsightsError && (
+              <div className="menswear-categories-error" role="alert">
+                {sourcedInsightsError}
+              </div>
+            )}
+            {!sourcedInsightsLoading && !sourcedInsightsError && sourcedInsights && (
+              <>
+                {sourcedInsights.emptyMessage ? (
+                  <div className="research-seasonal-banner" role="status">
+                    {sourcedInsights.emptyMessage}
+                  </div>
+                ) : null}
+                <div className="research-sourced-grid">
+                  {sourcedInsights.columns.map((col) => (
+                    <section
+                      key={col.sourceKey}
+                      className="research-sourced-col"
+                      aria-label={col.displayLabel}
+                    >
+                      <div className="research-sourced-col-head">
+                        <div
+                          className={`research-sourced-icon-wrap research-sourced-icon-wrap--${col.sourceKey}`}
+                        >
+                          <SourcedLocationInsightIcon sourceKey={col.sourceKey} />
+                        </div>
+                        <h3 className="research-seasonal-col-title">{col.displayLabel}</h3>
+                        <dl className="research-sourced-metrics">
+                          <div className="research-sourced-metric">
+                            <dt>Items sold</dt>
+                            <dd>{col.soldCount}</dd>
+                          </div>
+                          <div className="research-sourced-metric">
+                            <dt>In inventory</dt>
+                            <dd>{col.inventoryCount}</dd>
+                          </div>
+                          <div className="research-sourced-metric">
+                            <dt>Sell-through</dt>
+                            <dd>
+                              {formatAvoidStockSellRateLabel(col.inventoryCount, col.soldCount)}
+                            </dd>
+                          </div>
+                          <div className="research-sourced-metric">
+                            <dt>Profit multiple</dt>
+                            <dd title="Σ sale price ÷ Σ purchase price on sold lines with purchase price > 0">
+                              {col.profitMultiple != null && Number.isFinite(col.profitMultiple)
+                                ? formatSoldMultipleDisplay(col.profitMultiple)
+                                : '—'}
+                            </dd>
+                          </div>
+                        </dl>
+                      </div>
+                      <div className="research-seasonal-block research-sourced-block--top-categories">
+                        <h4 className="research-seasonal-block-title">Top 5 categories (sales)</h4>
+                        {col.hasSalesData && col.topCategories.length > 0 ? (
+                          <ol className="research-seasonal-list">
+                            {col.topCategories.map((row) => (
+                              <li key={row.name} className="research-seasonal-list-item">
+                                <span className="research-seasonal-list-name">{row.name}</span>
+                                <span className="research-seasonal-list-count">{row.count}</span>
+                              </li>
+                            ))}
+                          </ol>
+                        ) : (
+                          <p className="research-seasonal-empty" role="status">
+                            No sales for this source yet.
+                          </p>
+                        )}
+                      </div>
+                      <div className="research-seasonal-block research-sourced-block--worst-categories">
+                        <h4 className="research-seasonal-block-title">5 worst categories</h4>
+                        <p className="research-sourced-worst-hint">
+                          By category: lowest aggregate sale ÷ cost on sold lines (only lines with
+                          purchase recorded), then highest total purchase value still in stock.
+                        </p>
+                        {col.worstCategories.length > 0 ? (
+                          <ol className="research-sourced-worst-list">
+                            {col.worstCategories.map((wc, i) => (
+                              <li
+                                key={`${col.sourceKey}-worst-cat-${i}-${wc.name}`}
+                                className="research-sourced-worst-item"
+                              >
+                                <span className="research-sourced-worst-name">{wc.name}</span>
+                                <span className="research-sourced-worst-meta">
+                                  {wc.soldCount} sold · {wc.inventoryCount} in stock · sell-through{' '}
+                                  {formatAvoidStockSellRateLabel(wc.inventoryCount, wc.soldCount)}
+                                  {wc.profitMultiple != null && Number.isFinite(wc.profitMultiple)
+                                    ? ` · ${formatSoldMultipleDisplay(wc.profitMultiple)} (sold)`
+                                    : wc.soldCount > 0
+                                      ? ' · multiple — (sold)'
+                                      : ''}
+                                </span>
+                              </li>
+                            ))}
+                          </ol>
+                        ) : (
+                          <p className="research-seasonal-empty" role="status">
+                            No categories for this source.
+                          </p>
+                        )}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

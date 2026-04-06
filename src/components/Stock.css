@@ -86,33 +86,192 @@
   margin-bottom: 18px;
 }
 
-/* Row 1: name ~25%, brand, category, size, tag */
-.stock-new-entry-row-top {
+.stock-new-entry-top-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  width: 100%;
+  flex: 1 1 100%;
+  margin-bottom: 8px;
+}
+
+/* Row 1: create = close left, metrics right | edit = close+SKU, actions, comps+sales, delete right */
+.stock-new-entry-top-bar-row-1 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: flex-start;
+  gap: 12px;
+  width: 100%;
+}
+
+.stock-new-entry-top-bar-row-1:not(.stock-new-entry-top-bar-row-1--edit) .stock-new-entry-top-bar-left {
+  margin-right: auto;
+}
+
+.stock-new-entry-top-bar-row-1--edit {
+  align-items: center;
+  flex-wrap: nowrap;
+  row-gap: 10px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
+}
+
+.stock-new-entry-top-bar-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+}
+
+.stock-new-entry-top-bar-edit-end {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  margin-left: auto;
+  box-sizing: border-box;
+}
+
+.stock-new-entry-top-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
+  padding-bottom: 2px;
+}
+
+.stock-new-entry-top-bar-row-1--edit .stock-new-entry-top-bar-left {
+  padding-bottom: 0;
+}
+
+.stock-new-entry-top-bar-metrics {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
+  gap: 12px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: calc(100% - 3.5rem);
+  justify-items: end;
+  align-items: end;
+  box-sizing: border-box;
+}
+
+/* Flex (not grid) so comps + pipeline align on the same vertical center as action pills */
+.stock-new-entry-top-bar-row-1--edit .stock-new-entry-top-bar-metrics {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+}
+
+.stock-new-entry-top-bar-row-1--edit .stock-new-entry-top-bar-metrics > .new-entry-field {
+  flex: 0 1 auto;
+  align-self: center;
+  justify-content: center;
+  min-height: 0;
+}
+
+.stock-new-entry-top-bar-row-1--edit .stock-new-entry-top-bar-metrics > .stock-new-entry-top-bar-comps-field {
+  justify-self: auto;
+  width: auto;
+}
+
+.stock-new-entry-top-bar-row-1--edit .stock-new-entry-top-bar-metrics > .stock-new-entry-top-bar-pipeline {
+  justify-self: auto;
+  width: auto;
+  max-width: min(42vw, 380px);
+}
+
+.stock-new-entry-top-bar-row-1--edit .stock-new-entry-top-bar-comps {
+  min-height: 48px;
+  box-sizing: border-box;
+}
+
+.stock-new-entry-top-bar-metrics > .new-entry-field {
+  min-width: 0;
+}
+
+.stock-new-entry-top-bar-metrics > .stock-new-entry-top-bar-comps-field {
+  max-width: 168px;
+  width: 100%;
+  justify-self: end;
+}
+
+.stock-new-entry-top-bar-metrics > .stock-new-entry-top-bar-pipeline {
+  width: 100%;
+  max-width: 100%;
+  justify-self: stretch;
+}
+
+/* Row 2: name / brand / category / size / tag (full width; edit actions live on row 1) */
+.stock-new-entry-top-bar-row-2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+}
+
+.stock-new-entry-top-bar-row-2 .stock-new-entry-top-bar-fields {
+  flex: 1 1 100%;
+  max-width: 100%;
+}
+
+/* Row 2 fields: wider name, then brand / category / size / tag share rest at full width */
+.stock-new-entry-top-bar-fields {
   display: grid;
   grid-template-columns:
-    minmax(0, 25%)
-    minmax(0, 1.05fr)
-    minmax(0, 1.05fr)
-    minmax(0, 110px)
-    minmax(0, 1.2fr);
-  gap: 16px;
+    minmax(0, 1.55fr)
+    minmax(0, 1fr)
+    minmax(0, 1fr)
+    minmax(0, 1fr)
+    minmax(0, 1fr);
+  gap: 12px;
+  flex: 1 1 0;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   align-items: start;
   box-sizing: border-box;
 }
 
-/* Row 2: purchase, projected, date (equal 1fr) | Avg/Top 168px | pipeline (unchanged max track) */
+.stock-new-entry-top-bar-fields > .new-entry-field {
+  max-width: none;
+  min-width: 0;
+}
+
+.stock-new-entry-top-bar-pipeline {
+  max-width: none;
+  min-width: 0;
+}
+
+.stock-new-entry-top-bar-pipeline .stock-new-entry-row2-pipeline-box {
+  justify-content: flex-start;
+}
+
+.stock-new-entry-top-bar-pipeline .stock-edit-metrics-pipeline {
+  text-align: left;
+}
+
+/* Name / size / tag live in .stock-new-entry-top-bar-fields with brand & category */
+
+/* purchase, projected, date, sourced — equal width columns, full row */
 .stock-new-entry-row-prices {
   flex: 1 1 100%;
   width: 100%;
   max-width: 100%;
   display: grid;
-  grid-template-columns:
-    minmax(0, 1fr)
-    minmax(0, 1fr)
-    minmax(0, 1fr)
-    168px
-    minmax(200px, min(42vw, 400px));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
   align-items: start;
   box-sizing: border-box;
@@ -124,25 +283,7 @@
   min-width: 0;
 }
 
-.stock-new-entry-row2-comps-column {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 8px;
-  min-width: 0;
-  width: 100%;
-  max-width: 168px;
-  box-sizing: border-box;
-}
-
-.stock-new-entry-row2-comps-column-spacer {
-  min-height: 32px;
-  width: 100%;
-  box-sizing: border-box;
-  display: block;
-}
-
-.stock-new-entry-row2-comps {
+.stock-new-entry-top-bar-comps {
   flex: 0 0 auto;
   width: 100%;
   max-width: 168px;
@@ -158,7 +299,7 @@
   justify-content: center;
 }
 
-.stock-new-entry-row2-comps .stock-edit-brand-category-comps__muted {
+.stock-new-entry-top-bar-comps .stock-edit-brand-category-comps__muted {
   margin: 0;
   text-align: center;
   white-space: nowrap;
@@ -166,7 +307,7 @@
   text-overflow: ellipsis;
 }
 
-.stock-new-entry-row2-comps .stock-edit-brand-category-comps__stack {
+.stock-new-entry-top-bar-comps .stock-edit-brand-category-comps__stack {
   flex-direction: column;
   flex-wrap: nowrap;
   align-items: center;
@@ -175,16 +316,28 @@
   gap: 6px;
 }
 
-.stock-new-entry-row2-comps .stock-edit-brand-category-comps__stat-line {
+.stock-new-entry-top-bar-comps .stock-edit-brand-category-comps__stat-line {
   justify-content: center;
   gap: 8px;
   width: 100%;
   flex: 0 1 auto;
 }
 
-.stock-new-entry-row2-comps .stock-edit-brand-category-comps__muted,
-.stock-new-entry-row2-comps .stock-edit-brand-category-comps__stat-line {
+.stock-new-entry-top-bar-comps .stock-edit-brand-category-comps__muted,
+.stock-new-entry-top-bar-comps .stock-edit-brand-category-comps__stat-line {
   font-size: 0.72rem;
+}
+
+.stock-new-entry-top-bar-metrics .stock-new-entry-top-bar-comps .stock-edit-brand-category-comps__muted {
+  text-align: right;
+}
+
+.stock-new-entry-top-bar-metrics .stock-new-entry-top-bar-comps .stock-edit-brand-category-comps__stack {
+  align-items: flex-end;
+}
+
+.stock-new-entry-top-bar-metrics .stock-new-entry-top-bar-comps .stock-edit-brand-category-comps__stat-line {
+  justify-content: flex-end;
 }
 
 .stock-new-entry-row2-pipeline {
@@ -223,8 +376,7 @@
   min-width: 0;
 }
 
-.stock-new-entry-row-top .stock-new-entry-name-with-close,
-.stock-new-entry-row-top > .new-entry-field {
+.stock-new-entry-top-bar-fields > .new-entry-field {
   flex: unset;
   max-width: none;
   min-width: 0;
@@ -265,8 +417,8 @@
     minmax(0, 1fr)
     minmax(0, 1fr)
     minmax(0, 1fr)
-    168px
-    minmax(200px, min(42vw, 400px));
+    minmax(120px, 170px)
+    168px;
 }
 
 .stock-new-entry-row-ids:not(.stock-new-entry-row-ids--edit) > .stock-new-entry-row3-save {
@@ -480,49 +632,58 @@
 }
 
 @media (max-width: 1024px) {
-  .stock-new-entry-row-top {
+  .stock-new-entry-top-bar-row-1:not(.stock-new-entry-top-bar-row-1--edit) .stock-new-entry-top-bar-left {
+    margin-right: 0;
+  }
+
+  .stock-new-entry-top-bar-row-1:not(.stock-new-entry-top-bar-row-1--edit) .stock-new-entry-top-bar-metrics {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
+    width: 100%;
+    max-width: 100%;
+    flex: 1 1 100%;
+    justify-items: end;
+  }
+
+  .stock-new-entry-top-bar-row-1:not(.stock-new-entry-top-bar-row-1--edit) .stock-new-entry-top-bar-metrics > .stock-new-entry-top-bar-pipeline {
+    grid-column: auto;
+  }
+
+  .stock-new-entry-top-bar-row-1:not(.stock-new-entry-top-bar-row-1--edit) .stock-new-entry-top-bar-metrics > .stock-new-entry-top-bar-comps-field {
+    justify-self: end;
+    max-width: 168px;
+    width: 100%;
+  }
+
+  .stock-new-entry-top-bar-fields {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .stock-new-entry-row-top .stock-new-entry-name-with-close {
+  .stock-new-entry-top-bar-fields > .stock-new-entry-name-field {
     grid-column: 1 / -1;
   }
 
-  /* Row1: purchase | projected | date; row2: Avg/Top (168px) | pipeline */
-  .stock-new-entry-row-prices {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    grid-auto-rows: auto;
-  }
-
-  .stock-new-entry-row-prices > :nth-child(1) {
+  .stock-new-entry-top-bar-fields > .stock-new-entry-brand-field {
     grid-column: 1;
-    grid-row: 1;
+    grid-row: 2;
   }
 
-  .stock-new-entry-row-prices > :nth-child(2) {
+  .stock-new-entry-top-bar-fields > .stock-new-entry-category-field {
     grid-column: 2;
-    grid-row: 1;
-    min-width: 0;
+    grid-row: 2;
   }
 
-  .stock-new-entry-row-prices > :nth-child(3) {
-    grid-column: 3;
-    grid-row: 1;
-    min-width: 0;
-  }
-
-  .stock-new-entry-row-prices > :nth-child(4) {
+  .stock-new-entry-top-bar-fields > .stock-new-entry-size-field {
     grid-column: 1;
-    grid-row: 2;
-    justify-self: start;
-    width: 168px;
-    max-width: 168px;
+    grid-row: 3;
   }
 
-  .stock-new-entry-row-prices > :nth-child(5) {
-    grid-column: 2 / -1;
-    grid-row: 2;
-    min-width: 0;
+  .stock-new-entry-top-bar-fields > .stock-new-entry-tags-field {
+    grid-column: 2;
+    grid-row: 3;
+  }
+
+  .stock-new-entry-row-prices {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .stock-new-entry-row-prices .new-entry-field--stock-compact-price,
@@ -589,7 +750,16 @@
 }
 
 @media (max-width: 560px) {
-  .stock-new-entry-row-top {
+  .stock-new-entry-top-bar-fields > .stock-new-entry-name-field,
+  .stock-new-entry-top-bar-fields > .stock-new-entry-brand-field,
+  .stock-new-entry-top-bar-fields > .stock-new-entry-category-field,
+  .stock-new-entry-top-bar-fields > .stock-new-entry-size-field,
+  .stock-new-entry-top-bar-fields > .stock-new-entry-tags-field {
+    grid-column: 1 / -1;
+    grid-row: auto;
+  }
+
+  .stock-new-entry-top-bar-fields {
     grid-template-columns: 1fr;
   }
 
@@ -597,15 +767,50 @@
     grid-template-columns: 1fr;
   }
 
-  .stock-new-entry-row2-comps-column {
+  .stock-new-entry-top-bar-row-1:not(.stock-new-entry-top-bar-row-1--edit) .stock-new-entry-top-bar-metrics {
+    grid-template-columns: 1fr;
+    flex-basis: 100%;
+    width: 100%;
+    max-width: 100%;
+    margin-left: 0;
+    justify-items: stretch;
+  }
+
+  .stock-new-entry-top-bar-row-1:not(.stock-new-entry-top-bar-row-1--edit) .stock-new-entry-top-bar-metrics > .stock-new-entry-top-bar-pipeline {
+    grid-column: auto;
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .stock-new-entry-top-bar-row-1:not(.stock-new-entry-top-bar-row-1--edit) .stock-new-entry-top-bar-metrics > .stock-new-entry-top-bar-comps-field {
+    justify-self: stretch;
+    max-width: none;
+  }
+
+  .stock-new-entry-top-bar-row-1--edit {
+    flex-wrap: wrap;
+  }
+
+  .stock-new-entry-top-bar-row-1--edit .stock-new-entry-top-bar-metrics {
+    flex: 1 1 100%;
+    justify-content: center;
     max-width: 100%;
   }
 
-  .stock-new-entry-row2-comps {
+  .stock-new-entry-top-bar-row-1--edit .stock-new-entry-top-bar-metrics > .stock-new-entry-top-bar-pipeline {
     max-width: 100%;
   }
 
-  .stock-new-entry-row2-comps .stock-edit-brand-category-comps__muted {
+  .stock-new-entry-top-bar-fields {
+    flex-basis: 100%;
+    width: 100%;
+  }
+
+  .stock-new-entry-top-bar-comps {
+    max-width: 100%;
+  }
+
+  .stock-new-entry-top-bar-comps .stock-edit-brand-category-comps__muted {
     white-space: normal;
   }
 
@@ -698,7 +903,8 @@
   box-sizing: border-box;
 }
 
-.stock-edit-row-1 .stock-instagram-ai-button.stock-edit-row-1-instagram {
+.stock-edit-row-1 .stock-instagram-ai-button.stock-edit-row-1-instagram,
+.stock-new-entry-top-bar-row-1--edit .stock-instagram-ai-button.stock-edit-row-1-instagram {
   align-self: center;
   flex: 0 0 auto;
   padding: 14px 16px;
@@ -750,7 +956,8 @@
   flex-shrink: 0;
 }
 
-.stock-edit-row-1 .stock-image-prompt-btn.stock-edit-row-1-image-prompt {
+.stock-edit-row-1 .stock-image-prompt-btn.stock-edit-row-1-image-prompt,
+.stock-new-entry-top-bar-row-1--edit .stock-image-prompt-btn.stock-edit-row-1-image-prompt {
   align-self: center;
   flex: 0 0 auto;
   padding: 14px 16px;
@@ -1242,7 +1449,8 @@ button.stock-close-circle-btn:disabled {
 }
 
 /* Pill + icon — same row as Image / Instagram prompts; green when actionable */
-.stock-edit-row-1 .stock-add-to-order-btn.stock-edit-row-1-add-to-order {
+.stock-edit-row-1 .stock-add-to-order-btn.stock-edit-row-1-add-to-order,
+.stock-new-entry-top-bar-row-1--edit .stock-add-to-order-btn.stock-edit-row-1-add-to-order {
   flex: 0 0 auto;
   align-self: center;
   display: inline-flex;
@@ -1269,7 +1477,8 @@ button.stock-close-circle-btn:disabled {
   line-height: 1.2;
 }
 
-.stock-edit-row-1 .stock-add-to-order-btn.stock-edit-row-1-add-to-order:hover:not(:disabled) {
+.stock-edit-row-1 .stock-add-to-order-btn.stock-edit-row-1-add-to-order:hover:not(:disabled),
+.stock-new-entry-top-bar-row-1--edit .stock-add-to-order-btn.stock-edit-row-1-add-to-order:hover:not(:disabled) {
   background: rgba(140, 255, 195, 0.32);
   border-color: rgba(140, 255, 195, 0.48);
   color: #b8ffd9;
@@ -1283,7 +1492,8 @@ button.stock-close-circle-btn:disabled {
   pointer-events: none;
 }
 
-.stock-edit-row-1 .stock-add-to-order-icon {
+.stock-edit-row-1 .stock-add-to-order-icon,
+.stock-new-entry-top-bar-row-1--edit .stock-add-to-order-icon {
   width: 18px;
   height: 18px;
 }
@@ -1320,7 +1530,9 @@ button.stock-close-circle-btn:disabled {
   box-shadow: none;
 }
 
-.stock-edit-row-1 .stock-add-to-order-btn.stock-edit-row-1-add-to-order:disabled:not(.stock-add-to-order-btn--adding):not(.stock-add-to-order-btn--in-orders) {
+.stock-edit-row-1 .stock-add-to-order-btn.stock-edit-row-1-add-to-order:disabled:not(.stock-add-to-order-btn--adding):not(.stock-add-to-order-btn--in-orders),
+.stock-new-entry-top-bar-row-1--edit
+  .stock-add-to-order-btn.stock-edit-row-1-add-to-order:disabled:not(.stock-add-to-order-btn--adding):not(.stock-add-to-order-btn--in-orders) {
   opacity: 0.5;
   cursor: not-allowed;
   transform: none;
@@ -1328,7 +1540,8 @@ button.stock-close-circle-btn:disabled {
 }
 
 /* Edit row close: explicit circle (44px); not mixed with pill-style .cancel-button padding */
-.stock-edit-row-1 .stock-edit-row-1-close-btn.stock-close-circle-btn--edit {
+.stock-edit-row-1 .stock-edit-row-1-close-btn.stock-close-circle-btn--edit,
+.stock-new-entry-top-bar-row-1--edit .stock-close-circle-btn.stock-close-circle-btn--edit {
   flex: 0 0 auto;
   min-width: 44px;
   width: 44px;
