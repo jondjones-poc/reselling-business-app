@@ -468,7 +468,12 @@ const handleBrandTagImagesGet = async (req, res) => {
        FROM brand_tag_image
        WHERE brand_id = $1
        ORDER BY
-         CASE WHEN image_kind = 'fake_check' THEN 1 ELSE 0 END,
+         CASE image_kind
+           WHEN 'tag' THEN 0
+           WHEN 'fake_check' THEN 1
+           WHEN 'logo' THEN 2
+           ELSE 3
+         END,
          CASE quality_tier
            WHEN 'good' THEN 0
            WHEN 'average' THEN 1
@@ -546,8 +551,12 @@ const handleBrandTagImagesPost = async (req, res) => {
       typeof req.body.caption === 'string' ? req.body.caption.trim().slice(0, 500) : null;
 
     const kindRaw = req.body?.imageKind ?? req.body?.image_kind;
-    const imageKind =
-      typeof kindRaw === 'string' && kindRaw.trim() === 'fake_check' ? 'fake_check' : 'tag';
+    let imageKind = 'tag';
+    if (typeof kindRaw === 'string') {
+      const k = kindRaw.trim();
+      if (k === 'fake_check' || k === 'fake') imageKind = 'fake_check';
+      else if (k === 'logo') imageKind = 'logo';
+    }
 
     const qualityTierRaw = req.body?.qualityTier ?? req.body?.quality_tier;
     let qualityTier = 'average';
@@ -568,6 +577,24 @@ const handleBrandTagImagesPost = async (req, res) => {
             : 'jpg';
     const slug = slugForBrandTagStorage(brandNameForFile);
     const storagePath = `${brandId}/${slug}-${imageRowId}.${ext}`;
+
+    if (imageKind === 'logo') {
+      const existingLogo = await pool.query(
+        `SELECT id, storage_path FROM brand_tag_image WHERE brand_id = $1 AND image_kind = 'logo'`,
+        [brandId]
+      );
+      for (const oldRow of existingLogo.rows ?? []) {
+        const sp = oldRow.storage_path;
+        if (sp) {
+          try {
+            await sb.storage.from(BRAND_TAG_IMAGE_BUCKET).remove([String(sp)]);
+          } catch (e) {
+            console.warn('Brand logo storage remove failed (continuing):', e?.message || e);
+          }
+        }
+        await pool.query('DELETE FROM brand_tag_image WHERE id = $1', [oldRow.id]);
+      }
+    }
 
     const { error: uploadError } = await sb.storage
       .from(BRAND_TAG_IMAGE_BUCKET)
@@ -652,8 +679,8 @@ const handleBrandTagImagesPatch = async (req, res) => {
         return res.status(400).json({ error: 'imageKind cannot be null' });
       }
       const k = String(kindRaw).trim();
-      if (k !== 'tag' && k !== 'fake_check') {
-        return res.status(400).json({ error: 'imageKind must be "tag" or "fake_check"' });
+      if (k !== 'tag' && k !== 'fake_check' && k !== 'logo') {
+        return res.status(400).json({ error: 'imageKind must be "tag", "fake_check", or "logo"' });
       }
       imageKind = k;
     }
@@ -695,6 +722,29 @@ const handleBrandTagImagesPatch = async (req, res) => {
 
     if (!captionProvided && imageKind === null && qualityTier === null) {
       return res.status(400).json({ error: 'Provide caption, imageKind, and/or qualityTier' });
+    }
+
+    if (imageKind === 'logo') {
+      const sb = getSupabaseAdmin();
+      const cur = await pool.query('SELECT brand_id FROM brand_tag_image WHERE id = $1', [id]);
+      if (!cur.rowCount) {
+        return res.status(404).json({ error: 'Not found' });
+      }
+      const brandIdForRow = cur.rows[0].brand_id;
+      const others = await pool.query(
+        `SELECT id, storage_path FROM brand_tag_image WHERE brand_id = $1 AND image_kind = 'logo' AND id <> $2`,
+        [brandIdForRow, id]
+      );
+      for (const oldRow of others.rows ?? []) {
+        if (sb && oldRow.storage_path) {
+          try {
+            await sb.storage.from(BRAND_TAG_IMAGE_BUCKET).remove([String(oldRow.storage_path)]);
+          } catch (e) {
+            console.warn('Brand logo patch: storage remove failed:', e?.message || e);
+          }
+        }
+        await pool.query('DELETE FROM brand_tag_image WHERE id = $1', [oldRow.id]);
+      }
     }
 
     if (qualityTier !== null) {
@@ -1248,9 +1298,8 @@ function mapEbaySoldCacheRow(row) {
 async function resolveBrandTagImageIdForCache(db, brandId) {
   const r = await db.query(
     `SELECT id FROM brand_tag_image
-     WHERE brand_id = $1
+     WHERE brand_id = $1 AND image_kind = 'tag'
      ORDER BY
-       CASE WHEN image_kind = 'fake_check' THEN 1 ELSE 0 END,
        CASE quality_tier
          WHEN 'good' THEN 0
          WHEN 'average' THEN 1

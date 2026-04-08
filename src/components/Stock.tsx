@@ -45,6 +45,7 @@ interface BrandTagImageRow {
   brand_id: number;
   public_url?: string | null;
   caption?: string | null;
+  image_kind?: string | null;
 }
 
 interface CategorySizeRow {
@@ -233,11 +234,35 @@ function buildStockInstagramAskAiPrompt(input: {
   return lines.join('\n');
 }
 
-function buildStockListingImageBackgroundPrompt(brandName: string): string {
+function buildStockListingImageBackgroundPrompt(
+  brandName: string,
+  logoReferenceUrl?: string | null
+): string {
   const brand =
     brandName.trim() && brandName.trim() !== '(not set)'
       ? brandName.trim()
       : '(specify the clothing brand — not set on this stock item)';
+  const logoUrl = typeof logoReferenceUrl === 'string' ? logoReferenceUrl.trim() : '';
+  const logoPreamble = logoUrl
+    ? [
+        `Use **this specific** **${brand}** logo — not a generic mark, redraw, or guess. The example below is the exact asset to replicate (open the URL to view or download; attach it in this chat next to my product photo if your tool supports multiple images):`,
+        '',
+        `Example logo image URL:\n${logoUrl}`,
+        '',
+      ]
+    : [];
+  const step4 = logoUrl
+    ? [
+        `4. Composite **that same** logo from the example URL above onto the listing image.`,
+        '   - Match it as closely as possible (shape, proportions, colours, typography). Do not invent or substitute a different logo.',
+        '   - Prefer a thin, tall (vertical) lock-up when the example allows; otherwise follow the example layout.',
+        '   - The logo must be at most **12% of the total image height**.',
+      ]
+    : [
+        `4. Add the **${brand}** clothing brand logo.`,
+        '   - Use a thin, tall (vertical) lock-up rather than a wide horizontal logo if multiple layouts exist.',
+        '   - The logo must be at most **12% of the total image height**.',
+      ];
   return [
     'I will upload a product photo of a clothing item. Use my upload as the source image.',
     '',
@@ -246,12 +271,16 @@ function buildStockListingImageBackgroundPrompt(brandName: string): string {
     '1. Remove the background so the garment is cleanly cut out.',
     '2. Add a light, neutral grey gradient background, slightly brighter toward the centre (focal emphasis in the middle).',
     '3. Keep clear space on both sides of the item; centre the garment if needed for a balanced composition.',
-    `4. Add the **${brand}** clothing brand logo.`,
-    '   - Use a thin, tall (vertical) lock-up rather than a wide horizontal logo if multiple layouts exist.',
-    '   - The logo must be at most **12% of the total image height**.',
+    ...logoPreamble,
+    ...step4,
     '5. Make the clothing item as large as possible within the frame using the remaining space after the logo and margins — the product should dominate; the logo stays secondary.',
     '',
     'Deliver one polished listing-ready image suitable for marketplaces.',
+    '',
+    'Important — accuracy for resale:',
+    '- Do **not** alter the item itself: no recolouring, “improving” fabric, removing damage, changing shape, or swapping parts of the garment.',
+    '- If a **stand**, hanger, mannequin, or similar support is visible, **keep it as-is** and do **not** remove, replace, or redraw it (do not invent a different support).',
+    '- This image will be used **to sell the actual item**; misrepresenting the product would **breach marketplace selling guidelines** (accurate photos only). Background and logo treatment must not change how the item honestly appears.',
   ].join('\n');
 }
 
@@ -623,7 +652,8 @@ const Stock: React.FC = () => {
         setBrandTagImages(rows);
         setCreateForm((prev) => {
           if (!prev.brand_tag_image_id?.trim()) return prev;
-          const ok = rows.some((r) => String(r.id) === String(prev.brand_tag_image_id));
+          const row = rows.find((r) => String(r.id) === String(prev.brand_tag_image_id));
+          const ok = row != null && row.image_kind !== 'logo';
           return ok ? prev : { ...prev, brand_tag_image_id: '' };
         });
       } catch (e) {
@@ -1966,17 +1996,21 @@ const Stock: React.FC = () => {
     const brandName =
       brands.find((b) => String(b.id) === String(createForm.brand_id))?.brand_name?.trim() ||
       '(not set)';
-    const text = buildStockListingImageBackgroundPrompt(brandName);
+    const logoRow = brandTagImages.find((t) => t.image_kind === 'logo');
+    const logoUrl = logoRow?.public_url?.trim() || null;
+    const text = buildStockListingImageBackgroundPrompt(brandName, logoUrl);
     try {
       await navigator.clipboard.writeText(text);
       setSuccessMessage(
-        'Image Prompt copied — paste into ChatGPT, then upload your photo when asked.'
+        logoUrl
+          ? 'Image Prompt copied — includes your brand logo URL; paste into your AI tool, then attach your product photo and the logo image if supported.'
+          : 'Image Prompt copied — paste into ChatGPT, then upload your photo when asked.'
       );
       window.setTimeout(() => setSuccessMessage(null), 5000);
     } catch {
       setError('Could not copy to clipboard.');
     }
-  }, [editingRowId, brands, createForm.brand_id]);
+  }, [editingRowId, brands, createForm.brand_id, brandTagImages]);
 
   const handleAddToOrders = async () => {
     if (!editingRowId || editingRowInOrders || addingToOrder) return;
@@ -2751,7 +2785,9 @@ const Stock: React.FC = () => {
                                 <span className="stock-brand-tag-dropdown-row-thumb stock-brand-tag-dropdown-row-thumb--none" />
                                 <span>None</span>
                               </button>
-                              {brandTagImages.map((t) => {
+                              {brandTagImages
+                                .filter((t) => t.image_kind !== 'logo')
+                                .map((t) => {
                                 const picked = String(createForm.brand_tag_image_id) === String(t.id);
                                 return (
                                   <button

@@ -1518,7 +1518,7 @@ interface TypeaheadResult {
   categories?: CategoryItem[];
 }
 
-type BrandTagImageKind = 'tag' | 'fake_check';
+type BrandTagImageKind = 'tag' | 'fake_check' | 'logo';
 
 type BrandTagQualityTier = 'good' | 'average' | 'poor';
 
@@ -1579,7 +1579,11 @@ function normalizeBrandTagImageRow(raw: unknown): BrandTagImageRow {
   const r = raw as Record<string, unknown>;
   const kindRaw = r.image_kind;
   const image_kind: BrandTagImageKind =
-    kindRaw === 'fake_check' || kindRaw === 'fake' ? 'fake_check' : 'tag';
+    kindRaw === 'fake_check' || kindRaw === 'fake'
+      ? 'fake_check'
+      : kindRaw === 'logo'
+        ? 'logo'
+        : 'tag';
   const base = r as unknown as BrandTagImageRow;
   const qtRaw = r.quality_tier ?? r.qualityTier;
   return {
@@ -1595,8 +1599,10 @@ function sortBrandTagImages(
 ): BrandTagImageRow[] {
   const badFirst = qualityOrder === 'bad_first';
   return [...rows].sort((a, b) => {
-    const fa = a.image_kind === 'fake_check' ? 1 : 0;
-    const fb = b.image_kind === 'fake_check' ? 1 : 0;
+    const kindRank = (k: BrandTagImageKind) =>
+      k === 'fake_check' ? 1 : k === 'logo' ? 2 : 0;
+    const fa = kindRank(a.image_kind);
+    const fb = kindRank(b.image_kind);
     if (fa !== fb) return fa - fb;
     const qa = qualityTierSortRank(a.quality_tier, badFirst);
     const qb = qualityTierSortRank(b.quality_tier, badFirst);
@@ -1706,11 +1712,25 @@ const Research: React.FC = () => {
         | 'seasonal'
         | 'sourced'
     ) => {
+      if (tab === 'brand') {
+        brandTabInputUserEditRef.current = false;
+        setBrandTagBrandId('');
+        setBrandTabQuery('');
+        setBrandTabTypeaheadOpen(false);
+        setBrandCreateOpen(false);
+        setBrandCreateError(null);
+      }
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
           if (tab === 'brand') {
             next.delete('tab');
+            next.delete('brand');
+            next.delete('menswearCategoryId');
+            next.delete('menswearBrandId');
+            next.delete('clothingTypeId');
+            next.delete('clothingTypeBrandId');
+            next.delete('mcPanel');
           } else {
             next.set('tab', tab);
           }
@@ -2191,6 +2211,7 @@ const Research: React.FC = () => {
   /** Set when API reports storageConfigured: false (usually missing Supabase env on production API). */
   const [brandTagStorageWarning, setBrandTagStorageWarning] = useState<string | null>(null);
   const [brandTagUploading, setBrandTagUploading] = useState(false);
+  const [brandLogoUploading, setBrandLogoUploading] = useState(false);
   const [brandTagCaption, setBrandTagCaption] = useState('');
   const [brandTagNewImageKind, setBrandTagNewImageKind] = useState<BrandTagImageKind>('tag');
   const [brandTagEditingId, setBrandTagEditingId] = useState<number | null>(null);
@@ -2202,8 +2223,8 @@ const Research: React.FC = () => {
   const [brandTagQualityMenuOpen, setBrandTagQualityMenuOpen] = useState(false);
   const brandTagQualityMenuRef = useRef<HTMLDivElement>(null);
   const [brandTagAddPanelOpen, setBrandTagAddPanelOpen] = useState(false);
-  /** When Add info panel is open: choose sub-flow, then image upload or brand info form. */
-  const [brandTagAddSubMode, setBrandTagAddSubMode] = useState<'pick' | 'image' | 'info'>('pick');
+  /** When add panel is open: tag image upload or brand description / website / notes. */
+  const [brandTagAddSubMode, setBrandTagAddSubMode] = useState<'image' | 'info'>('image');
   const [brandWebsiteUrlDraft, setBrandWebsiteUrlDraft] = useState('');
   const [brandBuyingNotesBuyDraft, setBrandBuyingNotesBuyDraft] = useState('');
   const [brandBuyingNotesAvoidDraft, setBrandBuyingNotesAvoidDraft] = useState('');
@@ -5374,7 +5395,7 @@ const Research: React.FC = () => {
     setBrandTagEditKind('tag');
     setBrandTagNewImageKind('tag');
     setBrandTagAddPanelOpen(false);
-    setBrandTagAddSubMode('pick');
+    setBrandTagAddSubMode('image');
     setBrandWebsiteUrlDraft('');
     setBrandBuyingNotesBuyDraft('');
     setBrandBuyingNotesAvoidDraft('');
@@ -5866,6 +5887,11 @@ const Research: React.FC = () => {
     [brandTagImages, brandTagQualitySort]
   );
 
+  const brandLogoRow = useMemo(
+    () => brandTagImages.find((i) => i.image_kind === 'logo'),
+    [brandTagImages]
+  );
+
   const brandStockBarChartData = useMemo(() => {
     const s = brandStockSummary;
     if (!s) return null;
@@ -6113,8 +6139,84 @@ const Research: React.FC = () => {
     }
   };
 
-  const handleDeleteBrandTagImage = async (imageId: number) => {
-    if (!window.confirm('Remove this example tag image?')) {
+  const handleBrandLogoFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !brandTagBrandId) {
+      return;
+    }
+
+    setBrandLogoUploading(true);
+    setBrandTagError(null);
+    try {
+      const formData = new FormData();
+      formData.append('brandId', String(brandTagBrandId));
+      formData.append('image', file);
+      formData.append('imageKind', 'logo');
+
+      const response = await fetch(apiUrl('/api/brandTagImages'), {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await readJsonResponse<BrandTagImageRow & { error?: string }>(
+        response,
+        'brandTagImages upload logo'
+      );
+      const normalized = normalizeBrandTagImageRow(data);
+      setBrandTagImages((prev) => [...prev.filter((r) => r.image_kind !== 'logo'), normalized]);
+    } catch (err: unknown) {
+      setBrandTagError(friendlyApiUnreachableMessage(err));
+    } finally {
+      setBrandLogoUploading(false);
+    }
+  };
+
+  const closeBrandTagAddPanel = useCallback(() => {
+    setBrandWebsiteUrlDraft('');
+    setBrandBuyingNotesBuyDraft('');
+    setBrandBuyingNotesAvoidDraft('');
+    setBrandTagCaption('');
+    setBrandTagNewImageKind('tag');
+    setBrandTagAddPanelOpen(false);
+  }, []);
+
+  const handleToggleBrandTagImagePanel = useCallback(() => {
+    if (brandTagAddPanelOpen && brandTagAddSubMode === 'image') {
+      closeBrandTagAddPanel();
+      return;
+    }
+    setBrandTagCaption('');
+    setBrandTagNewImageKind('tag');
+    setBrandTagAddSubMode('image');
+    setBrandTagAddPanelOpen(true);
+  }, [brandTagAddPanelOpen, brandTagAddSubMode, closeBrandTagAddPanel]);
+
+  const handleToggleEditBrandDescriptionPanel = useCallback(() => {
+    if (brandTagAddPanelOpen && brandTagAddSubMode === 'info') {
+      closeBrandTagAddPanel();
+      return;
+    }
+    const b = brandsWithWebsites.find((x) => x.id === brandTagBrandId);
+    if (b) {
+      setBrandWebsiteUrlDraft(b.brand_website?.trim() ?? '');
+      setBrandBuyingNotesBuyDraft(b.things_to_buy?.trim() ?? '');
+      setBrandBuyingNotesAvoidDraft(b.things_to_avoid?.trim() ?? '');
+    }
+    setBrandTagAddSubMode('info');
+    setBrandTagAddPanelOpen(true);
+  }, [
+    brandTagAddPanelOpen,
+    brandTagAddSubMode,
+    brandTagBrandId,
+    brandsWithWebsites,
+    closeBrandTagAddPanel,
+  ]);
+
+  const handleDeleteBrandTagImage = async (
+    imageId: number,
+    confirmMessage = 'Remove this example tag image?'
+  ) => {
+    if (!window.confirm(confirmMessage)) {
       return;
     }
     setBrandTagError(null);
@@ -7624,24 +7726,61 @@ const Research: React.FC = () => {
                   <div className="brand-tag-examples-brand-toolbar-actions">
                     <button
                       type="button"
-                      className="brand-tag-examples-add-info-btn brand-tag-examples-toolbar-btn"
-                      onClick={() => {
-                        setBrandTagAddPanelOpen((open) => {
-                          if (open) {
-                            setBrandTagAddSubMode('pick');
-                            setBrandWebsiteUrlDraft('');
-                            setBrandBuyingNotesBuyDraft('');
-                            setBrandBuyingNotesAvoidDraft('');
-                            setBrandTagCaption('');
-                            setBrandTagNewImageKind('tag');
-                          }
-                          return !open;
-                        });
-                      }}
-                      aria-expanded={brandTagAddPanelOpen}
+                      className="brand-research-new-brand-icon-btn"
+                      aria-label="Add new tag image"
+                      title="Add tag image"
+                      aria-expanded={brandTagAddPanelOpen && brandTagAddSubMode === 'image'}
                       aria-controls="brand-tag-add-panel"
+                      onClick={handleToggleBrandTagImagePanel}
                     >
-                      {brandTagAddPanelOpen ? 'Close' : 'Add info'}
+                      <svg
+                        width="22"
+                        height="22"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        xmlns="http://www.w3.org/2000/svg"
+                        aria-hidden
+                      >
+                        <path
+                          d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      className="brand-research-new-brand-icon-btn"
+                      aria-label="Edit brand description"
+                      title="Edit description"
+                      aria-expanded={brandTagAddPanelOpen && brandTagAddSubMode === 'info'}
+                      aria-controls="brand-tag-edit-description-panel"
+                      onClick={handleToggleEditBrandDescriptionPanel}
+                    >
+                      <svg
+                        width="22"
+                        height="22"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        xmlns="http://www.w3.org/2000/svg"
+                        aria-hidden
+                      >
+                        <path
+                          d="M4 7h8M4 11h7M4 15h6"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                        />
+                        <path
+                          d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
                     </button>
                   </div>
                 )}
@@ -7697,6 +7836,23 @@ const Research: React.FC = () => {
                 </div>
               )}
             </div>
+            {brandTagBrandId !== '' && (() => {
+              const selBrand = brandsWithWebsites.find((x) => x.id === brandTagBrandId);
+              if (!selBrand) return null;
+              const title = (selBrand.brand_name ?? '').trim() || 'Brand';
+              return (
+                <div className="brand-research-selected-brand-heading-row">
+                  {brandLogoRow?.public_url ? (
+                    <img
+                      src={brandLogoRow.public_url}
+                      alt=""
+                      className="brand-research-selected-brand-logo-thumb"
+                    />
+                  ) : null}
+                  <h1 className="brand-research-selected-brand-title">{title}</h1>
+                </div>
+              );
+            })()}
             {brandTagBrandId !== '' &&
               (() => {
                 const br = brandsWithWebsites.find((x) => x.id === brandTagBrandId);
@@ -7710,7 +7866,11 @@ const Research: React.FC = () => {
                 const buy = br.things_to_buy?.trim() ?? '';
                 const avoid = br.things_to_avoid?.trim() ?? '';
                 const clothingCatId = br.menswear_category_id;
-                if (!rawSite && !buy && !avoid && clothingCatId == null) return null;
+                const hasSavedBrandSummary =
+                  !!(rawSite || buy || avoid || clothingCatId != null);
+                const showDescriptionEditor =
+                  brandTagAddPanelOpen && brandTagAddSubMode === 'info';
+                if (!hasSavedBrandSummary && !showDescriptionEditor) return null;
                 const savedBrandLabel = (br.brand_name ?? '').trim();
                 const savedVisitWebsiteLabel = savedBrandLabel
                   ? `Visit ${savedBrandLabel} Website`
@@ -7726,8 +7886,15 @@ const Research: React.FC = () => {
                 const currentBrandInStockLabel = savedBrandLabel
                   ? `Current ${savedBrandLabel} in stock`
                   : 'Current brand in stock';
+                const resetInfoDraftsFromBrand = () => {
+                  setBrandWebsiteUrlDraft(br.brand_website?.trim() ?? '');
+                  setBrandBuyingNotesBuyDraft(br.things_to_buy?.trim() ?? '');
+                  setBrandBuyingNotesAvoidDraft(br.things_to_avoid?.trim() ?? '');
+                };
+
                 return (
                   <div className="brand-tag-examples-saved-brand-info">
+                    <div className="brand-tag-examples-brand-links-edit-stack">
                     {rawSite && fullUrlBrowse && clothingCatId != null ? (
                       <div className="brand-tag-examples-website-category-split">
                         <div className="brand-tag-examples-website-category-split-col brand-tag-examples-website-category-split-col--website">
@@ -7812,6 +7979,122 @@ const Research: React.FC = () => {
                         </div>
                       </div>
                     ) : null}
+                    {showDescriptionEditor && (
+                      <div
+                        className="brand-tag-examples-brand-website-below brand-tag-examples-saved-brand-info-edit-panel"
+                        id="brand-tag-edit-description-panel"
+                        role="region"
+                        aria-label="Edit brand description"
+                      >
+                        <div className="brand-tag-examples-add-panel brand-tag-examples-add-panel--nested brand-tag-examples-add-panel--info">
+                          <label className="brand-tag-examples-label" htmlFor="brand-research-website-url">
+                            Website URL
+                          </label>
+                          <input
+                            id="brand-research-website-url"
+                            type="text"
+                            className="brand-tag-examples-caption-input brand-tag-examples-website-url-input"
+                            value={brandWebsiteUrlDraft}
+                            onChange={(e) => setBrandWebsiteUrlDraft(e.target.value)}
+                            placeholder="https://…"
+                            maxLength={2048}
+                            disabled={brandBrandInfoSaving}
+                            autoComplete="url"
+                          />
+                          <label className="brand-tag-examples-label" htmlFor="brand-research-brand-logo-file">
+                            Brand logo
+                          </label>
+                          {brandLogoRow?.public_url ? (
+                            <div className="brand-tag-examples-brand-logo-preview-row">
+                              <img
+                                src={brandLogoRow.public_url}
+                                alt=""
+                                className="brand-tag-examples-brand-logo-preview-img"
+                              />
+                              <button
+                                type="button"
+                                className="brand-tag-examples-cancel"
+                                onClick={() =>
+                                  void handleDeleteBrandTagImage(
+                                    brandLogoRow.id,
+                                    'Remove the brand logo?'
+                                  )
+                                }
+                                disabled={brandLogoUploading || brandBrandInfoSaving}
+                              >
+                                Remove logo
+                              </button>
+                            </div>
+                          ) : null}
+                          <div className="brand-tag-examples-upload-row">
+                            <label
+                              htmlFor="brand-research-brand-logo-file"
+                              className="brand-tag-examples-upload-button"
+                            >
+                              {brandLogoUploading ? 'Uploading…' : 'Upload logo'}
+                            </label>
+                            <input
+                              id="brand-research-brand-logo-file"
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp,image/gif"
+                              className="brand-tag-examples-file-input"
+                              disabled={brandLogoUploading || brandBrandInfoSaving}
+                              onChange={handleBrandLogoFileChange}
+                            />
+                          </div>
+                          <label className="brand-tag-examples-label" htmlFor="brand-buy-notes-buy">
+                            Things to buy
+                          </label>
+                          <textarea
+                            id="brand-buy-notes-buy"
+                            className="brand-tag-examples-edit-textarea"
+                            value={brandBuyingNotesBuyDraft}
+                            onChange={(e) => setBrandBuyingNotesBuyDraft(e.target.value)}
+                            placeholder="e.g. Denim jackets, knitwear…"
+                            maxLength={8000}
+                            rows={5}
+                            disabled={brandBrandInfoSaving}
+                          />
+                          <label className="brand-tag-examples-label" htmlFor="brand-buy-notes-avoid">
+                            Things to avoid
+                          </label>
+                          <textarea
+                            id="brand-buy-notes-avoid"
+                            className="brand-tag-examples-edit-textarea"
+                            value={brandBuyingNotesAvoidDraft}
+                            onChange={(e) => setBrandBuyingNotesAvoidDraft(e.target.value)}
+                            placeholder="e.g. Logo tees, damaged items…"
+                            maxLength={8000}
+                            rows={5}
+                            disabled={brandBrandInfoSaving}
+                          />
+                          <div className="brand-tag-examples-edit-actions">
+                            <button
+                              type="button"
+                              className="brand-tag-examples-save"
+                              onClick={() => void handleSaveBrandInfo()}
+                              disabled={brandBrandInfoSaving}
+                            >
+                              {brandBrandInfoSaving ? 'Saving…' : 'Save'}
+                            </button>
+                            <button
+                              type="button"
+                              className="brand-tag-examples-cancel"
+                              onClick={() => {
+                                resetInfoDraftsFromBrand();
+                                setBrandTagCaption('');
+                                setBrandTagNewImageKind('tag');
+                                setBrandTagAddPanelOpen(false);
+                              }}
+                              disabled={brandBrandInfoSaving}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    </div>
                     {buy ? (
                       <section
                         className="brand-tag-examples-buying-block brand-tag-examples-saved-brand-info-block"
@@ -7845,199 +8128,65 @@ const Research: React.FC = () => {
               })()}
             {brandTagBrandId !== '' &&
               brandTagAddPanelOpen &&
+              brandTagAddSubMode === 'image' &&
               (() => {
                 const b = brandsWithWebsites.find((x) => x.id === brandTagBrandId);
                 if (!b) return null;
-
-                const rawBrowseDraft = brandWebsiteUrlDraft.trim();
-                const fullUrlBrowseDraft =
-                  rawBrowseDraft &&
-                  (rawBrowseDraft.startsWith('http://') || rawBrowseDraft.startsWith('https://')
-                    ? rawBrowseDraft
-                    : `https://${rawBrowseDraft}`);
-
-                const resetInfoDraftsFromBrand = () => {
-                  setBrandWebsiteUrlDraft(b.brand_website?.trim() ?? '');
-                  setBrandBuyingNotesBuyDraft(b.things_to_buy?.trim() ?? '');
-                  setBrandBuyingNotesAvoidDraft(b.things_to_avoid?.trim() ?? '');
-                };
-
                 return (
                   <div
                     className="brand-tag-examples-brand-website-below"
                     id="brand-tag-add-panel"
                     role="region"
-                    aria-label="Add brand content"
+                    aria-label="Add brand tag image"
                   >
-                    {brandTagAddSubMode === 'pick' && (
-                      <div className="brand-tag-examples-add-pick">
-                        <p className="brand-tag-examples-add-pick-label">What would you like to add?</p>
-                        <div className="brand-tag-examples-add-pick-row">
-                          <button
-                            type="button"
-                            className="brand-tag-examples-add-pick-choice"
-                            onClick={() => setBrandTagAddSubMode('image')}
-                          >
-                            Add image
-                          </button>
-                          <button
-                            type="button"
-                            className="brand-tag-examples-add-pick-choice"
-                            onClick={() => {
-                              resetInfoDraftsFromBrand();
-                              setBrandTagAddSubMode('info');
-                            }}
-                          >
-                            Add brand info
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                    {brandTagAddSubMode === 'image' && (
-                      <div className="brand-tag-examples-add-panel brand-tag-examples-add-panel--nested">
-                        <button
-                          type="button"
-                          className="brand-tag-examples-add-panel-back"
-                          onClick={() => {
-                            setBrandTagAddSubMode('pick');
-                            setBrandTagCaption('');
-                            setBrandTagNewImageKind('tag');
-                          }}
-                        >
-                          Back
-                        </button>
-                        <label className="brand-tag-examples-label" htmlFor="brand-tag-new-kind">
-                          Image type
-                        </label>
-                        <select
-                          id="brand-tag-new-kind"
-                          className="brand-tag-examples-select brand-tag-examples-kind-select"
-                          value={brandTagNewImageKind}
-                          onChange={(e) => setBrandTagNewImageKind(e.target.value as BrandTagImageKind)}
-                          disabled={brandTagUploading}
-                        >
-                          <option value="tag">Tag</option>
-                          <option value="fake_check">Fake Check</option>
-                        </select>
-                        <label className="brand-tag-examples-label" htmlFor="brand-tag-caption">
-                          Caption (optional)
-                        </label>
-                        <textarea
-                          id="brand-tag-caption"
-                          className="brand-tag-examples-edit-textarea"
-                          value={brandTagCaption}
-                          onChange={(e) => setBrandTagCaption(e.target.value)}
-                          placeholder="e.g. SS19 neck label"
-                          maxLength={500}
-                          rows={4}
-                          disabled={brandTagUploading}
-                        />
-                        <div className="brand-tag-examples-upload-row">
-                          <label htmlFor="brand-tag-file" className="brand-tag-examples-upload-button">
-                            {brandTagUploading ? 'Uploading…' : 'Upload image'}
-                          </label>
-                          <input
-                            id="brand-tag-file"
-                            type="file"
-                            accept="image/jpeg,image/png,image/webp,image/gif"
-                            className="brand-tag-examples-file-input"
-                            disabled={brandTagUploading}
-                            onChange={handleBrandTagFileChange}
-                          />
-                        </div>
-                      </div>
-                    )}
-                    {brandTagAddSubMode === 'info' && (
-                      <div className="brand-tag-examples-add-panel brand-tag-examples-add-panel--nested brand-tag-examples-add-panel--info">
-                        <button
-                          type="button"
-                          className="brand-tag-examples-add-panel-back"
-                          onClick={() => {
-                            resetInfoDraftsFromBrand();
-                            setBrandTagAddSubMode('pick');
-                          }}
-                          disabled={brandBrandInfoSaving}
-                        >
-                          Back
-                        </button>
-                        <p className="brand-tag-examples-add-info-intro">
-                          Website and buying notes (things to buy / things to avoid).
-                        </p>
-                        <label className="brand-tag-examples-label" htmlFor="brand-research-website-url">
-                          Website URL
+                    <div className="brand-tag-examples-add-panel brand-tag-examples-add-panel--nested">
+                      <button
+                        type="button"
+                        className="brand-tag-examples-add-panel-back"
+                        onClick={closeBrandTagAddPanel}
+                      >
+                        Back
+                      </button>
+                      <label className="brand-tag-examples-label" htmlFor="brand-tag-new-kind">
+                        Image type
+                      </label>
+                      <select
+                        id="brand-tag-new-kind"
+                        className="brand-tag-examples-select brand-tag-examples-kind-select"
+                        value={brandTagNewImageKind}
+                        onChange={(e) => setBrandTagNewImageKind(e.target.value as BrandTagImageKind)}
+                        disabled={brandTagUploading}
+                      >
+                        <option value="tag">Tag</option>
+                        <option value="fake_check">Fake Check</option>
+                      </select>
+                      <label className="brand-tag-examples-label" htmlFor="brand-tag-caption">
+                        Caption (optional)
+                      </label>
+                      <textarea
+                        id="brand-tag-caption"
+                        className="brand-tag-examples-edit-textarea"
+                        value={brandTagCaption}
+                        onChange={(e) => setBrandTagCaption(e.target.value)}
+                        placeholder="e.g. SS19 neck label"
+                        maxLength={500}
+                        rows={4}
+                        disabled={brandTagUploading}
+                      />
+                      <div className="brand-tag-examples-upload-row">
+                        <label htmlFor="brand-tag-file" className="brand-tag-examples-upload-button">
+                          {brandTagUploading ? 'Uploading…' : 'Upload image'}
                         </label>
                         <input
-                          id="brand-research-website-url"
-                          type="text"
-                          className="brand-tag-examples-caption-input brand-tag-examples-website-url-input"
-                          value={brandWebsiteUrlDraft}
-                          onChange={(e) => setBrandWebsiteUrlDraft(e.target.value)}
-                          placeholder="https://…"
-                          maxLength={2048}
-                          disabled={brandBrandInfoSaving}
-                          autoComplete="url"
+                          id="brand-tag-file"
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp,image/gif"
+                          className="brand-tag-examples-file-input"
+                          disabled={brandTagUploading}
+                          onChange={handleBrandTagFileChange}
                         />
-                        {fullUrlBrowseDraft ? (
-                          <div className="brand-tag-examples-add-info-visit-wrap">
-                            <a
-                              href={fullUrlBrowseDraft}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="brand-website-link brand-tag-examples-website-browse-link"
-                            >
-                              Open URL in new tab
-                            </a>
-                          </div>
-                        ) : null}
-                        <label className="brand-tag-examples-label" htmlFor="brand-buy-notes-buy">
-                          Things to buy
-                        </label>
-                        <textarea
-                          id="brand-buy-notes-buy"
-                          className="brand-tag-examples-edit-textarea"
-                          value={brandBuyingNotesBuyDraft}
-                          onChange={(e) => setBrandBuyingNotesBuyDraft(e.target.value)}
-                          placeholder="e.g. Denim jackets, knitwear…"
-                          maxLength={8000}
-                          rows={5}
-                          disabled={brandBrandInfoSaving}
-                        />
-                        <label className="brand-tag-examples-label" htmlFor="brand-buy-notes-avoid">
-                          Things to avoid
-                        </label>
-                        <textarea
-                          id="brand-buy-notes-avoid"
-                          className="brand-tag-examples-edit-textarea"
-                          value={brandBuyingNotesAvoidDraft}
-                          onChange={(e) => setBrandBuyingNotesAvoidDraft(e.target.value)}
-                          placeholder="e.g. Logo tees, damaged items…"
-                          maxLength={8000}
-                          rows={5}
-                          disabled={brandBrandInfoSaving}
-                        />
-                        <div className="brand-tag-examples-edit-actions">
-                          <button
-                            type="button"
-                            className="brand-tag-examples-save"
-                            onClick={() => void handleSaveBrandInfo()}
-                            disabled={brandBrandInfoSaving}
-                          >
-                            {brandBrandInfoSaving ? 'Saving…' : 'Save'}
-                          </button>
-                          <button
-                            type="button"
-                            className="brand-tag-examples-cancel"
-                            onClick={() => {
-                              resetInfoDraftsFromBrand();
-                              setBrandTagAddSubMode('pick');
-                            }}
-                            disabled={brandBrandInfoSaving}
-                          >
-                            Cancel
-                          </button>
-                        </div>
                       </div>
-                    )}
+                    </div>
                   </div>
                 );
               })()}
@@ -8120,7 +8269,9 @@ const Research: React.FC = () => {
               </div>
             </div>
             {(() => {
-              const tagRows = sortedBrandTagImages.filter((i) => i.image_kind !== 'fake_check');
+              const tagRows = sortedBrandTagImages.filter(
+                (i) => i.image_kind !== 'fake_check' && i.image_kind !== 'logo'
+              );
               const fakeRows = sortedBrandTagImages.filter((i) => i.image_kind === 'fake_check');
               return (
                 <>

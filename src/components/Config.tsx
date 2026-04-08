@@ -119,10 +119,17 @@ type ConfigMenu =
   | 'no-size'
   | 'no-ebay-id'
   | 'no-vinted-id'
+  | 'duplicate-entries'
   | 'clothing-type-categories'
   | 'clothing-categories'
   | 'sizes'
   | 'brands';
+
+/** Normalise for duplicate detection: trim + lowercase; empty → null (ignored). */
+function stockDuplicateNameKey(item_name: Nullable<string>): string | null {
+  const t = item_name != null ? String(item_name).trim().toLowerCase() : '';
+  return t === '' ? null : t;
+}
 
 interface ConfigBrandRow {
   id: number;
@@ -305,6 +312,7 @@ const Config: React.FC = () => {
   const [sizeEditSort, setSizeEditSort] = useState('');
   const [sizeEditSaving, setSizeEditSaving] = useState(false);
   const [sizeDeleteSaving, setSizeDeleteSaving] = useState(false);
+  const [duplicateDeleteId, setDuplicateDeleteId] = useState<number | null>(null);
 
   const loadStock = async () => {
     try {
@@ -748,6 +756,13 @@ const Config: React.FC = () => {
     }
   }, [activeMenu, loadBrands]);
 
+  useEffect(() => {
+    if (activeMenu === 'duplicate-entries') {
+      void loadBrands();
+      void loadStockClothingTypes();
+    }
+  }, [activeMenu, loadBrands, loadStockClothingTypes]);
+
   const handleBrandsAskAiRank = useCallback(async () => {
     setBrandsError(null);
     if (brands.length === 0) {
@@ -1016,6 +1031,31 @@ const Config: React.FC = () => {
     return [];
   }, [rows, activeMenu, autoTaggedHiddenIds]);
 
+  const duplicateEntryGroups = useMemo(() => {
+    const map = new Map<string, StockRow[]>();
+    for (const row of rows) {
+      const key = stockDuplicateNameKey(row.item_name);
+      if (key == null) continue;
+      const list = map.get(key) ?? [];
+      list.push(row);
+      map.set(key, list);
+    }
+    const groups: { normKey: string; displayName: string; rows: StockRow[] }[] = [];
+    for (const [normKey, list] of Array.from(map.entries())) {
+      if (list.length < 2) continue;
+      const sorted = [...list].sort((a, b) => a.id - b.id);
+      const displayName =
+        sorted[0].item_name != null && String(sorted[0].item_name).trim() !== ''
+          ? String(sorted[0].item_name).trim()
+          : '(unnamed)';
+      groups.push({ normKey, displayName, rows: sorted });
+    }
+    groups.sort((a, b) =>
+      a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' })
+    );
+    return groups;
+  }, [rows]);
+
   const noSizePrefetchCategoryIds = useMemo(() => {
     const ids = new Set<number>();
     for (const row of rows) {
@@ -1076,10 +1116,41 @@ const Config: React.FC = () => {
     window.open(`/stock?editId=${row.id}`, '_blank');
   };
 
+  const handleDuplicateDelete = useCallback(async (row: StockRow) => {
+    const label = (row.item_name ?? '').trim() || '(no name)';
+    const confirmed = window.confirm(
+      `Delete this stock line permanently?\n\nSKU ${row.id}\n${label}\n\nThis cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setDuplicateDeleteId(row.id);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/stock/${row.id}`, { method: 'DELETE' });
+      const text = await res.text();
+      if (!res.ok) {
+        let msg = text || 'Failed to delete';
+        try {
+          const j = JSON.parse(text) as { error?: string; details?: string };
+          msg = [j.error, j.details].filter(Boolean).join(' — ') || msg;
+        } catch {
+          /* keep msg */
+        }
+        throw new Error(msg);
+      }
+      setRows((prev) => prev.filter((r) => r.id !== row.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to delete stock');
+    } finally {
+      setDuplicateDeleteId(null);
+    }
+  }, []);
+
   const formatBrandTagOptionLabel = (t: BrandTagImageRow): string => {
     const cap = t.caption != null ? String(t.caption).trim() : '';
     if (cap.length > 0) return cap;
-    const kind = t.image_kind === 'fake_check' ? 'Fake check' : 'Tag';
+    const kind =
+      t.image_kind === 'fake_check' ? 'Fake check' : t.image_kind === 'logo' ? 'Logo' : 'Tag';
     return `${kind} #${t.id}`;
   };
 
@@ -1514,6 +1585,13 @@ const Config: React.FC = () => {
               onClick={() => setActiveMenu('no-vinted-id')}
             >
               Items Not On Vinted
+            </button>
+            <button
+              type="button"
+              className={`config-menu-item ${activeMenu === 'duplicate-entries' ? 'active' : ''}`}
+              onClick={() => setActiveMenu('duplicate-entries')}
+            >
+              Duplicate entries
             </button>
             <div
               className="config-sidebar-group"
@@ -1988,6 +2066,133 @@ const Config: React.FC = () => {
                         )}
                       </div>
                     </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeMenu === 'duplicate-entries' && (
+            <div className="config-section">
+              <div className="config-section-header config-section-header--with-title">
+                <h3 className="config-duplicate-page-title">Duplicate entries</h3>
+                <button
+                  type="button"
+                  className="config-refresh-button"
+                  onClick={loadStock}
+                  title="Refresh list"
+                  aria-label="Refresh duplicate list"
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+                  </svg>
+                </button>
+              </div>
+              <p className="config-duplicate-intro">
+                Same item name on more than one stock line (match ignores extra spaces and capitalisation).
+                Every duplicate line is shown below — use <strong>Delete</strong> to remove extras after
+                confirming.
+              </p>
+              {loading ? (
+                <div className="config-loading">Loading...</div>
+              ) : duplicateEntryGroups.length === 0 ? (
+                <div className="config-empty">No duplicate item names found.</div>
+              ) : (
+                <div className="config-duplicate-groups">
+                  {duplicateEntryGroups.map((group) => (
+                    <section
+                      key={group.normKey}
+                      className="config-duplicate-group"
+                      aria-label={`Duplicate name: ${group.displayName}`}
+                    >
+                      <h4 className="config-duplicate-group-title">
+                        {group.displayName}
+                        <span className="config-duplicate-group-count">
+                          {' '}
+                          ({group.rows.length} lines)
+                        </span>
+                      </h4>
+                      <div className="config-grid config-duplicate-group-grid">
+                        {group.rows.map((row) => {
+                          const bid =
+                            row.brand_id != null && Number.isFinite(Number(row.brand_id))
+                              ? Math.floor(Number(row.brand_id))
+                              : null;
+                          const brandLabel =
+                            bid != null ? brandNameById.get(bid) ?? `Brand #${bid}` : '—';
+                          const cid =
+                            row.category_id != null && Number.isFinite(Number(row.category_id))
+                              ? Math.floor(Number(row.category_id))
+                              : null;
+                          const catLabel =
+                            cid != null
+                              ? stockCategoryNameById.get(cid) ?? `Category #${cid}`
+                              : '—';
+                          return (
+                            <div key={row.id} className="config-grid-item">
+                              <div className="config-grid-item-header">
+                                <span className="config-grid-sku">SKU: {row.id}</span>
+                                <button
+                                  type="button"
+                                  className="config-grid-edit-button"
+                                  onClick={() => handleEditItem(row)}
+                                >
+                                  Edit
+                                </button>
+                              </div>
+                              <div className="config-grid-item-body">
+                                <div className="config-grid-field">
+                                  <span className="config-grid-label">Item name</span>
+                                  <span className="config-grid-value">{row.item_name || '—'}</span>
+                                </div>
+                                <div className="config-grid-field">
+                                  <span className="config-grid-label">Brand</span>
+                                  <span className="config-grid-value">{brandLabel}</span>
+                                </div>
+                                <div className="config-grid-field">
+                                  <span className="config-grid-label">Category</span>
+                                  <span className="config-grid-value">{catLabel}</span>
+                                </div>
+                                <div className="config-grid-field">
+                                  <span className="config-grid-label">Purchase</span>
+                                  <span className="config-grid-value">
+                                    {formatCurrency(row.purchase_price)}
+                                    {row.purchase_date ? ` · ${formatDate(row.purchase_date)}` : ''}
+                                  </span>
+                                </div>
+                                <div className="config-grid-field">
+                                  <span className="config-grid-label">Sale</span>
+                                  <span className="config-grid-value">
+                                    {row.sale_date
+                                      ? `${formatDate(row.sale_date)} · ${formatCurrency(row.sale_price)}`
+                                      : 'In stock'}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="config-grid-item-footer">
+                                <button
+                                  type="button"
+                                  className="config-grid-delete-button"
+                                  onClick={() => void handleDuplicateDelete(row)}
+                                  disabled={duplicateDeleteId === row.id}
+                                >
+                                  {duplicateDeleteId === row.id ? 'Deleting…' : 'Delete'}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </section>
                   ))}
                 </div>
               )}

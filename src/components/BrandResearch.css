@@ -2237,15 +2237,6 @@ button.image-upload-label {
   white-space: nowrap;
 }
 
-.brand-tag-examples-brand-toolbar--split .brand-tag-examples-add-info-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  max-width: 100%;
-  box-sizing: border-box;
-}
-
 .brand-tag-examples-brand-select-wrap .brand-tag-examples-select {
   width: 100%;
 }
@@ -2280,6 +2271,61 @@ button.image-upload-label {
 .brand-research-brand-toolbar-row .brand-tag-examples-brand-toolbar-actions {
   flex: 0 1 auto;
   margin-left: auto;
+}
+
+.brand-research-selected-brand-heading-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 14px;
+  width: 100%;
+  max-width: 720px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.brand-research-selected-brand-logo-thumb {
+  width: 52px;
+  height: 52px;
+  object-fit: contain;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.brand-research-selected-brand-title {
+  margin: 0;
+  font-size: clamp(1.35rem, 2.8vw, 1.75rem);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--text-strong, #fff8e8);
+  line-height: 1.2;
+  text-align: center;
+}
+
+.brand-tag-examples-brand-logo-preview-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.brand-tag-examples-brand-logo-preview-img {
+  max-height: 80px;
+  max-width: 140px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
 }
 
 .brand-research-new-brand-icon-btn {
@@ -2616,14 +2662,6 @@ button.image-upload-label {
   cursor: not-allowed;
 }
 
-.brand-tag-examples-add-info-intro {
-  margin: 0 0 8px 0;
-  font-size: 0.88rem;
-  color: rgba(255, 248, 226, 0.55);
-  line-height: 1.45;
-  text-align: center;
-}
-
 .brand-tag-examples-add-panel--info .brand-tag-examples-label,
 .brand-tag-examples-add-panel--info .brand-tag-examples-edit-textarea,
 .brand-tag-examples-add-panel--info .brand-tag-examples-caption-input {
@@ -2632,11 +2670,6 @@ button.image-upload-label {
 
 .brand-tag-examples-add-panel--info .brand-tag-examples-edit-actions {
   justify-content: center;
-}
-
-.brand-tag-examples-add-info-visit-wrap {
-  margin: -4px 0 8px 0;
-  text-align: center;
 }
 
 .brand-tag-examples-select,
@@ -2720,6 +2753,23 @@ button.image-upload-label {
   gap: 20px;
   align-items: stretch;
   box-sizing: border-box;
+}
+
+.brand-tag-examples-brand-links-edit-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  align-items: stretch;
+}
+
+.brand-tag-examples-saved-brand-info .brand-tag-examples-saved-brand-info-edit-panel {
+  margin-top: 0;
+}
+
+.brand-tag-examples-saved-brand-info-edit-panel .brand-tag-examples-add-panel {
+  width: 100%;
+  max-width: 100%;
 }
 
 .brand-tag-examples-saved-brand-info-website {
