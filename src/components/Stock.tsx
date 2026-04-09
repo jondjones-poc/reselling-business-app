@@ -376,7 +376,6 @@ const Stock: React.FC = () => {
   const editFormRef = useRef<HTMLDivElement>(null);
   const [visibleItemsCount, setVisibleItemsCount] = useState(20);
   const cardsWrapperRef = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     setAddingToOrder(false);
     if (editingRowId == null) {

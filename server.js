@@ -2725,7 +2725,7 @@ app.get('/api/brands', async (req, res) => {
     // Query all columns explicitly
     const result = await pool.query(
       `SELECT id, brand_name, created_at, updated_at, brand_website, things_to_buy, things_to_avoid,
-              menswear_category_id
+              description, menswear_category_id
        FROM public.brand
        ORDER BY brand_name ASC`
     );
@@ -2756,6 +2756,7 @@ app.get('/api/brands', async (req, res) => {
         brand_website: ('brand_website' in row) ? row.brand_website : null,
         things_to_buy: ('things_to_buy' in row) ? row.things_to_buy : null,
         things_to_avoid: ('things_to_avoid' in row) ? row.things_to_avoid : null,
+        description: ('description' in row) ? row.description : null,
         menswear_category_id:
           row.menswear_category_id != null && row.menswear_category_id !== ''
             ? Number(row.menswear_category_id)
@@ -2908,6 +2909,21 @@ app.patch('/api/brands/:id', async (req, res) => {
       vals.push(value);
     }
 
+    if (Object.prototype.hasOwnProperty.call(body, 'description')) {
+      const raw = body.description;
+      let value = null;
+      if (raw === null || raw === undefined) {
+        value = null;
+      } else if (typeof raw === 'string') {
+        const t = raw.trim();
+        value = t ? t.slice(0, 8000) : null;
+      } else {
+        return res.status(400).json({ error: 'description must be a string or null' });
+      }
+      sets.push(`description = $${n++}`);
+      vals.push(value);
+    }
+
     if (Object.prototype.hasOwnProperty.call(body, 'menswear_category_id')) {
       const raw = body.menswear_category_id;
       if (raw === null || raw === undefined || raw === '') {
@@ -2930,7 +2946,7 @@ app.patch('/api/brands/:id', async (req, res) => {
     if (sets.length === 0) {
       return res.status(400).json({
         error:
-          'Provide at least one of: brand_name, brand_website, things_to_buy, things_to_avoid, menswear_category_id',
+          'Provide at least one of: brand_name, brand_website, things_to_buy, things_to_avoid, description, menswear_category_id',
       });
     }
 
@@ -2941,7 +2957,7 @@ app.patch('/api/brands/:id', async (req, res) => {
       `UPDATE brand
        SET ${sets.join(', ')}
        WHERE id = $${n}
-       RETURNING id, brand_name, created_at, updated_at, brand_website, things_to_buy, things_to_avoid, menswear_category_id`,
+       RETURNING id, brand_name, created_at, updated_at, brand_website, things_to_buy, things_to_avoid, description, menswear_category_id`,
       vals
     );
 

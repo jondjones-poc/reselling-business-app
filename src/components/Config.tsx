@@ -120,6 +120,7 @@ type ConfigMenu =
   | 'no-ebay-id'
   | 'no-vinted-id'
   | 'duplicate-entries'
+  | 'items-category-check'
   | 'clothing-type-categories'
   | 'clothing-categories'
   | 'sizes'
@@ -313,6 +314,9 @@ const Config: React.FC = () => {
   const [sizeEditSaving, setSizeEditSaving] = useState(false);
   const [sizeDeleteSaving, setSizeDeleteSaving] = useState(false);
   const [duplicateDeleteId, setDuplicateDeleteId] = useState<number | null>(null);
+  const [categoryCheckCategoryId, setCategoryCheckCategoryId] = useState('');
+  const [categoryCheckUpdatingId, setCategoryCheckUpdatingId] = useState<number | null>(null);
+  const [categoryCheckError, setCategoryCheckError] = useState<string | null>(null);
 
   const loadStock = async () => {
     try {
@@ -763,6 +767,12 @@ const Config: React.FC = () => {
     }
   }, [activeMenu, loadBrands, loadStockClothingTypes]);
 
+  useEffect(() => {
+    if (activeMenu === 'items-category-check') {
+      void loadStockClothingTypes();
+    }
+  }, [activeMenu, loadStockClothingTypes]);
+
   const handleBrandsAskAiRank = useCallback(async () => {
     setBrandsError(null);
     if (brands.length === 0) {
@@ -1075,6 +1085,66 @@ const Config: React.FC = () => {
     }
     return m;
   }, [stockClothingTypes]);
+
+  const sortedClothingTypesForCategoryCheck = useMemo(
+    () =>
+      [...stockClothingTypes].sort((a, b) =>
+        a.category_name.localeCompare(b.category_name, undefined, { sensitivity: 'base' })
+      ),
+    [stockClothingTypes]
+  );
+
+  const categoryCheckRows = useMemo(() => {
+    if (!categoryCheckCategoryId) return [];
+    const cid = Number(categoryCheckCategoryId);
+    if (!Number.isFinite(cid)) return [];
+    return rows
+      .filter((r) => Number(r.category_id) === cid)
+      .slice()
+      .sort((a, b) => {
+        const da = a.purchase_date ? new Date(String(a.purchase_date)).getTime() : 0;
+        const db = b.purchase_date ? new Date(String(b.purchase_date)).getTime() : 0;
+        if (db !== da) return db - da;
+        return (a.item_name ?? '').localeCompare(b.item_name ?? '', undefined, {
+          sensitivity: 'base',
+        });
+      });
+  }, [rows, categoryCheckCategoryId]);
+
+  const handleCategoryCheckUpdate = useCallback(async (stockId: number, newCategoryIdStr: string) => {
+    const newCat = newCategoryIdStr === '' ? null : Number(newCategoryIdStr);
+    if (newCat !== null && (!Number.isFinite(newCat) || newCat < 1)) {
+      return;
+    }
+    setCategoryCheckUpdatingId(stockId);
+    setCategoryCheckError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/stock/${stockId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category_id: newCat }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        row?: StockRow;
+        error?: string;
+        details?: string;
+      };
+      if (!res.ok) {
+        throw new Error(data.details || data.error || 'Failed to update category');
+      }
+      const updatedRow = data.row;
+      if (!updatedRow) {
+        throw new Error('Server did not return the updated row');
+      }
+      setRows((prev) =>
+        prev.map((r) => (Number(r.id) === Number(updatedRow.id) ? updatedRow : r))
+      );
+    } catch (e: unknown) {
+      setCategoryCheckError(e instanceof Error ? e.message : 'Could not update category');
+    } finally {
+      setCategoryCheckUpdatingId(null);
+    }
+  }, []);
 
   useEffect(() => {
     if (activeMenu !== 'no-size') return;
@@ -1592,6 +1662,13 @@ const Config: React.FC = () => {
               onClick={() => setActiveMenu('duplicate-entries')}
             >
               Duplicate entries
+            </button>
+            <button
+              type="button"
+              className={`config-menu-item ${activeMenu === 'items-category-check' ? 'active' : ''}`}
+              onClick={() => setActiveMenu('items-category-check')}
+            >
+              Items Category Check
             </button>
             <div
               className="config-sidebar-group"
@@ -2196,6 +2273,144 @@ const Config: React.FC = () => {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {activeMenu === 'items-category-check' && (
+            <div className="config-section">
+              <div className="config-section-header config-section-header--with-title">
+                <h3 className="config-duplicate-page-title">Items Category Check</h3>
+                <button
+                  type="button"
+                  className="config-refresh-button"
+                  onClick={loadStock}
+                  title="Refresh stock list"
+                  aria-label="Refresh stock list"
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+                  </svg>
+                </button>
+              </div>
+              {stockTypesError ? (
+                <div className="config-error config-error--inline" role="alert">
+                  {stockTypesError}
+                </div>
+              ) : null}
+              <div className="config-sizes-category-picker">
+                <div className="config-grid-field config-grid-field--size-select">
+                  <label className="config-grid-label" htmlFor="config-items-category-check-filter">
+                    Category
+                  </label>
+                  <select
+                    id="config-items-category-check-filter"
+                    className="config-no-size-select"
+                    value={categoryCheckCategoryId}
+                    onChange={(e) => {
+                      setCategoryCheckCategoryId(e.target.value);
+                      setCategoryCheckError(null);
+                    }}
+                    disabled={stockTypesLoading && sortedClothingTypesForCategoryCheck.length === 0}
+                  >
+                    <option value="">
+                      {stockTypesLoading && sortedClothingTypesForCategoryCheck.length === 0
+                        ? 'Loading categories…'
+                        : 'Select a category…'}
+                    </option>
+                    {sortedClothingTypesForCategoryCheck.map((c) => (
+                      <option key={c.id} value={String(c.id)}>
+                        {c.category_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              {categoryCheckError ? (
+                <div className="config-error config-error--inline" role="alert">
+                  {categoryCheckError}
+                </div>
+              ) : null}
+              {categoryCheckCategoryId && loading ? (
+                <div className="config-loading">Loading...</div>
+              ) : categoryCheckCategoryId && !loading ? (
+                categoryCheckRows.length === 0 ? (
+                  <div className="config-empty">No items in this category.</div>
+                ) : (
+                  <div className="config-grid">
+                    {categoryCheckRows.map((row) => {
+                      const cid =
+                        row.category_id != null && Number.isFinite(Number(row.category_id))
+                          ? Math.floor(Number(row.category_id))
+                          : null;
+                      const catName =
+                        cid != null ? stockCategoryNameById.get(cid) ?? '—' : '—';
+                      return (
+                        <div key={row.id} className="config-grid-item">
+                          <div className="config-grid-item-header">
+                            <span className="config-grid-sku">SKU: {row.id}</span>
+                            <button
+                              type="button"
+                              className="config-grid-edit-button"
+                              onClick={() => handleEditItem(row)}
+                            >
+                              Edit
+                            </button>
+                          </div>
+                          <div className="config-grid-item-body">
+                            <div className="config-grid-field">
+                              <span className="config-grid-label">Item Name</span>
+                              <span className="config-grid-value">{row.item_name?.trim() || '—'}</span>
+                            </div>
+                            <div className="config-grid-field">
+                              <span className="config-grid-label">Clothing type</span>
+                              <span className="config-grid-value">{catName}</span>
+                            </div>
+                            <div className="config-grid-field">
+                              <span className="config-grid-label">Purchase Date</span>
+                              <span className="config-grid-value">{formatDate(row.purchase_date)}</span>
+                            </div>
+                            <div className="config-grid-field config-grid-field--size-select">
+                              <label className="config-grid-label" htmlFor={`config-cat-check-${row.id}`}>
+                                Category
+                              </label>
+                              <select
+                                id={`config-cat-check-${row.id}`}
+                                className="config-no-size-select"
+                                value={row.category_id != null ? String(row.category_id) : ''}
+                                disabled={categoryCheckUpdatingId === row.id}
+                                aria-busy={categoryCheckUpdatingId === row.id}
+                                onChange={(e) => void handleCategoryCheckUpdate(row.id, e.target.value)}
+                                aria-label={`Change category for ${row.item_name?.trim() || `item ${row.id}`}`}
+                              >
+                                <option value="">No category</option>
+                                {sortedClothingTypesForCategoryCheck.map((c) => (
+                                  <option key={c.id} value={String(c.id)}>
+                                    {c.category_name}
+                                  </option>
+                                ))}
+                              </select>
+                              {categoryCheckUpdatingId === row.id ? (
+                                <p className="config-no-size-sizes-hint" role="status">
+                                  Saving…
+                                </p>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
+              ) : null}
             </div>
           )}
 

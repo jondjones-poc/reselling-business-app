@@ -2640,29 +2640,51 @@ button.image-upload-label {
   align-self: stretch;
 }
 
-.brand-tag-examples-add-panel-back {
-  align-self: flex-start;
-  margin: 0 0 4px 0;
-  padding: 6px 14px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 248, 226, 0.22);
-  background: transparent;
-  color: rgba(255, 248, 226, 0.8);
-  font-size: 0.8rem;
+.brand-tag-examples-add-panel-close-btn {
+  align-self: flex-end;
+  margin: -2px -2px 6px 0;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 248, 226, 0.28);
+  background: rgba(0, 0, 0, 0.15);
+  color: rgba(255, 248, 226, 0.88);
   cursor: pointer;
-  transition: background 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
-.brand-tag-examples-add-panel-back:hover:not(:disabled) {
-  background: rgba(255, 248, 226, 0.08);
+.brand-tag-examples-add-panel-close-btn:hover:not(:disabled) {
+  background: rgba(255, 248, 226, 0.1);
+  border-color: rgba(255, 214, 91, 0.5);
+  color: #fff8e8;
+  box-shadow: 0 0 0 1px rgba(255, 214, 91, 0.12);
 }
 
-.brand-tag-examples-add-panel-back:disabled {
-  opacity: 0.5;
+.brand-tag-examples-add-panel-close-btn:disabled {
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
-.brand-tag-examples-add-panel--info .brand-tag-examples-label,
+.brand-tag-examples-add-panel-close-icon {
+  display: block;
+  pointer-events: none;
+}
+
+.brand-tag-examples-add-panel--info .brand-tag-examples-label {
+  display: block;
+  width: 100%;
+  text-align: center;
+}
+
 .brand-tag-examples-add-panel--info .brand-tag-examples-edit-textarea,
 .brand-tag-examples-add-panel--info .brand-tag-examples-caption-input {
   text-align: left;
@@ -2761,6 +2783,24 @@ button.image-upload-label {
   gap: 12px;
   width: 100%;
   align-items: stretch;
+}
+
+.brand-tag-examples-brand-summary-description {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 4px;
+  box-sizing: border-box;
+}
+
+.brand-tag-examples-brand-summary-description-text {
+  margin: 0;
+  text-align: center;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: rgba(255, 248, 226, 0.78);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .brand-tag-examples-saved-brand-info .brand-tag-examples-saved-brand-info-edit-panel {
@@ -3496,6 +3536,19 @@ button.image-upload-label {
   width: 100%;
   max-width: min(100%, 320px);
   margin-bottom: 2px;
+}
+
+.brand-tag-examples-add-image-kind-row {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.brand-tag-examples-add-panel--nested .brand-tag-examples-add-image-kind-select {
+  width: auto;
+  min-width: min(100%, 240px);
+  max-width: 100%;
+  text-align: center;
 }
 
 .brand-tag-examples-grid {
