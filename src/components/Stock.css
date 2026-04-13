@@ -161,6 +161,40 @@
   box-sizing: border-box;
 }
 
+/* Add item only: narrow comps, give pipeline the remaining width (avoids .new-entry-field 25% max-width crushing pipeline). */
+.stock-new-entry-top-bar-metrics--add {
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  max-width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-items: stretch;
+  align-items: end;
+}
+
+.stock-new-entry-top-bar-metrics--add > .stock-new-entry-top-bar-comps-field {
+  max-width: 168px;
+  width: auto;
+  justify-self: end;
+  flex: 0 0 auto;
+}
+
+.stock-new-entry-top-bar-metrics--add > .stock-new-entry-top-bar-pipeline {
+  max-width: none;
+  width: 100%;
+  min-width: 0;
+  justify-self: stretch;
+}
+
+.stock-new-entry-top-bar-metrics--add > .new-entry-field.stock-new-entry-top-bar-comps-field {
+  max-width: 168px;
+}
+
+.stock-new-entry-top-bar-metrics--add > .new-entry-field.stock-new-entry-top-bar-pipeline {
+  flex: 1 1 auto;
+  max-width: none;
+  min-width: 0;
+}
+
 /* Flex (not grid) so comps + pipeline align on the same vertical center as action pills */
 .stock-new-entry-top-bar-row-1--edit .stock-new-entry-top-bar-metrics {
   display: flex;
@@ -213,7 +247,7 @@
   justify-self: stretch;
 }
 
-/* Row 2: name / brand / category / size / tag (full width; edit actions live on row 1) */
+/* Row 2: name / department / category / brand / size / tag (full width; edit actions live on row 1) */
 .stock-new-entry-top-bar-row-2 {
   display: flex;
   flex-wrap: wrap;
@@ -227,7 +261,7 @@
   max-width: 100%;
 }
 
-/* Row 2 fields: wider name, then brand / category / size / tag share rest at full width */
+/* Row 2 fields: wider name, then department / category / brand / size share rest at full width */
 .stock-new-entry-top-bar-fields {
   display: grid;
   grid-template-columns:
@@ -263,9 +297,9 @@
   text-align: left;
 }
 
-/* Name / size / tag live in .stock-new-entry-top-bar-fields with brand & category */
+/* Name + department / category / brand / size live in .stock-new-entry-top-bar-fields; tag is on row 2 with prices */
 
-/* purchase, projected, date, sourced — equal width columns, full row */
+/* Row 2: purchase, date, sourced, tag — equal width columns */
 .stock-new-entry-row-prices {
   flex: 1 1 100%;
   width: 100%;
@@ -391,13 +425,30 @@
   min-width: 0;
 }
 
-/* Left-align this label only; row 2 other fields stay label-centered */
-.stock-new-entry-row-prices .stock-new-entry-row2-projected-label {
+.stock-new-entry-row-prices > .stock-new-entry-tags-field {
+  min-width: 0;
+}
+
+.stock-new-entry-row-prices > .stock-new-entry-tags-field .stock-brand-tag-dropdown {
+  width: 100%;
+}
+
+/* Row 3: projected label left-aligned like former row-2 projected */
+.stock-new-entry-row-ids .stock-new-entry-row3-projected-label {
   justify-content: flex-start;
   text-align: left;
 }
 
-/* Row 3: marketplace IDs + save; when editing, same row adds sales price, date, platform */
+.stock-new-entry-row-ids > .stock-new-entry-id-field--projected {
+  min-width: 0;
+}
+
+.stock-new-entry-row-ids > .stock-new-entry-id-field--projected .stock-edit-projected-price-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Row 3: marketplace IDs + projected + save; when editing, adds sales price, date, platform */
 .stock-new-entry-row-ids {
   flex: 1 1 100%;
   width: 100%;
@@ -409,11 +460,11 @@
 }
 
 /*
- * Create only: same 5-column template as row 2 so Vinted / eBay / Depop match Purchase / Projected / Purchase Date widths.
- * Save sits in the comps + pipeline tracks (right).
+ * Create only: Vinted / eBay / Depop / Projected in four equal tracks; save spans the last two columns.
  */
 .stock-new-entry-row-ids:not(.stock-new-entry-row-ids--edit) {
   grid-template-columns:
+    minmax(0, 1fr)
     minmax(0, 1fr)
     minmax(0, 1fr)
     minmax(0, 1fr)
@@ -422,7 +473,7 @@
 }
 
 .stock-new-entry-row-ids:not(.stock-new-entry-row-ids--edit) > .stock-new-entry-row3-save {
-  grid-column: 4 / -1;
+  grid-column: 5 / -1;
   justify-self: end;
   align-self: end;
 }
@@ -644,6 +695,12 @@
     justify-items: end;
   }
 
+  .stock-new-entry-top-bar-row-1:not(.stock-new-entry-top-bar-row-1--edit)
+    .stock-new-entry-top-bar-metrics--add {
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+    justify-items: stretch;
+  }
+
   .stock-new-entry-top-bar-row-1:not(.stock-new-entry-top-bar-row-1--edit) .stock-new-entry-top-bar-metrics > .stock-new-entry-top-bar-pipeline {
     grid-column: auto;
   }
@@ -654,6 +711,13 @@
     width: 100%;
   }
 
+  .stock-new-entry-top-bar-row-1:not(.stock-new-entry-top-bar-row-1--edit)
+    .stock-new-entry-top-bar-metrics--add
+    > .stock-new-entry-top-bar-comps-field {
+    justify-self: end;
+    width: auto;
+  }
+
   .stock-new-entry-top-bar-fields {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -662,7 +726,7 @@
     grid-column: 1 / -1;
   }
 
-  .stock-new-entry-top-bar-fields > .stock-new-entry-brand-field {
+  .stock-new-entry-top-bar-fields > .stock-new-entry-department-field {
     grid-column: 1;
     grid-row: 2;
   }
@@ -672,12 +736,12 @@
     grid-row: 2;
   }
 
-  .stock-new-entry-top-bar-fields > .stock-new-entry-size-field {
+  .stock-new-entry-top-bar-fields > .stock-new-entry-brand-field {
     grid-column: 1;
     grid-row: 3;
   }
 
-  .stock-new-entry-top-bar-fields > .stock-new-entry-tags-field {
+  .stock-new-entry-top-bar-fields > .stock-new-entry-size-field {
     grid-column: 2;
     grid-row: 3;
   }
@@ -692,7 +756,7 @@
   }
 
   .stock-new-entry-row-ids:not(.stock-new-entry-row-ids--edit) {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .stock-new-entry-row-ids .stock-new-entry-row3-save {
@@ -743,18 +807,23 @@
     grid-row: 2;
   }
 
+  .stock-new-entry-row-ids.stock-new-entry-row-ids--edit > :nth-child(7) {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
   .stock-new-entry-row-ids.stock-new-entry-row-ids--edit > .stock-new-entry-row3-save {
     grid-column: 1 / -1;
-    grid-row: 3;
+    grid-row: 4;
   }
 }
 
 @media (max-width: 560px) {
   .stock-new-entry-top-bar-fields > .stock-new-entry-name-field,
   .stock-new-entry-top-bar-fields > .stock-new-entry-brand-field,
+  .stock-new-entry-top-bar-fields > .stock-new-entry-department-field,
   .stock-new-entry-top-bar-fields > .stock-new-entry-category-field,
-  .stock-new-entry-top-bar-fields > .stock-new-entry-size-field,
-  .stock-new-entry-top-bar-fields > .stock-new-entry-tags-field {
+  .stock-new-entry-top-bar-fields > .stock-new-entry-size-field {
     grid-column: 1 / -1;
     grid-row: auto;
   }
@@ -785,6 +854,47 @@
   .stock-new-entry-top-bar-row-1:not(.stock-new-entry-top-bar-row-1--edit) .stock-new-entry-top-bar-metrics > .stock-new-entry-top-bar-comps-field {
     justify-self: stretch;
     max-width: none;
+  }
+
+  .stock-new-entry-top-bar-row-1:not(.stock-new-entry-top-bar-row-1--edit)
+    .stock-new-entry-top-bar-metrics--add
+    > .stock-new-entry-top-bar-comps-field {
+    justify-self: stretch;
+    max-width: 168px;
+    width: 100%;
+  }
+
+  .stock-new-entry-top-bar-row-1:not(.stock-new-entry-top-bar-row-1--edit)
+    .stock-new-entry-top-bar-metrics--add
+    > .stock-new-entry-top-bar-pipeline {
+    max-width: none;
+  }
+
+  .stock-new-entry-top-bar-row-1:not(.stock-new-entry-top-bar-row-1--edit)
+    .stock-new-entry-top-bar-metrics--add
+    .stock-new-entry-row2-pipeline-box {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .stock-new-entry-top-bar-row-1:not(.stock-new-entry-top-bar-row-1--edit)
+    .stock-new-entry-top-bar-metrics--add
+    .stock-edit-metrics-pipeline {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .stock-new-entry-top-bar-row-1:not(.stock-new-entry-top-bar-row-1--edit)
+    .stock-new-entry-top-bar-metrics--add
+    .stock-edit-metrics-pipeline-row {
+    white-space: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+    padding-bottom: 2px;
+    box-sizing: border-box;
   }
 
   .stock-new-entry-top-bar-row-1--edit {
@@ -3085,6 +3195,44 @@ button.stock-close-circle-btn:disabled {
 .sortable-header.sorted-desc .sort-indicator {
   color: var(--neon-primary-strong);
   opacity: 1;
+}
+
+/* Combined Sold column: green when sold with price, red when sale date set but price missing */
+.stock-sold-cell {
+  vertical-align: middle;
+  min-width: 6.5rem;
+}
+
+.stock-sold-cell-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  line-height: 1.3;
+}
+
+.stock-sold-cell-inner--card {
+  align-items: flex-start;
+}
+
+.stock-sold-line {
+  display: block;
+}
+
+.stock-sold-line--price {
+  font-weight: 600;
+}
+
+.stock-sold-cell--ok {
+  color: #7dffb3;
+}
+
+.stock-sold-cell--no-price {
+  color: #ff8a8a;
+}
+
+.stock-sold-cell--neutral {
+  color: rgba(255, 248, 226, 0.85);
 }
 
 .stock-table tbody tr:hover {

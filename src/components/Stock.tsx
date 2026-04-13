@@ -33,11 +33,19 @@ interface StockRow {
 interface Brand {
   id: number;
   brand_name: string;
+  department_id?: number | null;
+}
+
+interface Department {
+  id: number;
+  department_name: string;
 }
 
 interface Category {
   id: number;
   category_name: string;
+  department_id?: number;
+  stock_count?: number;
 }
 
 interface BrandTagImageRow {
@@ -89,6 +97,40 @@ function sourcedLocationFromRow(row: { sourced_location?: Nullable<string> }): s
   const v = row.sourced_location;
   if (v === 'charity_shop' || v === 'bootsale' || v === 'online_flip') return v;
   return 'charity_shop';
+}
+
+function stockSaleDatePresent(row: { sale_date?: Nullable<string> }): boolean {
+  const d = row.sale_date;
+  return d != null && String(d).trim() !== '';
+}
+
+function stockSalePriceEmpty(row: { sale_price?: Nullable<string | number> }): boolean {
+  const sp = row.sale_price;
+  if (sp === null || sp === undefined) return true;
+  if (typeof sp === 'string' && sp.trim() === '') return true;
+  return false;
+}
+
+/** Sold column styling: red if sold date set but price missing; green if sold with price; else neutral. */
+function soldColumnClass(row: StockRow): string {
+  const hasDate = stockSaleDatePresent(row);
+  const priceEmpty = stockSalePriceEmpty(row);
+  if (hasDate && priceEmpty) return 'stock-sold-cell stock-sold-cell--no-price';
+  if (hasDate && !priceEmpty) return 'stock-sold-cell stock-sold-cell--ok';
+  return 'stock-sold-cell stock-sold-cell--neutral';
+}
+
+function departmentNameForRow(
+  row: StockRow,
+  categoriesList: Category[],
+  departmentsList: Department[]
+): string {
+  const cat = categoriesList.find((c) => c.id === row.category_id);
+  const depId = cat?.department_id;
+  if (depId == null || !Number.isFinite(Number(depId)) || Number(depId) < 1) return '—';
+  const dep = departmentsList.find((d) => d.id === Number(depId));
+  const name = dep?.department_name?.trim();
+  return name || '—';
 }
 
 const formatCurrency = (value: Nullable<string | number>) => {
@@ -322,6 +364,7 @@ const Stock: React.FC = () => {
   const [creating, setCreating] = useState(false);
   const [createForm, setCreateForm] = useState({
     item_name: '',
+    department_id: '',
     category_id: '',
     purchase_price: '',
     purchase_date: '',
@@ -361,6 +404,7 @@ const Stock: React.FC = () => {
   const [editingRowInOrders, setEditingRowInOrders] = useState(false);
   /** True while POST /api/orders is in flight — button shows disabled / pending styling. */
   const [addingToOrder, setAddingToOrder] = useState(false);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -438,6 +482,42 @@ const Stock: React.FC = () => {
       max: Math.max(...prices),
     };
   }, [rows, createForm.brand_id, createForm.category_id, editingRowId]);
+
+  const defaultDepartmentId = useMemo(() => {
+    const d = departments.find(
+      (x) => x.department_name.trim().toLowerCase() === 'menswear'
+    );
+    return d != null ? String(d.id) : '';
+  }, [departments]);
+
+  const categoriesForDepartment = useMemo(() => {
+    const d = createForm.department_id?.trim();
+    if (!d) return [];
+    return categories.filter((c) => String(c.department_id ?? '') === d);
+  }, [categories, createForm.department_id]);
+
+  /** Brand dropdown + quick-add: only brands for the selected department; keep current selection visible if legacy mismatch. */
+  const brandsForBrandSelect = useMemo(() => {
+    const d = createForm.department_id?.trim();
+    const bid = createForm.brand_id?.trim();
+    if (!d) return [];
+    const forDept = brands.filter((b) => String(b.department_id ?? '') === d);
+    const sorted = [...forDept].sort((a, b) =>
+      a.brand_name.localeCompare(b.brand_name, undefined, { sensitivity: 'base' })
+    );
+    if (!bid) return sorted;
+    if (sorted.some((b) => String(b.id) === bid)) return sorted;
+    const current = brands.find((b) => String(b.id) === bid);
+    return current ? [current, ...sorted] : sorted;
+  }, [brands, createForm.department_id, createForm.brand_id]);
+
+  useEffect(() => {
+    if (defaultDepartmentId === '') return;
+    setCreateForm((prev) => {
+      if (prev.department_id !== '') return prev;
+      return { ...prev, department_id: defaultDepartmentId };
+    });
+  }, [defaultDepartmentId]);
 
   // Scroll to edit form when it opens on mobile
   useEffect(() => {
@@ -538,10 +618,42 @@ const Stock: React.FC = () => {
 
       if (response.ok) {
         const data = await response.json();
-        setBrands(Array.isArray(data.rows) ? data.rows : []);
+        const raw = Array.isArray(data.rows) ? data.rows : [];
+        const mapped: Brand[] = raw
+          .map((r: Record<string, unknown>) => {
+            const id = Math.floor(Number(r.id));
+            const depRaw = r.department_id;
+            let department_id: number | null = null;
+            if (depRaw !== undefined && depRaw !== null && depRaw !== '') {
+              const x = Math.floor(Number(depRaw));
+              if (Number.isFinite(x) && x >= 1) department_id = x;
+            }
+            return {
+              id: Number.isFinite(id) && id >= 1 ? id : -1,
+              brand_name: String(r.brand_name ?? '').trim(),
+              department_id,
+            };
+          })
+          .filter((b: Brand) => b.id >= 1);
+        setBrands(mapped);
       }
     } catch (err) {
       console.error('Failed to load brands:', err);
+    }
+  };
+
+  const loadDepartments = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/departments`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setDepartments(Array.isArray(data.rows) ? data.rows : []);
+      }
+    } catch (err) {
+      console.error('Failed to load departments:', err);
     }
   };
 
@@ -549,6 +661,7 @@ const Stock: React.FC = () => {
     loadStock();
     loadCategories();
     loadBrands();
+    loadDepartments();
   }, []);
 
   useEffect(() => {
@@ -573,8 +686,17 @@ const Stock: React.FC = () => {
           // Set editing state and form data
           setFormIntent('edit');
           setEditingRowId(rowToEdit.id);
+          const deptForRow =
+            rowToEdit.category_id != null
+              ? (() => {
+                  const cat = categories.find((c) => Number(c.id) === Number(rowToEdit.category_id));
+                  if (cat?.department_id != null) return String(cat.department_id);
+                  return defaultDepartmentId;
+                })()
+              : defaultDepartmentId;
           setCreateForm({
             item_name: rowToEdit.item_name ?? '',
+            department_id: deptForRow,
             category_id: rowToEdit.category_id ? String(rowToEdit.category_id) : '',
             purchase_price: stockDbNumberToFormString(rowToEdit.purchase_price),
             purchase_date: normalizeDateInput(rowToEdit.purchase_date ?? ''),
@@ -622,7 +744,7 @@ const Stock: React.FC = () => {
         }
       }
     }
-  }, [rows, loading, searchParams, editingRowId, creating, setSearchParams]);
+  }, [rows, loading, searchParams, editingRowId, creating, setSearchParams, categories, defaultDepartmentId]);
 
   useEffect(() => {
     const bid = createForm.brand_id?.trim();
@@ -766,6 +888,11 @@ const Stock: React.FC = () => {
       return;
     }
 
+    if (!createForm.department_id?.trim()) {
+      setError('Select a department before adding a category');
+      return;
+    }
+
     const categoryName = newCategoryName.trim();
     
     // Check if category already exists (case-insensitive)
@@ -786,7 +913,10 @@ const Stock: React.FC = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ category_name: categoryName }),
+        body: JSON.stringify({
+          category_name: categoryName,
+          department_id: Number(createForm.department_id),
+        }),
       });
 
       console.log('Category API response status:', response.status);
@@ -830,12 +960,21 @@ const Stock: React.FC = () => {
       return;
     }
 
+    if (!createForm.department_id?.trim()) {
+      setError('Select a department before adding a brand');
+      return;
+    }
+
     const brandName = newBrandName.trim();
-    
-    // Check if brand already exists (case-insensitive)
-    const brandExists = brands.some(b => b.brand_name.toLowerCase() === brandName.toLowerCase());
+    const deptId = Number(createForm.department_id);
+
+    const brandExists = brands.some(
+      (b) =>
+        b.brand_name.toLowerCase() === brandName.toLowerCase() &&
+        String(b.department_id ?? '') === String(deptId)
+    );
     if (brandExists) {
-      setError('Brand already exists');
+      setError('A brand with this name already exists in this department');
       setNewBrandName('');
       setShowAddBrand(false);
       return;
@@ -850,7 +989,7 @@ const Stock: React.FC = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ brand_name: brandName }),
+        body: JSON.stringify({ brand_name: brandName, department_id: deptId }),
       });
 
       console.log('Brand API response status:', response.status);
@@ -1537,10 +1676,10 @@ const Stock: React.FC = () => {
     const headers = [
       'Item Name',
       'Category',
+      'Department',
       'Purchase Price',
       'Purchase Date',
-      'Sale Date',
-      'Sale Price',
+      'Sold',
       'Sold Platform',
       'Profit'
     ];
@@ -1557,6 +1696,13 @@ const Stock: React.FC = () => {
         const profit = row.purchase_price && row.sale_price
           ? (typeof salePrice === 'number' && typeof purchasePrice === 'number' ? salePrice - purchasePrice : '')
           : '';
+        const soldParts = [
+          row.sale_date ? formatDate(row.sale_date) : '',
+          row.sale_price !== null && row.sale_price !== undefined && String(row.sale_price).trim() !== ''
+            ? String(salePrice)
+            : '',
+        ].filter(Boolean);
+        const soldCell = soldParts.length ? soldParts.join(' | ') : '';
 
         return [
           `"${(row.item_name || '').replace(/"/g, '""')}"`,
@@ -1564,10 +1710,10 @@ const Stock: React.FC = () => {
             const category = categories.find(cat => cat.id === row.category_id);
             return category ? category.category_name : '';
           })().replace(/"/g, '""')}"`,
+          `"${departmentNameForRow(row, categories, departments).replace(/"/g, '""')}"`,
           purchasePrice,
           row.purchase_date ? formatDate(row.purchase_date) : '',
-          row.sale_date ? formatDate(row.sale_date) : '',
-          salePrice,
+          `"${soldCell.replace(/"/g, '""')}"`,
           `"${(row.sold_platform || '').replace(/"/g, '""')}"`,
           profit
         ].join(',');
@@ -1634,8 +1780,17 @@ const Stock: React.FC = () => {
     console.log('startEditingRow - Setting editingRowId to:', row.id);
     setFormIntent('edit');
     setEditingRowId(Number(row.id));
+    const deptForRow =
+      row.category_id != null
+        ? (() => {
+            const cat = categories.find((c) => Number(c.id) === Number(row.category_id));
+            if (cat?.department_id != null) return String(cat.department_id);
+            return defaultDepartmentId;
+          })()
+        : defaultDepartmentId;
     setCreateForm({
       item_name: row.item_name ?? '',
+      department_id: deptForRow,
       category_id: row.category_id ? String(row.category_id) : '',
       purchase_price: stockDbNumberToFormString(row.purchase_price),
       purchase_date: normalizeDateInput(row.purchase_date ?? ''),
@@ -1686,6 +1841,7 @@ const Stock: React.FC = () => {
   const resetCreateForm = () => {
     setCreateForm({
       item_name: '',
+      department_id: defaultDepartmentId,
       category_id: '',
       purchase_price: '',
       purchase_date: '',
@@ -1708,6 +1864,31 @@ const Stock: React.FC = () => {
       const next = { ...prev, [key]: value };
       if (key === 'brand_id' && value !== prev.brand_id) {
         next.brand_tag_image_id = '';
+      }
+      if (key === 'department_id' && value !== prev.department_id) {
+        const keepCat =
+          prev.category_id &&
+          categories.some(
+            (c) =>
+              String(c.id) === String(prev.category_id) &&
+              String(c.department_id ?? '') === String(value)
+          );
+        if (!keepCat) {
+          next.category_id = '';
+          next.category_size_id = '';
+        }
+        const keepBrand =
+          prev.brand_id &&
+          String(value).trim() !== '' &&
+          brands.some(
+            (b) =>
+              String(b.id) === String(prev.brand_id) &&
+              String(b.department_id ?? '') === String(value)
+          );
+        if (!keepBrand) {
+          next.brand_id = '';
+          next.brand_tag_image_id = '';
+        }
       }
       if (key === 'category_id' && value !== prev.category_id) {
         next.category_size_id = '';
@@ -2337,7 +2518,12 @@ const Stock: React.FC = () => {
                   </button>
                 </div>
               ) : null}
-              <div className="stock-new-entry-top-bar-metrics">
+              <div
+                className={
+                  'stock-new-entry-top-bar-metrics' +
+                  (!editingRowId ? ' stock-new-entry-top-bar-metrics--add' : '')
+                }
+              >
                 <div className="new-entry-field stock-new-entry-top-bar-comps-field">
                   <div
                     className="stock-edit-brand-category-comps stock-new-entry-top-bar-comps"
@@ -2424,6 +2610,164 @@ const Stock: React.FC = () => {
                       placeholder="e.g. Barbour jacket"
                     />
                   </label>
+                  <label className="new-entry-field stock-new-entry-department-field">
+                    <span id="stock-form-department-label">Department</span>
+                    <select
+                      className="new-entry-select"
+                      aria-labelledby="stock-form-department-label"
+                      value={createForm.department_id}
+                      onChange={(event) => handleCreateChange('department_id', event.target.value)}
+                      disabled={departments.length === 0}
+                    >
+                      <option value="">
+                        {departments.length === 0 ? 'Loading departments…' : 'Select department…'}
+                      </option>
+                      {departments.map((d) => (
+                        <option key={d.id} value={String(d.id)}>
+                          {d.department_name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="new-entry-field stock-new-entry-category-field" style={{ position: 'relative' }}>
+                    <div className="new-entry-field-label-row">
+                      <span id="stock-form-category-label">Category</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowAddCategory(!showAddCategory);
+                          setNewCategoryName('');
+                        }}
+                        disabled={!createForm.department_id?.trim()}
+                        style={{
+                          background: 'rgba(255, 214, 91, 0.15)',
+                          border: '1px solid rgba(255, 214, 91, 0.3)',
+                          borderRadius: '6px',
+                          color: 'var(--neon-primary-strong)',
+                          cursor: createForm.department_id?.trim() ? 'pointer' : 'not-allowed',
+                          padding: '4px 8px',
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          minWidth: '24px',
+                          height: '24px',
+                          transition: 'all 0.2s ease',
+                          opacity: createForm.department_id?.trim() ? 1 : 0.45,
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!createForm.department_id?.trim()) return;
+                          e.currentTarget.style.background = 'rgba(255, 214, 91, 0.25)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'rgba(255, 214, 91, 0.15)';
+                        }}
+                        title={
+                          createForm.department_id?.trim()
+                            ? 'Add new category'
+                            : 'Select a department first'
+                        }
+                      >
+                        +
+                      </button>
+                    </div>
+                    <select
+                      className="new-entry-select"
+                      aria-labelledby="stock-form-category-label"
+                      value={createForm.category_id}
+                      onChange={(event) => handleCreateChange('category_id', event.target.value)}
+                      disabled={!createForm.department_id?.trim()}
+                    >
+                      <option value="">
+                        {!createForm.department_id?.trim()
+                          ? 'Select department first'
+                          : 'Select category…'}
+                      </option>
+                      {categoriesForDepartment.map((category) => (
+                        <option key={category.id} value={category.id}>
+                          {category.category_name}
+                        </option>
+                      ))}
+                    </select>
+                    {showAddCategory && (
+                      <div
+                        style={{
+                          display: 'flex',
+                          gap: '8px',
+                          alignItems: 'center',
+                          marginTop: '4px',
+                          padding: '8px',
+                          background: 'rgba(255, 214, 91, 0.08)',
+                          borderRadius: '8px',
+                          border: '1px solid rgba(255, 214, 91, 0.2)'
+                        }}
+                      >
+                        <input
+                          type="text"
+                          value={newCategoryName}
+                          onChange={(e) => setNewCategoryName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              handleAddCategory();
+                            } else if (e.key === 'Escape') {
+                              setShowAddCategory(false);
+                              setNewCategoryName('');
+                            }
+                          }}
+                          placeholder="New category name..."
+                          style={{
+                            flex: 1,
+                            padding: '8px 12px',
+                            borderRadius: '8px',
+                            border: '1px solid rgba(255, 214, 91, 0.28)',
+                            background: 'rgba(5, 4, 3, 0.6)',
+                            color: 'var(--text-strong)',
+                            fontSize: '0.9rem',
+                            outline: 'none'
+                          }}
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          onClick={handleAddCategory}
+                          disabled={savingCategory || !newCategoryName.trim()}
+                          style={{
+                            padding: '8px 16px',
+                            borderRadius: '8px',
+                            border: '1px solid rgba(255, 214, 91, 0.3)',
+                            background: savingCategory ? 'rgba(255, 214, 91, 0.2)' : 'rgba(255, 214, 91, 0.15)',
+                            color: 'var(--neon-primary-strong)',
+                            cursor: savingCategory ? 'not-allowed' : 'pointer',
+                            fontSize: '0.85rem',
+                            fontWeight: 600,
+                            opacity: savingCategory || !newCategoryName.trim() ? 0.6 : 1
+                          }}
+                        >
+                          {savingCategory ? 'Saving...' : 'Add'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAddCategory(false);
+                            setNewCategoryName('');
+                          }}
+                          style={{
+                            padding: '8px 12px',
+                            borderRadius: '8px',
+                            border: '1px solid rgba(255, 120, 120, 0.3)',
+                            background: 'rgba(255, 120, 120, 0.1)',
+                            color: '#ffb0b0',
+                            cursor: 'pointer',
+                            fontSize: '0.85rem',
+                            fontWeight: 600
+                          }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   <div className="new-entry-field stock-new-entry-brand-field" style={{ position: 'relative' }}>
                     <div className="new-entry-field-label-row">
                       <span id="stock-form-brand-label">Brand</span>
@@ -2433,6 +2777,12 @@ const Stock: React.FC = () => {
                           setShowAddBrand(!showAddBrand);
                           setNewBrandName('');
                         }}
+                        disabled={!createForm.department_id?.trim()}
+                        title={
+                          createForm.department_id?.trim()
+                            ? 'Add new brand'
+                            : 'Select a department first'
+                        }
                         style={{
                           background: 'rgba(255, 214, 91, 0.15)',
                           border: '1px solid rgba(255, 214, 91, 0.3)',
@@ -2455,7 +2805,6 @@ const Stock: React.FC = () => {
                         onMouseLeave={(e) => {
                           e.currentTarget.style.background = 'rgba(255, 214, 91, 0.15)';
                         }}
-                        title="Add new brand"
                       >
                         +
                       </button>
@@ -2465,9 +2814,19 @@ const Stock: React.FC = () => {
                       aria-labelledby="stock-form-brand-label"
                       value={createForm.brand_id}
                       onChange={(event) => handleCreateChange('brand_id', event.target.value)}
+                      disabled={!createForm.department_id?.trim()}
+                      title={
+                        createForm.department_id?.trim()
+                          ? undefined
+                          : 'Select a department to choose a brand'
+                      }
                     >
-                      <option value="">-- No Brand --</option>
-                      {brands.map((brand) => (
+                      <option value="">
+                        {createForm.department_id?.trim()
+                          ? '-- No Brand --'
+                          : '-- Select department first --'}
+                      </option>
+                      {brandsForBrandSelect.map((brand) => (
                         <option key={brand.id} value={String(brand.id)}>
                           {brand.brand_name}
                         </option>
@@ -2553,133 +2912,6 @@ const Stock: React.FC = () => {
                       </div>
                     )}
                   </div>
-                  <div className="new-entry-field stock-new-entry-category-field" style={{ position: 'relative' }}>
-                    <div className="new-entry-field-label-row">
-                      <span id="stock-form-category-label">Category</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowAddCategory(!showAddCategory);
-                          setNewCategoryName('');
-                        }}
-                        style={{
-                          background: 'rgba(255, 214, 91, 0.15)',
-                          border: '1px solid rgba(255, 214, 91, 0.3)',
-                          borderRadius: '6px',
-                          color: 'var(--neon-primary-strong)',
-                          cursor: 'pointer',
-                          padding: '4px 8px',
-                          fontSize: '0.75rem',
-                          fontWeight: 600,
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          minWidth: '24px',
-                          height: '24px',
-                          transition: 'all 0.2s ease'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = 'rgba(255, 214, 91, 0.25)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = 'rgba(255, 214, 91, 0.15)';
-                        }}
-                        title="Add new category"
-                      >
-                        +
-                      </button>
-                    </div>
-                    <select
-                      className="new-entry-select"
-                      aria-labelledby="stock-form-category-label"
-                      value={createForm.category_id}
-                      onChange={(event) => handleCreateChange('category_id', event.target.value)}
-                    >
-                      <option value="">Select category...</option>
-                      {categories.map((category) => (
-                        <option key={category.id} value={category.id}>
-                          {category.category_name}
-                        </option>
-                      ))}
-                    </select>
-                    {showAddCategory && (
-                      <div
-                        style={{
-                          display: 'flex',
-                          gap: '8px',
-                          alignItems: 'center',
-                          marginTop: '4px',
-                          padding: '8px',
-                          background: 'rgba(255, 214, 91, 0.08)',
-                          borderRadius: '8px',
-                          border: '1px solid rgba(255, 214, 91, 0.2)'
-                        }}
-                      >
-                        <input
-                          type="text"
-                          value={newCategoryName}
-                          onChange={(e) => setNewCategoryName(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              handleAddCategory();
-                            } else if (e.key === 'Escape') {
-                              setShowAddCategory(false);
-                              setNewCategoryName('');
-                            }
-                          }}
-                          placeholder="New category name..."
-                          style={{
-                            flex: 1,
-                            padding: '8px 12px',
-                            borderRadius: '8px',
-                            border: '1px solid rgba(255, 214, 91, 0.28)',
-                            background: 'rgba(5, 4, 3, 0.6)',
-                            color: 'var(--text-strong)',
-                            fontSize: '0.9rem',
-                            outline: 'none'
-                          }}
-                          autoFocus
-                        />
-                        <button
-                          type="button"
-                          onClick={handleAddCategory}
-                          disabled={savingCategory || !newCategoryName.trim()}
-                          style={{
-                            padding: '8px 16px',
-                            borderRadius: '8px',
-                            border: '1px solid rgba(255, 214, 91, 0.3)',
-                            background: savingCategory ? 'rgba(255, 214, 91, 0.2)' : 'rgba(255, 214, 91, 0.15)',
-                            color: 'var(--neon-primary-strong)',
-                            cursor: savingCategory ? 'not-allowed' : 'pointer',
-                            fontSize: '0.85rem',
-                            fontWeight: 600,
-                            opacity: savingCategory || !newCategoryName.trim() ? 0.6 : 1
-                          }}
-                        >
-                          {savingCategory ? 'Saving...' : 'Add'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowAddCategory(false);
-                            setNewCategoryName('');
-                          }}
-                          style={{
-                            padding: '8px 12px',
-                            borderRadius: '8px',
-                            border: '1px solid rgba(255, 120, 120, 0.3)',
-                            background: 'rgba(255, 120, 120, 0.1)',
-                            color: '#ffb0b0',
-                            cursor: 'pointer',
-                            fontSize: '0.85rem',
-                            fontWeight: 600
-                          }}
-                        >
-                          ×
-                        </button>
-                      </div>
-                    )}
-                  </div>
                   <label className="new-entry-field stock-new-entry-size-field">
                     <span id="stock-form-size-label">Size</span>
                     <select
@@ -2703,133 +2935,10 @@ const Stock: React.FC = () => {
                       ))}
                     </select>
                   </label>
-                  <div className="new-entry-field stock-new-entry-tags-field">
-                    <div className="new-entry-field-label-row">
-                      <span id="stock-form-tags-label">Tag</span>
-                    </div>
-                    <div className="stock-brand-tag-dropdown" ref={stockTagDropdownRef}>
-                      <button
-                        type="button"
-                        className={
-                          'stock-brand-tag-dropdown-trigger' +
-                          (!createForm.brand_id?.trim() ? ' stock-brand-tag-dropdown-trigger--disabled' : '')
-                        }
-                        aria-haspopup="listbox"
-                        aria-expanded={stockTagDropdownOpen}
-                        aria-labelledby="stock-form-tags-label"
-                        disabled={!createForm.brand_id?.trim()}
-                        onClick={() => {
-                          if (!createForm.brand_id?.trim()) return;
-                          setStockTagDropdownOpen((o) => !o);
-                        }}
-                      >
-                        <span className="stock-brand-tag-dropdown-trigger-inner">
-                          {selectedBrandTagImage?.public_url ? (
-                            <img
-                              src={selectedBrandTagImage.public_url}
-                              alt=""
-                              className="stock-brand-tag-dropdown-trigger-thumb"
-                            />
-                          ) : (
-                            <span className="stock-brand-tag-dropdown-trigger-thumb stock-brand-tag-dropdown-trigger-thumb--empty" />
-                          )}
-                          <span className="stock-brand-tag-dropdown-trigger-text">
-                            {!createForm.brand_id?.trim()
-                              ? 'Select a brand first'
-                              : brandTagImagesLoading
-                                ? 'Loading tags…'
-                                : brandTagImagesError
-                                  ? 'Could not load tags'
-                                  : brandTagImages.length === 0
-                                    ? 'No tags for this brand'
-                                    : selectedBrandTagImage
-                                      ? (selectedBrandTagImage.caption?.trim() || `Tag #${selectedBrandTagImage.id}`)
-                                      : 'Select tag…'}
-                          </span>
-                        </span>
-                        <span className="stock-brand-tag-dropdown-chevron" aria-hidden>
-                          ▾
-                        </span>
-                      </button>
-                      {stockTagDropdownOpen && createForm.brand_id?.trim() && (
-                        <div
-                          className="stock-brand-tag-dropdown-panel"
-                          role="listbox"
-                          aria-labelledby="stock-form-tags-label"
-                        >
-                          {brandTagImagesLoading ? (
-                            <div className="stock-brand-tag-dropdown-row stock-brand-tag-dropdown-row--muted">
-                              Loading…
-                            </div>
-                          ) : brandTagImagesError ? (
-                            <div className="stock-brand-tag-dropdown-row stock-brand-tag-dropdown-row--muted" role="alert">
-                              {brandTagImagesError}
-                            </div>
-                          ) : brandTagImages.length === 0 ? (
-                            <div className="stock-brand-tag-dropdown-row stock-brand-tag-dropdown-row--muted">
-                              No tag images for this brand.
-                            </div>
-                          ) : (
-                            <>
-                              <button
-                                type="button"
-                                role="option"
-                                className="stock-brand-tag-dropdown-row"
-                                aria-selected={createForm.brand_tag_image_id === ''}
-                                onClick={() => {
-                                  handleCreateChange('brand_tag_image_id', '');
-                                  setStockTagDropdownOpen(false);
-                                }}
-                              >
-                                <span className="stock-brand-tag-dropdown-row-thumb stock-brand-tag-dropdown-row-thumb--none" />
-                                <span>None</span>
-                              </button>
-                              {brandTagImages
-                                .filter((t) => t.image_kind !== 'logo')
-                                .map((t) => {
-                                const picked = String(createForm.brand_tag_image_id) === String(t.id);
-                                return (
-                                  <button
-                                    key={t.id}
-                                    type="button"
-                                    role="option"
-                                    className={
-                                      'stock-brand-tag-dropdown-row' + (picked ? ' stock-brand-tag-dropdown-row--picked' : '')
-                                    }
-                                    aria-selected={picked}
-                                    onClick={() => {
-                                      handleCreateChange('brand_tag_image_id', String(t.id));
-                                      setStockTagDropdownOpen(false);
-                                    }}
-                                  >
-                                    {t.public_url ? (
-                                      <img
-                                        src={t.public_url}
-                                        alt=""
-                                        className="stock-brand-tag-dropdown-row-thumb"
-                                        loading="lazy"
-                                      />
-                                    ) : (
-                                      <span className="stock-brand-tag-dropdown-row-thumb stock-brand-tag-dropdown-row-thumb--placeholder">
-                                        ?
-                                      </span>
-                                    )}
-                                    <span className="stock-brand-tag-dropdown-row-label">
-                                      {t.caption?.trim() || `Tag #${t.id}`}
-                                    </span>
-                                  </button>
-                                );
-                              })}
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>
-            {/* Purchase, projected, date, sourced */}
+            {/* Row 2: purchase, date, sourced, tag */}
             <div className="stock-new-entry-row-prices">
               <label className="new-entry-field new-entry-field--stock-compact-price new-entry-field--stock-row2-equal">
                 <span>Purchase Price (£)</span>
@@ -2839,17 +2948,6 @@ const Stock: React.FC = () => {
                   value={createForm.purchase_price}
                   onChange={(event) => handleCreateChange('purchase_price', event.target.value)}
                   placeholder="e.g. 45.00"
-                />
-              </label>
-              <label className="new-entry-field new-entry-field--stock-compact-price new-entry-field--stock-row2-equal">
-                <span className="stock-new-entry-row2-projected-label">Projected Price (£)</span>
-                <input
-                  type="text"
-                  className="stock-edit-projected-price-input"
-                  value={createForm.projected_sale_price}
-                  onChange={(event) => handleCreateChange('projected_sale_price', event.target.value)}
-                  placeholder="0.00"
-                  aria-label="Projected price (£)"
                 />
               </label>
               <label className="new-entry-field new-entry-field--stock-compact-date new-entry-field--stock-row2-equal">
@@ -2866,7 +2964,7 @@ const Stock: React.FC = () => {
                   wrapperClassName="date-picker-wrapper"
                 />
               </label>
-              <label className="new-entry-field new-entry-field--stock-compact-source new-entry-field--stock-row2-equal">
+              <label className="new-entry-field new-entry-field--stock-row2-sourced new-entry-field--stock-row2-equal">
                 <span>Sourced</span>
                 <select
                   className="new-entry-select"
@@ -2881,8 +2979,131 @@ const Stock: React.FC = () => {
                   ))}
                 </select>
               </label>
+              <div className="new-entry-field stock-new-entry-tags-field new-entry-field--stock-row2-equal">
+                <div className="new-entry-field-label-row">
+                  <span id="stock-form-tags-label">Tag</span>
+                </div>
+                <div className="stock-brand-tag-dropdown" ref={stockTagDropdownRef}>
+                  <button
+                    type="button"
+                    className={
+                      'stock-brand-tag-dropdown-trigger' +
+                      (!createForm.brand_id?.trim() ? ' stock-brand-tag-dropdown-trigger--disabled' : '')
+                    }
+                    aria-haspopup="listbox"
+                    aria-expanded={stockTagDropdownOpen}
+                    aria-labelledby="stock-form-tags-label"
+                    disabled={!createForm.brand_id?.trim()}
+                    onClick={() => {
+                      if (!createForm.brand_id?.trim()) return;
+                      setStockTagDropdownOpen((o) => !o);
+                    }}
+                  >
+                    <span className="stock-brand-tag-dropdown-trigger-inner">
+                      {selectedBrandTagImage?.public_url ? (
+                        <img
+                          src={selectedBrandTagImage.public_url}
+                          alt=""
+                          className="stock-brand-tag-dropdown-trigger-thumb"
+                        />
+                      ) : (
+                        <span className="stock-brand-tag-dropdown-trigger-thumb stock-brand-tag-dropdown-trigger-thumb--empty" />
+                      )}
+                      <span className="stock-brand-tag-dropdown-trigger-text">
+                        {!createForm.brand_id?.trim()
+                          ? 'Select a brand first'
+                          : brandTagImagesLoading
+                            ? 'Loading tags…'
+                            : brandTagImagesError
+                              ? 'Could not load tags'
+                              : brandTagImages.length === 0
+                                ? 'No tags for this brand'
+                                : selectedBrandTagImage
+                                  ? (selectedBrandTagImage.caption?.trim() || `Tag #${selectedBrandTagImage.id}`)
+                                  : 'Select tag…'}
+                      </span>
+                    </span>
+                    <span className="stock-brand-tag-dropdown-chevron" aria-hidden>
+                      ▾
+                    </span>
+                  </button>
+                  {stockTagDropdownOpen && createForm.brand_id?.trim() && (
+                    <div
+                      className="stock-brand-tag-dropdown-panel"
+                      role="listbox"
+                      aria-labelledby="stock-form-tags-label"
+                    >
+                      {brandTagImagesLoading ? (
+                        <div className="stock-brand-tag-dropdown-row stock-brand-tag-dropdown-row--muted">
+                          Loading…
+                        </div>
+                      ) : brandTagImagesError ? (
+                        <div className="stock-brand-tag-dropdown-row stock-brand-tag-dropdown-row--muted" role="alert">
+                          {brandTagImagesError}
+                        </div>
+                      ) : brandTagImages.length === 0 ? (
+                        <div className="stock-brand-tag-dropdown-row stock-brand-tag-dropdown-row--muted">
+                          No tag images for this brand.
+                        </div>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            role="option"
+                            className="stock-brand-tag-dropdown-row"
+                            aria-selected={createForm.brand_tag_image_id === ''}
+                            onClick={() => {
+                              handleCreateChange('brand_tag_image_id', '');
+                              setStockTagDropdownOpen(false);
+                            }}
+                          >
+                            <span className="stock-brand-tag-dropdown-row-thumb stock-brand-tag-dropdown-row-thumb--none" />
+                            <span>None</span>
+                          </button>
+                          {brandTagImages
+                            .filter((t) => t.image_kind !== 'logo')
+                            .map((t) => {
+                              const picked = String(createForm.brand_tag_image_id) === String(t.id);
+                              return (
+                                <button
+                                  key={t.id}
+                                  type="button"
+                                  role="option"
+                                  className={
+                                    'stock-brand-tag-dropdown-row' + (picked ? ' stock-brand-tag-dropdown-row--picked' : '')
+                                  }
+                                  aria-selected={picked}
+                                  onClick={() => {
+                                    handleCreateChange('brand_tag_image_id', String(t.id));
+                                    setStockTagDropdownOpen(false);
+                                  }}
+                                >
+                                  {t.public_url ? (
+                                    <img
+                                      src={t.public_url}
+                                      alt=""
+                                      className="stock-brand-tag-dropdown-row-thumb"
+                                      loading="lazy"
+                                    />
+                                  ) : (
+                                    <span className="stock-brand-tag-dropdown-row-thumb stock-brand-tag-dropdown-row-thumb--placeholder">
+                                      ?
+                                    </span>
+                                  )}
+                                  <span className="stock-brand-tag-dropdown-row-label">
+                                    {t.caption?.trim() || `Tag #${t.id}`}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
-            {/* Row 3 (+ edit sales fields): IDs, My Sales / date / platform when editing, save */}
+            {/* Row 3: marketplace IDs, projected; edit adds sale fields; save */}
             <div
               className={
                 editingRowId
@@ -2915,6 +3136,17 @@ const Stock: React.FC = () => {
                   value={createForm.depop_id}
                   onChange={(event) => handleCreateChange('depop_id', event.target.value)}
                   placeholder="Optional"
+                />
+              </label>
+              <label className="new-entry-field stock-new-entry-id-field stock-new-entry-id-field--projected">
+                <span className="stock-new-entry-row3-projected-label">Projected Price (£)</span>
+                <input
+                  type="text"
+                  className="stock-edit-projected-price-input"
+                  value={createForm.projected_sale_price}
+                  onChange={(event) => handleCreateChange('projected_sale_price', event.target.value)}
+                  placeholder="0.00"
+                  aria-label="Projected price (£)"
                 />
               </label>
               {editingRowId && (
@@ -3868,6 +4100,7 @@ const Stock: React.FC = () => {
                   Category <span className="sort-indicator">{resolveSortIndicator('category_id')}</span>
                 </button>
               </th>
+              <th scope="col">Department</th>
               <th>
                 <button
                   type="button"
@@ -3891,17 +4124,9 @@ const Stock: React.FC = () => {
                   type="button"
                   className={`sortable-header${sortConfig?.key === 'sale_date' ? ` sorted-${sortConfig.direction}` : ''}`}
                   onClick={() => handleSort('sale_date')}
+                  title="Sort by sale date"
                 >
-                  Sale Date <span className="sort-indicator">{resolveSortIndicator('sale_date')}</span>
-                </button>
-              </th>
-              <th>
-                <button
-                  type="button"
-                  className={`sortable-header${sortConfig?.key === 'sale_price' ? ` sorted-${sortConfig.direction}` : ''}`}
-                  onClick={() => handleSort('sale_price')}
-                >
-                  Sale Price <span className="sort-indicator">{resolveSortIndicator('sale_price')}</span>
+                  Sold <span className="sort-indicator">{resolveSortIndicator('sale_date')}</span>
                 </button>
               </th>
               <th>
@@ -3974,6 +4199,7 @@ const Stock: React.FC = () => {
                     </button>
                   </td>
                   <td>{renderCellContent(row, 'category_id')}</td>
+                  <td>{departmentNameForRow(row, categories, departments)}</td>
                   <td>{renderCellContent(row, 'purchase_price', formatCurrency)}</td>
                   <td>
                     {renderCellContent(
@@ -3983,15 +4209,20 @@ const Stock: React.FC = () => {
                       true
                     )}
                   </td>
-                  <td>
-                    {renderCellContent(
-                      row,
-                      'sale_date',
-                      (val) => formatDate(val as Nullable<string>),
-                      true
-                    )}
+                  <td className={soldColumnClass(row)}>
+                    <div className="stock-sold-cell-inner">
+                      <span className="stock-sold-line">
+                        {stockSaleDatePresent(row)
+                          ? formatDate(row.sale_date as string)
+                          : '—'}
+                      </span>
+                      <span className="stock-sold-line stock-sold-line--price">
+                        {stockSalePriceEmpty(row)
+                          ? '—'
+                          : formatCurrency(row.sale_price)}
+                      </span>
+                    </div>
                   </td>
-                  <td>{renderCellContent(row, 'sale_price', formatCurrency)}</td>
                   <td>
                     <span className={profitClass}>{profitDisplay}</span>
                   </td>
@@ -4028,6 +4259,7 @@ const Stock: React.FC = () => {
         {sortedRows.slice(0, visibleItemsCount).map((row) => {
           const categoryName = categories.find(c => c.id === row.category_id)?.category_name || '—';
           const brandName = brands.find(b => b.id === row.brand_id)?.brand_name || '—';
+          const deptName = departmentNameForRow(row, categories, departments);
 
           return (
             <div key={row.id} className="stock-card">
@@ -4064,6 +4296,12 @@ const Stock: React.FC = () => {
                     <span className="stock-card-value">{categoryName}</span>
                   </div>
                 )}
+                {deptName !== '—' && (
+                  <div className="stock-card-field">
+                    <span className="stock-card-label">Department</span>
+                    <span className="stock-card-value">{deptName}</span>
+                  </div>
+                )}
                 {brandName !== '—' && (
                   <div className="stock-card-field">
                     <span className="stock-card-label">Brand</span>
@@ -4074,18 +4312,23 @@ const Stock: React.FC = () => {
                   <span className="stock-card-label">Purchase Price</span>
                   <span className="stock-card-value">{renderCellContent(row, 'purchase_price', formatCurrency)}</span>
                 </div>
-                {row.sale_date && (
-                  <div className="stock-card-field">
-                    <span className="stock-card-label">Sale Date</span>
-                    <span className="stock-card-value">{formatDate(row.sale_date)}</span>
-                  </div>
-                )}
-                {row.sale_price && (
-                  <div className="stock-card-field">
-                    <span className="stock-card-label">Sale Price</span>
-                    <span className="stock-card-value">{formatCurrency(row.sale_price)}</span>
-                  </div>
-                )}
+                <div className="stock-card-field">
+                  <span className="stock-card-label">Sold</span>
+                  <span className={`stock-card-value ${soldColumnClass(row)}`}>
+                    <span className="stock-sold-cell-inner stock-sold-cell-inner--card">
+                      <span className="stock-sold-line">
+                        {stockSaleDatePresent(row)
+                          ? formatDate(row.sale_date as string)
+                          : '—'}
+                      </span>
+                      <span className="stock-sold-line stock-sold-line--price">
+                        {stockSalePriceEmpty(row)
+                          ? '—'
+                          : formatCurrency(row.sale_price)}
+                      </span>
+                    </span>
+                  </span>
+                </div>
               </div>
             </div>
           );

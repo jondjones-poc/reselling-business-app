@@ -2722,12 +2722,14 @@ app.get('/api/brands', async (req, res) => {
       return res.status(500).json({ error: 'Database connection not configured' });
     }
 
-    // Query all columns explicitly
+    await ensureBrandDepartmentSchema(pool);
+
     const result = await pool.query(
-      `SELECT id, brand_name, created_at, updated_at, brand_website, things_to_buy, things_to_avoid,
-              description, menswear_category_id
-       FROM public.brand
-       ORDER BY brand_name ASC`
+      `SELECT b.id, b.brand_name, b.created_at, b.updated_at, b.brand_website, b.things_to_buy, b.things_to_avoid,
+              b.description, b.menswear_category_id, b.department_id, d.department_name
+       FROM public.brand b
+       LEFT JOIN public.department d ON d.id = b.department_id
+       ORDER BY b.brand_name ASC`
     );
 
     // Diagnostic: Check what the database actually returned
@@ -2761,6 +2763,14 @@ app.get('/api/brands', async (req, res) => {
           row.menswear_category_id != null && row.menswear_category_id !== ''
             ? Number(row.menswear_category_id)
             : null,
+        department_id:
+          row.department_id != null && row.department_id !== ''
+            ? Number(row.department_id)
+            : null,
+        department_name:
+          row.department_name != null && String(row.department_name).trim() !== ''
+            ? String(row.department_name).trim()
+            : null,
       };
     });
 
@@ -2787,44 +2797,110 @@ app.get('/api/brands', async (req, res) => {
 });
 
 app.post('/api/brands', async (req, res) => {
-  try {
-    const pool = getDatabasePool();
+  const pool = getDatabasePool();
+  const { brand_name, menswear_category_id: bodyMenswearCatId, department_id: bodyBrandDeptId } =
+    req.body ?? {};
+  const normalizedBrandName =
+    typeof brand_name === 'string' && brand_name.trim() ? brand_name.trim() : '';
 
+  try {
     if (!pool) {
       return res.status(500).json({ error: 'Database connection not configured' });
     }
 
-    const { brand_name } = req.body ?? {};
-
-    if (!brand_name || typeof brand_name !== 'string' || !brand_name.trim()) {
+    if (!normalizedBrandName) {
       return res.status(400).json({ error: 'Brand name is required' });
     }
 
-    const normalizedBrandName = brand_name.trim();
+    await ensureBrandDepartmentSchema(pool);
+    const depRes = await resolveBrandDepartmentId(pool, bodyBrandDeptId);
+    if (depRes.error) {
+      return res.status(400).json({ error: depRes.error });
+    }
+    const { departmentId: brandDepartmentId } = depRes;
 
-    // Check if brand already exists (case-insensitive)
+    let menswearCategoryId = null;
+    if (bodyMenswearCatId !== undefined && bodyMenswearCatId !== null && bodyMenswearCatId !== '') {
+      const cid = Number(bodyMenswearCatId);
+      if (!Number.isInteger(cid) || cid < 1) {
+        return res.status(400).json({ error: 'menswear_category_id must be a positive integer when provided' });
+      }
+      await ensureMenswearCategoryDepartmentSchema(pool);
+      const catCheck = await pool.query('SELECT id FROM menswear_category WHERE id = $1', [cid]);
+      if (!catCheck.rowCount) {
+        return res.status(400).json({ error: 'menswear_category_id not found' });
+      }
+      menswearCategoryId = cid;
+    }
+
+    // Same name allowed in different departments; block duplicates within one department (case-insensitive)
     const existingResult = await pool.query(
-      'SELECT id FROM brand WHERE LOWER(TRIM(brand_name)) = LOWER($1)',
-      [normalizedBrandName]
+      `SELECT id FROM brand
+       WHERE LOWER(TRIM(BOTH FROM brand_name)) = LOWER(TRIM($1::text))
+         AND department_id = $2`,
+      [normalizedBrandName, brandDepartmentId]
     );
 
     if (existingResult.rowCount > 0) {
-      return res.status(400).json({ error: 'Brand already exists' });
+      const hit = existingResult.rows[0];
+      return res.status(400).json({
+        error: 'A brand with this name already exists in this department',
+        existing_brand_id: hit.id,
+        department_id: brandDepartmentId,
+      });
     }
 
     const insertQuery = `
-      INSERT INTO brand (brand_name)
-      VALUES ($1)
-      RETURNING id, brand_name
+      INSERT INTO brand (brand_name, menswear_category_id, department_id)
+      VALUES ($1, $2, $3)
+      RETURNING id, brand_name, menswear_category_id, department_id
     `;
 
-    const result = await pool.query(insertQuery, [normalizedBrandName]);
+    const result = await pool.query(insertQuery, [
+      normalizedBrandName,
+      menswearCategoryId,
+      brandDepartmentId,
+    ]);
 
-    res.status(201).json({ row: result.rows[0] });
+    const row = result.rows[0];
+    const dn = await pool.query(`SELECT department_name FROM department WHERE id = $1`, [
+      brandDepartmentId,
+    ]);
+    row.department_name = dn.rows[0]?.department_name ?? null;
+
+    res.status(201).json({ row });
   } catch (error) {
     console.error('Brand insert failed:', error);
-    if (error.code === '23505') { // Unique violation
-      return res.status(400).json({ error: 'Brand already exists' });
+    if (error.code === '23505') {
+      let hint =
+        'Database rejected a duplicate. If this name is not in this department in the UI, a legacy unique index on brand_name (all departments) may still exist — restart the API so migrations run, or check pg_indexes on public.brand.';
+      try {
+        if (pool && normalizedBrandName) {
+          const dup = await pool.query(
+            `SELECT b.id, b.department_id, b.brand_name, d.department_name
+             FROM public.brand b
+             LEFT JOIN public.department d ON d.id = b.department_id
+             WHERE LOWER(TRIM(BOTH FROM b.brand_name)) = LOWER(TRIM($1::text))
+             ORDER BY b.id ASC
+             LIMIT 3`,
+            [normalizedBrandName]
+          );
+          if (dup.rowCount > 0) {
+            const rows = dup.rows.map(
+              (r) =>
+                `id ${r.id} (dept ${r.department_id ?? '?'} ${r.department_name ?? ''})`.trim()
+            );
+            hint = `Existing row(s) with this name: ${rows.join('; ')}. In Config → Brands, set the department filter to "All departments" to find it. If the name only exists in another department but insert still fails, restart the server to apply brand index migration.`;
+          }
+        }
+      } catch (lookupErr) {
+        console.warn('Brand insert 23505 lookup:', lookupErr.message);
+      }
+      return res.status(400).json({
+        error: 'A brand with this name already exists in this department',
+        code: 'BRAND_DUPLICATE',
+        hint,
+      });
     }
     res.status(500).json({ error: 'Failed to create brand', details: error.message });
   }
@@ -2842,10 +2918,35 @@ app.patch('/api/brands/:id', async (req, res) => {
       return res.status(500).json({ error: 'Database connection not configured' });
     }
 
+    await ensureBrandDepartmentSchema(pool);
+
     const body = req.body ?? {};
     const sets = [];
     const vals = [];
     let n = 1;
+
+    const currentBrand = await pool.query(
+      'SELECT department_id FROM public.brand WHERE id = $1',
+      [id]
+    );
+    if (!currentBrand.rowCount) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+    let effectiveDepartmentIdForNameCheck = Number(currentBrand.rows[0].department_id);
+    if (
+      Object.prototype.hasOwnProperty.call(body, 'department_id') &&
+      body.department_id !== null &&
+      body.department_id !== undefined &&
+      body.department_id !== ''
+    ) {
+      const did = Number(body.department_id);
+      if (Number.isInteger(did) && did >= 1) {
+        const depOk = await pool.query('SELECT 1 FROM department WHERE id = $1', [did]);
+        if (depOk.rowCount) {
+          effectiveDepartmentIdForNameCheck = did;
+        }
+      }
+    }
 
     if (Object.prototype.hasOwnProperty.call(body, 'brand_name')) {
       const raw = body.brand_name;
@@ -2854,11 +2955,16 @@ app.patch('/api/brands/:id', async (req, res) => {
       }
       const normalizedName = raw.trim().slice(0, 500);
       const dup = await pool.query(
-        'SELECT id FROM brand WHERE LOWER(TRIM(brand_name)) = LOWER($1) AND id <> $2',
-        [normalizedName, id]
+        `SELECT id FROM brand
+         WHERE LOWER(TRIM(BOTH FROM brand_name)) = LOWER(TRIM($1::text))
+           AND department_id = $2
+           AND id <> $3`,
+        [normalizedName, effectiveDepartmentIdForNameCheck, id]
       );
       if (dup.rowCount > 0) {
-        return res.status(400).json({ error: 'Brand name already exists' });
+        return res.status(400).json({
+          error: 'A brand with this name already exists in this department',
+        });
       }
       sets.push(`brand_name = $${n++}`);
       vals.push(normalizedName);
@@ -2943,10 +3049,27 @@ app.patch('/api/brands/:id', async (req, res) => {
       }
     }
 
+    if (Object.prototype.hasOwnProperty.call(body, 'department_id')) {
+      const raw = body.department_id;
+      if (raw === null || raw === undefined || raw === '') {
+        return res.status(400).json({ error: 'department_id cannot be null; omit the field to leave unchanged' });
+      }
+      const did = Number(raw);
+      if (!Number.isInteger(did) || did < 1) {
+        return res.status(400).json({ error: 'department_id must be a positive integer' });
+      }
+      const depOk = await pool.query('SELECT 1 FROM department WHERE id = $1', [did]);
+      if (!depOk.rowCount) {
+        return res.status(400).json({ error: 'department_id not found' });
+      }
+      sets.push(`department_id = $${n++}`);
+      vals.push(did);
+    }
+
     if (sets.length === 0) {
       return res.status(400).json({
         error:
-          'Provide at least one of: brand_name, brand_website, things_to_buy, things_to_avoid, description, menswear_category_id',
+          'Provide at least one of: brand_name, brand_website, things_to_buy, things_to_avoid, description, menswear_category_id, department_id',
       });
     }
 
@@ -2957,7 +3080,7 @@ app.patch('/api/brands/:id', async (req, res) => {
       `UPDATE brand
        SET ${sets.join(', ')}
        WHERE id = $${n}
-       RETURNING id, brand_name, created_at, updated_at, brand_website, things_to_buy, things_to_avoid, description, menswear_category_id`,
+       RETURNING id, brand_name, created_at, updated_at, brand_website, things_to_buy, things_to_avoid, description, menswear_category_id, department_id`,
       vals
     );
 
@@ -2965,9 +3088,23 @@ app.patch('/api/brands/:id', async (req, res) => {
       return res.status(404).json({ error: 'Brand not found' });
     }
 
-    res.json({ row: result.rows[0] });
+    const row = result.rows[0];
+    const depId = row.department_id != null ? Number(row.department_id) : null;
+    if (depId != null && Number.isInteger(depId) && depId >= 1) {
+      const dn = await pool.query(`SELECT department_name FROM department WHERE id = $1`, [depId]);
+      row.department_name = dn.rows[0]?.department_name ?? null;
+    } else {
+      row.department_name = null;
+    }
+
+    res.json({ row });
   } catch (error) {
     console.error('Brand patch failed:', error);
+    if (error.code === '23505') {
+      return res.status(400).json({
+        error: 'A brand with this name already exists in this department',
+      });
+    }
     res.status(500).json({ error: 'Failed to update brand', details: error.message });
   }
 });
@@ -2995,6 +3132,256 @@ async function ensureMenswearCategoryTable(pool) {
 }
 
 /**
+ * Idempotent: add department_id to menswear_category, backfill Menswear, per-dept name uniqueness.
+ * Mirrors scripts/migrations/001_menswear_category_add_department.sql for dev / fresh DBs.
+ */
+async function ensureMenswearCategoryDepartmentSchema(pool) {
+  await ensureMenswearCategoryTable(pool);
+  await pool.query(`
+    ALTER TABLE public.menswear_category
+    ADD COLUMN IF NOT EXISTS department_id INTEGER;
+  `);
+  const fkExists = await pool.query(
+    `SELECT 1 FROM pg_constraint WHERE conname = 'menswear_category_department_id_fkey'`
+  );
+  if (!fkExists.rowCount) {
+    try {
+      await pool.query(`
+        ALTER TABLE public.menswear_category
+        ADD CONSTRAINT menswear_category_department_id_fkey
+        FOREIGN KEY (department_id) REFERENCES public.department (id) ON DELETE RESTRICT;
+      `);
+    } catch (e) {
+      if (e.code !== '42P01') throw e;
+    }
+  }
+  await pool.query(`
+    UPDATE public.menswear_category mc
+    SET department_id = d.id
+    FROM public.department d
+    WHERE mc.department_id IS NULL
+      AND lower(trim(both from d.department_name)) = 'menswear';
+  `);
+  await pool.query(`
+    UPDATE public.menswear_category
+    SET department_id = (SELECT id FROM public.department ORDER BY id ASC LIMIT 1)
+    WHERE department_id IS NULL
+      AND EXISTS (SELECT 1 FROM public.department LIMIT 1);
+  `);
+  await pool.query(
+    `ALTER TABLE public.menswear_category DROP CONSTRAINT IF EXISTS menswear_category_name_key;`
+  );
+  await pool.query(`DROP INDEX IF EXISTS public.idx_menswear_category_name_lower;`);
+  try {
+    await pool.query(
+      `ALTER TABLE public.menswear_category ALTER COLUMN department_id SET NOT NULL;`
+    );
+  } catch (e) {
+    console.warn('menswear_category.department_id SET NOT NULL skipped:', e.message);
+  }
+  const nullDept = await pool.query(
+    `SELECT COUNT(*)::int AS c FROM public.menswear_category WHERE department_id IS NULL`
+  );
+  const nullCount = nullDept.rows[0]?.c ?? 0;
+  if (nullCount === 0) {
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_menswear_category_dept_name_lower
+      ON public.menswear_category (department_id, lower(trim(both from name)));
+    `);
+  }
+}
+
+async function resolveMenswearCategoryDepartmentId(pool, bodyDepartmentId) {
+  let departmentId =
+    bodyDepartmentId === null || bodyDepartmentId === undefined || bodyDepartmentId === ''
+      ? null
+      : Number(bodyDepartmentId);
+  if (departmentId !== null && (!Number.isInteger(departmentId) || departmentId < 1)) {
+    return { error: 'department_id must be a positive integer when provided' };
+  }
+  if (departmentId === null) {
+    const depRes = await pool.query(
+      `SELECT id FROM public.department
+       WHERE lower(trim(both from department_name)) = 'menswear'
+       LIMIT 1`
+    );
+    if (!depRes.rowCount) {
+      return {
+        error: 'department_id is required (no Menswear department found to use as default)',
+      };
+    }
+    departmentId = Number(depRes.rows[0].id);
+  } else {
+    const depOk = await pool.query('SELECT 1 FROM department WHERE id = $1', [departmentId]);
+    if (!depOk.rowCount) {
+      return { error: 'department_id not found' };
+    }
+  }
+  return { departmentId };
+}
+
+/**
+ * Idempotent: add brand.department_id, FK, backfill (prefer department id 1, else Menswear), index, NOT NULL.
+ * Mirrors scripts/migrations/002_brand_add_department.sql.
+ */
+async function ensureBrandDepartmentSchema(pool) {
+  await pool.query(`
+    ALTER TABLE public.brand
+    ADD COLUMN IF NOT EXISTS department_id INTEGER;
+  `);
+  const fkExists = await pool.query(
+    `SELECT 1 FROM pg_constraint WHERE conname = 'brand_department_id_fkey'`
+  );
+  if (!fkExists.rowCount) {
+    try {
+      await pool.query(`
+        ALTER TABLE public.brand
+        ADD CONSTRAINT brand_department_id_fkey
+        FOREIGN KEY (department_id) REFERENCES public.department (id) ON DELETE RESTRICT;
+      `);
+    } catch (e) {
+      if (e.code !== '42P01') throw e;
+    }
+  }
+  await pool.query(`
+    UPDATE public.brand b
+    SET department_id = 1
+    WHERE b.department_id IS NULL
+      AND EXISTS (SELECT 1 FROM public.department WHERE id = 1);
+  `);
+  await pool.query(`
+    UPDATE public.brand b
+    SET department_id = d.id
+    FROM public.department d
+    WHERE b.department_id IS NULL
+      AND lower(trim(both from d.department_name)) = 'menswear';
+  `);
+  await pool.query(`
+    UPDATE public.brand
+    SET department_id = (SELECT id FROM public.department ORDER BY id ASC LIMIT 1)
+    WHERE department_id IS NULL
+      AND EXISTS (SELECT 1 FROM public.department LIMIT 1);
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_brand_department_id ON public.brand (department_id);
+  `);
+  try {
+    await pool.query(`ALTER TABLE public.brand ALTER COLUMN department_id SET NOT NULL`);
+  } catch (e) {
+    console.warn('brand.department_id SET NOT NULL skipped:', e.message);
+  }
+
+  await ensureBrandUniquePerDepartmentSchema(pool);
+}
+
+/**
+ * Allow the same brand_name in different departments. Replace legacy UNIQUE(brand_name)
+ * with UNIQUE (department_id, lower(trim(brand_name))).
+ */
+async function ensureBrandUniquePerDepartmentSchema(pool) {
+  try {
+    const { rows } = await pool.query(`
+      SELECT c.conname
+      FROM pg_constraint c
+      JOIN pg_class t ON c.conrelid = t.oid
+      JOIN pg_namespace n ON n.oid = t.relnamespace
+      WHERE n.nspname = 'public'
+        AND t.relname = 'brand'
+        AND c.contype = 'u'
+        AND array_length(c.conkey, 1) = 1
+        AND EXISTS (
+          SELECT 1 FROM pg_attribute a
+          WHERE a.attrelid = c.conrelid
+            AND a.attnum = c.conkey[1]
+            AND a.attname = 'brand_name'
+        )
+    `);
+    for (const { conname } of rows) {
+      if (typeof conname !== 'string' || !/^[a-zA-Z0-9_]+$/.test(conname)) continue;
+      await pool.query(`ALTER TABLE public.brand DROP CONSTRAINT IF EXISTS ${conname}`);
+    }
+  } catch (e) {
+    console.warn('ensureBrandUniquePerDepartmentSchema (drop legacy unique):', e.message);
+  }
+  /* Common constraint names (Postgres often names them {table}_{column}_key). */
+  for (const legacyCon of ['brand_brand_name_key', 'brand_name_key', 'brand_brand_name_unique']) {
+    try {
+      await pool.query(`ALTER TABLE public.brand DROP CONSTRAINT IF EXISTS ${legacyCon}`);
+    } catch (e) {
+      console.warn(`ensureBrandUniquePerDepartmentSchema DROP CONSTRAINT ${legacyCon}:`, e.message);
+    }
+  }
+  /* UNIQUE CONSTRAINT creates an index; CREATE UNIQUE INDEX alone does not — still blocks cross-department names.
+   * Match any UNIQUE index that touches brand_name but not department_id (covers lower(brand_name), btree(brand_name), etc.). */
+  try {
+    const { rows: allBrandIdx } = await pool.query(`
+      SELECT indexname, indexdef
+      FROM pg_indexes
+      WHERE schemaname = 'public'
+        AND tablename = 'brand'
+        AND indexname IS NOT NULL
+        AND indexname <> 'idx_brand_department_name_lower'
+    `);
+    for (const row of allBrandIdx) {
+      const indexname = row.indexname;
+      const indexdef = String(row.indexdef ?? '');
+      if (typeof indexname !== 'string' || !/^[a-zA-Z0-9_]+$/.test(indexname)) continue;
+      if (indexname === 'brand_pkey' || indexname.endsWith('_pkey')) continue;
+      const def = indexdef.toLowerCase();
+      if (!def.includes('unique')) continue;
+      if (!def.includes('brand_name')) continue;
+      if (def.includes('department_id')) continue;
+      try {
+        await pool.query(`DROP INDEX IF EXISTS public.${indexname}`);
+        console.log(`[brand schema] dropped legacy unique index: ${indexname}`);
+      } catch (dropErr) {
+        console.warn(
+          `ensureBrandUniquePerDepartmentSchema: could not drop index ${indexname} (may be tied to a constraint):`,
+          dropErr.message
+        );
+      }
+    }
+  } catch (e) {
+    console.warn('ensureBrandUniquePerDepartmentSchema (drop legacy unique index):', e.message);
+  }
+  try {
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_brand_department_name_lower
+      ON public.brand (department_id, (LOWER(TRIM(BOTH FROM brand_name))));
+    `);
+  } catch (e) {
+    console.warn(
+      'ensureBrandUniquePerDepartmentSchema (composite index):',
+      e.message,
+      '— fix duplicate brand names within the same department if needed'
+    );
+  }
+}
+
+/**
+ * POST /api/brands: department_id must be sent explicitly. Do not default to id 1 —
+ * that silently mis-filed brands when clients omitted or failed to send the field.
+ */
+async function resolveBrandDepartmentId(pool, bodyDepartmentId) {
+  if (
+    bodyDepartmentId === null ||
+    bodyDepartmentId === undefined ||
+    bodyDepartmentId === ''
+  ) {
+    return { error: 'department_id is required' };
+  }
+  const departmentId = Number(bodyDepartmentId);
+  if (!Number.isInteger(departmentId) || departmentId < 1) {
+    return { error: 'department_id must be a positive integer' };
+  }
+  const depOk = await pool.query('SELECT 1 FROM department WHERE id = $1', [departmentId]);
+  if (!depOk.rowCount) {
+    return { error: 'department_id not found' };
+  }
+  return { departmentId };
+}
+
+/**
  * Menswear category taxonomy (optional brand mapping via brand.menswear_category_id).
  * GET /api/menswear-categories
  */
@@ -3004,11 +3391,29 @@ app.get('/api/menswear-categories', async (req, res) => {
     if (!pool) {
       return res.status(500).json({ error: 'Database connection not configured' });
     }
-    await ensureMenswearCategoryTable(pool);
+    await ensureMenswearCategoryDepartmentSchema(pool);
+    const rawDept = req.query.department_id ?? req.query.departmentId;
+    let filterDeptId = null;
+    if (rawDept !== undefined && rawDept !== null && String(rawDept).trim() !== '') {
+      const n = Number(rawDept);
+      if (Number.isInteger(n) && n >= 1) {
+        filterDeptId = n;
+      }
+    }
+    const params = [];
+    let whereSql = '';
+    if (filterDeptId !== null) {
+      params.push(filterDeptId);
+      whereSql = `WHERE mc.department_id = $${params.length}`;
+    }
     const result = await pool.query(
-      `SELECT id, name, description, notes, created_at, updated_at
-       FROM menswear_category
-       ORDER BY name ASC`
+      `SELECT mc.id, mc.name, mc.description, mc.notes, mc.created_at, mc.updated_at,
+              mc.department_id, d.department_name
+       FROM menswear_category mc
+       LEFT JOIN department d ON d.id = mc.department_id
+       ${whereSql}
+       ORDER BY mc.name ASC`,
+      params
     );
     res.json({ rows: result.rows });
   } catch (error) {
@@ -3027,7 +3432,7 @@ app.post('/api/menswear-categories', async (req, res) => {
     if (!pool) {
       return res.status(500).json({ error: 'Database connection not configured' });
     }
-    await ensureMenswearCategoryTable(pool);
+    await ensureMenswearCategoryDepartmentSchema(pool);
 
     const body = req.body ?? {};
     const nameRaw = body.name;
@@ -3035,6 +3440,22 @@ app.post('/api/menswear-categories', async (req, res) => {
       return res.status(400).json({ error: 'name is required (non-empty string)' });
     }
     const name = nameRaw.trim().slice(0, 500);
+    const depRes = await resolveMenswearCategoryDepartmentId(pool, body.department_id);
+    if (depRes.error) {
+      return res.status(400).json({ error: depRes.error });
+    }
+    const { departmentId } = depRes;
+
+    const dup = await pool.query(
+      `SELECT id FROM menswear_category
+       WHERE department_id = $1
+         AND lower(trim(both from name)) = lower(trim(both from $2::text))`,
+      [departmentId, name]
+    );
+    if (dup.rowCount) {
+      return res.status(409).json({ error: 'A category with this name already exists in this department' });
+    }
+
     let description = null;
     if (body.description != null && body.description !== '') {
       if (typeof body.description !== 'string') {
@@ -3053,16 +3474,19 @@ app.post('/api/menswear-categories', async (req, res) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO menswear_category (name, description, notes)
-       VALUES ($1, $2, $3)
-       RETURNING id, name, description, notes, created_at, updated_at`,
-      [name, description, notes]
+      `INSERT INTO menswear_category (name, description, notes, department_id)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, name, description, notes, created_at, updated_at, department_id`,
+      [name, description, notes, departmentId]
     );
+    const row = result.rows[0];
+    const dn = await pool.query(`SELECT department_name FROM department WHERE id = $1`, [departmentId]);
+    row.department_name = dn.rows[0]?.department_name ?? null;
 
-    res.status(201).json({ row: result.rows[0] });
+    res.status(201).json({ row });
   } catch (error) {
     if (error.code === '23505') {
-      return res.status(409).json({ error: 'A category with this name already exists' });
+      return res.status(409).json({ error: 'A category with this name already exists in this department' });
     }
     console.error('menswear-categories create failed:', error);
     res.status(500).json({ error: 'Failed to create category', details: error.message });
@@ -3083,11 +3507,11 @@ app.patch('/api/menswear-categories/:id', async (req, res) => {
     if (!pool) {
       return res.status(500).json({ error: 'Database connection not configured' });
     }
-    await ensureMenswearCategoryTable(pool);
+    await ensureMenswearCategoryDepartmentSchema(pool);
 
     const body = req.body ?? {};
     const cur = await pool.query(
-      'SELECT name, description, notes FROM menswear_category WHERE id = $1',
+      'SELECT name, description, notes, department_id FROM menswear_category WHERE id = $1',
       [id]
     );
     if (!cur.rowCount) {
@@ -3100,6 +3524,29 @@ app.patch('/api/menswear-categories/:id', async (req, res) => {
       return res.status(400).json({ error: 'name is required (non-empty string)' });
     }
     const name = nameRaw.trim().slice(0, 500);
+
+    let departmentId = prev.department_id != null ? Number(prev.department_id) : null;
+    if (Object.prototype.hasOwnProperty.call(body, 'department_id')) {
+      const depRes = await resolveMenswearCategoryDepartmentId(pool, body.department_id);
+      if (depRes.error) {
+        return res.status(400).json({ error: depRes.error });
+      }
+      departmentId = depRes.departmentId;
+    }
+    if (departmentId == null || !Number.isInteger(departmentId) || departmentId < 1) {
+      return res.status(400).json({ error: 'department_id is required' });
+    }
+
+    const dup = await pool.query(
+      `SELECT id FROM menswear_category
+       WHERE department_id = $1
+         AND lower(trim(both from name)) = lower(trim(both from $2::text))
+         AND id <> $3`,
+      [departmentId, name, id]
+    );
+    if (dup.rowCount) {
+      return res.status(409).json({ error: 'A category with this name already exists in this department' });
+    }
 
     let description = prev.description;
     if (Object.prototype.hasOwnProperty.call(body, 'description')) {
@@ -3129,16 +3576,19 @@ app.patch('/api/menswear-categories/:id', async (req, res) => {
 
     const result = await pool.query(
       `UPDATE menswear_category
-       SET name = $1, description = $2, notes = $3, updated_at = NOW()
-       WHERE id = $4
-       RETURNING id, name, description, notes, created_at, updated_at`,
-      [name, description, notes, id]
+       SET name = $1, description = $2, notes = $3, department_id = $4, updated_at = NOW()
+       WHERE id = $5
+       RETURNING id, name, description, notes, created_at, updated_at, department_id`,
+      [name, description, notes, departmentId, id]
     );
+    const row = result.rows[0];
+    const dn = await pool.query(`SELECT department_name FROM department WHERE id = $1`, [departmentId]);
+    row.department_name = dn.rows[0]?.department_name ?? null;
 
-    res.json({ row: result.rows[0] });
+    res.json({ row });
   } catch (error) {
     if (error.code === '23505') {
-      return res.status(409).json({ error: 'A category with this name already exists' });
+      return res.status(409).json({ error: 'A category with this name already exists in this department' });
     }
     console.error('menswear-categories patch failed:', error);
     res.status(500).json({ error: 'Failed to update category', details: error.message });
@@ -3159,7 +3609,7 @@ app.delete('/api/menswear-categories/:id', async (req, res) => {
     if (!pool) {
       return res.status(500).json({ error: 'Database connection not configured' });
     }
-    await ensureMenswearCategoryTable(pool);
+    await ensureMenswearCategoryDepartmentSchema(pool);
 
     const brandCountRes = await pool.query(
       `SELECT COUNT(*)::int AS c FROM brand WHERE menswear_category_id = $1`,
@@ -3199,7 +3649,7 @@ app.get('/api/menswear-categories/cross-bucket/buy-more-brand-stock-category', a
     if (!pool) {
       return res.status(500).json({ error: 'Database connection not configured' });
     }
-    await ensureMenswearCategoryTable(pool);
+    await ensureMenswearCategoryDepartmentSchema(pool);
 
     const result = await pool.query(
       `SELECT
@@ -3248,7 +3698,7 @@ app.get('/api/menswear-categories/cross-bucket/avoid-brand-stock-category', asyn
     if (!pool) {
       return res.status(500).json({ error: 'Database connection not configured' });
     }
-    await ensureMenswearCategoryTable(pool);
+    await ensureMenswearCategoryDepartmentSchema(pool);
 
     const result = await pool.query(
       `SELECT
@@ -3304,7 +3754,7 @@ app.get('/api/menswear-categories/:id/brand-inventory-items', async (req, res) =
       return res.status(500).json({ error: 'Database connection not configured' });
     }
 
-    await ensureMenswearCategoryTable(pool);
+    await ensureMenswearCategoryDepartmentSchema(pool);
 
     const catCheck = await pool.query('SELECT id FROM menswear_category WHERE id = $1', [categoryId]);
     if (!catCheck.rowCount) {
@@ -4150,7 +4600,7 @@ app.get('/api/menswear-categories/inventory-by-category', async (req, res) => {
     if (!pool) {
       return res.status(500).json({ error: 'Database connection not configured' });
     }
-    await ensureMenswearCategoryTable(pool);
+    await ensureMenswearCategoryDepartmentSchema(pool);
 
     const result = await pool.query(
       `SELECT
@@ -5714,6 +6164,138 @@ app.post('/api/brands/:brandId/ebay-sold-cache/sync', async (req, res) => {
   }
 });
 
+// Department API (stock clothing-type taxonomy parent)
+app.get('/api/departments', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    const result = await pool.query(
+      `SELECT d.id, d.department_name, d.created_at, d.updated_at,
+              COUNT(c.id)::int AS category_count
+       FROM department d
+       LEFT JOIN category c ON c.department_id = d.id
+       GROUP BY d.id, d.department_name, d.created_at, d.updated_at
+       ORDER BY d.department_name ASC`
+    );
+    res.json({ rows: result.rows ?? [], count: result.rowCount ?? 0 });
+  } catch (error) {
+    console.error('Departments query failed:', error);
+    res.status(500).json({ error: 'Failed to load departments', details: error.message });
+  }
+});
+
+app.post('/api/departments', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    const { department_name } = req.body ?? {};
+    if (!department_name || typeof department_name !== 'string' || !department_name.trim()) {
+      return res.status(400).json({ error: 'department_name is required' });
+    }
+    const name = department_name.trim();
+    const dup = await pool.query(
+      `SELECT id FROM department WHERE lower(trim(both from department_name)) = lower($1)`,
+      [name]
+    );
+    if (dup.rowCount > 0) {
+      return res.status(400).json({ error: 'A department with this name already exists' });
+    }
+    const ins = await pool.query(
+      `INSERT INTO department (department_name) VALUES ($1)
+       RETURNING id, department_name, created_at, updated_at`,
+      [name]
+    );
+    const row = ins.rows[0];
+    res.status(201).json({ row: { ...row, category_count: 0 } });
+  } catch (error) {
+    console.error('Department insert failed:', error);
+    if (error.code === '23505') {
+      return res.status(400).json({ error: 'A department with this name already exists' });
+    }
+    res.status(500).json({ error: 'Failed to create department', details: error.message });
+  }
+});
+
+app.patch('/api/departments/:id', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id) || id < 1) {
+      return res.status(400).json({ error: 'Invalid department id' });
+    }
+    const { department_name } = req.body ?? {};
+    if (!department_name || typeof department_name !== 'string' || !department_name.trim()) {
+      return res.status(400).json({ error: 'department_name is required' });
+    }
+    const name = department_name.trim();
+    const dup = await pool.query(
+      `SELECT id FROM department WHERE lower(trim(both from department_name)) = lower($1) AND id <> $2`,
+      [name, id]
+    );
+    if (dup.rowCount > 0) {
+      return res.status(400).json({ error: 'A department with this name already exists' });
+    }
+    const upd = await pool.query(
+      `UPDATE department SET department_name = $1 WHERE id = $2
+       RETURNING id, department_name, created_at, updated_at`,
+      [name, id]
+    );
+    if (!upd.rowCount) {
+      return res.status(404).json({ error: 'Department not found' });
+    }
+    const cnt = await pool.query(
+      `SELECT COUNT(*)::int AS c FROM category WHERE department_id = $1`,
+      [id]
+    );
+    const category_count = Number(cnt.rows[0]?.c ?? 0);
+    res.json({ row: { ...upd.rows[0], category_count } });
+  } catch (error) {
+    console.error('Department update failed:', error);
+    if (error.code === '23505') {
+      return res.status(400).json({ error: 'A department with this name already exists' });
+    }
+    res.status(500).json({ error: 'Failed to update department', details: error.message });
+  }
+});
+
+app.delete('/api/departments/:id', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id) || id < 1) {
+      return res.status(400).json({ error: 'Invalid department id' });
+    }
+    const ref = await pool.query(
+      `SELECT COUNT(*)::int AS c FROM category WHERE department_id = $1`,
+      [id]
+    );
+    const c = Number(ref.rows[0]?.c ?? 0);
+    if (c > 0) {
+      return res.status(400).json({
+        error: `Cannot delete: ${c} categor${c === 1 ? 'y uses' : 'ies use'} this department`,
+      });
+    }
+    const del = await pool.query('DELETE FROM department WHERE id = $1 RETURNING id', [id]);
+    if (!del.rowCount) {
+      return res.status(404).json({ error: 'Department not found' });
+    }
+    res.json({ ok: true, id });
+  } catch (error) {
+    console.error('Department delete failed:', error);
+    res.status(500).json({ error: 'Failed to delete department', details: error.message });
+  }
+});
+
 // Category API endpoints
 app.get('/api/categories', async (req, res) => {
   try {
@@ -5724,11 +6306,13 @@ app.get('/api/categories', async (req, res) => {
     }
 
     const result = await pool.query(`
-      SELECT c.id, c.category_name, COUNT(s.id)::int AS stock_count
+      SELECT c.id, c.category_name, c.department_id, d.department_name,
+             COUNT(s.id)::int AS stock_count
       FROM category c
+      LEFT JOIN department d ON d.id = c.department_id
       LEFT JOIN stock s ON s.category_id = c.id
-      GROUP BY c.id, c.category_name
-      ORDER BY c.category_name ASC
+      GROUP BY c.id, c.category_name, c.department_id, d.department_name
+      ORDER BY d.department_name ASC NULLS LAST, c.category_name ASC
     `);
 
     res.json({
@@ -5952,13 +6536,39 @@ app.post('/api/categories', async (req, res) => {
       return res.status(500).json({ error: 'Database connection not configured' });
     }
 
-    const { category_name } = req.body ?? {};
+    const { category_name, department_id: bodyDepartmentId } = req.body ?? {};
 
     if (!category_name || typeof category_name !== 'string' || !category_name.trim()) {
       return res.status(400).json({ error: 'Category name is required' });
     }
 
     const normalizedCategoryName = category_name.trim();
+
+    let departmentId =
+      bodyDepartmentId === null || bodyDepartmentId === undefined || bodyDepartmentId === ''
+        ? null
+        : Number(bodyDepartmentId);
+    if (departmentId !== null && (!Number.isInteger(departmentId) || departmentId < 1)) {
+      return res.status(400).json({ error: 'department_id must be a positive integer when provided' });
+    }
+    if (departmentId === null) {
+      const depRes = await pool.query(
+        `SELECT id FROM department
+         WHERE lower(trim(both from department_name)) = 'menswear'
+         LIMIT 1`
+      );
+      if (!depRes.rowCount) {
+        return res.status(400).json({
+          error: 'department_id is required (no Menswear department found to use as default)',
+        });
+      }
+      departmentId = Number(depRes.rows[0].id);
+    } else {
+      const depOk = await pool.query('SELECT 1 FROM department WHERE id = $1', [departmentId]);
+      if (!depOk.rowCount) {
+        return res.status(400).json({ error: 'department_id not found' });
+      }
+    }
 
     // Check if category already exists (case-insensitive)
     const existingResult = await pool.query(
@@ -5971,12 +6581,12 @@ app.post('/api/categories', async (req, res) => {
     }
 
     const insertQuery = `
-      INSERT INTO category (category_name)
-      VALUES ($1)
-      RETURNING id, category_name
+      INSERT INTO category (category_name, department_id)
+      VALUES ($1, $2)
+      RETURNING id, category_name, department_id
     `;
 
-    const result = await pool.query(insertQuery, [normalizedCategoryName]);
+    const result = await pool.query(insertQuery, [normalizedCategoryName, departmentId]);
 
     res.status(201).json({ row: result.rows[0] });
   } catch (error) {
@@ -6001,7 +6611,7 @@ app.patch('/api/categories/:id', async (req, res) => {
       return res.status(400).json({ error: 'Invalid category id' });
     }
 
-    const { category_name } = req.body ?? {};
+    const { category_name, department_id: bodyDepartmentId } = req.body ?? {};
 
     if (!category_name || typeof category_name !== 'string' || !category_name.trim()) {
       return res.status(400).json({ error: 'Category name is required' });
@@ -6018,14 +6628,30 @@ app.patch('/api/categories/:id', async (req, res) => {
       return res.status(400).json({ error: 'Category already exists' });
     }
 
+    let departmentIdSql = '';
+    const params = [normalizedCategoryName];
+    if (bodyDepartmentId !== undefined && bodyDepartmentId !== null && bodyDepartmentId !== '') {
+      const did = Number(bodyDepartmentId);
+      if (!Number.isInteger(did) || did < 1) {
+        return res.status(400).json({ error: 'department_id must be a positive integer' });
+      }
+      const depOk = await pool.query('SELECT 1 FROM department WHERE id = $1', [did]);
+      if (!depOk.rowCount) {
+        return res.status(400).json({ error: 'department_id not found' });
+      }
+      departmentIdSql = ', department_id = $2';
+      params.push(did);
+    }
+    params.push(id);
+
     const updateQuery = `
       UPDATE category
-      SET category_name = $1
-      WHERE id = $2
-      RETURNING id, category_name
+      SET category_name = $1${departmentIdSql}
+      WHERE id = $${params.length}
+      RETURNING id, category_name, department_id
     `;
 
-    const result = await pool.query(updateQuery, [normalizedCategoryName, id]);
+    const result = await pool.query(updateQuery, params);
 
     if (!result.rowCount) {
       return res.status(404).json({ error: 'Category not found' });

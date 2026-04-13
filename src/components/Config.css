@@ -391,6 +391,22 @@
   gap: 12px;
 }
 
+.config-clothing-header--with-filter {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-items: flex-end;
+}
+
+.config-clothing-header--with-filter .config-clothing-add-button {
+  margin-left: auto;
+}
+
+.config-clothing-field--inline {
+  flex: 0 1 220px;
+  min-width: 160px;
+  max-width: 280px;
+}
+
 .config-section-title {
   margin: 0;
   flex: 1;
@@ -531,7 +547,8 @@
 }
 
 .config-clothing-field input,
-.config-clothing-field textarea {
+.config-clothing-field textarea,
+.config-clothing-field select {
   padding: 12px 14px;
   border-radius: 10px;
   border: 1px solid rgba(255, 214, 91, 0.28);
@@ -544,7 +561,8 @@
 }
 
 .config-clothing-field input:focus,
-.config-clothing-field textarea:focus {
+.config-clothing-field textarea:focus,
+.config-clothing-field select:focus {
   outline: none;
   border-color: var(--neon-border-strong);
   box-shadow: 0 0 0 2px rgba(255, 214, 91, 0.15);
@@ -622,13 +640,31 @@
   white-space: nowrap;
 }
 
+/* Config → Categories (stock clothing types): Name column — override .App { text-align: center } */
+.config-clothing-table--stock-categories > thead > tr > th.config-clothing-th-name,
+.config-clothing-table--stock-categories > tbody > tr > td:nth-child(2) {
+  text-align: left;
+}
+
+/* Department Categories: keep name column explicitly left-aligned */
+.config-clothing-table--dept-categories .config-clothing-th-name,
+.config-clothing-table--dept-categories .config-clothing-td-name--dept-cat {
+  text-align: left;
+}
+
+/* Brands table: left-align name column */
+.config-clothing-table--brands .config-clothing-th-name,
+.config-clothing-table--brands .config-clothing-td-name--brand {
+  text-align: left;
+}
+
 .config-clothing-th-actions {
   width: 1%;
   white-space: nowrap;
   text-align: right;
 }
 
-.config-clothing-td-actions {
+.config-clothing-table td.config-clothing-td-actions {
   text-align: right;
   vertical-align: middle;
 }

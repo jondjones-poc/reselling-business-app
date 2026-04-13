@@ -1919,6 +1919,8 @@ const Research: React.FC = () => {
     name: string;
     description: string | null;
     notes: string | null;
+    department_id?: number | null;
+    department_name?: string | null;
   };
 
   type MenswearCategoryBrandRow = {

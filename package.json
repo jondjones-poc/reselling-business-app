@@ -42,7 +42,8 @@
     "server": "node server.js",
     "server:dev": "nodemon server.js",
     "dev": "concurrently \"npm run server:dev\" \"npm start\"",
-    "verify:supabase": "node scripts/verify-supabase-env.js"
+    "verify:supabase": "node scripts/verify-supabase-env.js",
+    "verify:brand-dept": "node scripts/verify-brand-per-department-unique.js"
   },
   "jest": {
     "moduleNameMapper": {

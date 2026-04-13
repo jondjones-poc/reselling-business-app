@@ -121,6 +121,7 @@ type ConfigMenu =
   | 'no-vinted-id'
   | 'duplicate-entries'
   | 'items-category-check'
+  | 'departments'
   | 'clothing-type-categories'
   | 'clothing-categories'
   | 'sizes'
@@ -136,6 +137,8 @@ interface ConfigBrandRow {
   id: number;
   brand_name: string;
   brand_website?: string | null;
+  department_id?: number | null;
+  department_name?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
 }
@@ -145,14 +148,27 @@ interface ClothingCategoryRow {
   name: string;
   description: string | null;
   notes: string | null;
+  department_id: number | null;
+  department_name: string | null;
   created_at?: string;
   updated_at?: string;
+}
+
+/** `department` table (Config admin + Stock department picker). */
+interface DepartmentAdminRow {
+  id: number;
+  department_name: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+  category_count: number;
 }
 
 /** Stock clothing type — `category` table, `stock.category_id`. */
 interface StockClothingTypeRow {
   id: number;
   category_name: string;
+  department_id: number | null;
+  department_name: string | null;
   stock_count: number;
 }
 
@@ -186,7 +202,7 @@ function sortSizePickerOptions(rows: CategorySizeAdminRow[]): CategorySizeAdminR
   });
 }
 
-/** Prompt: rank config brands using menswear category taxonomy (Research / Config “Menswear categories”). */
+/** Prompt: rank config brands using department category taxonomy (Research / Config “Department categories”). */
 function buildBrandsRankByMenswearCategoriesPrompt(
   brands: ConfigBrandRow[],
   categories: ClothingCategoryRow[]
@@ -197,9 +213,9 @@ function buildBrandsRankByMenswearCategoriesPrompt(
     .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
 
   const lines: string[] = [
-    `I'm a UK menswear reseller (second-hand / resale). I track stock by **brand** and organise research using **menswear categories** in my app.`,
+    `I'm a UK menswear reseller (second-hand / resale). I track stock by **brand** and organise research using **department categories** in my app.`,
     ``,
-    `Below are **every brand** currently in my database (names only) and my **menswear category** list (name, description, and my notes).`,
+    `Below are **every brand** currently in my database (names only) and my **department category** list (department, name, description, and my notes).`,
     ``,
     `## Brands in my database (${brandNames.length})`,
     ``,
@@ -212,15 +228,16 @@ function buildBrandsRankByMenswearCategoriesPrompt(
     lines.push(``);
   }
 
-  lines.push(`## Menswear categories (${categories.length})`, ``);
+  lines.push(`## Department categories (${categories.length})`, ``);
   if (categories.length === 0) {
     lines.push(
-      `*(No menswear categories defined yet. Still suggest how you would rank these brands against typical UK menswear resale buckets — outerwear, knitwear, denim, tailoring, etc. — so I can align when I add categories.)*`,
+      `*(No department categories defined yet. Still suggest how you would rank these brands against typical UK menswear resale buckets — outerwear, knitwear, denim, tailoring, etc. — so I can align when I add categories.)*`,
       ``
     );
   } else {
     categories.forEach((c, i) => {
-      lines.push(`### ${i + 1}. ${c.name}`);
+      const dept = c.department_name?.trim();
+      lines.push(`### ${i + 1}. ${c.name}${dept ? ` (${dept})` : ''}`);
       if (c.description?.trim()) lines.push(c.description.trim());
       if (c.notes?.trim()) lines.push(`**My notes:** ${c.notes.trim()}`);
       lines.push(``);
@@ -229,7 +246,7 @@ function buildBrandsRankByMenswearCategoriesPrompt(
 
   lines.push(
     `## What I need from you`,
-    `1. **Per category** — For each menswear category above, **rank my brands** from strongest fit for UK resale (demand, typical product mix, realistic price band) to weaker or marginal fit. Use "N/A" or skip only when a brand almost never appears in that bucket.`,
+    `1. **Per category** — For each department category above, **rank my brands** from strongest fit for UK resale (demand, typical product mix, realistic price band) to weaker or marginal fit. Use "N/A" or skip only when a brand almost never appears in that bucket.`,
     `2. **Overall** — A concise **overall ranking** or tiered view (e.g. core vs opportunistic) across categories.`,
     `3. **Risks** — Flag pairs of brands that are easy to confuse, or brands that are mainly womenswear/kids if that's well known.`,
     ``,
@@ -267,36 +284,58 @@ const Config: React.FC = () => {
   const [clothingAddOpen, setClothingAddOpen] = useState(false);
   const [clothingAddName, setClothingAddName] = useState('');
   const [clothingAddDescription, setClothingAddDescription] = useState('');
-  const [clothingAddNotes, setClothingAddNotes] = useState('');
   const [clothingAddSaving, setClothingAddSaving] = useState(false);
   const [clothingEditingId, setClothingEditingId] = useState<number | null>(null);
   const [clothingEditName, setClothingEditName] = useState('');
   const [clothingEditDescription, setClothingEditDescription] = useState('');
-  const [clothingEditNotes, setClothingEditNotes] = useState('');
   const [clothingEditSaving, setClothingEditSaving] = useState(false);
   const [clothingDeleteSaving, setClothingDeleteSaving] = useState(false);
+  const [clothingDepartmentFilterId, setClothingDepartmentFilterId] = useState<number | null>(null);
+  const clothingDeptFilterInitRef = useRef(false);
+  const [clothingEditDepartmentId, setClothingEditDepartmentId] = useState<number | null>(null);
 
   const [stockClothingTypes, setStockClothingTypes] = useState<StockClothingTypeRow[]>([]);
   const [stockTypesLoading, setStockTypesLoading] = useState(false);
   const [stockTypesError, setStockTypesError] = useState<string | null>(null);
   const [stockTypeAddOpen, setStockTypeAddOpen] = useState(false);
   const [stockTypeAddName, setStockTypeAddName] = useState('');
+  const [stockTypeAddDepartmentId, setStockTypeAddDepartmentId] = useState<number | null>(null);
   const [stockTypeAddSaving, setStockTypeAddSaving] = useState(false);
   const [stockTypeEditingId, setStockTypeEditingId] = useState<number | null>(null);
   const [stockTypeEditName, setStockTypeEditName] = useState('');
+  const [stockTypeEditDepartmentId, setStockTypeEditDepartmentId] = useState<number | null>(null);
   const [stockTypeEditSaving, setStockTypeEditSaving] = useState(false);
   const [stockTypeDeleteSaving, setStockTypeDeleteSaving] = useState(false);
+  /** Clothing type categories table filter; default Menswear once departments load. */
+  const [stockTypeDepartmentFilterId, setStockTypeDepartmentFilterId] = useState<number | 'all'>('all');
+  const stockTypeDeptFilterInitializedRef = useRef(false);
+
+  const [adminDepartments, setAdminDepartments] = useState<DepartmentAdminRow[]>([]);
+  const [departmentsLoading, setDepartmentsLoading] = useState(false);
+  const [departmentsError, setDepartmentsError] = useState<string | null>(null);
+  const [departmentAddOpen, setDepartmentAddOpen] = useState(false);
+  const [departmentAddName, setDepartmentAddName] = useState('');
+  const [departmentAddSaving, setDepartmentAddSaving] = useState(false);
+  const [departmentEditingId, setDepartmentEditingId] = useState<number | null>(null);
+  const [departmentEditName, setDepartmentEditName] = useState('');
+  const [departmentEditSaving, setDepartmentEditSaving] = useState(false);
+  const [departmentDeleteSaving, setDepartmentDeleteSaving] = useState(false);
 
   const [brands, setBrands] = useState<ConfigBrandRow[]>([]);
   const [brandsLoading, setBrandsLoading] = useState(false);
   const [brandsError, setBrandsError] = useState<string | null>(null);
   const [brandAddOpen, setBrandAddOpen] = useState(false);
   const [brandAddName, setBrandAddName] = useState('');
+  const [brandAddDepartmentId, setBrandAddDepartmentId] = useState<number | null>(null);
   const [brandAddSaving, setBrandAddSaving] = useState(false);
   const [brandEditingId, setBrandEditingId] = useState<number | null>(null);
   const [brandEditName, setBrandEditName] = useState('');
   const [brandEditWebsite, setBrandEditWebsite] = useState('');
+  const [brandEditDepartmentId, setBrandEditDepartmentId] = useState<number | null>(null);
   const [brandEditSaving, setBrandEditSaving] = useState(false);
+  /** Brands table filter; default Menswear once departments load. */
+  const [brandDepartmentFilterId, setBrandDepartmentFilterId] = useState<number | 'all'>('all');
+  const brandDeptFilterInitializedRef = useRef(false);
   const [brandsAskAiHint, setBrandsAskAiHint] = useState<string | null>(null);
   const brandsAskAiHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -498,11 +537,15 @@ const Config: React.FC = () => {
     }
   }, [activeMenu, noTagsBrandFilter, tagImageCache]);
 
-  const loadClothingCategories = useCallback(async () => {
+  const loadClothingCategories = useCallback(async (opts?: { departmentId?: number }) => {
     try {
       setClothingLoading(true);
       setClothingError(null);
-      const response = await fetch(`${API_BASE}/api/menswear-categories`, {
+      const qs =
+        opts?.departmentId != null && opts.departmentId >= 1
+          ? `?department_id=${encodeURIComponent(String(opts.departmentId))}`
+          : '';
+      const response = await fetch(`${API_BASE}/api/menswear-categories${qs}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -517,10 +560,34 @@ const Config: React.FC = () => {
         }
         throw new Error(msg);
       }
-      const data = JSON.parse(text) as { rows?: ClothingCategoryRow[] };
-      setClothingCategories(Array.isArray(data.rows) ? data.rows : []);
+      const data = JSON.parse(text) as { rows?: unknown[] };
+      const raw = Array.isArray(data.rows) ? data.rows : [];
+      const rows: ClothingCategoryRow[] = raw.map((r) => {
+        const o = r as Record<string, unknown>;
+        const id = Math.floor(Number(o.id));
+        const depRaw = o.department_id;
+        let department_id: number | null = null;
+        if (depRaw !== undefined && depRaw !== null && depRaw !== '') {
+          const d = Math.floor(Number(depRaw));
+          if (Number.isFinite(d) && d >= 1) department_id = d;
+        }
+        const dn = o.department_name;
+        const department_name =
+          dn != null && String(dn).trim() !== '' ? String(dn).trim() : null;
+        return {
+          id: Number.isFinite(id) && id >= 1 ? id : -1,
+          name: String(o.name ?? '').trim(),
+          description: o.description != null ? String(o.description) : null,
+          notes: o.notes != null ? String(o.notes) : null,
+          department_id,
+          department_name,
+          created_at: o.created_at != null ? String(o.created_at) : undefined,
+          updated_at: o.updated_at != null ? String(o.updated_at) : undefined,
+        };
+      });
+      setClothingCategories(rows.filter((x) => x.id >= 1));
     } catch (err: unknown) {
-      console.error('Menswear categories load error:', err);
+      console.error('Department categories load error:', err);
       const m = err instanceof Error ? err.message : 'Unable to load categories';
       if (m === 'Failed to fetch' || (err instanceof TypeError && err.name === 'TypeError')) {
         setClothingError('Unable to connect to server (is the API running on port 5003?)');
@@ -532,12 +599,6 @@ const Config: React.FC = () => {
       setClothingLoading(false);
     }
   }, []);
-
-  useEffect(() => {
-    if (activeMenu === 'clothing-categories') {
-      void loadClothingCategories();
-    }
-  }, [activeMenu, loadClothingCategories]);
 
   const loadStockClothingTypes = useCallback(async () => {
     try {
@@ -568,9 +629,20 @@ const Config: React.FC = () => {
           typeof sc === 'number' && Number.isFinite(sc)
             ? Math.max(0, Math.floor(sc))
             : Number.parseInt(String(sc ?? '0'), 10) || 0;
+        const depIdRaw = o.department_id;
+        let departmentId: number | null = null;
+        if (depIdRaw !== undefined && depIdRaw !== null && depIdRaw !== '') {
+          const d = Math.floor(Number(depIdRaw));
+          if (Number.isFinite(d) && d >= 1) departmentId = d;
+        }
+        const depNameRaw = o.department_name;
+        const departmentName =
+          depNameRaw != null && String(depNameRaw).trim() !== '' ? String(depNameRaw).trim() : null;
         return {
           id: Number.isFinite(id) ? Math.floor(id) : -1,
           category_name: String(o.category_name ?? '').trim(),
+          department_id: departmentId,
+          department_name: departmentName,
           stock_count: stockCount,
         };
       });
@@ -594,6 +666,116 @@ const Config: React.FC = () => {
       void loadStockClothingTypes();
     }
   }, [activeMenu, loadStockClothingTypes]);
+
+  const loadAdminDepartments = useCallback(async () => {
+    try {
+      setDepartmentsLoading(true);
+      setDepartmentsError(null);
+      const response = await fetch(`${API_BASE}/api/departments`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        let msg = text || 'Failed to load departments';
+        try {
+          const j = JSON.parse(text) as { error?: string; details?: string };
+          msg = [j.error, j.details].filter(Boolean).join(' — ') || msg;
+        } catch {
+          /* keep */
+        }
+        throw new Error(msg);
+      }
+      const data = JSON.parse(text) as { rows?: unknown[] };
+      const raw = Array.isArray(data.rows) ? data.rows : [];
+      const rows: DepartmentAdminRow[] = raw.map((r) => {
+        const o = r as Record<string, unknown>;
+        const id = Math.floor(Number(o.id));
+        const cc = o.category_count;
+        const categoryCount =
+          typeof cc === 'number' && Number.isFinite(cc)
+            ? Math.max(0, Math.floor(cc))
+            : Number.parseInt(String(cc ?? '0'), 10) || 0;
+        return {
+          id: Number.isFinite(id) && id >= 1 ? id : -1,
+          department_name: String(o.department_name ?? '').trim(),
+          created_at: o.created_at != null ? String(o.created_at) : null,
+          updated_at: o.updated_at != null ? String(o.updated_at) : null,
+          category_count: categoryCount,
+        };
+      });
+      setAdminDepartments(rows.filter((r) => r.id >= 1));
+    } catch (err: unknown) {
+      console.error('Departments load error:', err);
+      const m = err instanceof Error ? err.message : 'Unable to load departments';
+      if (m === 'Failed to fetch' || (err instanceof TypeError && err.name === 'TypeError')) {
+        setDepartmentsError('Unable to connect to server (is the API running on port 5003?)');
+      } else {
+        setDepartmentsError(m);
+      }
+      setAdminDepartments([]);
+    } finally {
+      setDepartmentsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeMenu === 'departments') {
+      void loadAdminDepartments();
+    }
+  }, [activeMenu, loadAdminDepartments]);
+
+  useEffect(() => {
+    if (activeMenu === 'clothing-categories') {
+      void loadAdminDepartments();
+    }
+  }, [activeMenu, loadAdminDepartments]);
+
+  useEffect(() => {
+    if (activeMenu === 'clothing-type-categories') {
+      void loadAdminDepartments();
+    }
+  }, [activeMenu, loadAdminDepartments]);
+
+  useEffect(() => {
+    if (activeMenu !== 'clothing-type-categories') return;
+    if (adminDepartments.length === 0) return;
+    if (!stockTypeDeptFilterInitializedRef.current) {
+      const mw = adminDepartments.find(
+        (d) => d.department_name.trim().toLowerCase() === 'menswear'
+      );
+      setStockTypeDepartmentFilterId(mw ? mw.id : 'all');
+      stockTypeDeptFilterInitializedRef.current = true;
+    }
+  }, [activeMenu, adminDepartments]);
+
+  useEffect(() => {
+    if (activeMenu !== 'clothing-type-categories' || !stockTypeAddOpen) return;
+    if (adminDepartments.length === 0) return;
+    if (stockTypeAddDepartmentId != null && stockTypeAddDepartmentId >= 1) return;
+    const mw = adminDepartments.find(
+      (d) => d.department_name.trim().toLowerCase() === 'menswear'
+    );
+    setStockTypeAddDepartmentId(mw?.id ?? adminDepartments[0]?.id ?? null);
+  }, [activeMenu, stockTypeAddOpen, adminDepartments, stockTypeAddDepartmentId]);
+
+  useEffect(() => {
+    if (activeMenu !== 'clothing-categories') return;
+    if (adminDepartments.length === 0) return;
+    if (!clothingDeptFilterInitRef.current) {
+      const mw = adminDepartments.find(
+        (d) => d.department_name.trim().toLowerCase() === 'menswear'
+      );
+      setClothingDepartmentFilterId(mw?.id ?? adminDepartments[0]?.id ?? null);
+      clothingDeptFilterInitRef.current = true;
+    }
+  }, [activeMenu, adminDepartments]);
+
+  useEffect(() => {
+    if (activeMenu !== 'clothing-categories') return;
+    if (clothingDepartmentFilterId == null || clothingDepartmentFilterId < 1) return;
+    void loadClothingCategories({ departmentId: clothingDepartmentFilterId });
+  }, [activeMenu, clothingDepartmentFilterId, loadClothingCategories]);
 
   /** Load sizes for one category without touching Sizes admin table state. */
   const fetchCategorySizesForPicker = useCallback(async (categoryId: number): Promise<CategorySizeAdminRow[]> => {
@@ -751,8 +933,34 @@ const Config: React.FC = () => {
     if (activeMenu === 'brands') {
       void loadBrands();
       void loadClothingCategories();
+      void loadAdminDepartments();
     }
-  }, [activeMenu, loadBrands, loadClothingCategories]);
+  }, [activeMenu, loadBrands, loadClothingCategories, loadAdminDepartments]);
+
+  /** Default department for Add Brand when list loads — never overwrite a valid user choice when adminDepartments refetches. */
+  useEffect(() => {
+    if (activeMenu !== 'brands' || !brandAddOpen) return;
+    if (adminDepartments.length === 0) return;
+    setBrandAddDepartmentId((prev) => {
+      if (prev != null && prev >= 1 && adminDepartments.some((d) => d.id === prev)) {
+        return prev;
+      }
+      const mw = adminDepartments.find((d) => d.department_name.trim().toLowerCase() === 'menswear');
+      return mw?.id ?? adminDepartments[0]?.id ?? null;
+    });
+  }, [activeMenu, brandAddOpen, adminDepartments]);
+
+  useEffect(() => {
+    if (activeMenu !== 'brands') return;
+    if (adminDepartments.length === 0) return;
+    if (!brandDeptFilterInitializedRef.current) {
+      const mw = adminDepartments.find(
+        (d) => d.department_name.trim().toLowerCase() === 'menswear'
+      );
+      setBrandDepartmentFilterId(mw ? mw.id : 'all');
+      brandDeptFilterInitializedRef.current = true;
+    }
+  }, [activeMenu, adminDepartments]);
 
   useEffect(() => {
     if (activeMenu === 'no-tags') {
@@ -805,27 +1013,68 @@ const Config: React.FC = () => {
     };
   }, []);
 
-  const handleBrandAddSubmit = async (e: React.FormEvent) => {
+  const handleBrandAddSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const name = brandAddName.trim();
     if (!name) {
       setBrandsError('Brand name is required.');
       return;
     }
+    const form = e.currentTarget;
+    const deptSelect = form.querySelector<HTMLSelectElement>(
+      'select[name="brand_add_department_id"]'
+    );
+    const deptRaw = deptSelect?.value?.trim() ?? '';
+    const departmentIdFromForm =
+      deptRaw === '' ? NaN : Math.floor(Number(deptRaw));
+    let departmentId =
+      Number.isInteger(departmentIdFromForm) && departmentIdFromForm >= 1
+        ? departmentIdFromForm
+        : brandAddDepartmentId != null && brandAddDepartmentId >= 1
+          ? brandAddDepartmentId
+          : NaN;
     try {
       setBrandAddSaving(true);
       setBrandsError(null);
+      if (!Number.isInteger(departmentId) || departmentId < 1) {
+        setBrandsError('Department is required.');
+        return;
+      }
+      const deptKnown = adminDepartments.some((d) => d.id === departmentId);
+      if (!deptKnown) {
+        setBrandsError(
+          'That department is not in the loaded list. Wait for departments to finish loading (or use Refresh), then pick Electronics again.'
+        );
+        void loadAdminDepartments();
+        return;
+      }
+      const body = {
+        brand_name: name,
+        department_id: departmentId,
+      };
       const response = await fetch(`${API_BASE}/api/brands`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ brand_name: name }),
+        body: JSON.stringify(body),
       });
       const text = await response.text();
       if (!response.ok) {
         let msg = text || 'Failed to create brand';
         try {
-          const j = JSON.parse(text) as { error?: string; details?: string };
+          const j = JSON.parse(text) as {
+            error?: string;
+            details?: string;
+            hint?: string;
+            existing_brand_id?: number;
+            department_id?: number;
+          };
           msg = [j.error, j.details].filter(Boolean).join(' — ') || msg;
+          if (j.existing_brand_id != null) {
+            msg += ` (existing brand id: ${j.existing_brand_id})`;
+          }
+          if (j.hint) {
+            msg += ` — ${j.hint}`;
+          }
         } catch {
           /* keep msg */
         }
@@ -833,6 +1082,7 @@ const Config: React.FC = () => {
       }
       setBrandAddOpen(false);
       setBrandAddName('');
+      setBrandAddDepartmentId(null);
       await loadBrands();
     } catch (err: unknown) {
       const m = err instanceof Error ? err.message : 'Unable to create brand';
@@ -849,13 +1099,19 @@ const Config: React.FC = () => {
       setStockTypesError('Category name is required.');
       return;
     }
+    const depId = stockTypeAddDepartmentId;
+    if (depId == null || depId < 1) {
+      setStockTypesError('Department is required.');
+      return;
+    }
     try {
       setStockTypeAddSaving(true);
       setStockTypesError(null);
+      const payload = { category_name: name, department_id: depId };
       const response = await fetch(`${API_BASE}/api/categories`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category_name: name }),
+        body: JSON.stringify(payload),
       });
       const text = await response.text();
       if (!response.ok) {
@@ -870,6 +1126,7 @@ const Config: React.FC = () => {
       }
       setStockTypeAddOpen(false);
       setStockTypeAddName('');
+      setStockTypeAddDepartmentId(null);
       await loadStockClothingTypes();
     } catch (err: unknown) {
       const m = err instanceof Error ? err.message : 'Unable to create category';
@@ -882,6 +1139,7 @@ const Config: React.FC = () => {
   const cancelStockTypeEdit = () => {
     setStockTypeEditingId(null);
     setStockTypeEditName('');
+    setStockTypeEditDepartmentId(null);
   };
 
   const startStockTypeEdit = (row: StockClothingTypeRow) => {
@@ -889,6 +1147,12 @@ const Config: React.FC = () => {
     setStockTypesError(null);
     setStockTypeEditingId(row.id);
     setStockTypeEditName(row.category_name);
+    let did: number | null = row.department_id;
+    if (did == null || did < 1) {
+      const mw = adminDepartments.find((d) => d.department_name.trim().toLowerCase() === 'menswear');
+      did = mw?.id ?? adminDepartments[0]?.id ?? null;
+    }
+    setStockTypeEditDepartmentId(did);
   };
 
   const handleStockTypeEditSave = async () => {
@@ -898,13 +1162,18 @@ const Config: React.FC = () => {
       setStockTypesError('Category name is required.');
       return;
     }
+    const depId = stockTypeEditDepartmentId;
+    if (depId == null || depId < 1) {
+      setStockTypesError('Department is required.');
+      return;
+    }
     try {
       setStockTypeEditSaving(true);
       setStockTypesError(null);
       const response = await fetch(`${API_BASE}/api/categories/${stockTypeEditingId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category_name: name }),
+        body: JSON.stringify({ category_name: name, department_id: depId }),
       });
       const text = await response.text();
       if (!response.ok) {
@@ -968,10 +1237,137 @@ const Config: React.FC = () => {
     }
   };
 
+  const cancelDepartmentEdit = () => {
+    setDepartmentEditingId(null);
+    setDepartmentEditName('');
+  };
+
+  const handleDepartmentAddSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = departmentAddName.trim();
+    if (!name) {
+      setDepartmentsError('Department name is required.');
+      return;
+    }
+    try {
+      setDepartmentAddSaving(true);
+      setDepartmentsError(null);
+      const response = await fetch(`${API_BASE}/api/departments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ department_name: name }),
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        let msg = text || 'Failed to create department';
+        try {
+          const j = JSON.parse(text) as { error?: string; details?: string };
+          msg = [j.error, j.details].filter(Boolean).join(' — ') || msg;
+        } catch {
+          /* keep */
+        }
+        throw new Error(msg);
+      }
+      setDepartmentAddOpen(false);
+      setDepartmentAddName('');
+      await loadAdminDepartments();
+    } catch (err: unknown) {
+      const m = err instanceof Error ? err.message : 'Unable to create department';
+      setDepartmentsError(m);
+    } finally {
+      setDepartmentAddSaving(false);
+    }
+  };
+
+  const startDepartmentEdit = (row: DepartmentAdminRow) => {
+    setDepartmentAddOpen(false);
+    setDepartmentsError(null);
+    setDepartmentEditingId(row.id);
+    setDepartmentEditName(row.department_name);
+  };
+
+  const handleDepartmentEditSave = async () => {
+    if (departmentEditingId == null) return;
+    const name = departmentEditName.trim();
+    if (!name) {
+      setDepartmentsError('Department name is required.');
+      return;
+    }
+    try {
+      setDepartmentEditSaving(true);
+      setDepartmentsError(null);
+      const response = await fetch(`${API_BASE}/api/departments/${departmentEditingId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ department_name: name }),
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        let msg = text || 'Failed to update department';
+        try {
+          const j = JSON.parse(text) as { error?: string; details?: string };
+          msg = [j.error, j.details].filter(Boolean).join(' — ') || msg;
+        } catch {
+          /* keep */
+        }
+        throw new Error(msg);
+      }
+      cancelDepartmentEdit();
+      await loadAdminDepartments();
+    } catch (err: unknown) {
+      const m = err instanceof Error ? err.message : 'Unable to update department';
+      setDepartmentsError(m);
+    } finally {
+      setDepartmentEditSaving(false);
+    }
+  };
+
+  const handleDepartmentDelete = async () => {
+    if (departmentEditingId == null) return;
+    const row = adminDepartments.find((r) => r.id === departmentEditingId);
+    if (row && row.category_count > 0) {
+      setDepartmentsError(
+        `Cannot delete: ${row.category_count} categor${row.category_count === 1 ? 'y' : 'ies'} use this department. Reassign categories first.`
+      );
+      return;
+    }
+    const label = row?.department_name?.trim() ? row.department_name : `department #${departmentEditingId}`;
+    if (!window.confirm(`Delete department “${label}”? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      setDepartmentDeleteSaving(true);
+      setDepartmentsError(null);
+      const response = await fetch(`${API_BASE}/api/departments/${departmentEditingId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        let msg = text || 'Failed to delete department';
+        try {
+          const j = JSON.parse(text) as { error?: string; details?: string };
+          msg = [j.error, j.details].filter(Boolean).join(' — ') || msg;
+        } catch {
+          /* keep */
+        }
+        throw new Error(msg);
+      }
+      cancelDepartmentEdit();
+      await loadAdminDepartments();
+    } catch (err: unknown) {
+      const m = err instanceof Error ? err.message : 'Unable to delete department';
+      setDepartmentsError(m);
+    } finally {
+      setDepartmentDeleteSaving(false);
+    }
+  };
+
   const cancelBrandEdit = () => {
     setBrandEditingId(null);
     setBrandEditName('');
     setBrandEditWebsite('');
+    setBrandEditDepartmentId(null);
   };
 
   const startBrandEdit = (b: ConfigBrandRow) => {
@@ -980,6 +1376,15 @@ const Config: React.FC = () => {
     setBrandEditingId(b.id);
     setBrandEditName(b.brand_name);
     setBrandEditWebsite(b.brand_website?.trim() ?? '');
+    let did: number | null =
+      b.department_id != null && Number.isFinite(Number(b.department_id))
+        ? Math.floor(Number(b.department_id))
+        : null;
+    if (did == null || did < 1) {
+      const mw = adminDepartments.find((d) => d.department_name.trim().toLowerCase() === 'menswear');
+      did = mw?.id ?? adminDepartments[0]?.id ?? null;
+    }
+    setBrandEditDepartmentId(did);
   };
 
   const handleBrandEditSave = async () => {
@@ -987,6 +1392,11 @@ const Config: React.FC = () => {
     const name = brandEditName.trim();
     if (!name) {
       setBrandsError('Brand name is required.');
+      return;
+    }
+    const depId = brandEditDepartmentId;
+    if (depId == null || depId < 1) {
+      setBrandsError('Department is required.');
       return;
     }
     const websiteRaw = brandEditWebsite.trim();
@@ -999,6 +1409,7 @@ const Config: React.FC = () => {
         body: JSON.stringify({
           brand_name: name,
           brand_website: websiteRaw.length > 0 ? websiteRaw : null,
+          department_id: depId,
         }),
       });
       const text = await response.text();
@@ -1093,6 +1504,19 @@ const Config: React.FC = () => {
       ),
     [stockClothingTypes]
   );
+
+  const filteredStockClothingTypes = useMemo(() => {
+    if (stockTypeDepartmentFilterId === 'all') return stockClothingTypes;
+    return stockClothingTypes.filter((t) => t.department_id === stockTypeDepartmentFilterId);
+  }, [stockClothingTypes, stockTypeDepartmentFilterId]);
+
+  const filteredBrandsForTable = useMemo(() => {
+    if (brandDepartmentFilterId === 'all') return brands;
+    return brands.filter((b) => {
+      const d = b.department_id;
+      return d != null && Number(d) === brandDepartmentFilterId;
+    });
+  }, [brands, brandDepartmentFilterId]);
 
   const categoryCheckRows = useMemo(() => {
     if (!categoryCheckCategoryId) return [];
@@ -1347,13 +1771,17 @@ const Config: React.FC = () => {
     try {
       setClothingAddSaving(true);
       setClothingError(null);
+      if (clothingDepartmentFilterId == null || clothingDepartmentFilterId < 1) {
+        setClothingError('Choose a department first.');
+        return;
+      }
       const response = await fetch(`${API_BASE}/api/menswear-categories`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name,
+          department_id: clothingDepartmentFilterId,
           description: clothingAddDescription.trim() || undefined,
-          notes: clothingAddNotes.trim() || undefined,
         }),
       });
       const text = await response.text();
@@ -1370,8 +1798,11 @@ const Config: React.FC = () => {
       setClothingAddOpen(false);
       setClothingAddName('');
       setClothingAddDescription('');
-      setClothingAddNotes('');
-      await loadClothingCategories();
+      await loadClothingCategories(
+        clothingDepartmentFilterId != null && clothingDepartmentFilterId >= 1
+          ? { departmentId: clothingDepartmentFilterId }
+          : undefined
+      );
     } catch (err: unknown) {
       const m = err instanceof Error ? err.message : 'Unable to create category';
       setClothingError(m);
@@ -1384,7 +1815,7 @@ const Config: React.FC = () => {
     setClothingEditingId(null);
     setClothingEditName('');
     setClothingEditDescription('');
-    setClothingEditNotes('');
+    setClothingEditDepartmentId(null);
   };
 
   const startClothingEdit = (cat: ClothingCategoryRow) => {
@@ -1393,7 +1824,12 @@ const Config: React.FC = () => {
     setClothingEditingId(cat.id);
     setClothingEditName(cat.name);
     setClothingEditDescription(cat.description ?? '');
-    setClothingEditNotes(cat.notes ?? '');
+    let did: number | null = cat.department_id;
+    if (did == null || did < 1) {
+      const mw = adminDepartments.find((d) => d.department_name.trim().toLowerCase() === 'menswear');
+      did = mw?.id ?? adminDepartments[0]?.id ?? null;
+    }
+    setClothingEditDepartmentId(did);
   };
 
   const handleClothingEditSave = async () => {
@@ -1401,6 +1837,11 @@ const Config: React.FC = () => {
     const name = clothingEditName.trim();
     if (!name) {
       setClothingError('Name is required.');
+      return;
+    }
+    const depId = clothingEditDepartmentId;
+    if (depId == null || depId < 1) {
+      setClothingError('Department is required.');
       return;
     }
     try {
@@ -1411,8 +1852,8 @@ const Config: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name,
+          department_id: depId,
           description: clothingEditDescription.trim() || null,
-          notes: clothingEditNotes.trim() || null,
         }),
       });
       const text = await response.text();
@@ -1427,7 +1868,11 @@ const Config: React.FC = () => {
         throw new Error(msg);
       }
       cancelClothingEdit();
-      await loadClothingCategories();
+      await loadClothingCategories(
+        clothingDepartmentFilterId != null && clothingDepartmentFilterId >= 1
+          ? { departmentId: clothingDepartmentFilterId }
+          : undefined
+      );
     } catch (err: unknown) {
       const m = err instanceof Error ? err.message : 'Unable to update category';
       setClothingError(m);
@@ -1462,7 +1907,11 @@ const Config: React.FC = () => {
         throw new Error(msg);
       }
       cancelClothingEdit();
-      await loadClothingCategories();
+      await loadClothingCategories(
+        clothingDepartmentFilterId != null && clothingDepartmentFilterId >= 1
+          ? { departmentId: clothingDepartmentFilterId }
+          : undefined
+      );
     } catch (err: unknown) {
       const m = err instanceof Error ? err.message : 'Unable to delete category';
       setClothingError(m);
@@ -1609,6 +2058,7 @@ const Config: React.FC = () => {
       {error &&
         activeMenu !== 'clothing-categories' &&
         activeMenu !== 'clothing-type-categories' &&
+        activeMenu !== 'departments' &&
         activeMenu !== 'brands' &&
         activeMenu !== 'sizes' && (
         <div className="config-error">{error}</div>
@@ -1684,11 +2134,20 @@ const Config: React.FC = () => {
               <button
                 type="button"
                 className={`config-menu-item config-menu-item--in-group ${
+                  activeMenu === 'departments' ? 'active' : ''
+                }`}
+                onClick={() => setActiveMenu('departments')}
+              >
+                Departments
+              </button>
+              <button
+                type="button"
+                className={`config-menu-item config-menu-item--in-group ${
                   activeMenu === 'clothing-type-categories' ? 'active' : ''
                 }`}
                 onClick={() => setActiveMenu('clothing-type-categories')}
               >
-                Clothing Type Categories
+                Categories
               </button>
               <button
                 type="button"
@@ -1697,7 +2156,7 @@ const Config: React.FC = () => {
                 }`}
                 onClick={() => setActiveMenu('clothing-categories')}
               >
-                Menswear Categories
+                Department Categories
               </button>
               <button
                 type="button"
@@ -2414,18 +2873,236 @@ const Config: React.FC = () => {
             </div>
           )}
 
-          {activeMenu === 'clothing-type-categories' && (
+          {activeMenu === 'departments' && (
             <div className="config-section config-section--brands">
-              {stockTypesError && <div className="config-error config-error--inline">{stockTypesError}</div>}
+              {departmentsError && (
+                <div className="config-error config-error--inline" role="alert">
+                  {departmentsError}
+                </div>
+              )}
 
               <div className="config-clothing-header">
                 <button
                   type="button"
                   className="config-clothing-add-button"
                   onClick={() => {
+                    setDepartmentsError(null);
+                    cancelDepartmentEdit();
+                    setDepartmentAddOpen((o) => !o);
+                  }}
+                  disabled={departmentDeleteSaving}
+                >
+                  {departmentAddOpen ? 'Cancel add' : 'Add department'}
+                </button>
+                <button
+                  type="button"
+                  className="config-refresh-button"
+                  onClick={() => void loadAdminDepartments()}
+                  title="Refresh list"
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+                  </svg>
+                </button>
+              </div>
+
+              {departmentAddOpen && (
+                <form className="config-clothing-add-form" onSubmit={handleDepartmentAddSubmit}>
+                  <label className="config-clothing-field">
+                    <span>Department name *</span>
+                    <input
+                      type="text"
+                      value={departmentAddName}
+                      onChange={(ev) => setDepartmentAddName(ev.target.value)}
+                      placeholder="e.g. Electronics"
+                      maxLength={500}
+                      required
+                      disabled={departmentAddSaving}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <div className="config-clothing-add-actions">
+                    <button
+                      type="submit"
+                      className="config-clothing-save-button"
+                      disabled={departmentAddSaving}
+                    >
+                      {departmentAddSaving ? 'Saving…' : 'Save department'}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {departmentsLoading ? (
+                <div className="config-loading">Loading departments…</div>
+              ) : departmentsError && adminDepartments.length === 0 ? null : adminDepartments.length === 0 ? (
+                <div className="config-empty">No departments yet. Use Add department to create one.</div>
+              ) : (
+                <div className="config-clothing-table-wrap">
+                  <table className="config-clothing-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">ID</th>
+                        <th scope="col">Name</th>
+                        <th scope="col">Categories</th>
+                        <th className="config-clothing-th-actions" scope="col">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {adminDepartments.map((d) =>
+                        departmentEditingId === d.id ? (
+                          <tr key={d.id} className="config-clothing-row-edit">
+                            <td colSpan={4}>
+                              <div className="config-clothing-inline-edit">
+                                <p className="config-brand-edit-id">
+                                  <strong>ID</strong> {d.id}
+                                  {' · '}
+                                  <strong>Categories</strong> {d.category_count}
+                                </p>
+                                <label className="config-clothing-field">
+                                  <span>Department name *</span>
+                                  <input
+                                    type="text"
+                                    value={departmentEditName}
+                                    onChange={(ev) => setDepartmentEditName(ev.target.value)}
+                                    maxLength={500}
+                                    disabled={departmentEditSaving || departmentDeleteSaving}
+                                    autoComplete="off"
+                                  />
+                                </label>
+                                <div className="config-clothing-inline-edit-actions">
+                                  <button
+                                    type="button"
+                                    className="config-clothing-save-button"
+                                    onClick={() => void handleDepartmentEditSave()}
+                                    disabled={
+                                      departmentEditSaving ||
+                                      departmentDeleteSaving ||
+                                      !departmentEditName.trim()
+                                    }
+                                  >
+                                    {departmentEditSaving ? 'Saving…' : 'Save'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="config-clothing-cancel-edit-button"
+                                    onClick={cancelDepartmentEdit}
+                                    disabled={departmentEditSaving || departmentDeleteSaving}
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="config-clothing-delete-category-button"
+                                    onClick={() => void handleDepartmentDelete()}
+                                    disabled={
+                                      departmentEditSaving ||
+                                      departmentDeleteSaving ||
+                                      d.category_count > 0
+                                    }
+                                    title={
+                                      d.category_count > 0
+                                        ? `${d.category_count} categor${d.category_count === 1 ? 'y' : 'ies'} use this department — reassign in Categories first`
+                                        : 'Delete this department'
+                                    }
+                                  >
+                                    {departmentDeleteSaving ? 'Deleting…' : 'Delete'}
+                                  </button>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : (
+                          <tr key={d.id}>
+                            <td>{d.id}</td>
+                            <td className="config-clothing-td-name">{d.department_name}</td>
+                            <td>{d.category_count}</td>
+                            <td className="config-clothing-td-actions">
+                              <button
+                                type="button"
+                                className="config-clothing-edit-name-button"
+                                onClick={() => startDepartmentEdit(d)}
+                                disabled={
+                                  departmentEditSaving ||
+                                  departmentAddSaving ||
+                                  departmentDeleteSaving
+                                }
+                              >
+                                Edit
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeMenu === 'clothing-type-categories' && (
+            <div className="config-section config-section--brands">
+              {stockTypesError && <div className="config-error config-error--inline">{stockTypesError}</div>}
+
+              <div className="config-clothing-header config-clothing-header--with-filter">
+                <div className="config-clothing-field config-clothing-field--inline">
+                  <select
+                    aria-label="Filter categories by department"
+                    value={stockTypeDepartmentFilterId === 'all' ? 'all' : String(stockTypeDepartmentFilterId)}
+                    onChange={(ev) => {
+                      const v = ev.target.value;
+                      setStockTypeDepartmentFilterId(v === 'all' ? 'all' : Number(v));
+                      stockTypeDeptFilterInitializedRef.current = true;
+                    }}
+                    disabled={departmentsLoading || stockTypeEditSaving || stockTypeDeleteSaving}
+                  >
+                    <option value="all">All departments</option>
+                    {[...adminDepartments]
+                      .sort((a, b) =>
+                        a.department_name.localeCompare(b.department_name, undefined, {
+                          sensitivity: 'base',
+                        })
+                      )
+                      .map((d) => (
+                        <option key={d.id} value={String(d.id)}>
+                          {d.department_name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  className="config-clothing-add-button"
+                  onClick={() => {
                     setStockTypesError(null);
                     cancelStockTypeEdit();
-                    setStockTypeAddOpen((o) => !o);
+                    setStockTypeAddOpen((o) => {
+                      if (o) {
+                        setStockTypeAddDepartmentId(null);
+                        return false;
+                      }
+                      if (stockTypeDepartmentFilterId !== 'all') {
+                        setStockTypeAddDepartmentId(stockTypeDepartmentFilterId);
+                      } else {
+                        const mw = adminDepartments.find(
+                          (d) => d.department_name.trim().toLowerCase() === 'menswear'
+                        );
+                        setStockTypeAddDepartmentId(mw?.id ?? adminDepartments[0]?.id ?? null);
+                      }
+                      return true;
+                    });
                   }}
                   disabled={stockTypeDeleteSaving}
                 >
@@ -2434,7 +3111,10 @@ const Config: React.FC = () => {
                 <button
                   type="button"
                   className="config-refresh-button"
-                  onClick={() => void loadStockClothingTypes()}
+                  onClick={() => {
+                    void loadStockClothingTypes();
+                    void loadAdminDepartments();
+                  }}
                   title="Refresh list"
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -2445,6 +3125,33 @@ const Config: React.FC = () => {
 
               {stockTypeAddOpen && (
                 <form className="config-clothing-add-form" onSubmit={handleStockTypeAddSubmit}>
+                  <label className="config-clothing-field">
+                    <span>Department *</span>
+                    <select
+                      value={stockTypeAddDepartmentId != null ? String(stockTypeAddDepartmentId) : ''}
+                      onChange={(ev) => {
+                        const n = Number(ev.target.value);
+                        setStockTypeAddDepartmentId(Number.isFinite(n) && n >= 1 ? n : null);
+                      }}
+                      required
+                      disabled={stockTypeAddSaving || adminDepartments.length === 0}
+                    >
+                      <option value="">
+                        {adminDepartments.length === 0 ? 'No departments — add one in Departments' : 'Select department…'}
+                      </option>
+                      {[...adminDepartments]
+                        .sort((a, b) =>
+                          a.department_name.localeCompare(b.department_name, undefined, {
+                            sensitivity: 'base',
+                          })
+                        )
+                        .map((d) => (
+                          <option key={d.id} value={String(d.id)}>
+                            {d.department_name}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
                   <label className="config-clothing-field">
                     <span>Category name *</span>
                     <input
@@ -2459,7 +3166,15 @@ const Config: React.FC = () => {
                     />
                   </label>
                   <div className="config-clothing-add-actions">
-                    <button type="submit" className="config-clothing-save-button" disabled={stockTypeAddSaving}>
+                    <button
+                      type="submit"
+                      className="config-clothing-save-button"
+                      disabled={
+                        stockTypeAddSaving ||
+                        stockTypeAddDepartmentId == null ||
+                        stockTypeAddDepartmentId < 1
+                      }
+                    >
                       {stockTypeAddSaving ? 'Saving…' : 'Save category'}
                     </button>
                   </div>
@@ -2470,13 +3185,18 @@ const Config: React.FC = () => {
                 <div className="config-loading">Loading clothing types…</div>
               ) : stockTypesError ? null : stockClothingTypes.length === 0 ? (
                 <div className="config-empty">No clothing types yet. Use Add category to create one.</div>
+              ) : filteredStockClothingTypes.length === 0 ? (
+                <div className="config-empty">No categories in this department.</div>
               ) : (
                 <div className="config-clothing-table-wrap">
-                  <table className="config-clothing-table">
+                  <table className="config-clothing-table config-clothing-table--stock-categories">
                     <thead>
                       <tr>
                         <th scope="col">ID</th>
-                        <th scope="col">Name</th>
+                        <th className="config-clothing-th-name" scope="col">
+                          Name
+                        </th>
+                        <th scope="col">Department</th>
                         <th scope="col">Stock items</th>
                         <th className="config-clothing-th-actions" scope="col">
                           Actions
@@ -2484,10 +3204,10 @@ const Config: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {stockClothingTypes.map((t) =>
+                      {filteredStockClothingTypes.map((t) =>
                         stockTypeEditingId === t.id ? (
                           <tr key={t.id} className="config-clothing-row-edit">
-                            <td colSpan={4}>
+                            <td colSpan={5}>
                               <div className="config-clothing-inline-edit">
                                 <p className="config-brand-edit-id">
                                   <strong>ID</strong> {t.id}
@@ -2505,6 +3225,32 @@ const Config: React.FC = () => {
                                     autoComplete="off"
                                   />
                                 </label>
+                                <label className="config-clothing-field">
+                                  <span>Department *</span>
+                                  <select
+                                    value={stockTypeEditDepartmentId != null ? String(stockTypeEditDepartmentId) : ''}
+                                    onChange={(ev) => {
+                                      const n = Number(ev.target.value);
+                                      setStockTypeEditDepartmentId(
+                                        Number.isFinite(n) && n >= 1 ? n : null
+                                      );
+                                    }}
+                                    disabled={stockTypeEditSaving || stockTypeDeleteSaving}
+                                  >
+                                    <option value="">Select department…</option>
+                                    {[...adminDepartments]
+                                      .sort((a, b) =>
+                                        a.department_name.localeCompare(b.department_name, undefined, {
+                                          sensitivity: 'base',
+                                        })
+                                      )
+                                      .map((d) => (
+                                        <option key={d.id} value={String(d.id)}>
+                                          {d.department_name}
+                                        </option>
+                                      ))}
+                                  </select>
+                                </label>
                                 <div className="config-clothing-inline-edit-actions">
                                   <button
                                     type="button"
@@ -2513,7 +3259,9 @@ const Config: React.FC = () => {
                                     disabled={
                                       stockTypeEditSaving ||
                                       stockTypeDeleteSaving ||
-                                      !stockTypeEditName.trim()
+                                      !stockTypeEditName.trim() ||
+                                      stockTypeEditDepartmentId == null ||
+                                      stockTypeEditDepartmentId < 1
                                     }
                                   >
                                     {stockTypeEditSaving ? 'Saving…' : 'Save'}
@@ -2551,6 +3299,9 @@ const Config: React.FC = () => {
                           <tr key={t.id}>
                             <td>{t.id}</td>
                             <td className="config-clothing-td-name">{t.category_name}</td>
+                            <td className="config-clothing-td-name">
+                              {t.department_name?.trim() ? t.department_name : '—'}
+                            </td>
                             <td>{t.stock_count}</td>
                             <td className="config-clothing-td-actions">
                               <button
@@ -2578,7 +3329,41 @@ const Config: React.FC = () => {
             <div className="config-section config-section--clothing-categories">
               {clothingError && <div className="config-error config-error--inline">{clothingError}</div>}
 
-              <div className="config-clothing-header">
+              <div className="config-clothing-header config-clothing-header--with-filter">
+                <div className="config-clothing-field config-clothing-field--inline">
+                  <select
+                    aria-label="Filter department categories by department"
+                    value={
+                      clothingDepartmentFilterId != null && clothingDepartmentFilterId >= 1
+                        ? String(clothingDepartmentFilterId)
+                        : ''
+                    }
+                    onChange={(ev) => {
+                      const n = Number(ev.target.value);
+                      setClothingDepartmentFilterId(Number.isFinite(n) && n >= 1 ? n : null);
+                      clothingDeptFilterInitRef.current = true;
+                    }}
+                    disabled={
+                      departmentsLoading || clothingEditSaving || clothingDeleteSaving || adminDepartments.length === 0
+                    }
+                  >
+                    {adminDepartments.length === 0 ? (
+                      <option value="">No departments</option>
+                    ) : (
+                      [...adminDepartments]
+                        .sort((a, b) =>
+                          a.department_name.localeCompare(b.department_name, undefined, {
+                            sensitivity: 'base',
+                          })
+                        )
+                        .map((d) => (
+                          <option key={d.id} value={String(d.id)}>
+                            {d.department_name}
+                          </option>
+                        ))
+                    )}
+                  </select>
+                </div>
                 <button
                   type="button"
                   className="config-clothing-add-button"
@@ -2594,7 +3379,14 @@ const Config: React.FC = () => {
                 <button
                   type="button"
                   className="config-refresh-button"
-                  onClick={() => void loadClothingCategories()}
+                  onClick={() => {
+                    void loadAdminDepartments();
+                    void loadClothingCategories(
+                      clothingDepartmentFilterId != null && clothingDepartmentFilterId >= 1
+                        ? { departmentId: clothingDepartmentFilterId }
+                        : undefined
+                    );
+                  }}
                   title="Refresh list"
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -2627,16 +3419,6 @@ const Config: React.FC = () => {
                       disabled={clothingAddSaving}
                     />
                   </label>
-                  <label className="config-clothing-field">
-                    <span>Notes</span>
-                    <textarea
-                      value={clothingAddNotes}
-                      onChange={(ev) => setClothingAddNotes(ev.target.value)}
-                      placeholder="Internal notes"
-                      rows={2}
-                      disabled={clothingAddSaving}
-                    />
-                  </label>
                   <div className="config-clothing-add-actions">
                     <button type="submit" className="config-clothing-save-button" disabled={clothingAddSaving}>
                       {clothingAddSaving ? 'Saving…' : 'Save category'}
@@ -2645,18 +3427,28 @@ const Config: React.FC = () => {
                 </form>
               )}
 
-              {clothingLoading ? (
+              {departmentsLoading && adminDepartments.length === 0 ? (
+                <div className="config-loading">Loading departments…</div>
+              ) : clothingDepartmentFilterId == null || clothingDepartmentFilterId < 1 ? (
+                <div className="config-empty">
+                  Add a department under Departments first, then pick it here to manage categories.
+                </div>
+              ) : clothingLoading ? (
                 <div className="config-loading">Loading categories…</div>
               ) : clothingCategories.length === 0 ? (
-                <div className="config-empty">No Menswear categories yet. Use Add category to create one.</div>
+                <div className="config-empty">
+                  No categories for this department yet. Use Add category to create one.
+                </div>
               ) : (
                 <div className="config-clothing-table-wrap">
-                  <table className="config-clothing-table">
+                  <table className="config-clothing-table config-clothing-table--dept-categories">
                     <thead>
                       <tr>
-                        <th>Name</th>
-                        <th>Description</th>
-                        <th>Notes</th>
+                        <th className="config-clothing-th-name" scope="col">
+                          Name
+                        </th>
+                        <th scope="col">Description</th>
+                        <th scope="col">Departments</th>
                         <th className="config-clothing-th-actions" scope="col">
                           Actions
                         </th>
@@ -2688,13 +3480,32 @@ const Config: React.FC = () => {
                                   />
                                 </label>
                                 <label className="config-clothing-field">
-                                  <span>Notes</span>
-                                  <textarea
-                                    value={clothingEditNotes}
-                                    onChange={(ev) => setClothingEditNotes(ev.target.value)}
-                                    rows={2}
+                                  <span>Departments *</span>
+                                  <select
+                                    value={
+                                      clothingEditDepartmentId != null ? String(clothingEditDepartmentId) : ''
+                                    }
+                                    onChange={(ev) => {
+                                      const n = Number(ev.target.value);
+                                      setClothingEditDepartmentId(
+                                        Number.isFinite(n) && n >= 1 ? n : null
+                                      );
+                                    }}
                                     disabled={clothingEditSaving || clothingDeleteSaving}
-                                  />
+                                  >
+                                    <option value="">Select department…</option>
+                                    {[...adminDepartments]
+                                      .sort((a, b) =>
+                                        a.department_name.localeCompare(b.department_name, undefined, {
+                                          sensitivity: 'base',
+                                        })
+                                      )
+                                      .map((d) => (
+                                        <option key={d.id} value={String(d.id)}>
+                                          {d.department_name}
+                                        </option>
+                                      ))}
+                                  </select>
                                 </label>
                                 <div className="config-clothing-inline-edit-actions">
                                   <button
@@ -2704,7 +3515,9 @@ const Config: React.FC = () => {
                                     disabled={
                                       clothingEditSaving ||
                                       clothingDeleteSaving ||
-                                      !clothingEditName.trim()
+                                      !clothingEditName.trim() ||
+                                      clothingEditDepartmentId == null ||
+                                      clothingEditDepartmentId < 1
                                     }
                                   >
                                     {clothingEditSaving ? 'Saving…' : 'Save'}
@@ -2731,9 +3544,13 @@ const Config: React.FC = () => {
                           </tr>
                         ) : (
                           <tr key={cat.id}>
-                            <td className="config-clothing-td-name">{cat.name}</td>
+                            <td className="config-clothing-td-name config-clothing-td-name--dept-cat">
+                              {cat.name}
+                            </td>
                             <td>{cat.description?.trim() ? cat.description : '—'}</td>
-                            <td>{cat.notes?.trim() ? cat.notes : '—'}</td>
+                            <td className="config-clothing-td-name">
+                              {cat.department_name?.trim() ? cat.department_name : '—'}
+                            </td>
                             <td className="config-clothing-td-actions">
                               <button
                                 type="button"
@@ -2760,14 +3577,55 @@ const Config: React.FC = () => {
             <div className="config-section config-section--brands">
               {brandsError && <div className="config-error config-error--inline">{brandsError}</div>}
 
-              <div className="config-clothing-header">
+              <div className="config-clothing-header config-clothing-header--with-filter">
+                <div className="config-clothing-field config-clothing-field--inline">
+                  <select
+                    aria-label="Filter brands by department"
+                    value={brandDepartmentFilterId === 'all' ? 'all' : String(brandDepartmentFilterId)}
+                    onChange={(ev) => {
+                      const v = ev.target.value;
+                      setBrandDepartmentFilterId(v === 'all' ? 'all' : Number(v));
+                      brandDeptFilterInitializedRef.current = true;
+                    }}
+                    disabled={
+                      departmentsLoading || brandEditSaving || brandAddSaving || adminDepartments.length === 0
+                    }
+                  >
+                    <option value="all">All departments</option>
+                    {[...adminDepartments]
+                      .sort((a, b) =>
+                        a.department_name.localeCompare(b.department_name, undefined, {
+                          sensitivity: 'base',
+                        })
+                      )
+                      .map((d) => (
+                        <option key={d.id} value={String(d.id)}>
+                          {d.department_name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
                 <button
                   type="button"
                   className="config-clothing-add-button"
                   onClick={() => {
                     setBrandsError(null);
                     cancelBrandEdit();
-                    setBrandAddOpen((o) => !o);
+                    setBrandAddOpen((o) => {
+                      if (o) {
+                        setBrandAddDepartmentId(null);
+                        return false;
+                      }
+                      const mw = adminDepartments.find(
+                        (d) => d.department_name.trim().toLowerCase() === 'menswear'
+                      );
+                      const fromFilter =
+                        brandDepartmentFilterId !== 'all' ? brandDepartmentFilterId : null;
+                      setBrandAddDepartmentId(
+                        fromFilter ?? mw?.id ?? adminDepartments[0]?.id ?? null
+                      );
+                      return true;
+                    });
                   }}
                 >
                   {brandAddOpen ? 'Cancel add' : 'Add New Brand'}
@@ -2775,7 +3633,10 @@ const Config: React.FC = () => {
                 <button
                   type="button"
                   className="config-refresh-button"
-                  onClick={() => void loadBrands()}
+                  onClick={() => {
+                    void loadBrands();
+                    void loadAdminDepartments();
+                  }}
                   title="Refresh list"
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -2786,6 +3647,44 @@ const Config: React.FC = () => {
 
               {brandAddOpen && (
                 <form className="config-clothing-add-form" onSubmit={handleBrandAddSubmit}>
+                  <label className="config-clothing-field">
+                    <span>Department *</span>
+                    {departmentsLoading && adminDepartments.length === 0 ? (
+                      <span className="config-clothing-field-hint" style={{ display: 'block', marginBottom: 6 }}>
+                        Loading departments…
+                      </span>
+                    ) : null}
+                    <select
+                      name="brand_add_department_id"
+                      aria-label="Department for new brand"
+                      value={brandAddDepartmentId != null ? String(brandAddDepartmentId) : ''}
+                      onChange={(ev) => {
+                        const n = Number(ev.target.value);
+                        setBrandAddDepartmentId(Number.isFinite(n) && n >= 1 ? n : null);
+                      }}
+                      required
+                      disabled={brandAddSaving || adminDepartments.length === 0}
+                    >
+                      <option value="">
+                        {adminDepartments.length === 0
+                          ? departmentsLoading
+                            ? 'Loading departments…'
+                            : 'No departments — add one in Departments'
+                          : 'Select department…'}
+                      </option>
+                      {[...adminDepartments]
+                        .sort((a, b) =>
+                          a.department_name.localeCompare(b.department_name, undefined, {
+                            sensitivity: 'base',
+                          })
+                        )
+                        .map((d) => (
+                          <option key={d.id} value={String(d.id)}>
+                            {d.department_name}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
                   <label className="config-clothing-field">
                     <span>Brand name *</span>
                     <input
@@ -2800,7 +3699,15 @@ const Config: React.FC = () => {
                     />
                   </label>
                   <div className="config-clothing-add-actions">
-                    <button type="submit" className="config-clothing-save-button" disabled={brandAddSaving}>
+                    <button
+                      type="submit"
+                      className="config-clothing-save-button"
+                      disabled={
+                        brandAddSaving ||
+                        brandAddDepartmentId == null ||
+                        brandAddDepartmentId < 1
+                      }
+                    >
                       {brandAddSaving ? 'Saving…' : 'Save brand'}
                     </button>
                   </div>
@@ -2811,21 +3718,25 @@ const Config: React.FC = () => {
                 <div className="config-loading">Loading brands…</div>
               ) : brandsError ? null : brands.length === 0 ? (
                 <div className="config-empty">No brands in the database yet. Use Add New Brand to create one.</div>
+              ) : filteredBrandsForTable.length === 0 ? (
+                <div className="config-empty">No brands in this department.</div>
               ) : (
                 <div className="config-clothing-table-wrap">
-                  <table className="config-clothing-table">
+                  <table className="config-clothing-table config-clothing-table--brands">
                     <thead>
                       <tr>
                         <th scope="col">ID</th>
-                        <th scope="col">Name</th>
-                        <th scope="col">Website</th>
+                        <th className="config-clothing-th-name" scope="col">
+                          Name
+                        </th>
+                        <th scope="col">Department</th>
                         <th className="config-clothing-th-actions" scope="col">
                           Actions
                         </th>
                       </tr>
                     </thead>
                     <tbody>
-                      {brands.map((b) =>
+                      {filteredBrandsForTable.map((b) =>
                         brandEditingId === b.id ? (
                           <tr key={b.id} className="config-clothing-row-edit">
                             <td colSpan={4}>
@@ -2845,6 +3756,34 @@ const Config: React.FC = () => {
                                   />
                                 </label>
                                 <label className="config-clothing-field">
+                                  <span>Department *</span>
+                                  <select
+                                    value={
+                                      brandEditDepartmentId != null ? String(brandEditDepartmentId) : ''
+                                    }
+                                    onChange={(ev) => {
+                                      const n = Number(ev.target.value);
+                                      setBrandEditDepartmentId(
+                                        Number.isFinite(n) && n >= 1 ? n : null
+                                      );
+                                    }}
+                                    disabled={brandEditSaving}
+                                  >
+                                    <option value="">Select department…</option>
+                                    {[...adminDepartments]
+                                      .sort((a, b) =>
+                                        a.department_name.localeCompare(b.department_name, undefined, {
+                                          sensitivity: 'base',
+                                        })
+                                      )
+                                      .map((d) => (
+                                        <option key={d.id} value={String(d.id)}>
+                                          {d.department_name}
+                                        </option>
+                                      ))}
+                                  </select>
+                                </label>
+                                <label className="config-clothing-field">
                                   <span>Website (link)</span>
                                   <input
                                     type="text"
@@ -2861,7 +3800,12 @@ const Config: React.FC = () => {
                                     type="button"
                                     className="config-clothing-save-button"
                                     onClick={() => void handleBrandEditSave()}
-                                    disabled={brandEditSaving || !brandEditName.trim()}
+                                    disabled={
+                                      brandEditSaving ||
+                                      !brandEditName.trim() ||
+                                      brandEditDepartmentId == null ||
+                                      brandEditDepartmentId < 1
+                                    }
                                   >
                                     {brandEditSaving ? 'Saving…' : 'Save'}
                                   </button>
@@ -2880,25 +3824,10 @@ const Config: React.FC = () => {
                         ) : (
                           <tr key={b.id}>
                             <td>{b.id}</td>
-                            <td className="config-clothing-td-name">{b.brand_name}</td>
-                            <td>
-                              {b.brand_website?.trim() ? (
-                                <a
-                                  href={
-                                    b.brand_website?.startsWith('http')
-                                      ? b.brand_website
-                                      : `https://${b.brand_website}`
-                                  }
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="config-brand-website-link"
-                                >
-                                  {b.brand_website}
-                                </a>
-                              ) : (
-                                '—'
-                              )}
+                            <td className="config-clothing-td-name config-clothing-td-name--brand">
+                              {b.brand_name}
                             </td>
+                            <td>{b.department_name?.trim() ? b.department_name : '—'}</td>
                             <td className="config-clothing-td-actions">
                               <button
                                 type="button"
@@ -2923,9 +3852,9 @@ const Config: React.FC = () => {
                   className="config-brands-ask-ai-button"
                   onClick={() => void handleBrandsAskAiRank()}
                   disabled={brandsLoading || brands.length === 0}
-                  title="Build a prompt with every brand and your menswear categories, copy to clipboard"
+                  title="Build a prompt with every brand and your department categories, copy to clipboard"
                 >
-                  Ask AI — rank brands by menswear categories
+                  Ask AI — rank brands by department categories
                 </button>
                 {brandsAskAiHint ? (
                   <p className="config-brands-ask-ai-hint" role="status">
