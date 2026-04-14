@@ -38,16 +38,29 @@ function formatSoldMultipleDisplay(n: number): string {
 }
 
 /** Absolute app path so links work even if `location.pathname` is wrong in dev/proxy setups. */
-function clothingTypesDetailHref(clothingTypeId: string | number): string {
+function clothingTypesDetailHref(
+  clothingTypeId: string | number,
+  departmentId?: number | null
+): string {
   const qs = new URLSearchParams();
   qs.set('tab', 'clothing-types');
+  if (departmentId != null && departmentId >= 1) {
+    qs.set('departmentId', String(departmentId));
+  }
   qs.set('clothingTypeId', String(clothingTypeId));
   return `/research?${qs.toString()}`;
 }
 
-function clothingTypesBrandDetailHref(clothingTypeId: string | number, brandId: number): string {
+function clothingTypesBrandDetailHref(
+  clothingTypeId: string | number,
+  brandId: number,
+  departmentId?: number | null
+): string {
   const qs = new URLSearchParams();
   qs.set('tab', 'clothing-types');
+  if (departmentId != null && departmentId >= 1) {
+    qs.set('departmentId', String(departmentId));
+  }
   qs.set('clothingTypeId', String(clothingTypeId));
   qs.set('clothingTypeBrandId', String(brandId));
   return `/research?${qs.toString()}`;
@@ -603,6 +616,8 @@ type BrandRow = {
   description: string | null;
   /** From GET /api/brands when column exists. */
   menswear_category_id: number | null;
+  /** From GET /api/brands when column exists. */
+  department_id?: number | null;
 };
 
 type BrandRefLinkRow = {
@@ -976,6 +991,12 @@ function parseBrandsApiPayload(data: unknown): BrandRow[] {
       const n = typeof mcRaw === 'number' ? mcRaw : parseInt(String(mcRaw).trim(), 10);
       if (Number.isFinite(n) && n >= 1) menswear_category_id = n;
     }
+    const depRaw = r.department_id;
+    let department_id: number | null = null;
+    if (depRaw !== null && depRaw !== undefined && depRaw !== '') {
+      const dn = typeof depRaw === 'number' ? depRaw : parseInt(String(depRaw).trim(), 10);
+      if (Number.isFinite(dn) && dn >= 1) department_id = dn;
+    }
     out.push({
       id: idNum,
       brand_name,
@@ -984,6 +1005,7 @@ function parseBrandsApiPayload(data: unknown): BrandRow[] {
       things_to_avoid,
       description,
       menswear_category_id,
+      department_id,
     });
   }
   return out;
@@ -1678,6 +1700,15 @@ const Research: React.FC = () => {
     return Number.isFinite(n) && n >= 1 ? n : null;
   }, [researchTab, searchParams]);
 
+  /** Sales by category + Sales by season: `?departmentId=` scopes data by business department. */
+  const researchScopedDepartmentIdFromUrl = useMemo(() => {
+    if (researchTab !== 'clothing-types' && researchTab !== 'seasonal') return null;
+    const raw = searchParams.get('departmentId')?.trim();
+    if (!raw) return null;
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) && n >= 1 ? n : null;
+  }, [researchTab, searchParams]);
+
   /** In Menswear category detail: `?menswearBrandId=` shows in-page inventory for that brand. */
   const menswearBrandIdFromUrl = useMemo(() => {
     if (researchTab !== 'menswear-categories' || menswearCategoryIdFromUrl == null) return null;
@@ -1739,11 +1770,15 @@ const Research: React.FC = () => {
             next.delete('brand');
             next.delete('menswearCategoryId');
             next.delete('menswearBrandId');
+            next.delete('departmentId');
             next.delete('clothingTypeId');
             next.delete('clothingTypeBrandId');
             next.delete('mcPanel');
           } else {
             next.set('tab', tab);
+            if (tab !== 'clothing-types' && tab !== 'seasonal') {
+              next.delete('departmentId');
+            }
           }
           return next;
         },
@@ -1753,52 +1788,24 @@ const Research: React.FC = () => {
     [setSearchParams]
   );
 
-  /** Full navigation: drops `brand`, `menswearCategoryId`, etc. — menswear category list only. */
+  /** Menswear tab list: clears category/brand drill-down. */
   const goToMenswearCategoriesTab = useCallback(() => {
-    const qs = new URLSearchParams();
-    qs.set('tab', 'menswear-categories');
-    window.location.assign(`${location.pathname}?${qs.toString()}`);
-  }, [location.pathname]);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set('tab', 'menswear-categories');
+        next.delete('menswearCategoryId');
+        next.delete('menswearBrandId');
+        next.delete('brand');
+        return next;
+      },
+      { replace: false }
+    );
+  }, [setSearchParams]);
 
   const goToClothingTypesTab = useCallback(() => {
     window.location.assign('/research?tab=clothing-types');
   }, []);
-
-  const openClothingTypeInUrl = useCallback((sel: ClothingTypeSelection) => {
-    window.location.assign(
-      clothingTypesDetailHref(sel.mode === 'uncategorized' ? 'uncategorized' : sel.id)
-    );
-  }, []);
-
-  /** Pie bucket id: -1 → uncategorized; else stock category id. */
-  const openClothingTypeFromPieBucket = useCallback(
-    (bucketId: number) => {
-      if (bucketId === -1) openClothingTypeInUrl({ mode: 'uncategorized' });
-      else if (Number.isFinite(bucketId) && bucketId >= 1)
-        openClothingTypeInUrl({ mode: 'category', id: bucketId });
-    },
-    [openClothingTypeInUrl]
-  );
-
-  const openMenswearCategoryInUrl = useCallback(
-    (categoryId: number) => {
-      const qs = new URLSearchParams();
-      qs.set('tab', 'menswear-categories');
-      qs.set('menswearCategoryId', String(categoryId));
-      window.location.assign(`${location.pathname}?${qs.toString()}`);
-    },
-    [location.pathname]
-  );
-
-  const menswearCategoryHref = useCallback(
-    (categoryId: number) => {
-      const qs = new URLSearchParams();
-      qs.set('tab', 'menswear-categories');
-      qs.set('menswearCategoryId', String(categoryId));
-      return `${location.pathname}?${qs.toString()}`;
-    },
-    [location.pathname]
-  );
 
   const openBrandResearchInUrl = useCallback(
     (brandId: number) => {
@@ -1923,6 +1930,12 @@ const Research: React.FC = () => {
     department_name?: string | null;
   };
 
+  type ResearchDepartmentRow = {
+    id: number;
+    department_name: string;
+    category_count?: number;
+  };
+
   type MenswearCategoryBrandRow = {
     id: number;
     brand_name: string;
@@ -1931,6 +1944,7 @@ const Research: React.FC = () => {
     sold_count?: number;
   };
 
+  /** category_id -1 = API null (brand has no research bucket); real menswear_category ids are ≥ 1. */
   type MenswearCategorySalesRow = {
     category_id: number;
     category_name: string;
@@ -1944,6 +1958,12 @@ const Research: React.FC = () => {
     category_name: string;
     unsold_count: number;
   };
+
+  function parseMenswearAggCategoryId(raw: unknown): number {
+    if (raw === null || raw === undefined) return -1;
+    const n = Math.floor(Number(raw));
+    return Number.isFinite(n) && n >= 1 ? n : -1;
+  }
 
   type MenswearBrandInventoryRow = {
     brand_id: number;
@@ -2014,7 +2034,7 @@ const Research: React.FC = () => {
     unsold_count: number;
     total_count: number;
     unsold_ratio: number;
-    /** Sum of net_profit on sold lines in this clothing type. */
+    /** Sum of net_profit on sold lines in this stock category. */
     total_net_profit?: string | number | null;
     /** Sum of purchase_price on unsold lines (capital tied up). */
     unsold_inventory_total?: string | number | null;
@@ -2060,6 +2080,98 @@ const Research: React.FC = () => {
   const [menswearCategories, setMenswearCategories] = useState<MenswearCategoryRow[]>([]);
   const [menswearCategoriesLoading, setMenswearCategoriesLoading] = useState(false);
   const [menswearCategoriesError, setMenswearCategoriesError] = useState<string | null>(null);
+  const [researchDepartments, setResearchDepartments] = useState<ResearchDepartmentRow[]>([]);
+  const [researchDepartmentsLoading, setResearchDepartmentsLoading] = useState(false);
+  const [researchDepartmentsError, setResearchDepartmentsError] = useState<string | null>(null);
+
+  /** Valid department for Sales by category tab: URL if known, else Menswear by name, else first department. */
+  const resolvedClothingTypesDepartmentId = useMemo(() => {
+    if (researchTab !== 'clothing-types') return null;
+    if (researchDepartments.length === 0) return null;
+    const urlId = researchScopedDepartmentIdFromUrl;
+    if (urlId != null && researchDepartments.some((d) => d.id === urlId)) {
+      return urlId;
+    }
+    const mw = researchDepartments.find(
+      (d) => String(d.department_name ?? '').trim().toLowerCase() === 'menswear'
+    );
+    return mw?.id ?? researchDepartments[0]?.id ?? null;
+  }, [researchTab, researchDepartments, researchScopedDepartmentIdFromUrl]);
+
+  /**
+   * Sales by category list: department id for `/api/categories` + stock-category aggregate APIs.
+   * While /api/departments is loading, use `?departmentId=` from the URL so requests are not skipped.
+   */
+  const clothingTypesListDepartmentIdForApi = useMemo(() => {
+    if (researchTab !== 'clothing-types') return null;
+    const urlId = researchScopedDepartmentIdFromUrl;
+    if (researchDepartments.length > 0) {
+      if (urlId != null && researchDepartments.some((d) => d.id === urlId)) return urlId;
+      const mw = researchDepartments.find(
+        (d) => String(d.department_name ?? '').trim().toLowerCase() === 'menswear'
+      );
+      return mw?.id ?? researchDepartments[0]?.id ?? null;
+    }
+    if (urlId != null && urlId >= 1) return urlId;
+    return null;
+  }, [researchTab, researchDepartments, researchScopedDepartmentIdFromUrl]);
+
+  /**
+   * Sales by season only: `null` = all departments (omit `department_id` on API).
+   * When `?departmentId=` is set to a valid id, scope insights to that department.
+   */
+  const seasonalDepartmentIdForApi = useMemo((): number | null => {
+    if (researchTab !== 'seasonal') return null;
+    const urlId = researchScopedDepartmentIdFromUrl;
+    if (urlId == null) return null;
+    if (researchDepartments.length > 0 && !researchDepartments.some((d) => d.id === urlId)) {
+      return null;
+    }
+    return urlId;
+  }, [researchTab, researchDepartments, researchScopedDepartmentIdFromUrl]);
+
+  const openMenswearCategoryInUrl = useCallback(
+    (categoryId: number) => {
+      const qs = new URLSearchParams();
+      qs.set('tab', 'menswear-categories');
+      qs.set('menswearCategoryId', String(categoryId));
+      window.location.assign(`${location.pathname}?${qs.toString()}`);
+    },
+    [location.pathname]
+  );
+
+  const menswearCategoryHref = useCallback(
+    (categoryId: number) => {
+      const qs = new URLSearchParams();
+      qs.set('tab', 'menswear-categories');
+      qs.set('menswearCategoryId', String(categoryId));
+      return `${location.pathname}?${qs.toString()}`;
+    },
+    [location.pathname]
+  );
+
+  const openClothingTypeInUrl = useCallback(
+    (sel: ClothingTypeSelection) => {
+      window.location.assign(
+        clothingTypesDetailHref(
+          sel.mode === 'uncategorized' ? 'uncategorized' : sel.id,
+          clothingTypesListDepartmentIdForApi
+        )
+      );
+    },
+    [clothingTypesListDepartmentIdForApi]
+  );
+
+  /** Pie bucket id: -1 → uncategorized; else stock category id. */
+  const openClothingTypeFromPieBucket = useCallback(
+    (bucketId: number) => {
+      if (bucketId === -1) openClothingTypeInUrl({ mode: 'uncategorized' });
+      else if (Number.isFinite(bucketId) && bucketId >= 1)
+        openClothingTypeInUrl({ mode: 'category', id: bucketId });
+    },
+    [openClothingTypeInUrl]
+  );
+
   const [menswearCategoryBrands, setMenswearCategoryBrands] = useState<MenswearCategoryBrandRow[]>([]);
   const [menswearCategoryBrandsLoading, setMenswearCategoryBrandsLoading] = useState(false);
   const [menswearCategoryBrandsError, setMenswearCategoryBrandsError] = useState<string | null>(null);
@@ -2213,6 +2325,13 @@ const Research: React.FC = () => {
 
   const [brandTagBrandId, setBrandTagBrandId] = useState<number | ''>('');
   const [brandTabQuery, setBrandTabQuery] = useState('');
+  /**
+   * Brand research tab: department scope. `null` = default Menswear (until user picks a pill);
+   * `'all'` = every brand; number = that department only.
+   */
+  const [brandResearchDepartmentFilterSelection, setBrandResearchDepartmentFilterSelection] = useState<
+    number | 'all' | null
+  >(null);
   const [brandTabTypeaheadOpen, setBrandTabTypeaheadOpen] = useState(false);
   const [brandCreateOpen, setBrandCreateOpen] = useState(false);
   const [brandCreateName, setBrandCreateName] = useState('');
@@ -2794,7 +2913,14 @@ const Research: React.FC = () => {
       setSeasonalInsightsLoading(true);
       setSeasonalInsightsError(null);
       try {
-        const res = await fetch(apiUrl('/api/stock/seasonal-insights'), { signal: ac.signal });
+        const scoped = seasonalDepartmentIdForApi;
+        const url =
+          scoped != null
+            ? apiUrl(
+                `/api/stock/seasonal-insights?department_id=${encodeURIComponent(String(scoped))}`
+              )
+            : apiUrl('/api/stock/seasonal-insights');
+        const res = await fetch(url, { signal: ac.signal });
         const data = await readJsonResponse<SeasonalInsightsPayload>(res, 'seasonal-insights');
         if (cancelled) return;
         const rawCols = Array.isArray(data.columns) ? data.columns : [];
@@ -2826,7 +2952,7 @@ const Research: React.FC = () => {
       cancelled = true;
       ac.abort();
     };
-  }, [researchTab]);
+  }, [researchTab, seasonalDepartmentIdForApi]);
 
   useEffect(() => {
     if (researchTab !== 'sourced') return;
@@ -2895,6 +3021,88 @@ const Research: React.FC = () => {
   }, [menswearBrandSortMenuOpen]);
 
   useEffect(() => {
+    if (researchTab !== 'clothing-types' && researchTab !== 'seasonal' && researchTab !== 'brand') {
+      setResearchDepartments([]);
+      setResearchDepartmentsError(null);
+      setResearchDepartmentsLoading(false);
+      return;
+    }
+    const ac = new AbortController();
+    let cancelled = false;
+    const load = async () => {
+      setResearchDepartmentsLoading(true);
+      setResearchDepartmentsError(null);
+      try {
+        const res = await fetch(apiUrl('/api/departments'), { signal: ac.signal });
+        const data = await readJsonResponse<{ rows?: ResearchDepartmentRow[] }>(res, 'departments');
+        if (cancelled) return;
+        const raw = Array.isArray(data.rows) ? data.rows : [];
+        const mapped = raw.map((r) => ({
+          id: Number(r.id),
+          department_name: String(r.department_name ?? ''),
+          category_count:
+            r.category_count != null ? Math.max(0, Math.floor(Number(r.category_count) || 0)) : undefined,
+        }));
+        mapped.sort((a, b) => {
+          const aMw = a.department_name.trim().toLowerCase() === 'menswear';
+          const bMw = b.department_name.trim().toLowerCase() === 'menswear';
+          if (aMw !== bMw) return aMw ? -1 : 1;
+          return a.department_name.localeCompare(b.department_name, undefined, { sensitivity: 'base' });
+        });
+        setResearchDepartments(mapped);
+      } catch (e) {
+        if (cancelled || isAbortError(e)) return;
+        setResearchDepartments([]);
+        setResearchDepartmentsError(friendlyApiUnreachableMessage(e));
+      } finally {
+        if (!cancelled) setResearchDepartmentsLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [researchTab]);
+
+  useEffect(() => {
+    if (researchTab !== 'clothing-types' && researchTab !== 'seasonal') return;
+    if (researchDepartmentsLoading) return;
+    if (researchDepartments.length === 0) return;
+    const raw = searchParams.get('departmentId')?.trim();
+    const n = raw ? parseInt(raw, 10) : NaN;
+    const valid =
+      Number.isFinite(n) && n >= 1 && researchDepartments.some((d) => d.id === n);
+
+    if (researchTab === 'seasonal') {
+      if (raw === undefined || raw === null || String(raw).trim() === '') return;
+      if (valid) return;
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('departmentId');
+        return next;
+      }, { replace: true });
+      return;
+    }
+
+    if (valid) return;
+    const resolved = resolvedClothingTypesDepartmentId;
+    if (resolved == null) return;
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set('departmentId', String(resolved));
+      return next;
+    }, { replace: true });
+  }, [
+    researchTab,
+    researchDepartments,
+    researchDepartmentsLoading,
+    searchParams,
+    setSearchParams,
+    resolvedClothingTypesDepartmentId,
+  ]);
+
+  useEffect(() => {
     const brandForCategoryLabel =
       researchTab === 'brand' && brandTagBrandId !== ''
         ? brandsWithWebsites.find((b) => b.id === brandTagBrandId)
@@ -2909,7 +3117,14 @@ const Research: React.FC = () => {
       setMenswearCategoriesLoading(true);
       setMenswearCategoriesError(null);
       try {
-        const res = await fetch(apiUrl('/api/menswear-categories'), { signal: ac.signal });
+        let requestUrl = apiUrl('/api/menswear-categories');
+        if (researchTab === 'menswear-categories') {
+          const listOnly = menswearCategoryIdFromUrl == null;
+          if (listOnly) {
+            requestUrl = apiUrl('/api/menswear-categories');
+          }
+        }
+        const res = await fetch(requestUrl, { signal: ac.signal });
         const data = await readJsonResponse<{ rows?: MenswearCategoryRow[] }>(res, 'menswear-categories');
         if (cancelled) return;
         const rows = Array.isArray(data.rows) ? data.rows : [];
@@ -2919,6 +3134,14 @@ const Research: React.FC = () => {
             name: String(r.name ?? ''),
             description: r.description != null ? String(r.description) : null,
             notes: r.notes != null ? String(r.notes) : null,
+            department_id:
+              r.department_id != null && String(r.department_id).trim() !== ''
+                ? Number(r.department_id)
+                : null,
+            department_name:
+              r.department_name != null && String(r.department_name).trim() !== ''
+                ? String(r.department_name)
+                : null,
           }))
         );
       } catch (e) {
@@ -2934,7 +3157,12 @@ const Research: React.FC = () => {
       cancelled = true;
       ac.abort();
     };
-  }, [researchTab, brandTagBrandId, brandsWithWebsites]);
+  }, [
+    researchTab,
+    brandTagBrandId,
+    brandsWithWebsites,
+    menswearCategoryIdFromUrl,
+  ]);
 
   useEffect(() => {
     if (researchTab !== 'menswear-categories' || menswearCategoryIdFromUrl == null) {
@@ -2999,7 +3227,7 @@ const Research: React.FC = () => {
           const raw = Array.isArray(data.rows) ? data.rows : [];
           setMenswearCategorySalesRows(
             raw.map((r) => ({
-              category_id: Number(r.category_id),
+              category_id: parseMenswearAggCategoryId(r.category_id),
               category_name: String(r.category_name ?? '—'),
               total_sales: r.total_sales,
               sold_count: Math.max(0, Math.floor(Number(r.sold_count) || 0)),
@@ -3071,7 +3299,7 @@ const Research: React.FC = () => {
         const raw = Array.isArray(data.rows) ? data.rows : [];
         setMenswearCategoryInventoryRows(
           raw.map((r) => ({
-            category_id: Number(r.category_id),
+            category_id: parseMenswearAggCategoryId(r.category_id),
             category_name: String(r.category_name ?? '—'),
             unsold_count: Math.max(0, Math.floor(Number(r.unsold_count) || 0)),
           }))
@@ -3099,7 +3327,17 @@ const Research: React.FC = () => {
       setClothingTypesListLoading(true);
       setClothingTypesListError(null);
       try {
-        const res = await fetch(apiUrl('/api/categories'), { signal: ac.signal });
+        if (clothingTypesListDepartmentIdForApi == null) {
+          if (cancelled) return;
+          setClothingTypesListRows([]);
+          return;
+        }
+        const res = await fetch(
+          apiUrl(
+            `/api/categories?department_id=${encodeURIComponent(String(clothingTypesListDepartmentIdForApi))}`
+          ),
+          { signal: ac.signal }
+        );
         const data = await readJsonResponse<{ rows?: { id?: unknown; category_name?: unknown }[] }>(
           res,
           'clothing-types-categories'
@@ -3131,7 +3369,7 @@ const Research: React.FC = () => {
       cancelled = true;
       ac.abort();
     };
-  }, [researchTab]);
+  }, [researchTab, clothingTypesListDepartmentIdForApi]);
 
   useEffect(() => {
     if (researchTab !== 'clothing-types') return;
@@ -3141,7 +3379,13 @@ const Research: React.FC = () => {
       setClothingTypesSalesLoading(true);
       setClothingTypesSalesError(null);
       try {
+        if (clothingTypesListDepartmentIdForApi == null) {
+          if (cancelled) return;
+          setClothingTypesSalesRows([]);
+          return;
+        }
         const params = new URLSearchParams({ period: clothingTypesPeriod });
+        params.set('department_id', String(clothingTypesListDepartmentIdForApi));
         const res = await fetch(apiUrl(`/api/stock-categories/sales-by-category?${params}`), {
           signal: ac.signal,
         });
@@ -3173,7 +3417,7 @@ const Research: React.FC = () => {
       cancelled = true;
       ac.abort();
     };
-  }, [researchTab, clothingTypesPeriod]);
+  }, [researchTab, clothingTypesPeriod, clothingTypesListDepartmentIdForApi]);
 
   useEffect(() => {
     if (researchTab !== 'clothing-types') return;
@@ -3183,9 +3427,20 @@ const Research: React.FC = () => {
       setClothingTypesInventoryLoading(true);
       setClothingTypesInventoryError(null);
       try {
-        const res = await fetch(apiUrl('/api/stock-categories/inventory-by-category'), {
-          signal: ac.signal,
+        if (clothingTypesListDepartmentIdForApi == null) {
+          if (cancelled) return;
+          setClothingTypesInventoryRows([]);
+          return;
+        }
+        const invQs = new URLSearchParams({
+          department_id: String(clothingTypesListDepartmentIdForApi),
         });
+        const res = await fetch(
+          apiUrl(`/api/stock-categories/inventory-by-category?${invQs}`),
+          {
+            signal: ac.signal,
+          }
+        );
         const data = await readJsonResponse<{ rows?: StockClothingTypeInventoryRow[] }>(
           res,
           'clothing-types-inventory'
@@ -3229,10 +3484,16 @@ const Research: React.FC = () => {
       cancelled = true;
       ac.abort();
     };
-  }, [researchTab]);
+  }, [researchTab, clothingTypesListDepartmentIdForApi]);
 
   useEffect(() => {
     if (researchTab !== 'clothing-types' || clothingTypeApiPathKey == null) {
+      setClothingTypeBrands([]);
+      setClothingTypeBrandsError(null);
+      setClothingTypeBrandsLoading(false);
+      return;
+    }
+    if (clothingTypesListDepartmentIdForApi == null) {
       setClothingTypeBrands([]);
       setClothingTypeBrandsError(null);
       setClothingTypeBrandsLoading(false);
@@ -3244,8 +3505,11 @@ const Research: React.FC = () => {
       setClothingTypeBrandsLoading(true);
       setClothingTypeBrandsError(null);
       try {
+        const dq = encodeURIComponent(String(clothingTypesListDepartmentIdForApi));
         const res = await fetch(
-          apiUrl(`/api/stock-categories/type/${encodeURIComponent(clothingTypeApiPathKey)}/brands`),
+          apiUrl(
+            `/api/stock-categories/type/${encodeURIComponent(clothingTypeApiPathKey)}/brands?department_id=${dq}`
+          ),
           { signal: ac.signal }
         );
         const data = await readJsonResponse<{ rows?: ClothingTypeBrandRow[] }>(
@@ -3278,10 +3542,16 @@ const Research: React.FC = () => {
       cancelled = true;
       ac.abort();
     };
-  }, [researchTab, clothingTypeApiPathKey]);
+  }, [researchTab, clothingTypeApiPathKey, clothingTypesListDepartmentIdForApi]);
 
   useEffect(() => {
     if (researchTab !== 'clothing-types' || clothingTypeApiPathKey == null) {
+      setClothingTypeBuyMoreBrandCategory([]);
+      setClothingTypeBuyMoreBrandCategoryError(null);
+      setClothingTypeBuyMoreBrandCategoryLoading(false);
+      return;
+    }
+    if (clothingTypesListDepartmentIdForApi == null) {
       setClothingTypeBuyMoreBrandCategory([]);
       setClothingTypeBuyMoreBrandCategoryError(null);
       setClothingTypeBuyMoreBrandCategoryLoading(false);
@@ -3294,6 +3564,7 @@ const Research: React.FC = () => {
       setClothingTypeBuyMoreBrandCategoryError(null);
       try {
         const params = new URLSearchParams({ limit: '50' });
+        params.set('department_id', String(clothingTypesListDepartmentIdForApi));
         const res = await fetch(
           apiUrl(
             `/api/stock-categories/type/${encodeURIComponent(clothingTypeApiPathKey)}/buy-more-by-brand-category?${params}`
@@ -3330,10 +3601,16 @@ const Research: React.FC = () => {
       cancelled = true;
       ac.abort();
     };
-  }, [researchTab, clothingTypeApiPathKey]);
+  }, [researchTab, clothingTypeApiPathKey, clothingTypesListDepartmentIdForApi]);
 
   useEffect(() => {
     if (researchTab !== 'clothing-types' || clothingTypeApiPathKey == null) {
+      setClothingTypeUnsoldBrandCategory([]);
+      setClothingTypeUnsoldBrandCategoryError(null);
+      setClothingTypeUnsoldBrandCategoryLoading(false);
+      return;
+    }
+    if (clothingTypesListDepartmentIdForApi == null) {
       setClothingTypeUnsoldBrandCategory([]);
       setClothingTypeUnsoldBrandCategoryError(null);
       setClothingTypeUnsoldBrandCategoryLoading(false);
@@ -3346,6 +3623,7 @@ const Research: React.FC = () => {
       setClothingTypeUnsoldBrandCategoryError(null);
       try {
         const params = new URLSearchParams({ limit: '50' });
+        params.set('department_id', String(clothingTypesListDepartmentIdForApi));
         const res = await fetch(
           apiUrl(
             `/api/stock-categories/type/${encodeURIComponent(clothingTypeApiPathKey)}/unsold-inventory-by-brand-category?${params}`
@@ -3382,10 +3660,16 @@ const Research: React.FC = () => {
       cancelled = true;
       ac.abort();
     };
-  }, [researchTab, clothingTypeApiPathKey]);
+  }, [researchTab, clothingTypeApiPathKey, clothingTypesListDepartmentIdForApi]);
 
   useEffect(() => {
     if (researchTab !== 'clothing-types' || clothingTypeApiPathKey == null) {
+      setClothingTypeSizeSoldStock([]);
+      setClothingTypeSizeSoldStockError(null);
+      setClothingTypeSizeSoldStockLoading(false);
+      return;
+    }
+    if (clothingTypesListDepartmentIdForApi == null) {
       setClothingTypeSizeSoldStock([]);
       setClothingTypeSizeSoldStockError(null);
       setClothingTypeSizeSoldStockLoading(false);
@@ -3397,9 +3681,10 @@ const Research: React.FC = () => {
       setClothingTypeSizeSoldStockLoading(true);
       setClothingTypeSizeSoldStockError(null);
       try {
+        const dq = encodeURIComponent(String(clothingTypesListDepartmentIdForApi));
         const res = await fetch(
           apiUrl(
-            `/api/stock-categories/type/${encodeURIComponent(clothingTypeApiPathKey)}/sold-and-stock-by-size`
+            `/api/stock-categories/type/${encodeURIComponent(clothingTypeApiPathKey)}/sold-and-stock-by-size?department_id=${dq}`
           ),
           { signal: ac.signal }
         );
@@ -3433,7 +3718,7 @@ const Research: React.FC = () => {
       cancelled = true;
       ac.abort();
     };
-  }, [researchTab, clothingTypeApiPathKey]);
+  }, [researchTab, clothingTypeApiPathKey, clothingTypesListDepartmentIdForApi]);
 
   useEffect(() => {
     if (
@@ -3441,6 +3726,12 @@ const Research: React.FC = () => {
       clothingTypeApiPathKey == null ||
       !clothingTypeStockDrilldown
     ) {
+      setClothingTypeDrilldownItems([]);
+      setClothingTypeDrilldownItemsError(null);
+      setClothingTypeDrilldownItemsLoading(false);
+      return;
+    }
+    if (clothingTypesListDepartmentIdForApi == null) {
       setClothingTypeDrilldownItems([]);
       setClothingTypeDrilldownItemsError(null);
       setClothingTypeDrilldownItemsLoading(false);
@@ -3455,6 +3746,7 @@ const Research: React.FC = () => {
         const params = new URLSearchParams({
           brand_id: String(clothingTypeStockDrilldown.brandId),
         });
+        params.set('department_id', String(clothingTypesListDepartmentIdForApi));
         const segment =
           clothingTypeStockDrilldown.kind === 'avoid' ? 'unsold-stock-items' : 'sold-stock-items';
         const res = await fetch(
@@ -3497,7 +3789,12 @@ const Research: React.FC = () => {
       cancelled = true;
       ac.abort();
     };
-  }, [researchTab, clothingTypeApiPathKey, clothingTypeStockDrilldown]);
+  }, [
+    researchTab,
+    clothingTypeApiPathKey,
+    clothingTypeStockDrilldown,
+    clothingTypesListDepartmentIdForApi,
+  ]);
 
   useEffect(() => {
     if (
@@ -3511,6 +3808,13 @@ const Research: React.FC = () => {
       setClothingTypeBrandStockLinesLoading(false);
       return;
     }
+    if (clothingTypesListDepartmentIdForApi == null) {
+      setClothingTypeBrandStockLines([]);
+      setClothingTypeBrandStockLinesBrandName('');
+      setClothingTypeBrandStockLinesError(null);
+      setClothingTypeBrandStockLinesLoading(false);
+      return;
+    }
     const ac = new AbortController();
     let cancelled = false;
     const load = async () => {
@@ -3518,6 +3822,7 @@ const Research: React.FC = () => {
       setClothingTypeBrandStockLinesError(null);
       try {
         const params = new URLSearchParams({ brand_id: String(clothingTypeBrandIdFromUrl) });
+        params.set('department_id', String(clothingTypesListDepartmentIdForApi));
         const res = await fetch(
           apiUrl(
             `/api/stock-categories/type/${encodeURIComponent(clothingTypeApiPathKey)}/brand-inventory-items?${params}`
@@ -3566,7 +3871,12 @@ const Research: React.FC = () => {
       cancelled = true;
       ac.abort();
     };
-  }, [researchTab, clothingTypeApiPathKey, clothingTypeBrandIdFromUrl]);
+  }, [
+    researchTab,
+    clothingTypeApiPathKey,
+    clothingTypeBrandIdFromUrl,
+    clothingTypesListDepartmentIdForApi,
+  ]);
 
   useEffect(() => {
     if (
@@ -3580,14 +3890,24 @@ const Research: React.FC = () => {
       setClothingTypeDetailLoading(false);
       return;
     }
+    if (clothingTypesListDepartmentIdForApi == null) {
+      setClothingTypeDetailSummary(null);
+      setClothingTypeDetailStockRows([]);
+      setClothingTypeDetailError(null);
+      setClothingTypeDetailLoading(false);
+      return;
+    }
     const ac = new AbortController();
     let cancelled = false;
     const load = async () => {
       setClothingTypeDetailLoading(true);
       setClothingTypeDetailError(null);
       try {
+        const dq = encodeURIComponent(String(clothingTypesListDepartmentIdForApi));
         const res = await fetch(
-          apiUrl(`/api/stock-categories/type/${encodeURIComponent(clothingTypeApiPathKey)}/detail`),
+          apiUrl(
+            `/api/stock-categories/type/${encodeURIComponent(clothingTypeApiPathKey)}/detail?department_id=${dq}`
+          ),
           { signal: ac.signal }
         );
         const raw = await readJsonResponse<unknown>(res, 'clothing-type-detail');
@@ -3632,7 +3952,12 @@ const Research: React.FC = () => {
       cancelled = true;
       ac.abort();
     };
-  }, [researchTab, clothingTypeApiPathKey, clothingTypeBrandIdFromUrl]);
+  }, [
+    researchTab,
+    clothingTypeApiPathKey,
+    clothingTypeBrandIdFromUrl,
+    clothingTypesListDepartmentIdForApi,
+  ]);
 
   useEffect(() => {
     if (
@@ -4999,7 +5324,7 @@ const Research: React.FC = () => {
                 sumW > 0 ? ((100 * m.pieWeight) / sumW).toFixed(1) : '0';
               return [
                 `Unsold ${m.unsold} · Sold ${m.sold} · Total ${m.total}`,
-                `${ratioPct}% of lines in this type are unsold`,
+                `${ratioPct}% of lines in this category are unsold`,
                 `${chartPct}% of this chart (unsold × strain)`,
               ];
             },
@@ -5230,6 +5555,18 @@ const Research: React.FC = () => {
     }
   }, [menswearCategories]);
 
+  /** On Brand tab: chosen department, or Menswear (then first dept) from the API list until the user changes the dropdown. */
+  const brandResearchDepartmentFilterEffective = useMemo(() => {
+    if (researchTab !== 'brand') return null;
+    if (researchDepartments.length === 0) return null;
+    if (brandResearchDepartmentFilterSelection === 'all') return null;
+    if (typeof brandResearchDepartmentFilterSelection === 'number') return brandResearchDepartmentFilterSelection;
+    const mw = researchDepartments.find(
+      (d) => String(d.department_name ?? '').trim().toLowerCase() === 'menswear'
+    );
+    return mw?.id ?? researchDepartments[0]?.id ?? null;
+  }, [researchTab, brandResearchDepartmentFilterSelection, researchDepartments]);
+
   // Brand Research: ?brand=<id> or ?brand=<encoded brand_name>
   useEffect(() => {
     if (!brandsLoaded) return;
@@ -5253,14 +5590,20 @@ const Research: React.FC = () => {
     const asNum = parseInt(trimmed, 10);
     const looksNumericId = !Number.isNaN(asNum) && /^\d+$/.test(trimmed);
 
+    const brandMatchesResearchDept = (b: BrandRow) => {
+      if (researchTab !== 'brand' || brandResearchDepartmentFilterEffective == null) return true;
+      return b.department_id != null && b.department_id === brandResearchDepartmentFilterEffective;
+    };
+
     let id: number | null = null;
     if (looksNumericId && brandsWithWebsites.some((b) => b.id === asNum)) {
-      id = asNum;
+      const hit = brandsWithWebsites.find((b) => b.id === asNum);
+      if (hit && brandMatchesResearchDept(hit)) id = asNum;
     } else {
       const found = brandsWithWebsites.find(
         (b) => b.brand_name.toLowerCase().trim() === trimmed.toLowerCase()
       );
-      if (found) id = found.id;
+      if (found && brandMatchesResearchDept(found)) id = found.id;
     }
 
     if (id !== null) {
@@ -5277,7 +5620,14 @@ const Research: React.FC = () => {
       );
       setBrandTagBrandId((prev) => (prev !== '' ? '' : prev));
     }
-  }, [brandsLoaded, brandsWithWebsites, brandQueryParam, setSearchParams]);
+  }, [
+    brandsLoaded,
+    brandsWithWebsites,
+    brandQueryParam,
+    researchTab,
+    brandResearchDepartmentFilterEffective,
+    setSearchParams,
+  ]);
 
   const prevBrandTagBrandIdRef = useRef<number | ''>(brandTagBrandId);
   const brandTabInputUserEditRef = useRef(false);
@@ -5304,14 +5654,21 @@ const Research: React.FC = () => {
     }
   }, [brandTagBrandId]);
 
+  const brandsForBrandResearchTypeahead = useMemo(() => {
+    if (brandResearchDepartmentFilterEffective == null) return brandsWithWebsites;
+    return brandsWithWebsites.filter(
+      (b) => b.department_id != null && b.department_id === brandResearchDepartmentFilterEffective
+    );
+  }, [brandsWithWebsites, brandResearchDepartmentFilterEffective]);
+
   const brandTabTypeaheadList = useMemo(() => {
-    const list = brandsWithWebsites;
+    const list = brandsForBrandResearchTypeahead;
     const q = brandTabQuery.trim().toLowerCase();
     const filtered = !q ? list : list.filter((br) => br.brand_name.toLowerCase().includes(q));
     return [...filtered].sort((a, b) =>
       a.brand_name.localeCompare(b.brand_name, undefined, { sensitivity: 'base' })
     );
-  }, [brandsWithWebsites, brandTabQuery]);
+  }, [brandsForBrandResearchTypeahead, brandTabQuery]);
 
   const selectBrandFromBrandTabTypeahead = useCallback(
     (b: BrandRow) => {
@@ -5336,6 +5693,26 @@ const Research: React.FC = () => {
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
 
+  useEffect(() => {
+    if (researchTab !== 'brand') return;
+    if (brandResearchDepartmentFilterEffective == null) return;
+    if (brandTagBrandId === '') return;
+    const b = brandsWithWebsites.find((x) => x.id === brandTagBrandId);
+    if (
+      !b ||
+      b.department_id == null ||
+      b.department_id !== brandResearchDepartmentFilterEffective
+    ) {
+      clearBrandTabSelection();
+    }
+  }, [
+    researchTab,
+    brandResearchDepartmentFilterEffective,
+    brandTagBrandId,
+    brandsWithWebsites,
+    clearBrandTabSelection,
+  ]);
+
   const handleCreateBrandSubmit = useCallback(async () => {
     const name = brandCreateName.trim();
     if (!name) {
@@ -5348,16 +5725,22 @@ const Research: React.FC = () => {
       const response = await fetch(apiUrl('/api/brands'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ brand_name: name }),
+        body: JSON.stringify({
+          brand_name: name,
+          ...(brandResearchDepartmentFilterEffective != null
+            ? { department_id: brandResearchDepartmentFilterEffective }
+            : {}),
+        }),
       });
-      const data = await readJsonResponse<{ row?: { id: number; brand_name: string } }>(
-        response,
-        'create brand'
-      );
+      const data = await readJsonResponse<{
+        row?: { id: number; brand_name: string; department_id?: number | null };
+      }>(response, 'create brand');
       const row = data.row;
       if (!row || typeof row.id !== 'number') {
         throw new Error('Invalid response from server');
       }
+      const newDeptId =
+        row.department_id != null ? Number(row.department_id) : brandResearchDepartmentFilterEffective;
       const newRow: BrandRow = {
         id: row.id,
         brand_name: row.brand_name.trim(),
@@ -5366,6 +5749,8 @@ const Research: React.FC = () => {
         things_to_avoid: null,
         description: null,
         menswear_category_id: null,
+        department_id:
+          newDeptId != null && Number.isFinite(newDeptId) && newDeptId >= 1 ? newDeptId : null,
       };
       setBrandsWithWebsites((prev) =>
         [...prev, newRow].sort((a, b) =>
@@ -5386,7 +5771,7 @@ const Research: React.FC = () => {
     } finally {
       setBrandCreateBusy(false);
     }
-  }, [brandCreateName, searchParams, setSearchParams]);
+  }, [brandCreateName, brandResearchDepartmentFilterEffective, searchParams, setSearchParams]);
 
   useEffect(() => {
     if (researchTab !== 'brand') {
@@ -6993,6 +7378,13 @@ const Research: React.FC = () => {
   const showMenswearCategoriesSplit =
     !menswearCategoriesLoading && !menswearCategoriesError && menswearCategoryIdFromUrl === null;
 
+  const clothingTypesResearchDepartmentLabel = useMemo(() => {
+    if (clothingTypesListDepartmentIdForApi == null) return 'this department';
+    const row = researchDepartments.find((d) => d.id === clothingTypesListDepartmentIdForApi);
+    const n = row?.department_name?.trim();
+    return n || `department #${clothingTypesListDepartmentIdForApi}`;
+  }, [researchDepartments, clothingTypesListDepartmentIdForApi]);
+
   const showClothingTypesSplit =
     !clothingTypesListLoading && !clothingTypesListError && clothingTypeSelection === null;
 
@@ -7000,7 +7392,7 @@ const Research: React.FC = () => {
     if (!clothingTypeSelection) return '';
     if (clothingTypeSelection.mode === 'uncategorized') return 'Uncategorized';
     const row = clothingTypesListRows.find((r) => r.id === clothingTypeSelection.id);
-    return row?.category_name ?? `Clothing type #${clothingTypeSelection.id}`;
+    return row?.category_name ?? `Category #${clothingTypeSelection.id}`;
   }, [clothingTypeSelection, clothingTypesListRows]);
 
   const clothingTypeBrandUrlKey = useMemo((): string | number => {
@@ -7134,6 +7526,26 @@ const Research: React.FC = () => {
       .slice(0, 5);
   }, [menswearUnsoldBrandCategory]);
 
+  /** Config buckets for the department plus any research category ids that appear in sales/inventory (e.g. Electronics brands still mapped to Menswear-department buckets). */
+  const menswearListViewCategoryUnion = useMemo(() => {
+    const nameById = new Map<number, string>();
+    for (const cat of menswearCategories) {
+      nameById.set(cat.id, cat.name);
+    }
+    for (const r of menswearCategorySalesRows) {
+      const id = r.category_id;
+      if (!nameById.has(id)) nameById.set(id, String(r.category_name ?? '—'));
+    }
+    for (const r of menswearCategoryInventoryRows) {
+      const id = r.category_id;
+      if (!nameById.has(id)) nameById.set(id, String(r.category_name ?? '—'));
+    }
+    const ids = Array.from(nameById.keys()).sort((a, b) =>
+      (nameById.get(a) ?? '').localeCompare(nameById.get(b) ?? '', undefined, { sensitivity: 'base' })
+    );
+    return ids.map((id) => ({ id, name: nameById.get(id) ?? `Category #${id}` }));
+  }, [menswearCategories, menswearCategorySalesRows, menswearCategoryInventoryRows]);
+
   const menswearBucketOverviewRows = useMemo(() => {
     const salesById = new Map<number, MenswearCategorySalesRow>();
     for (const r of menswearCategorySalesRows) {
@@ -7143,7 +7555,7 @@ const Research: React.FC = () => {
     for (const r of menswearCategoryInventoryRows) {
       invById.set(r.category_id, r);
     }
-    return menswearCategories.map((cat) => {
+    return menswearListViewCategoryUnion.map((cat) => {
       const s = salesById.get(cat.id);
       const inv = invById.get(cat.id);
       const tsRaw =
@@ -7164,7 +7576,7 @@ const Research: React.FC = () => {
         sellRateLabel: formatAvoidStockSellRateLabel(unsold, sold),
       };
     });
-  }, [menswearCategories, menswearCategorySalesRows, menswearCategoryInventoryRows]);
+  }, [menswearListViewCategoryUnion, menswearCategorySalesRows, menswearCategoryInventoryRows]);
 
   const menswearOverviewBestRows = useMemo(() => {
     return [...menswearBucketOverviewRows]
@@ -7199,7 +7611,7 @@ const Research: React.FC = () => {
     for (const r of menswearCategoryInventoryRows) {
       invById.set(r.category_id, r);
     }
-    const baseRows = menswearCategories.map((cat) => {
+    const baseRows = menswearListViewCategoryUnion.map((cat) => {
       const s = salesById.get(cat.id);
       const inv = invById.get(cat.id);
       const sold = Math.max(0, Math.floor(Number(s?.sold_count) || 0));
@@ -7254,7 +7666,7 @@ const Research: React.FC = () => {
       buyTop5: buySorted.slice(0, 5),
       avoidTop5: stripPool.slice(0, 5),
     };
-  }, [menswearCategories, menswearCategorySalesRows, menswearCategoryInventoryRows]);
+  }, [menswearListViewCategoryUnion, menswearCategorySalesRows, menswearCategoryInventoryRows]);
 
   const toggleMenswearStrainTableSort = useCallback(
     (key: 'category' | 'listed' | 'sold' | 'unsold' | 'sellThrough' | 'strain') => {
@@ -7384,7 +7796,7 @@ const Research: React.FC = () => {
         ) : (
           <div className="menswear-categories-muted">
             {menswearCategoryIdFromUrl == null
-              ? 'No sold revenue found for this period across mapped Menswear categories.'
+              ? 'No sold revenue for research categories in this period.'
               : 'No sold revenue found for this period for brands in this category.'}
           </div>
         ))}
@@ -7482,7 +7894,7 @@ const Research: React.FC = () => {
               </div>
             ) : (
               <div className="menswear-categories-muted">
-                No items sold in mapped Menswear categories in this period.
+                No items sold in research categories in this period.
               </div>
             ))}
         </div>
@@ -7507,13 +7919,17 @@ const Research: React.FC = () => {
           {!menswearCategoryInventoryLoading &&
             !menswearCategoryInventoryError &&
             (menswearCategoryInventoryRows.length === 0 ? (
-              <div className="menswear-categories-muted">No Menswear categories defined yet.</div>
+              <div className="menswear-categories-muted">
+                No research categories match the current view yet — add them under Config if needed.
+              </div>
             ) : menswearInventoryPieModel.data ? (
               <div className="menswear-categories-inventory-chart-wrap">
                 <Pie data={menswearInventoryPieModel.data} options={menswearInventoryPieChartOptions} />
               </div>
             ) : (
-              <div className="menswear-categories-muted">No unsold items in mapped categories.</div>
+              <div className="menswear-categories-muted">
+                No unsold items in research categories for this view.
+              </div>
             ))}
         </div>
       )}
@@ -7559,7 +7975,7 @@ const Research: React.FC = () => {
           className={`research-tab${researchTab === 'clothing-types' ? ' active' : ''}`}
           onClick={goToClothingTypesTab}
         >
-          Clothing Types
+          Sales by category
         </button>
         <button
           type="button"
@@ -7570,7 +7986,7 @@ const Research: React.FC = () => {
           className={`research-tab${researchTab === 'seasonal' ? ' active' : ''}`}
           onClick={() => setResearchTab('seasonal')}
         >
-          Seasonal
+          Sales by season
         </button>
         <button
           type="button"
@@ -7606,6 +8022,128 @@ const Research: React.FC = () => {
           AI research
         </button>
       </nav>
+      {(researchTab === 'clothing-types' ||
+        researchTab === 'seasonal' ||
+        researchTab === 'brand') &&
+        researchDepartmentsError && (
+        <div className="research-menswear-departments-error" role="alert">
+          {researchDepartmentsError}
+        </div>
+      )}
+      {(researchTab === 'clothing-types' ||
+        researchTab === 'seasonal' ||
+        researchTab === 'brand') &&
+        researchDepartmentsLoading && (
+        <div className="research-menswear-departments research-menswear-departments--loading">
+          Loading departments…
+        </div>
+      )}
+      {(researchTab === 'clothing-types' ||
+        researchTab === 'seasonal' ||
+        researchTab === 'brand') &&
+        !researchDepartmentsLoading &&
+        !researchDepartmentsError &&
+        researchDepartments.length > 0 && (
+          <nav
+            className="research-menswear-departments"
+            role="navigation"
+            aria-label={
+              researchTab === 'brand'
+                ? 'Filter brands by department'
+                : 'Filter research by business department'
+            }
+          >
+            <ul className="research-menswear-departments-list">
+              {researchTab === 'seasonal' ? (
+                <li key="seasonal-department-all" className="research-menswear-departments-item">
+                  <button
+                    type="button"
+                    className={
+                      'research-menswear-department-box' +
+                      (researchScopedDepartmentIdFromUrl == null
+                        ? ' research-menswear-department-box--active'
+                        : '')
+                    }
+                    aria-pressed={researchScopedDepartmentIdFromUrl == null}
+                    onClick={() => {
+                      setSearchParams((prev) => {
+                        const next = new URLSearchParams(prev);
+                        next.set('tab', 'seasonal');
+                        next.delete('departmentId');
+                        return next;
+                      }, { replace: true });
+                    }}
+                  >
+                    <span className="research-menswear-department-box-name">All</span>
+                  </button>
+                </li>
+              ) : null}
+              {researchTab === 'brand' ? (
+                <li key="brand-department-all" className="research-menswear-departments-item">
+                  <button
+                    type="button"
+                    className={
+                      'research-menswear-department-box' +
+                      (brandResearchDepartmentFilterSelection === 'all'
+                        ? ' research-menswear-department-box--active'
+                        : '')
+                    }
+                    aria-pressed={brandResearchDepartmentFilterSelection === 'all'}
+                    onClick={() => setBrandResearchDepartmentFilterSelection('all')}
+                  >
+                    <span className="research-menswear-department-box-name">All</span>
+                  </button>
+                </li>
+              ) : null}
+              {researchDepartments.map((d) => {
+                const activeDeptId =
+                  researchTab === 'clothing-types'
+                    ? clothingTypesListDepartmentIdForApi
+                    : researchTab === 'seasonal'
+                      ? seasonalDepartmentIdForApi
+                      : null;
+                const active =
+                  researchTab === 'brand'
+                    ? brandResearchDepartmentFilterSelection === 'all'
+                      ? false
+                      : typeof brandResearchDepartmentFilterSelection === 'number'
+                        ? brandResearchDepartmentFilterSelection === d.id
+                        : brandResearchDepartmentFilterEffective === d.id
+                    : activeDeptId === d.id;
+                return (
+                  <li key={d.id} className="research-menswear-departments-item">
+                    <button
+                      type="button"
+                      className={
+                        'research-menswear-department-box' +
+                        (active ? ' research-menswear-department-box--active' : '')
+                      }
+                      aria-pressed={active}
+                      onClick={() => {
+                        if (researchTab === 'brand') {
+                          setBrandResearchDepartmentFilterSelection(d.id);
+                          return;
+                        }
+                        setSearchParams((prev) => {
+                          const next = new URLSearchParams(prev);
+                          next.set('tab', researchTab);
+                          next.set('departmentId', String(d.id));
+                          if (researchTab === 'clothing-types') {
+                            next.delete('clothingTypeId');
+                            next.delete('clothingTypeBrandId');
+                          }
+                          return next;
+                        }, { replace: true });
+                      }}
+                    >
+                      <span className="research-menswear-department-box-name">{d.department_name}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </nav>
+        )}
       {researchTab === 'brand' && (
         <div
           id="research-panel-brand"
@@ -7664,7 +8202,7 @@ const Research: React.FC = () => {
                       className="brand-tag-examples-select brand-research-brand-typeahead-input"
                       placeholder="Search or select a brand…"
                       value={brandTabQuery}
-                      disabled={!brandsLoaded}
+                      disabled={!brandsLoaded || researchDepartmentsLoading}
                       onChange={(e) => {
                         const v = e.target.value;
                         setBrandTabQuery(v);
@@ -7696,6 +8234,10 @@ const Research: React.FC = () => {
                         {brandsWithWebsites.length === 0 ? (
                           <li className="brand-research-typeahead-empty" role="presentation">
                             No brands yet — use + to add one
+                          </li>
+                        ) : brandsForBrandResearchTypeahead.length === 0 ? (
+                          <li className="brand-research-typeahead-empty" role="presentation">
+                            No brands in this department
                           </li>
                         ) : brandTabTypeaheadList.length === 0 ? (
                           <li className="brand-research-typeahead-empty" role="presentation">
@@ -9255,7 +9797,7 @@ const Research: React.FC = () => {
                           </div>
                         ) : (
                           <div className="menswear-categories-muted">
-                            No sold revenue found for this period across mapped Menswear categories.
+                            No sold revenue for research categories in this period.
                           </div>
                         ))}
                     </section>
@@ -9288,7 +9830,7 @@ const Research: React.FC = () => {
                           </div>
                         ) : (
                           <div className="menswear-categories-muted">
-                            No items sold in mapped Menswear categories in this period.
+                            No items sold in research categories in this period.
                           </div>
                         ))}
                     </div>
@@ -9313,13 +9855,18 @@ const Research: React.FC = () => {
                       {!menswearCategoryInventoryLoading &&
                         !menswearCategoryInventoryError &&
                         (menswearCategoryInventoryRows.length === 0 ? (
-                          <div className="menswear-categories-muted">No Menswear categories defined yet.</div>
+                          <div className="menswear-categories-muted">
+                            No research categories match the current view yet — add them under Config if
+                            needed.
+                          </div>
                         ) : menswearInventoryPieModel.data ? (
                           <div className="menswear-categories-inventory-chart-wrap">
                             <Pie data={menswearInventoryPieModel.data} options={menswearInventoryPieChartOptions} />
                           </div>
                         ) : (
-                          <div className="menswear-categories-muted">No unsold items in mapped categories.</div>
+                          <div className="menswear-categories-muted">
+                            No unsold items in research categories for this view.
+                          </div>
                         ))}
                     </div>
                   </div>
@@ -9384,7 +9931,7 @@ const Research: React.FC = () => {
                           </h4>
                           {menswearOverviewBestRows.length === 0 ? (
                             <p className="menswear-categories-muted">
-                              No sold revenue in this period for mapped Menswear categories.
+                              No sold revenue in this period for research categories.
                             </p>
                           ) : (
                             <div className="menswear-categories-overview-table-wrap">
@@ -9412,20 +9959,31 @@ const Research: React.FC = () => {
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {menswearOverviewBestRows.map((row) => (
+                                  {menswearOverviewBestRows.map((row) => {
+                                    const navigable = row.id >= 1;
+                                    return (
                                     <tr
                                       key={`best-${row.id}`}
-                                      className="menswear-categories-buy-more-stock-row-link"
-                                      role="button"
-                                      tabIndex={0}
-                                      onClick={() => openMenswearCategoryInUrl(row.id)}
+                                      className={
+                                        navigable ? 'menswear-categories-buy-more-stock-row-link' : undefined
+                                      }
+                                      role={navigable ? 'button' : undefined}
+                                      tabIndex={navigable ? 0 : undefined}
+                                      onClick={
+                                        navigable ? () => openMenswearCategoryInUrl(row.id) : undefined
+                                      }
                                       onKeyDown={(e) => {
+                                        if (!navigable) return;
                                         if (e.key === 'Enter' || e.key === ' ') {
                                           e.preventDefault();
                                           openMenswearCategoryInUrl(row.id);
                                         }
                                       }}
-                                      aria-label={`Open Menswear category ${row.name}`}
+                                      aria-label={
+                                        navigable
+                                          ? `Open Menswear category ${row.name}`
+                                          : undefined
+                                      }
                                     >
                                       <td className="menswear-categories-overview-category-col">{row.name}</td>
                                       <td className="menswear-categories-overview-num menswear-categories-overview-sold-revenue">
@@ -9437,7 +9995,8 @@ const Research: React.FC = () => {
                                         {row.sellRateLabel}
                                       </td>
                                     </tr>
-                                  ))}
+                                    );
+                                  })}
                                 </tbody>
                               </table>
                             </div>
@@ -9475,20 +10034,31 @@ const Research: React.FC = () => {
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {menswearOverviewWorstRows.map((row) => (
+                                  {menswearOverviewWorstRows.map((row) => {
+                                    const navigable = row.id >= 1;
+                                    return (
                                     <tr
                                       key={`worst-${row.id}`}
-                                      className="menswear-categories-buy-more-stock-row-link"
-                                      role="button"
-                                      tabIndex={0}
-                                      onClick={() => openMenswearCategoryInUrl(row.id)}
+                                      className={
+                                        navigable ? 'menswear-categories-buy-more-stock-row-link' : undefined
+                                      }
+                                      role={navigable ? 'button' : undefined}
+                                      tabIndex={navigable ? 0 : undefined}
+                                      onClick={
+                                        navigable ? () => openMenswearCategoryInUrl(row.id) : undefined
+                                      }
                                       onKeyDown={(e) => {
+                                        if (!navigable) return;
                                         if (e.key === 'Enter' || e.key === ' ') {
                                           e.preventDefault();
                                           openMenswearCategoryInUrl(row.id);
                                         }
                                       }}
-                                      aria-label={`Open Menswear category ${row.name}`}
+                                      aria-label={
+                                        navigable
+                                          ? `Open Menswear category ${row.name}`
+                                          : undefined
+                                      }
                                     >
                                       <td className="menswear-categories-overview-category-col">{row.name}</td>
                                       <td className="menswear-categories-overview-num menswear-categories-overview-sold-revenue">
@@ -9500,7 +10070,8 @@ const Research: React.FC = () => {
                                         {row.sellRateLabel}
                                       </td>
                                     </tr>
-                                  ))}
+                                    );
+                                  })}
                                 </tbody>
                               </table>
                             </div>
@@ -11072,24 +11643,26 @@ const Research: React.FC = () => {
               </div>
             )}
             {clothingTypesListLoading && !clothingTypeSelection && (
-              <div className="menswear-categories-muted">Loading clothing types…</div>
+              <div className="menswear-categories-muted">Loading categories…</div>
             )}
             {showClothingTypesSplit && (
               <>
                 <nav
                   className="clothing-types-browse"
-                  aria-label="Clothing types — open type details"
+                  aria-label="Sales by category — open category details"
                 >
                   <ul className="clothing-types-browse-list">
                     {clothingTypesListRows.length === 0 && !clothingTypesHasUncategorized ? (
-                      <li className="menswear-categories-empty">No clothing types defined yet.</li>
+                      <li className="menswear-categories-empty">
+                        No categories defined for {clothingTypesResearchDepartmentLabel} yet.
+                      </li>
                     ) : null}
                     {clothingTypesListRows.map((cat) => (
                       <li key={cat.id} className="clothing-types-browse-item">
                         <a
                           className="clothing-types-browse-link"
                           id={`clothing-type-list-${cat.id}`}
-                          href={clothingTypesDetailHref(cat.id)}
+                          href={clothingTypesDetailHref(cat.id, clothingTypesListDepartmentIdForApi)}
                         >
                           {cat.category_name}
                         </a>
@@ -11100,11 +11673,14 @@ const Research: React.FC = () => {
                         <a
                           className="clothing-types-browse-link clothing-types-browse-link--uncat"
                           id="clothing-type-list-uncategorized"
-                          href={clothingTypesDetailHref('uncategorized')}
+                          href={clothingTypesDetailHref(
+                            'uncategorized',
+                            clothingTypesListDepartmentIdForApi
+                          )}
                         >
                           Uncategorized
                           <span className="clothing-types-browse-link-sub">
-                            No clothing type on stock line
+                            No category on stock line
                           </span>
                         </a>
                       </li>
@@ -11116,7 +11692,7 @@ const Research: React.FC = () => {
                     <div
                       className="clothing-types-buy-avoid-strip"
                       role="region"
-                      aria-label="Top clothing types to buy vs avoid, from sell-through in the table below"
+                      aria-label="Top categories to buy vs avoid, from sell-through in the table below"
                     >
                       <div className="clothing-types-buy-avoid-col clothing-types-buy-avoid-col--buy">
                         <span className="clothing-types-buy-avoid-label">Top 5 to buy</span>
@@ -11184,10 +11760,10 @@ const Research: React.FC = () => {
                   <div className="clothing-types-three-pies-row">
                   <section
                     className="menswear-categories-sales-pie clothing-types-pie-column"
-                    aria-label="Clothing types sales by revenue"
+                    aria-label="Sales by category — revenue"
                   >
                     <div className="menswear-categories-sales-pie-header clothing-types-pie-column-header">
-                      <h3 className="menswear-categories-sales-pie-title">Sales by clothing type (£)</h3>
+                      <h3 className="menswear-categories-sales-pie-title">Sales by category (£)</h3>
                     </div>
                     {clothingTypesSalesError && (
                       <div className="menswear-categories-error" role="alert">
@@ -11208,7 +11784,7 @@ const Research: React.FC = () => {
                         </div>
                       ) : (
                         <div className="menswear-categories-muted">
-                          No sold revenue in this period by clothing type.
+                          No sold revenue in this period by category.
                         </div>
                       ))}
                   </section>
@@ -11216,10 +11792,10 @@ const Research: React.FC = () => {
                   <div
                     className="menswear-categories-inventory-block menswear-categories-category-items-sold-block clothing-types-pie-column"
                     role="region"
-                    aria-label="Items sold by clothing type"
+                    aria-label="Items sold by category"
                   >
                     <h4 className="menswear-categories-inventory-title clothing-types-pie-column-header">
-                      Items sold by clothing type
+                      Items sold by category
                     </h4>
                     {clothingTypesSalesError ? (
                       <div className="menswear-categories-error menswear-categories-error--inline" role="alert">
@@ -11242,7 +11818,7 @@ const Research: React.FC = () => {
                         </div>
                       ) : (
                         <div className="menswear-categories-muted">
-                          No items sold in mapped clothing types in this period.
+                          No items sold in mapped categories in this period.
                         </div>
                       ))}
                   </div>
@@ -11250,10 +11826,10 @@ const Research: React.FC = () => {
                   <div
                     className="menswear-categories-inventory-block clothing-types-pie-column"
                     role="region"
-                    aria-label="Unsold inventory by clothing type"
+                    aria-label="Unsold inventory by category"
                   >
                     <h4 className="menswear-categories-inventory-title clothing-types-pie-column-header">
-                      Unsold inventory by clothing type
+                      Unsold inventory by category
                     </h4>
                     {clothingTypesInventoryError ? (
                       <div className="menswear-categories-error menswear-categories-error--inline" role="alert">
@@ -11276,8 +11852,9 @@ const Research: React.FC = () => {
                         </div>
                       ) : (
                         <div className="menswear-categories-muted">
-                          No clothing types with unsold stock and at least three listings. One- and two-line types
-                          are left off so the chart highlights heavier inventory risk.
+                          No categories with unsold stock and at least three listings in{' '}
+                          {clothingTypesResearchDepartmentLabel}. One- and two-line types are left off so the chart
+                          highlights heavier inventory risk.
                         </div>
                       ))}
                   </div>
@@ -11285,9 +11862,9 @@ const Research: React.FC = () => {
 
                   <section
                     className="clothing-types-invest-risk"
-                    aria-label="Sold versus unsold line counts by clothing type, worst sell-through first"
+                    aria-label="Sold versus unsold line counts by category, worst sell-through first"
                   >
-                    <h3 className="clothing-types-invest-risk-title">Inventory strain by clothing type</h3>
+                    <h3 className="clothing-types-invest-risk-title">Inventory strain by category</h3>
                     {clothingTypesInventoryError ? (
                       <div className="menswear-categories-error menswear-categories-error--inline" role="alert">
                         {clothingTypesInventoryError}
@@ -11310,7 +11887,7 @@ const Research: React.FC = () => {
                             <table className="menswear-categories-avoid-drilldown-table clothing-types-invest-risk-table">
                               <thead>
                                 <tr>
-                                  <th scope="col">Clothing type</th>
+                                  <th scope="col">Category</th>
                                   <th scope="col" className="menswear-categories-avoid-drilldown-num">
                                     Listed
                                   </th>
@@ -11326,7 +11903,7 @@ const Research: React.FC = () => {
                                   <th
                                     scope="col"
                                     className="menswear-categories-avoid-drilldown-num"
-                                    title="Sum of net profit on sold lines in this type"
+                                    title="Sum of net profit on sold lines in this category"
                                   >
                                     Total profit
                                   </th>
@@ -11349,7 +11926,8 @@ const Research: React.FC = () => {
                                       <a
                                         className="clothing-types-invest-risk-type-link"
                                         href={clothingTypesDetailHref(
-                                          r.bucketId === -1 ? 'uncategorized' : r.bucketId
+                                          r.bucketId === -1 ? 'uncategorized' : r.bucketId,
+                                          clothingTypesListDepartmentIdForApi
                                         )}
                                       >
                                         {r.label}
@@ -11378,7 +11956,8 @@ const Research: React.FC = () => {
                         </>
                       ) : (
                         <div className="menswear-categories-muted">
-                          No clothing types with unsold stock and at least two listings match this view.
+                          No categories with unsold stock and at least two listings match this view for{' '}
+                          {clothingTypesResearchDepartmentLabel}.
                         </div>
                       ))}
                   </section>
@@ -11393,10 +11972,10 @@ const Research: React.FC = () => {
               !clothingTypesListRows.some((r) => r.id === clothingTypeSelection.id) && (
                 <div className="menswear-categories-detail">
                   <p className="menswear-categories-muted">
-                    That clothing type is not in the list anymore. Go back or refresh.
+                    That category is not in the list anymore. Go back or refresh.
                   </p>
                   <button type="button" className="menswear-categories-read-aloud-btn" onClick={goToClothingTypesTab}>
-                    Back to clothing types
+                    Back to sales by category
                   </button>
                 </div>
               )}
@@ -11414,7 +11993,7 @@ const Research: React.FC = () => {
                       className="menswear-categories-avoid-drilldown-back clothing-type-detail-type-header-back"
                       onClick={goToClothingTypesTab}
                     >
-                      ← Back to types
+                      ← Back to categories
                     </button>
                     <h2 className="menswear-categories-detail-title clothing-type-detail-type-header-title">
                       {selectedClothingTypeLabel}
@@ -11427,14 +12006,14 @@ const Research: React.FC = () => {
                   )}
                   {clothingTypeDetailLoading && (
                     <div className="menswear-categories-muted clothing-type-detail-loading">
-                      Loading type totals and items…
+                      Loading category totals and items…
                     </div>
                   )}
                   {!clothingTypeDetailLoading && clothingTypeDetailSummary ? (
                     <>
                       <div
                         className="clothing-type-detail-metrics"
-                        aria-label="Spend and sell-through for this clothing type"
+                        aria-label="Spend and sell-through for this category"
                       >
                         <BrandStockSpendSoldNetTotals
                           summary={clothingTypeDetailSummary}
@@ -11459,7 +12038,7 @@ const Research: React.FC = () => {
                       {!clothingTypeBrandsLoading && !clothingTypeBrandsError && (
                         <ul className="menswear-categories-brands">
                           {clothingTypeBrands.length === 0 ? (
-                            <li className="menswear-categories-empty">No brands with stock in this type yet.</li>
+                            <li className="menswear-categories-empty">No brands with stock in this category yet.</li>
                           ) : (
                             clothingTypeBrands.map((b) => {
                               const salesNum =
@@ -11470,7 +12049,11 @@ const Research: React.FC = () => {
                                 <li key={b.id} className="menswear-categories-brand-row">
                                   <a
                                     className="menswear-categories-brand-link"
-                                    href={clothingTypesBrandDetailHref(clothingTypeBrandUrlKey, b.id)}
+                                    href={clothingTypesBrandDetailHref(
+                                      clothingTypeBrandUrlKey,
+                                      b.id,
+                                      clothingTypesListDepartmentIdForApi
+                                    )}
                                   >
                                     {b.brand_name || '—'}
                                   </a>
@@ -11625,7 +12208,7 @@ const Research: React.FC = () => {
                               !clothingTypeBuyMoreBrandCategoryError &&
                               (clothingTypeDetailBestRows.length === 0 ? (
                                 <p className="menswear-categories-muted">
-                                  No brand × category with a sale in this clothing type yet.
+                                  No brand × category with a sale in this stock category yet.
                                 </p>
                               ) : (
                                 <div className="menswear-categories-overview-table-wrap">
@@ -11718,7 +12301,7 @@ const Research: React.FC = () => {
                               !clothingTypeUnsoldBrandCategoryError &&
                               (clothingTypeDetailWorstRows.length === 0 ? (
                                 <p className="menswear-categories-muted">
-                                  No unsold inventory to rank for this clothing type yet.
+                                  No unsold inventory to rank for this category yet.
                                 </p>
                               ) : (
                                 <div className="menswear-categories-overview-table-wrap">
@@ -11811,7 +12394,7 @@ const Research: React.FC = () => {
                               !clothingTypeSizeSoldStockError &&
                               (clothingTypeSizeSoldStock.length === 0 ? (
                                 <p className="menswear-categories-muted">
-                                  No stock lines in this clothing type yet.
+                                  No stock lines in this category yet.
                                 </p>
                               ) : (
                                 <div className="menswear-categories-overview-table-wrap">
@@ -11858,7 +12441,7 @@ const Research: React.FC = () => {
                       </h3>
                       <hr className="clothing-type-detail-heading-rule" aria-hidden />
                       {clothingTypeDetailStockRows.length === 0 ? (
-                        <p className="menswear-categories-muted">No items in this type yet.</p>
+                        <p className="menswear-categories-muted">No items in this category yet.</p>
                       ) : (
                         <div className="clothing-type-detail-items-table-wrap">
                           <table className="menswear-categories-avoid-drilldown-table clothing-type-detail-items-table">
@@ -11916,7 +12499,8 @@ const Research: React.FC = () => {
                                         className="clothing-type-detail-brand-filter-link"
                                         href={clothingTypesBrandDetailHref(
                                           clothingTypeBrandUrlKey,
-                                          item.brand_id
+                                          item.brand_id,
+                                          clothingTypesListDepartmentIdForApi
                                         )}
                                       >
                                         {item.brand_name || '—'}
@@ -12055,7 +12639,7 @@ const Research: React.FC = () => {
                       {clothingTypeBrandStockLinesError}
                     </p>
                   ) : clothingTypeBrandStockLines.length === 0 ? (
-                    <p className="menswear-categories-muted">No stock lines for this brand in this type.</p>
+                    <p className="menswear-categories-muted">No stock lines for this brand in this category.</p>
                   ) : (
                     <>
                       {clothingTypeBrandStockLinesFilteredRows.length === 0 ? (
@@ -12277,7 +12861,7 @@ const Research: React.FC = () => {
         >
           <div className="research-seasonal-page">
             {seasonalInsightsLoading && (
-              <p className="menswear-categories-muted">Loading seasonal data…</p>
+              <p className="menswear-categories-muted">Loading sales by season…</p>
             )}
             {seasonalInsightsError && (
               <div className="menswear-categories-error" role="alert">
@@ -12349,7 +12933,7 @@ const Research: React.FC = () => {
                               </div>
                             </div>
                             <div className="research-seasonal-block">
-                              <h4 className="research-seasonal-block-title">Top clothing types</h4>
+                              <h4 className="research-seasonal-block-title">Top categories</h4>
                               {col.hasSalesData && col.topCategories.length > 0 ? (
                                 <ol className="research-seasonal-list">
                                   {col.topCategories.map((row) => (
@@ -12366,7 +12950,7 @@ const Research: React.FC = () => {
                               )}
                             </div>
                             <div className="research-seasonal-block">
-                              <h4 className="research-seasonal-block-title">Worst clothing types</h4>
+                              <h4 className="research-seasonal-block-title">Worst categories</h4>
                               {col.hasSalesData && col.worstCategories.length > 0 ? (
                                 <ol className="research-seasonal-list">
                                   {col.worstCategories.map((row) => (

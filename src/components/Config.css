@@ -416,17 +416,56 @@
   letter-spacing: 0.06rem;
 }
 
-.config-sizes-intro {
-  margin: 0 0 18px 0;
-  font-size: 0.9rem;
-  line-height: 1.45;
-  color: rgba(255, 248, 226, 0.72);
-  max-width: 52rem;
+.config-sizes-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px 24px;
+  margin-bottom: 20px;
+}
+
+.config-sizes-toolbar .config-sizes-category-picker--toolbar {
+  margin-bottom: 0;
+  flex: 1 1 240px;
+  min-width: min(100%, 200px);
+  max-width: 400px;
+}
+
+.config-sizes-toolbar-refresh {
+  flex-shrink: 0;
+  margin-left: auto;
+  align-self: flex-end;
+}
+
+@media (max-width: 640px) {
+  .config-sizes-toolbar-refresh {
+    margin-left: 0;
+  }
 }
 
 .config-sizes-category-picker {
   max-width: 400px;
   margin-bottom: 20px;
+}
+
+/* Items Category Check: department + category on one row */
+.config-items-category-check-picker-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  align-items: flex-end;
+  max-width: 52rem;
+  margin-bottom: 20px;
+}
+
+.config-items-category-check-picker-row .config-grid-field--size-select {
+  flex: 1 1 220px;
+  min-width: min(100%, 200px);
+  margin-top: 0;
+}
+
+.config-items-category-check-picker-row .config-no-size-select {
+  width: 100%;
 }
 
 .config-sizes-category-picker select {

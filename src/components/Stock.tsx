@@ -345,6 +345,33 @@ function stockDbNumberToFormString(value: unknown): string {
 const Stock: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  const setStockEditIdInUrl = useCallback(
+    (id: number) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set('editId', String(id));
+          return next;
+        },
+        { replace: true }
+      );
+    },
+    [setSearchParams]
+  );
+
+  const clearStockEditIdFromUrl = useCallback(() => {
+    setSearchParams(
+      (prev) => {
+        if (!prev.get('editId')) return prev;
+        const next = new URLSearchParams(prev);
+        next.delete('editId');
+        return next;
+      },
+      { replace: true }
+    );
+  }, [setSearchParams]);
+
   const [rows, setRows] = useState<StockRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -675,76 +702,87 @@ const Stock: React.FC = () => {
     setVisibleItemsCount(20);
   }, [selectedMonth, selectedYear, selectedWeek, viewMode, searchTerm, unsoldFilter, selectedCategoryFilter]);
 
-  // Handle editId query parameter from Orders page
+  // Open edit form when `?editId=` is present (Orders deep-link, refresh, browser back).
+  // Keep `editId` in the URL while editing so reload/back restores this view.
   useEffect(() => {
     const editIdParam = searchParams.get('editId');
-    if (editIdParam && rows.length > 0 && !loading && !editingRowId && !creating) {
-      const editId = parseInt(editIdParam, 10);
-      if (!isNaN(editId)) {
-        const rowToEdit = rows.find(row => row.id === editId);
-        if (rowToEdit) {
-          // Set editing state and form data
-          setFormIntent('edit');
-          setEditingRowId(rowToEdit.id);
-          const deptForRow =
-            rowToEdit.category_id != null
-              ? (() => {
-                  const cat = categories.find((c) => Number(c.id) === Number(rowToEdit.category_id));
-                  if (cat?.department_id != null) return String(cat.department_id);
-                  return defaultDepartmentId;
-                })()
-              : defaultDepartmentId;
-          setCreateForm({
-            item_name: rowToEdit.item_name ?? '',
-            department_id: deptForRow,
-            category_id: rowToEdit.category_id ? String(rowToEdit.category_id) : '',
-            purchase_price: stockDbNumberToFormString(rowToEdit.purchase_price),
-            purchase_date: normalizeDateInput(rowToEdit.purchase_date ?? ''),
-            sale_date: normalizeDateInput(rowToEdit.sale_date ?? ''),
-            sale_price: stockDbNumberToFormString(rowToEdit.sale_price),
-            sold_platform: rowToEdit.sold_platform ?? '',
-            vinted_id: rowToEdit.vinted_id ?? '',
-            ebay_id: rowToEdit.ebay_id ?? '',
-            depop_id: rowToEdit.depop_id ?? '',
-            brand_id: rowToEdit.brand_id ? String(rowToEdit.brand_id) : '',
-            brand_tag_image_id:
-              rowToEdit.brand_tag_image_id != null ? String(rowToEdit.brand_tag_image_id) : '',
-            projected_sale_price: stockDbNumberToFormString(rowToEdit.projected_sale_price),
-            category_size_id:
-              rowToEdit.category_size_id != null ? String(rowToEdit.category_size_id) : '',
-            sourced_location: sourcedLocationFromRow(rowToEdit),
-          });
-          setShowNewEntry(true);
-          setSuccessMessage(null);
-          // Remove the query parameter from URL
-          setSearchParams({});
-          
-          // Scroll to edit form after DOM updates
+    if (!editIdParam || rows.length === 0 || loading || editingRowId != null || creating) {
+      return;
+    }
+    const editId = parseInt(editIdParam, 10);
+    if (Number.isNaN(editId)) {
+      clearStockEditIdFromUrl();
+      return;
+    }
+    const rowToEdit = rows.find((row) => Number(row.id) === editId);
+    if (!rowToEdit) {
+      clearStockEditIdFromUrl();
+      return;
+    }
+    setFormIntent('edit');
+    setEditingRowId(rowToEdit.id);
+    const deptForRow =
+      rowToEdit.category_id != null
+        ? (() => {
+            const cat = categories.find((c) => Number(c.id) === Number(rowToEdit.category_id));
+            if (cat?.department_id != null) return String(cat.department_id);
+            return defaultDepartmentId;
+          })()
+        : defaultDepartmentId;
+    setCreateForm({
+      item_name: rowToEdit.item_name ?? '',
+      department_id: deptForRow,
+      category_id: rowToEdit.category_id ? String(rowToEdit.category_id) : '',
+      purchase_price: stockDbNumberToFormString(rowToEdit.purchase_price),
+      purchase_date: normalizeDateInput(rowToEdit.purchase_date ?? ''),
+      sale_date: normalizeDateInput(rowToEdit.sale_date ?? ''),
+      sale_price: stockDbNumberToFormString(rowToEdit.sale_price),
+      sold_platform: rowToEdit.sold_platform ?? '',
+      vinted_id: rowToEdit.vinted_id ?? '',
+      ebay_id: rowToEdit.ebay_id ?? '',
+      depop_id: rowToEdit.depop_id ?? '',
+      brand_id: rowToEdit.brand_id ? String(rowToEdit.brand_id) : '',
+      brand_tag_image_id:
+        rowToEdit.brand_tag_image_id != null ? String(rowToEdit.brand_tag_image_id) : '',
+      projected_sale_price: stockDbNumberToFormString(rowToEdit.projected_sale_price),
+      category_size_id:
+        rowToEdit.category_size_id != null ? String(rowToEdit.category_size_id) : '',
+      sourced_location: sourcedLocationFromRow(rowToEdit),
+    });
+    setShowNewEntry(true);
+    setSuccessMessage(null);
+
+    setTimeout(() => {
+      if (editFormRef.current) {
+        const isMobile = window.innerWidth <= 768;
+        editFormRef.current.scrollIntoView({
+          behavior: 'smooth',
+          block: isMobile ? 'center' : 'start',
+          inline: 'nearest',
+        });
+        if (isMobile) {
           setTimeout(() => {
-            if (editFormRef.current) {
-              const isMobile = window.innerWidth <= 768;
-              editFormRef.current.scrollIntoView({ 
-                behavior: 'smooth', 
-                block: isMobile ? 'center' : 'start',
-                inline: 'nearest'
+            const rect = editFormRef.current?.getBoundingClientRect();
+            if (rect && rect.top < 120) {
+              window.scrollBy({
+                top: rect.top - 120,
+                behavior: 'smooth',
               });
-              if (isMobile) {
-                setTimeout(() => {
-                  const rect = editFormRef.current?.getBoundingClientRect();
-                  if (rect && rect.top < 120) {
-                    window.scrollBy({
-                      top: rect.top - 120,
-                      behavior: 'smooth'
-                    });
-                  }
-                }, 100);
-              }
             }
-          }, 150);
+          }, 100);
         }
       }
-    }
-  }, [rows, loading, searchParams, editingRowId, creating, setSearchParams, categories, defaultDepartmentId]);
+    }, 150);
+  }, [
+    rows,
+    loading,
+    searchParams,
+    editingRowId,
+    creating,
+    categories,
+    defaultDepartmentId,
+    clearStockEditIdFromUrl,
+  ]);
 
   useEffect(() => {
     const bid = createForm.brand_id?.trim();
@@ -1811,16 +1849,17 @@ const Stock: React.FC = () => {
     console.log('startEditingRow - form vinted_id:', row.vinted_id ?? '');
     setShowNewEntry(true);
     setSuccessMessage(null);
-    
+    setStockEditIdInUrl(Number(row.id));
+
     // Scroll to edit form after DOM updates - with better mobile support
     setTimeout(() => {
       if (editFormRef.current) {
         // Use 'center' for mobile to ensure form is fully visible
         const isMobile = window.innerWidth <= 768;
-        editFormRef.current.scrollIntoView({ 
-          behavior: 'smooth', 
+        editFormRef.current.scrollIntoView({
+          behavior: 'smooth',
           block: isMobile ? 'center' : 'start',
-          inline: 'nearest'
+          inline: 'nearest',
         });
         // Additional scroll adjustment for mobile to account for fixed headers
         if (isMobile) {
@@ -1829,7 +1868,7 @@ const Stock: React.FC = () => {
             if (rect && rect.top < 120) {
               window.scrollBy({
                 top: rect.top - 120,
-                behavior: 'smooth'
+                behavior: 'smooth',
               });
             }
           }, 100);
@@ -2004,6 +2043,7 @@ const Stock: React.FC = () => {
       setShowCreateInsteadOfEditConfirm(false);
       resetCreateForm();
       setSortConfig(null);
+      clearStockEditIdFromUrl();
       
       console.log('Stock submit - Success:', isEditing ? 'Updated' : 'Created', 'ID:', updatedRow.id);
     } catch (err: any) {
@@ -2131,6 +2171,7 @@ const Stock: React.FC = () => {
       setShowCreateInsteadOfEditConfirm(false);
       resetCreateForm();
       setShowDeleteConfirm(false);
+      clearStockEditIdFromUrl();
     } catch (err: any) {
       console.error('Stock delete error:', err);
       setError(err.message || 'Unable to delete stock record');
@@ -2407,6 +2448,7 @@ const Stock: React.FC = () => {
                       setShowCreateInsteadOfEditConfirm(false);
                       resetCreateForm();
                       setShowDeleteConfirm(false);
+                      clearStockEditIdFromUrl();
                     }
                   }}
                   disabled={creating || deleting}
@@ -3103,11 +3145,11 @@ const Stock: React.FC = () => {
                 </div>
               </div>
             </div>
-            {/* Row 3: marketplace IDs, projected; edit adds sale fields; save */}
+            {/* Row 3: marketplace IDs + projected; add-new also has save here. Edit: sale fields + platform + save on next row. */}
             <div
               className={
                 editingRowId
-                  ? 'stock-new-entry-row-ids stock-new-entry-row-ids--edit'
+                  ? 'stock-new-entry-row-ids stock-new-entry-row-ids--edit-marketplace'
                   : 'stock-new-entry-row-ids'
               }
             >
@@ -3149,8 +3191,48 @@ const Stock: React.FC = () => {
                   aria-label="Projected price (£)"
                 />
               </label>
-              {editingRowId && (
-                <>
+              {!editingRowId && (
+                <div className="stock-new-entry-row3-save">
+                  <span className="stock-new-entry-row3-save-label-spacer" aria-hidden>
+                    &nbsp;
+                  </span>
+                  <button
+                    type="button"
+                    className="stock-new-entry-save-circle"
+                    onClick={() => {
+                      void handleCreateSubmit();
+                    }}
+                    disabled={creating || deleting}
+                    aria-label={creating ? 'Saving' : 'Save item'}
+                    title={creating ? 'Saving…' : 'Save'}
+                  >
+                    {creating ? (
+                      <span className="stock-new-entry-save-spinner" aria-hidden />
+                    ) : (
+                      <svg
+                        className="stock-new-entry-save-icon"
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden
+                      >
+                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                        <polyline points="17 21 17 13 7 13 7 21" />
+                        <polyline points="7 3 7 8 15 8" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
+            {editingRowId && (
+              <div className="stock-new-entry-row-edit-sale-platform-row">
                   <label className="new-entry-field new-entry-field--stock-compact-price">
                     <span>My Sales Price (£)</span>
                     <input
@@ -3176,44 +3258,44 @@ const Stock: React.FC = () => {
                       wrapperClassName="date-picker-wrapper"
                     />
                   </label>
-                  <div
-                    className="new-entry-field stock-new-entry-sold-platform-field"
-                    style={{ position: 'relative' }}
-                    ref={soldPlatformDropdownRef}
-                  >
-                    <label
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '8px',
-                        color: 'rgba(255, 248, 226, 0.7)',
-                        letterSpacing: '0.05rem',
-                        position: 'relative',
-                        margin: 0,
-                        width: '100%',
-                      }}
+                    <div
+                      className="new-entry-field stock-new-entry-sold-platform-field stock-edit-sold-platform-field"
+                      style={{ position: 'relative' }}
+                      ref={soldPlatformDropdownRef}
                     >
-                      <span>Sold Platform</span>
-                      <div
-                        className="new-entry-select stock-edit-sold-platform-trigger"
+                      <label
                         style={{
-                          position: 'relative',
-                          cursor: 'pointer',
                           display: 'flex',
-                          alignItems: 'center',
-                          padding: '11px 13px',
-                          borderRadius: '14px',
-                          border: '1px solid rgba(255, 214, 91, 0.28)',
-                          background: 'rgba(255, 214, 91, 0.08)',
-                          color: 'var(--text-strong)',
-                          gap: '6px',
-                          minHeight: '46px',
-                          height: 'auto',
-                          lineHeight: '1.2',
-                          boxSizing: 'border-box',
+                          flexDirection: 'column',
+                          gap: '8px',
+                          color: 'rgba(255, 248, 226, 0.7)',
+                          letterSpacing: '0.05rem',
+                          position: 'relative',
+                          margin: 0,
+                          width: '100%',
                         }}
-                        onClick={() => setShowSoldPlatformDropdown(!showSoldPlatformDropdown)}
                       >
+                        <span>Sold Platform</span>
+                        <div
+                          className="new-entry-select stock-edit-sold-platform-trigger"
+                          style={{
+                            position: 'relative',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            padding: '11px 13px',
+                            borderRadius: '14px',
+                            border: '1px solid rgba(255, 214, 91, 0.28)',
+                            background: 'rgba(255, 214, 91, 0.08)',
+                            color: 'var(--text-strong)',
+                            gap: '6px',
+                            minHeight: '46px',
+                            height: 'auto',
+                            lineHeight: '1.2',
+                            boxSizing: 'border-box',
+                          }}
+                          onClick={() => setShowSoldPlatformDropdown(!showSoldPlatformDropdown)}
+                        >
                         {createForm.sold_platform ? (
                           (() => {
                             const getIconSrc = (platform: string) => {
@@ -3346,82 +3428,46 @@ const Stock: React.FC = () => {
                         </div>
                       )}
                     </label>
-                  </div>
-                </>
-              )}
-              <div className="stock-new-entry-row3-save">
-                <span className="stock-new-entry-row3-save-label-spacer" aria-hidden>
-                  &nbsp;
-                </span>
-                {editingRowId ? (
-                  <button
-                    type="button"
-                    className="save-button stock-edit-save-disk"
-                    onClick={() => {
-                      void handleCreateSubmit();
-                    }}
-                    disabled={creating || deleting}
-                    aria-label={creating ? 'Saving changes' : 'Save changes'}
-                    title={creating ? 'Saving…' : 'Save changes'}
-                  >
-                    {creating ? (
-                      <span className="stock-edit-save-disk-spinner" aria-hidden />
-                    ) : (
-                      <svg
-                        className="stock-edit-save-disk-icon"
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="22"
-                        height="22"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.75"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden
+                    </div>
+                    <div className="stock-edit-save-in-row4">
+                      <span className="stock-edit-save-in-row4-label-spacer" aria-hidden>
+                        &nbsp;
+                      </span>
+                      <button
+                        type="button"
+                        className="save-button stock-edit-save-disk"
+                        onClick={() => {
+                          void handleCreateSubmit();
+                        }}
+                        disabled={creating || deleting}
+                        aria-label={creating ? 'Saving changes' : 'Save changes'}
+                        title={creating ? 'Saving…' : 'Save changes'}
                       >
-                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                        <polyline points="17 21 17 13 7 13 7 21" />
-                        <polyline points="7 3 7 8 15 8" />
-                      </svg>
-                    )}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="stock-new-entry-save-circle"
-                    onClick={() => {
-                      void handleCreateSubmit();
-                    }}
-                    disabled={creating || deleting}
-                    aria-label={creating ? 'Saving' : 'Save item'}
-                    title={creating ? 'Saving…' : 'Save'}
-                  >
-                    {creating ? (
-                      <span className="stock-new-entry-save-spinner" aria-hidden />
-                    ) : (
-                      <svg
-                        className="stock-new-entry-save-icon"
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden
-                      >
-                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                        <polyline points="17 21 17 13 7 13 7 21" />
-                        <polyline points="7 3 7 8 15 8" />
-                      </svg>
-                    )}
-                  </button>
-                )}
+                        {creating ? (
+                          <span className="stock-edit-save-disk-spinner" aria-hidden />
+                        ) : (
+                          <svg
+                            className="stock-edit-save-disk-icon"
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="22"
+                            height="22"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.75"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden
+                          >
+                            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                            <polyline points="17 21 17 13 7 13 7 21" />
+                            <polyline points="7 3 7 8 15 8" />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       )}
@@ -3568,6 +3614,7 @@ const Stock: React.FC = () => {
               setShowCreateInsteadOfEditConfirm(false);
               resetCreateForm();
               setSuccessMessage(null);
+              clearStockEditIdFromUrl();
             }}
             disabled={showNewEntry || creating}
           >

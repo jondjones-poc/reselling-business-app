@@ -448,7 +448,7 @@
   box-sizing: border-box;
 }
 
-/* Row 3: marketplace IDs + projected + save; when editing, adds sales price, date, platform */
+/* Row 3: marketplace IDs + projected + save (add). Edit: marketplace row, then sale price / date / platform + save on the next row */
 .stock-new-entry-row-ids {
   flex: 1 1 100%;
   width: 100%;
@@ -462,7 +462,7 @@
 /*
  * Create only: Vinted / eBay / Depop / Projected in four equal tracks; save spans the last two columns.
  */
-.stock-new-entry-row-ids:not(.stock-new-entry-row-ids--edit) {
+.stock-new-entry-row-ids:not(.stock-new-entry-row-ids--edit-marketplace) {
   grid-template-columns:
     minmax(0, 1fr)
     minmax(0, 1fr)
@@ -472,19 +472,44 @@
     168px;
 }
 
-.stock-new-entry-row-ids:not(.stock-new-entry-row-ids--edit) > .stock-new-entry-row3-save {
+.stock-new-entry-row-ids:not(.stock-new-entry-row-ids--edit-marketplace) > .stock-new-entry-row3-save {
   grid-column: 5 / -1;
   justify-self: end;
   align-self: end;
 }
 
-.stock-new-entry-row-ids--edit {
-  grid-template-columns: repeat(6, minmax(0, 1fr)) auto;
+/* Edit: first row — Vinted / eBay / Depop / Projected only */
+.stock-new-entry-row-ids--edit-marketplace {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-.stock-new-entry-row-ids--edit .new-entry-field--stock-compact-price,
-.stock-new-entry-row-ids--edit .new-entry-field--stock-compact-date {
+/* Edit: second row — My Sales Price, Sale Date, Sold Platform, save (far right) */
+.stock-new-entry-row-edit-sale-platform-row {
+  flex: 1 1 100%;
+  width: 100%;
+  max-width: 100%;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 16px;
+  box-sizing: border-box;
   min-width: 0;
+}
+
+.stock-new-entry-row-edit-sale-platform-row .new-entry-field--stock-compact-price,
+.stock-new-entry-row-edit-sale-platform-row .new-entry-field--stock-compact-date {
+  min-width: 0;
+  flex: 0 1 160px;
+}
+
+.stock-new-entry-row-edit-sale-platform-row .stock-edit-sold-platform-field {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.stock-new-entry-row-edit-sale-platform-row .stock-edit-save-in-row4 {
+  margin-left: auto;
 }
 
 .stock-new-entry-row-ids > .new-entry-field {
@@ -755,7 +780,7 @@
     max-width: none;
   }
 
-  .stock-new-entry-row-ids:not(.stock-new-entry-row-ids--edit) {
+  .stock-new-entry-row-ids:not(.stock-new-entry-row-ids--edit-marketplace) {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
@@ -773,48 +798,8 @@
 }
 
 @media (max-width: 1024px) and (min-width: 561px) {
-  .stock-new-entry-row-ids.stock-new-entry-row-ids--edit {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .stock-new-entry-row-ids.stock-new-entry-row-ids--edit > :nth-child(1) {
-    grid-column: 1;
-    grid-row: 1;
-  }
-
-  .stock-new-entry-row-ids.stock-new-entry-row-ids--edit > :nth-child(2) {
-    grid-column: 2;
-    grid-row: 1;
-  }
-
-  .stock-new-entry-row-ids.stock-new-entry-row-ids--edit > :nth-child(3) {
-    grid-column: 3;
-    grid-row: 1;
-  }
-
-  .stock-new-entry-row-ids.stock-new-entry-row-ids--edit > :nth-child(4) {
-    grid-column: 1;
-    grid-row: 2;
-  }
-
-  .stock-new-entry-row-ids.stock-new-entry-row-ids--edit > :nth-child(5) {
-    grid-column: 2;
-    grid-row: 2;
-  }
-
-  .stock-new-entry-row-ids.stock-new-entry-row-ids--edit > :nth-child(6) {
-    grid-column: 3;
-    grid-row: 2;
-  }
-
-  .stock-new-entry-row-ids.stock-new-entry-row-ids--edit > :nth-child(7) {
-    grid-column: 1;
-    grid-row: 3;
-  }
-
-  .stock-new-entry-row-ids.stock-new-entry-row-ids--edit > .stock-new-entry-row3-save {
-    grid-column: 1 / -1;
-    grid-row: 4;
+  .stock-new-entry-row-ids.stock-new-entry-row-ids--edit-marketplace {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -934,6 +919,22 @@
 
   .stock-new-entry-row-ids .stock-new-entry-row3-save-label-spacer {
     display: block;
+  }
+
+  .stock-new-entry-row-edit-sale-platform-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .stock-new-entry-row-edit-sale-platform-row .stock-edit-save-in-row4 {
+    margin-left: 0;
+    align-self: flex-end;
+  }
+}
+
+@media (max-width: 768px) {
+  .stock-container .stock-new-entry-top-bar-pipeline {
+    display: none;
   }
 }
 
@@ -1809,15 +1810,20 @@ button.stock-close-circle-btn:disabled {
 .stock-edit-sold-platform-with-save-row {
   display: flex;
   flex-direction: row;
+  flex-wrap: wrap;
   align-items: flex-end;
-  gap: 10px;
+  justify-content: flex-start;
+  gap: 12px;
   width: 100%;
+  max-width: 100%;
   min-width: 0;
+  box-sizing: border-box;
 }
 
 .stock-edit-sold-platform-field {
   flex: 1 1 0;
   min-width: 0;
+  max-width: 100%;
 }
 
 .stock-edit-sold-platform-field--full {
@@ -1828,17 +1834,26 @@ button.stock-close-circle-btn:disabled {
 
 .stock-edit-save-in-row4 {
   flex: 0 0 auto;
+  margin-left: auto;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-end;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .stock-edit-save-in-row4-label-spacer {
   min-height: 32px;
-  width: 100%;
+  width: 48px;
+  max-width: 100%;
   box-sizing: border-box;
   display: block;
+  flex-shrink: 0;
+}
+
+.stock-edit-save-in-row4 .save-button.stock-edit-save-disk {
+  max-width: 100%;
 }
 
 .stock-edit-save-disk-icon {
@@ -2855,27 +2870,32 @@ button.stock-close-circle-btn:disabled {
   padding-top: 20px;
   border-top: 1px solid rgba(255, 214, 91, 0.2);
   display: flex;
-  justify-content: center;
+  justify-content: flex-end;
+  align-items: center;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .stock-data-edit-button {
-  padding: 14px 28px;
-  border-radius: 999px;
-  border: 1px solid rgba(140, 255, 195, 0.32);
-  background: rgba(140, 255, 195, 0.18);
+  padding: 12px 22px;
+  border-radius: 12px;
+  border: 1px solid rgba(140, 255, 195, 0.4);
+  background: rgba(140, 255, 195, 0.14);
   color: #8cffc3;
   font-weight: 600;
-  letter-spacing: 0.06rem;
-  text-transform: uppercase;
+  letter-spacing: 0.04rem;
+  text-transform: none;
   cursor: pointer;
-  transition: all 0.3s ease;
-  font-size: 0.9rem;
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  font-size: 0.95rem;
+  min-width: 96px;
 }
 
 .stock-data-edit-button:hover {
-  background: rgba(140, 255, 195, 0.3);
-  transform: translateY(-1px);
-  box-shadow: var(--neon-shadow);
+  background: rgba(140, 255, 195, 0.26);
+  border-color: rgba(140, 255, 195, 0.55);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
 }
 
 .stock-data-item-title {
@@ -3735,9 +3755,8 @@ button.stock-close-circle-btn:disabled {
     padding: 6px;
   }
 
-  /* Edit button 100% width on mobile */
   .stock-data-edit-button-container {
-    width: 100%;
+    justify-content: stretch;
   }
 
   .stock-data-edit-button {

@@ -553,7 +553,7 @@
   overflow: visible;
 }
 
-/* Research → Seasonal tab */
+/* Research → Sales by season tab */
 .research-seasonal-page {
   max-width: 1200px;
   margin: 0 auto;
@@ -612,7 +612,7 @@
     0 0 0 1px rgba(140, 255, 195, 0.12);
 }
 
-/* Reserve the same vertical space in every column so the rule above “Top clothing types” lines up. */
+/* Reserve the same vertical space in every column so the rule above “Top categories” lines up. */
 .research-seasonal-badge-slot {
   display: flex;
   justify-content: center;
@@ -4081,7 +4081,125 @@ button.image-upload-label {
   max-width: min(1280px, 100%);
 }
 
-/* Clothing Types overview: full-width link grid above charts (nothing can overlap the list). */
+/* Department picker (Sales by category, Sales by season): full width of research content; chips scroll in one row. */
+.research-menswear-departments {
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+  margin: 0 0 10px;
+  padding: 0 0 14px;
+  border-bottom: 1px solid rgba(120, 200, 255, 0.22);
+}
+
+.research-menswear-departments--loading {
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+  padding: 10px 0 16px;
+  font-size: 0.85rem;
+  color: rgba(255, 248, 226, 0.55);
+  text-align: center;
+}
+
+.research-menswear-departments-error {
+  width: 100%;
+  max-width: none;
+  margin: 0 0 8px;
+  padding: 8px 14px;
+  box-sizing: border-box;
+  border-radius: 10px;
+  background: rgba(255, 100, 100, 0.12);
+  border: 1px solid rgba(255, 140, 140, 0.35);
+  color: #ffb4b4;
+  font-size: 0.88rem;
+}
+
+.research-menswear-departments-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 10px 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.research-menswear-departments-item {
+  margin: 0;
+  padding: 0;
+  flex: 0 0 auto;
+}
+
+.research-menswear-department-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: max-content;
+  max-width: min(220px, 85vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-height: 48px;
+  padding: 10px 12px;
+  box-sizing: border-box;
+  border-radius: 12px;
+  border: 1px solid rgba(100, 190, 255, 0.35);
+  background: linear-gradient(165deg, rgba(45, 95, 140, 0.45) 0%, rgba(25, 55, 88, 0.55) 100%);
+  color: #d8f2ff;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 600;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease,
+    color 0.2s ease;
+}
+
+.research-menswear-department-box:hover {
+  border-color: rgba(130, 210, 255, 0.55);
+  background: linear-gradient(165deg, rgba(55, 115, 165, 0.55) 0%, rgba(30, 65, 105, 0.62) 100%);
+  box-shadow: 0 0 16px rgba(100, 190, 255, 0.15);
+}
+
+.research-menswear-department-box:focus-visible {
+  outline: 2px solid rgba(140, 220, 255, 0.95);
+  outline-offset: 2px;
+}
+
+.research-menswear-department-box--active {
+  border-color: rgba(160, 235, 255, 0.75);
+  background: linear-gradient(165deg, rgba(70, 140, 190, 0.65) 0%, rgba(40, 95, 150, 0.75) 100%);
+  color: #ffffff;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.2) inset,
+    0 0 18px rgba(100, 200, 255, 0.22);
+}
+
+.research-menswear-department-box-name {
+  line-height: 1.25;
+}
+
+.research-menswear-department-box-meta {
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: rgba(220, 240, 255, 0.55);
+}
+
+.research-menswear-department-box--active .research-menswear-department-box-meta {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+/* Sales by category overview: full-width link grid above charts (nothing can overlap the list). */
 .clothing-types-browse {
   position: relative;
   z-index: 5;
@@ -4157,7 +4275,7 @@ button.image-upload-label {
   color: rgba(255, 248, 226, 0.48);
 }
 
-/* Menswear categories list: same browse pattern as clothing types, tighter grid and type */
+/* Menswear categories list: same browse pattern as sales by category, tighter grid and type */
 .menswear-categories-browse-top.clothing-types-browse {
   padding: 0 0 14px;
   margin: 0 0 8px;
@@ -4415,7 +4533,7 @@ button.image-upload-label {
   padding-right: 8px;
 }
 
-/* One row: best vs worst clothing types (same data as inventory strain table). */
+/* One row: best vs worst categories (same data as inventory strain table). */
 .clothing-types-buy-avoid-strip {
   display: flex;
   flex-direction: row;
@@ -5059,7 +5177,7 @@ a.menswear-categories-brand-link {
   padding: 0 8px 0;
 }
 
-/* Clothing types tab — type detail: back left, title centered on same row */
+/* Sales by category tab — category detail: back left, title centered on same row */
 .clothing-type-detail-type-header {
   display: flex;
   flex-direction: row;

@@ -79,6 +79,21 @@ function stockRowIsOnNoSizeList(row: StockRow): boolean {
   return !NO_SIZE_LIST_EXCLUDED_CATEGORY_IDS.has(n);
 }
 
+/** When department filter is active, keep rows whose clothing type (`category_id`) maps to that department. */
+function stockRowMatchesConfigStockListDepartment(
+  row: StockRow,
+  effectiveDeptId: number | null,
+  categoryIdToDepartment: Map<number, number | null>,
+  clothingTypesLoaded: boolean
+): boolean {
+  if (effectiveDeptId == null || !clothingTypesLoaded) return true;
+  const cid = row.category_id;
+  if (cid == null) return false;
+  const n = Math.floor(Number(cid));
+  if (!Number.isFinite(n) || n < 1) return false;
+  return (categoryIdToDepartment.get(n) ?? null) === effectiveDeptId;
+}
+
 const formatCurrency = (value: Nullable<string | number>) => {
   if (value === null || value === undefined || value === '') {
     return '—';
@@ -277,6 +292,11 @@ const Config: React.FC = () => {
   const [noSizePickerSizesLoading, setNoSizePickerSizesLoading] = useState(false);
   const [noSizePickerError, setNoSizePickerError] = useState<string | null>(null);
   const [noSizeAssignSavingId, setNoSizeAssignSavingId] = useState<number | null>(null);
+  /**
+   * Shared department filter for Config stock hygiene lists (no brand / no size / not on eBay / not on Vinted).
+   * `null` until user picks; effective memo defaults to Menswear.
+   */
+  const [configStockListDepartmentFilterId, setConfigStockListDepartmentFilterId] = useState<number | null>(null);
 
   const [clothingCategories, setClothingCategories] = useState<ClothingCategoryRow[]>([]);
   const [clothingLoading, setClothingLoading] = useState(false);
@@ -340,6 +360,9 @@ const Config: React.FC = () => {
   const brandsAskAiHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [sizesCategoryId, setSizesCategoryId] = useState<string>('');
+  /** Sizes: filter category dropdown by clothing-type department; default Menswear once departments load. */
+  const [sizesDepartmentFilterId, setSizesDepartmentFilterId] = useState<number | 'all'>('all');
+  const sizesDeptFilterInitializedRef = useRef(false);
   const [categorySizeRows, setCategorySizeRows] = useState<CategorySizeAdminRow[]>([]);
   const [sizesLoading, setSizesLoading] = useState(false);
   const [sizesError, setSizesError] = useState<string | null>(null);
@@ -356,6 +379,11 @@ const Config: React.FC = () => {
   const [categoryCheckCategoryId, setCategoryCheckCategoryId] = useState('');
   const [categoryCheckUpdatingId, setCategoryCheckUpdatingId] = useState<number | null>(null);
   const [categoryCheckError, setCategoryCheckError] = useState<string | null>(null);
+  /** Items Category Check: filter category pickers to one business department. */
+  const [categoryCheckDepartmentFilterId, setCategoryCheckDepartmentFilterId] = useState<number | null>(
+    null
+  );
+  const categoryCheckDeptFilterInitializedRef = useRef(false);
 
   const loadStock = async () => {
     try {
@@ -868,14 +896,33 @@ const Config: React.FC = () => {
   useEffect(() => {
     if (activeMenu === 'sizes') {
       void loadStockClothingTypes();
+      void loadAdminDepartments();
     }
-  }, [activeMenu, loadStockClothingTypes]);
+  }, [activeMenu, loadStockClothingTypes, loadAdminDepartments]);
 
   useEffect(() => {
-    if (activeMenu === 'no-size') {
-      void loadStockClothingTypes();
+    if (activeMenu !== 'sizes') return;
+    if (adminDepartments.length === 0) return;
+    if (!sizesDeptFilterInitializedRef.current) {
+      const mw = adminDepartments.find(
+        (d) => d.department_name.trim().toLowerCase() === 'menswear'
+      );
+      setSizesDepartmentFilterId(mw ? mw.id : 'all');
+      sizesDeptFilterInitializedRef.current = true;
     }
-  }, [activeMenu, loadStockClothingTypes]);
+  }, [activeMenu, adminDepartments]);
+
+  useEffect(() => {
+    if (
+      activeMenu === 'untagged-brand' ||
+      activeMenu === 'no-size' ||
+      activeMenu === 'no-ebay-id' ||
+      activeMenu === 'no-vinted-id'
+    ) {
+      void loadStockClothingTypes();
+      void loadAdminDepartments();
+    }
+  }, [activeMenu, loadStockClothingTypes, loadAdminDepartments]);
 
   useEffect(() => {
     if (activeMenu !== 'sizes') return;
@@ -977,9 +1024,22 @@ const Config: React.FC = () => {
 
   useEffect(() => {
     if (activeMenu === 'items-category-check') {
+      void loadAdminDepartments();
       void loadStockClothingTypes();
     }
-  }, [activeMenu, loadStockClothingTypes]);
+  }, [activeMenu, loadAdminDepartments, loadStockClothingTypes]);
+
+  useEffect(() => {
+    if (activeMenu !== 'items-category-check') return;
+    if (adminDepartments.length === 0) return;
+    if (!categoryCheckDeptFilterInitializedRef.current) {
+      const mw = adminDepartments.find(
+        (d) => d.department_name.trim().toLowerCase() === 'menswear'
+      );
+      setCategoryCheckDepartmentFilterId(mw?.id ?? adminDepartments[0]?.id ?? null);
+      categoryCheckDeptFilterInitializedRef.current = true;
+    }
+  }, [activeMenu, adminDepartments]);
 
   const handleBrandsAskAiRank = useCallback(async () => {
     setBrandsError(null);
@@ -1433,24 +1493,58 @@ const Config: React.FC = () => {
     }
   };
 
+  const categoryIdToDepartmentIdForStock = useMemo(() => {
+    const m = new Map<number, number | null>();
+    for (const t of stockClothingTypes) {
+      if (t.id >= 1) m.set(t.id, t.department_id);
+    }
+    return m;
+  }, [stockClothingTypes]);
+
+  /** Default Menswear when `configStockListDepartmentFilterId` is still null. */
+  const configStockListDepartmentFilterEffective = useMemo(() => {
+    if (adminDepartments.length === 0) return null;
+    if (configStockListDepartmentFilterId != null) return configStockListDepartmentFilterId;
+    const mw = adminDepartments.find((d) => d.department_name.trim().toLowerCase() === 'menswear');
+    return mw?.id ?? adminDepartments[0]?.id ?? null;
+  }, [configStockListDepartmentFilterId, adminDepartments]);
+
   // Filter rows based on active menu
   const filteredRows = useMemo(() => {
-    if (activeMenu === 'untagged-brand') {
-      return rows.filter(
-        (row) => (row.brand_id === null || row.brand_id === undefined) && !autoTaggedHiddenIds.has(Number(row.id))
+    const typesLoaded = stockClothingTypes.length > 0;
+    const eff = configStockListDepartmentFilterEffective;
+    const applyDept = (list: StockRow[]) => {
+      if (eff == null || !typesLoaded) return list;
+      return list.filter((row) =>
+        stockRowMatchesConfigStockListDepartment(row, eff, categoryIdToDepartmentIdForStock, typesLoaded)
       );
+    };
+
+    if (activeMenu === 'untagged-brand') {
+      const base = rows.filter(
+        (row) =>
+          (row.brand_id === null || row.brand_id === undefined) && !autoTaggedHiddenIds.has(Number(row.id))
+      );
+      return applyDept(base);
     }
     if (activeMenu === 'no-size') {
-      return rows.filter(stockRowIsOnNoSizeList);
+      return applyDept(rows.filter(stockRowIsOnNoSizeList));
     }
     if (activeMenu === 'no-ebay-id') {
-      return rows.filter(row => !row.ebay_id || row.ebay_id.trim() === '');
+      return applyDept(rows.filter((row) => !row.ebay_id || row.ebay_id.trim() === ''));
     }
     if (activeMenu === 'no-vinted-id') {
-      return rows.filter(row => !row.vinted_id || row.vinted_id.trim() === '');
+      return applyDept(rows.filter((row) => !row.vinted_id || row.vinted_id.trim() === ''));
     }
     return [];
-  }, [rows, activeMenu, autoTaggedHiddenIds]);
+  }, [
+    rows,
+    activeMenu,
+    autoTaggedHiddenIds,
+    configStockListDepartmentFilterEffective,
+    stockClothingTypes,
+    categoryIdToDepartmentIdForStock,
+  ]);
 
   const duplicateEntryGroups = useMemo(() => {
     const map = new Map<string, StockRow[]>();
@@ -1478,16 +1572,16 @@ const Config: React.FC = () => {
   }, [rows]);
 
   const noSizePrefetchCategoryIds = useMemo(() => {
+    if (activeMenu !== 'no-size') return [];
     const ids = new Set<number>();
-    for (const row of rows) {
-      if (!stockRowIsOnNoSizeList(row)) continue;
+    for (const row of filteredRows) {
       const cid = row.category_id;
       if (cid == null) continue;
       const n = Number(cid);
       if (Number.isFinite(n) && n >= 1) ids.add(Math.floor(n));
     }
     return Array.from(ids).sort((a, b) => a - b);
-  }, [rows]);
+  }, [activeMenu, filteredRows]);
 
   const stockCategoryNameById = useMemo(() => {
     const m = new Map<number, string>();
@@ -1497,18 +1591,29 @@ const Config: React.FC = () => {
     return m;
   }, [stockClothingTypes]);
 
-  const sortedClothingTypesForCategoryCheck = useMemo(
-    () =>
-      [...stockClothingTypes].sort((a, b) =>
+  const categoryCheckClothingTypesOptions = useMemo(() => {
+    if (categoryCheckDepartmentFilterId == null || categoryCheckDepartmentFilterId < 1) return [];
+    return [...stockClothingTypes]
+      .filter((t) => t.department_id === categoryCheckDepartmentFilterId)
+      .sort((a, b) =>
         a.category_name.localeCompare(b.category_name, undefined, { sensitivity: 'base' })
-      ),
-    [stockClothingTypes]
-  );
+      );
+  }, [stockClothingTypes, categoryCheckDepartmentFilterId]);
 
   const filteredStockClothingTypes = useMemo(() => {
     if (stockTypeDepartmentFilterId === 'all') return stockClothingTypes;
     return stockClothingTypes.filter((t) => t.department_id === stockTypeDepartmentFilterId);
   }, [stockClothingTypes, stockTypeDepartmentFilterId]);
+
+  const sizesClothingTypeOptions = useMemo(() => {
+    const list =
+      sizesDepartmentFilterId === 'all'
+        ? stockClothingTypes
+        : stockClothingTypes.filter((t) => t.department_id === sizesDepartmentFilterId);
+    return [...list].sort((a, b) =>
+      a.category_name.localeCompare(b.category_name, undefined, { sensitivity: 'base' })
+    );
+  }, [stockClothingTypes, sizesDepartmentFilterId]);
 
   const filteredBrandsForTable = useMemo(() => {
     if (brandDepartmentFilterId === 'all') return brands;
@@ -1534,6 +1639,28 @@ const Config: React.FC = () => {
         });
       });
   }, [rows, categoryCheckCategoryId]);
+
+  useEffect(() => {
+    if (activeMenu !== 'items-category-check') return;
+    if (!categoryCheckCategoryId) return;
+    const ok = categoryCheckClothingTypesOptions.some(
+      (c) => String(c.id) === categoryCheckCategoryId
+    );
+    if (!ok) setCategoryCheckCategoryId('');
+  }, [activeMenu, categoryCheckCategoryId, categoryCheckClothingTypesOptions]);
+
+  useEffect(() => {
+    if (activeMenu !== 'sizes') return;
+    const raw = sizesCategoryId.trim();
+    if (!raw) return;
+    const id = Number(raw);
+    if (!Number.isInteger(id) || id < 1) {
+      setSizesCategoryId('');
+      return;
+    }
+    const ok = sizesClothingTypeOptions.some((t) => t.id === id);
+    if (!ok) setSizesCategoryId('');
+  }, [activeMenu, sizesCategoryId, sizesClothingTypeOptions]);
 
   const handleCategoryCheckUpdate = useCallback(async (stockId: number, newCategoryIdStr: string) => {
     const newCat = newCategoryIdStr === '' ? null : Number(newCategoryIdStr);
@@ -2053,6 +2180,61 @@ const Config: React.FC = () => {
     }
   };
 
+  const configStockListDepartmentToolbar = (
+    <div className="stock-header config-no-tags-stock-header">
+      <div className="header-actions">
+        <div className="stock-filters config-no-tags-stock-filters">
+          <div className="filter-group view-group">
+            <select
+              id="config-stock-list-department-filter"
+              value={
+                configStockListDepartmentFilterEffective != null &&
+                adminDepartments.some((d) => d.id === configStockListDepartmentFilterEffective)
+                  ? String(configStockListDepartmentFilterEffective)
+                  : ''
+              }
+              onChange={(e) => {
+                const v = parseInt(e.target.value, 10);
+                if (Number.isFinite(v) && v >= 1) setConfigStockListDepartmentFilterId(v);
+              }}
+              className="filter-select"
+              disabled={departmentsLoading || adminDepartments.length === 0}
+              aria-label="Filter stock list by department"
+            >
+              {adminDepartments.length === 0 ? (
+                <option value="">Department…</option>
+              ) : (
+                [...adminDepartments]
+                  .sort((a, b) => {
+                    const aMw = a.department_name.trim().toLowerCase() === 'menswear';
+                    const bMw = b.department_name.trim().toLowerCase() === 'menswear';
+                    if (aMw !== bMw) return aMw ? -1 : 1;
+                    return a.department_name.localeCompare(b.department_name, undefined, {
+                      sensitivity: 'base',
+                    });
+                  })
+                  .map((d) => (
+                    <option key={d.id} value={String(d.id)}>
+                      {d.department_name}
+                    </option>
+                  ))
+              )}
+            </select>
+            <button
+              type="button"
+              className="stock-refresh-icon-button"
+              onClick={loadStock}
+              title="Refresh list"
+              aria-label="Refresh list"
+            >
+              ↻
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="config-container">
       {error &&
@@ -2184,22 +2366,25 @@ const Config: React.FC = () => {
         <div className="config-content">
           {activeMenu === 'untagged-brand' && (
             <div className="config-section">
-              <div className="config-section-header">
-                <button
-                  type="button"
-                  className="config-refresh-button"
-                  onClick={loadStock}
-                  title="Refresh list"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
-                  </svg>
-                </button>
-              </div>
+              {configStockListDepartmentToolbar}
+              {departmentsError ? (
+                <div className="config-error config-error--inline" role="alert">
+                  {departmentsError}
+                </div>
+              ) : null}
               {loading ? (
                 <div className="config-loading">Loading...</div>
-              ) : filteredRows.length === 0 ? (
+              ) : rows.filter(
+                  (row) =>
+                    (row.brand_id === null || row.brand_id === undefined) &&
+                    !autoTaggedHiddenIds.has(Number(row.id))
+                ).length === 0 ? (
                 <div className="config-empty">No items found with no brand assigned.</div>
+              ) : filteredRows.length === 0 ? (
+                <div className="config-empty">
+                  No items with no brand in this department. Try another department, or assign a clothing type that
+                  belongs to this department.
+                </div>
               ) : (
                 <div className="config-grid">
                   {filteredRows.map((row) => (
@@ -2371,18 +2556,12 @@ const Config: React.FC = () => {
 
           {activeMenu === 'no-size' && (
             <div className="config-section">
-              <div className="config-section-header">
-                <button
-                  type="button"
-                  className="config-refresh-button"
-                  onClick={loadStock}
-                  title="Refresh list"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
-                  </svg>
-                </button>
-              </div>
+              {configStockListDepartmentToolbar}
+              {departmentsError ? (
+                <div className="config-error config-error--inline" role="alert">
+                  {departmentsError}
+                </div>
+              ) : null}
               {noSizePickerError ? (
                 <div className="config-error config-error--inline" role="alert">
                   {noSizePickerError}
@@ -2390,9 +2569,14 @@ const Config: React.FC = () => {
               ) : null}
               {loading ? (
                 <div className="config-loading">Loading...</div>
-              ) : filteredRows.length === 0 ? (
+              ) : rows.filter(stockRowIsOnNoSizeList).length === 0 ? (
                 <div className="config-empty">
                   No items found without a size (excluding selected clothing-type categories).
+                </div>
+              ) : filteredRows.length === 0 ? (
+                <div className="config-empty">
+                  No items without a size in this department. Try another department, or assign a clothing type that
+                  belongs to this department.
                 </div>
               ) : (
                 <>
@@ -2488,22 +2672,21 @@ const Config: React.FC = () => {
 
           {activeMenu === 'no-ebay-id' && (
             <div className="config-section">
-              <div className="config-section-header">
-                <button
-                  type="button"
-                  className="config-refresh-button"
-                  onClick={loadStock}
-                  title="Refresh list"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
-                  </svg>
-                </button>
-              </div>
+              {configStockListDepartmentToolbar}
+              {departmentsError ? (
+                <div className="config-error config-error--inline" role="alert">
+                  {departmentsError}
+                </div>
+              ) : null}
               {loading ? (
                 <div className="config-loading">Loading...</div>
-              ) : filteredRows.length === 0 ? (
+              ) : rows.filter((row) => !row.ebay_id || row.ebay_id.trim() === '').length === 0 ? (
                 <div className="config-empty">No items found that are not on eBay.</div>
+              ) : filteredRows.length === 0 ? (
+                <div className="config-empty">
+                  No items not on eBay in this department. Try another department, or assign a clothing type that
+                  belongs to this department.
+                </div>
               ) : (
                 <div className="config-grid">
                   {filteredRows.map((row) => (
@@ -2549,22 +2732,21 @@ const Config: React.FC = () => {
 
           {activeMenu === 'no-vinted-id' && (
             <div className="config-section">
-              <div className="config-section-header">
-                <button
-                  type="button"
-                  className="config-refresh-button"
-                  onClick={loadStock}
-                  title="Refresh list"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
-                  </svg>
-                </button>
-              </div>
+              {configStockListDepartmentToolbar}
+              {departmentsError ? (
+                <div className="config-error config-error--inline" role="alert">
+                  {departmentsError}
+                </div>
+              ) : null}
               {loading ? (
                 <div className="config-loading">Loading...</div>
-              ) : filteredRows.length === 0 ? (
+              ) : rows.filter((row) => !row.vinted_id || row.vinted_id.trim() === '').length === 0 ? (
                 <div className="config-empty">No items found that are not on Vinted.</div>
+              ) : filteredRows.length === 0 ? (
+                <div className="config-empty">
+                  No items not on Vinted in this department. Try another department, or assign a clothing type that
+                  belongs to this department.
+                </div>
               ) : (
                 <div className="config-grid">
                   {filteredRows.map((row) => (
@@ -2765,7 +2947,38 @@ const Config: React.FC = () => {
                   {stockTypesError}
                 </div>
               ) : null}
-              <div className="config-sizes-category-picker">
+              <div className="config-items-category-check-picker-row">
+                <div className="config-grid-field config-grid-field--size-select">
+                  <label className="config-grid-label" htmlFor="config-items-category-check-dept">
+                    Department
+                  </label>
+                  <select
+                    id="config-items-category-check-dept"
+                    className="config-no-size-select"
+                    value={
+                      categoryCheckDepartmentFilterId != null && categoryCheckDepartmentFilterId >= 1
+                        ? String(categoryCheckDepartmentFilterId)
+                        : ''
+                    }
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      setCategoryCheckDepartmentFilterId(
+                        raw === '' ? null : Math.floor(Number(raw)) || null
+                      );
+                      setCategoryCheckError(null);
+                    }}
+                    disabled={departmentsLoading || adminDepartments.length === 0}
+                  >
+                    <option value="">
+                      {departmentsLoading ? 'Loading departments…' : 'Select department…'}
+                    </option>
+                    {adminDepartments.map((d) => (
+                      <option key={d.id} value={String(d.id)}>
+                        {d.department_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <div className="config-grid-field config-grid-field--size-select">
                   <label className="config-grid-label" htmlFor="config-items-category-check-filter">
                     Category
@@ -2778,14 +2991,22 @@ const Config: React.FC = () => {
                       setCategoryCheckCategoryId(e.target.value);
                       setCategoryCheckError(null);
                     }}
-                    disabled={stockTypesLoading && sortedClothingTypesForCategoryCheck.length === 0}
+                    disabled={
+                      categoryCheckDepartmentFilterId == null ||
+                      categoryCheckDepartmentFilterId < 1 ||
+                      (stockTypesLoading && categoryCheckClothingTypesOptions.length === 0)
+                    }
                   >
                     <option value="">
-                      {stockTypesLoading && sortedClothingTypesForCategoryCheck.length === 0
-                        ? 'Loading categories…'
-                        : 'Select a category…'}
+                      {categoryCheckDepartmentFilterId == null || categoryCheckDepartmentFilterId < 1
+                        ? 'Choose a department first…'
+                        : stockTypesLoading && categoryCheckClothingTypesOptions.length === 0
+                          ? 'Loading categories…'
+                          : categoryCheckClothingTypesOptions.length === 0
+                            ? 'No categories for this department'
+                            : 'Select a category…'}
                     </option>
-                    {sortedClothingTypesForCategoryCheck.map((c) => (
+                    {categoryCheckClothingTypesOptions.map((c) => (
                       <option key={c.id} value={String(c.id)}>
                         {c.category_name}
                       </option>
@@ -2851,7 +3072,7 @@ const Config: React.FC = () => {
                                 aria-label={`Change category for ${row.item_name?.trim() || `item ${row.id}`}`}
                               >
                                 <option value="">No category</option>
-                                {sortedClothingTypesForCategoryCheck.map((c) => (
+                                {categoryCheckClothingTypesOptions.map((c) => (
                                   <option key={c.id} value={String(c.id)}>
                                     {c.category_name}
                                   </option>
@@ -3868,49 +4089,78 @@ const Config: React.FC = () => {
           {activeMenu === 'sizes' && (
             <div className="config-section config-section--sizes">
               {sizesError && <div className="config-error config-error--inline">{sizesError}</div>}
-              <div className="config-clothing-header">
-                <h3 className="config-section-title">Stock sizes by clothing type</h3>
+              {departmentsError ? (
+                <div className="config-error config-error--inline" role="alert">
+                  {departmentsError}
+                </div>
+              ) : null}
+              <div className="config-sizes-toolbar">
+                <div className="config-clothing-field config-clothing-field--inline">
+                  <span>Department</span>
+                  <select
+                    aria-label="Filter categories by department"
+                    value={sizesDepartmentFilterId === 'all' ? 'all' : String(sizesDepartmentFilterId)}
+                    onChange={(ev) => {
+                      const v = ev.target.value;
+                      setSizesDepartmentFilterId(v === 'all' ? 'all' : Number(v));
+                      sizesDeptFilterInitializedRef.current = true;
+                      setSizesError(null);
+                    }}
+                    disabled={departmentsLoading || adminDepartments.length === 0}
+                  >
+                    <option value="all">All departments</option>
+                    {[...adminDepartments]
+                      .sort((a, b) => {
+                        const aMw = a.department_name.trim().toLowerCase() === 'menswear';
+                        const bMw = b.department_name.trim().toLowerCase() === 'menswear';
+                        if (aMw !== bMw) return aMw ? -1 : 1;
+                        return a.department_name.localeCompare(b.department_name, undefined, {
+                          sensitivity: 'base',
+                        });
+                      })
+                      .map((d) => (
+                        <option key={d.id} value={String(d.id)}>
+                          {d.department_name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                <label className="config-clothing-field config-sizes-category-picker config-sizes-category-picker--toolbar">
+                  <span>Category</span>
+                  <select
+                    value={sizesCategoryId}
+                    onChange={(ev) => {
+                      setSizesCategoryId(ev.target.value);
+                      setSizesError(null);
+                    }}
+                    disabled={stockTypesLoading}
+                  >
+                    <option value="">Select category…</option>
+                    {sizesClothingTypeOptions.map((t) => (
+                      <option key={t.id} value={String(t.id)}>
+                        {t.category_name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <button
                   type="button"
-                  className="config-refresh-button"
+                  className="config-refresh-button config-sizes-toolbar-refresh"
                   onClick={() => {
                     const cid = Number(sizesCategoryId);
                     if (Number.isInteger(cid) && cid >= 1) void loadCategorySizesAdmin(cid);
                     void loadStockClothingTypes();
+                    void loadAdminDepartments();
                   }}
-                  title="Refresh categories and sizes"
+                  title="Refresh departments, categories and sizes"
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
                   </svg>
                 </button>
               </div>
-              <p className="config-sizes-intro">
-                Choose a <strong>clothing type category</strong> (same list as Stock). Add or edit size labels for that
-                category. Delete is only allowed when no stock line uses that size.
-              </p>
-              <label className="config-clothing-field config-sizes-category-picker">
-                <span>Category</span>
-                <select
-                  value={sizesCategoryId}
-                  onChange={(ev) => {
-                    setSizesCategoryId(ev.target.value);
-                    setSizesError(null);
-                  }}
-                  disabled={stockTypesLoading}
-                >
-                  <option value="">Select category…</option>
-                  {stockClothingTypes.map((t) => (
-                    <option key={t.id} value={String(t.id)}>
-                      {t.category_name}
-                    </option>
-                  ))}
-                </select>
-              </label>
 
-              {!sizesCategoryId.trim() ? (
-                <div className="config-empty">Select a category to manage sizes.</div>
-              ) : (
+              {sizesCategoryId.trim() ? (
                 <>
                   <div className="config-clothing-header config-sizes-add-row">
                     <button
@@ -4079,7 +4329,7 @@ const Config: React.FC = () => {
                     </div>
                   )}
                 </>
-              )}
+              ) : null}
             </div>
           )}
         </div>

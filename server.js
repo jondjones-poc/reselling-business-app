@@ -1520,7 +1520,9 @@ function meteorologicalSeasonDisplayLabel(spec) {
 
 /**
  * Four consecutive meteorological seasons: current first, then each prior season
- * (same order as columns left → right). Top clothing types and brands from sold lines.
+ * (same order as columns left → right). Top categories and brands from sold lines.
+ * Optional `department_id` / `departmentId`: restrict to brands in that department;
+ * category rows are limited to stock categories assigned to the same department (plus uncategorized).
  */
 app.get('/api/stock/seasonal-insights', async (req, res) => {
   try {
@@ -1528,6 +1530,8 @@ app.get('/api/stock/seasonal-insights', async (req, res) => {
     if (!pool) {
       return res.status(500).json({ error: 'Database connection not configured' });
     }
+
+    const filterDeptId = parseOptionalBrandDepartmentFilter(req);
 
     const today = new Date();
     let cur = meteorologicalCurrentSeasonFromDate(today);
@@ -1546,52 +1550,61 @@ app.get('/api/stock/seasonal-insights', async (req, res) => {
 
       const saleCountRes = await pool.query(
         `SELECT COUNT(*)::int AS c
-         FROM stock
-         WHERE sale_date IS NOT NULL
-           AND sale_date::date >= $1::date
-           AND sale_date::date <= $2::date`,
-        [start, end]
+         FROM stock s
+         INNER JOIN brand b ON b.id = s.brand_id
+         WHERE s.sale_date IS NOT NULL
+           AND s.sale_date::date >= $1::date
+           AND s.sale_date::date <= $2::date
+           AND ($3::int IS NULL OR b.department_id = $3::int)`,
+        [start, end, filterDeptId]
       );
       const saleCount = saleCountRes.rows[0]?.c ?? 0;
 
       const catRes = await pool.query(
         `SELECT COALESCE(cat.category_name, 'Uncategorized') AS name, COUNT(*)::int AS cnt
          FROM stock s
+         INNER JOIN brand b ON b.id = s.brand_id
          LEFT JOIN category cat ON cat.id = s.category_id
          WHERE s.sale_date IS NOT NULL
            AND s.sale_date::date >= $1::date
            AND s.sale_date::date <= $2::date
+           AND ($3::int IS NULL OR b.department_id = $3::int)
+           AND ($3::int IS NULL OR s.category_id IS NULL OR cat.department_id = $3::int)
          GROUP BY COALESCE(cat.category_name, 'Uncategorized')
          ORDER BY cnt DESC NULLS LAST, name ASC
          LIMIT 5`,
-        [start, end]
+        [start, end, filterDeptId]
       );
 
       const catWorstRes = await pool.query(
         `SELECT COALESCE(cat.category_name, 'Uncategorized') AS name, COUNT(*)::int AS cnt
          FROM stock s
+         INNER JOIN brand b ON b.id = s.brand_id
          LEFT JOIN category cat ON cat.id = s.category_id
          WHERE s.sale_date IS NOT NULL
            AND s.sale_date::date >= $1::date
            AND s.sale_date::date <= $2::date
+           AND ($3::int IS NULL OR b.department_id = $3::int)
+           AND ($3::int IS NULL OR s.category_id IS NULL OR cat.department_id = $3::int)
          GROUP BY COALESCE(cat.category_name, 'Uncategorized')
          ORDER BY cnt ASC NULLS LAST, name ASC
          LIMIT 5`,
-        [start, end]
+        [start, end, filterDeptId]
       );
 
       const brandRes = await pool.query(
         `SELECT COALESCE(NULLIF(TRIM(b.brand_name), ''), 'Unknown brand') AS name, COUNT(*)::int AS cnt
          FROM stock s
-         LEFT JOIN brand b ON b.id = s.brand_id
+         INNER JOIN brand b ON b.id = s.brand_id
          WHERE s.sale_date IS NOT NULL
            AND s.sale_date::date >= $1::date
            AND s.sale_date::date <= $2::date
+           AND ($3::int IS NULL OR b.department_id = $3::int)
            AND LOWER(TRIM(COALESCE(b.brand_name, ''))) <> 'misc'
          GROUP BY COALESCE(NULLIF(TRIM(b.brand_name), ''), 'Unknown brand')
          ORDER BY cnt DESC NULLS LAST, name ASC
          LIMIT 5`,
-        [start, end]
+        [start, end, filterDeptId]
       );
 
       const isCurrentSeason =
@@ -1622,7 +1635,12 @@ app.get('/api/stock/seasonal-insights', async (req, res) => {
     }
 
     const totalSoldRes = await pool.query(
-      `SELECT COUNT(*)::int AS c FROM stock WHERE sale_date IS NOT NULL`
+      `SELECT COUNT(*)::int AS c
+       FROM stock s
+       INNER JOIN brand b ON b.id = s.brand_id
+       WHERE s.sale_date IS NOT NULL
+         AND ($1::int IS NULL OR b.department_id = $1::int)`,
+      [filterDeptId]
     );
     const totalSoldLines = totalSoldRes.rows[0]?.c ?? 0;
     const seasonsWithSalesCount = columns.filter((c) => c.hasSalesData).length;
@@ -1630,10 +1648,14 @@ app.get('/api/stock/seasonal-insights', async (req, res) => {
     let emptyMessage = null;
     if (totalSoldLines === 0) {
       emptyMessage =
-        'No sold items with sale dates yet — seasonal breakdown will appear once you record sales.';
+        filterDeptId != null
+          ? 'No sold items with sale dates for this department yet — Sales by season will populate once you record sales.'
+          : 'No sold items with sale dates yet — Sales by season will populate once you record sales.';
     } else if (seasonsWithSalesCount === 0) {
       emptyMessage =
-        'None of your sales fall in these four meteorological seasons — keep logging sale dates to build this view.';
+        filterDeptId != null
+          ? 'None of this department’s sales fall in these four meteorological seasons — keep logging sale dates to build this view.'
+          : 'None of your sales fall in these four meteorological seasons — keep logging sale dates to build this view.';
     }
 
     res.json({
@@ -1644,7 +1666,7 @@ app.get('/api/stock/seasonal-insights', async (req, res) => {
     });
   } catch (error) {
     console.error('seasonal-insights failed:', error);
-    res.status(500).json({ error: 'Failed to load seasonal insights', details: error.message });
+    res.status(500).json({ error: 'Failed to load Sales by season data', details: error.message });
   }
 });
 
@@ -3134,8 +3156,12 @@ async function ensureMenswearCategoryTable(pool) {
 /**
  * Idempotent: add department_id to menswear_category, backfill Menswear, per-dept name uniqueness.
  * Mirrors scripts/migrations/001_menswear_category_add_department.sql for dev / fresh DBs.
+ *
+ * Serialized via ensureMenswearCategoryDepartmentSchema: concurrent HTTP handlers (e.g. sales +
+ * inventory + list) must not run this DDL in parallel or PostgreSQL can raise
+ * duplicate key on pg_class_relname_nsp_index.
  */
-async function ensureMenswearCategoryDepartmentSchema(pool) {
+async function ensureMenswearCategoryDepartmentSchemaBody(pool) {
   await ensureMenswearCategoryTable(pool);
   await pool.query(`
     ALTER TABLE public.menswear_category
@@ -3188,6 +3214,22 @@ async function ensureMenswearCategoryDepartmentSchema(pool) {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_menswear_category_dept_name_lower
       ON public.menswear_category (department_id, lower(trim(both from name)));
     `);
+  }
+}
+
+let _menswearDeptDdlQueue = Promise.resolve();
+
+async function ensureMenswearCategoryDepartmentSchema(pool) {
+  const prev = _menswearDeptDdlQueue;
+  let release;
+  _menswearDeptDdlQueue = new Promise((resolve) => {
+    release = resolve;
+  });
+  await prev;
+  try {
+    await ensureMenswearCategoryDepartmentSchemaBody(pool);
+  } finally {
+    release();
   }
 }
 
@@ -4535,6 +4577,16 @@ app.get('/api/menswear-categories/sales-by-category', async (req, res) => {
     if (!pool) {
       return res.status(500).json({ error: 'Database connection not configured' });
     }
+    await ensureMenswearCategoryDepartmentSchema(pool);
+
+    const rawDept = req.query.department_id ?? req.query.departmentId;
+    let filterDeptId = null;
+    if (rawDept !== undefined && rawDept !== null && String(rawDept).trim() !== '') {
+      const n = Number(rawDept);
+      if (Number.isInteger(n) && n >= 1) {
+        filterDeptId = n;
+      }
+    }
 
     const rawPeriod = String(req.query.period ?? 'last_12_months').trim().toLowerCase();
     const period =
@@ -4551,6 +4603,13 @@ app.get('/api/menswear-categories/sales-by-category', async (req, res) => {
       dateFilterSql = "AND s.sale_date >= DATE '2025-01-01' AND s.sale_date < DATE '2026-01-01'";
     }
 
+    /**
+     * When ?department_id= is set, scope by brand.department_id (what you actually sell under that
+     * department), not menswear_category.department_id — otherwise Electronics sales vanish when brands
+     * still point at research buckets created under another department.
+     * With a department filter, also include brands with menswear_category_id NULL (e.g. Roku under a
+     * generic brand) — they roll up as category_id null + name "No research bucket".
+     */
     const result = await pool.query(
       `WITH sales AS (
          SELECT
@@ -4567,19 +4626,23 @@ app.get('/api/menswear-categories/sales-by-category', async (req, res) => {
            COUNT(s.id)::int AS sold_count
          FROM stock s
          JOIN brand b ON b.id = s.brand_id
-         WHERE b.menswear_category_id IS NOT NULL
+         WHERE (
+             ($1::int IS NULL AND b.menswear_category_id IS NOT NULL)
+             OR ($1::int IS NOT NULL AND b.department_id = $1::int)
+           )
            ${dateFilterSql}
          GROUP BY b.menswear_category_id
        )
        SELECT
-         c.id AS category_id,
-         c.name AS category_name,
+         s.category_id AS category_id,
+         COALESCE(c.name, 'No research bucket') AS category_name,
          COALESCE(s.total_sales, 0)::numeric AS total_sales,
          COALESCE(s.sold_count, 0)::int AS sold_count
-       FROM menswear_category c
-       LEFT JOIN sales s ON s.category_id = c.id
+       FROM sales s
+       LEFT JOIN menswear_category c ON c.id = s.category_id
        WHERE COALESCE(s.total_sales, 0) > 0 OR COALESCE(s.sold_count, 0) > 0
-       ORDER BY total_sales DESC NULLS LAST, category_name ASC`
+       ORDER BY total_sales DESC NULLS LAST, category_name ASC`,
+      [filterDeptId]
     );
 
     res.json({ rows: result.rows, period });
@@ -4602,17 +4665,43 @@ app.get('/api/menswear-categories/inventory-by-category', async (req, res) => {
     }
     await ensureMenswearCategoryDepartmentSchema(pool);
 
-    const result = await pool.query(
-      `SELECT
-         c.id AS category_id,
-         c.name AS category_name,
-         COUNT(s.id)::int AS unsold_count
-       FROM menswear_category c
-       LEFT JOIN brand b ON b.menswear_category_id = c.id
-       LEFT JOIN stock s ON s.brand_id = b.id AND s.sale_date IS NULL
-       GROUP BY c.id, c.name
-       ORDER BY unsold_count DESC, c.name ASC`
-    );
+    const rawDept = req.query.department_id ?? req.query.departmentId;
+    let filterDeptId = null;
+    if (rawDept !== undefined && rawDept !== null && String(rawDept).trim() !== '') {
+      const n = Number(rawDept);
+      if (Number.isInteger(n) && n >= 1) {
+        filterDeptId = n;
+      }
+    }
+
+    let result;
+    if (filterDeptId !== null) {
+      result = await pool.query(
+        `SELECT
+           c.id AS category_id,
+           COALESCE(c.name, 'No research bucket') AS category_name,
+           COUNT(s.id)::int AS unsold_count
+         FROM brand b
+         LEFT JOIN menswear_category c ON c.id = b.menswear_category_id
+         LEFT JOIN stock s ON s.brand_id = b.id AND s.sale_date IS NULL
+         WHERE b.department_id = $1
+         GROUP BY c.id, c.name
+         ORDER BY unsold_count DESC, c.name ASC`,
+        [filterDeptId]
+      );
+    } else {
+      result = await pool.query(
+        `SELECT
+           c.id AS category_id,
+           c.name AS category_name,
+           COUNT(s.id)::int AS unsold_count
+         FROM menswear_category c
+         LEFT JOIN brand b ON b.menswear_category_id = c.id
+         LEFT JOIN stock s ON s.brand_id = b.id AND s.sale_date IS NULL
+         GROUP BY c.id, c.name
+         ORDER BY unsold_count DESC, c.name ASC`
+      );
+    }
 
     res.json({ rows: result.rows ?? [] });
   } catch (error) {
@@ -4631,6 +4720,8 @@ app.get('/api/stock-categories/sales-by-category', async (req, res) => {
     if (!pool) {
       return res.status(500).json({ error: 'Database connection not configured' });
     }
+
+    const filterDeptId = parseOptionalBrandDepartmentFilter(req);
 
     const rawPeriod = String(req.query.period ?? 'last_12_months').trim().toLowerCase();
     const period =
@@ -4662,7 +4753,9 @@ app.get('/api/stock-categories/sales-by-category', async (req, res) => {
            ), 0)::numeric AS total_sales,
            COUNT(s.id)::int AS sold_count
          FROM stock s
+         INNER JOIN brand b ON b.id = s.brand_id
          WHERE s.sale_date IS NOT NULL
+           AND ($1::int IS NULL OR b.department_id = $1::int)
            ${dateFilterSql}
          GROUP BY s.category_id
        )
@@ -4673,8 +4766,10 @@ app.get('/api/stock-categories/sales-by-category', async (req, res) => {
          s.sold_count
        FROM sales s
        LEFT JOIN category c ON c.id = s.category_id
-       WHERE COALESCE(s.total_sales, 0) > 0 OR COALESCE(s.sold_count, 0) > 0
-       ORDER BY s.total_sales DESC NULLS LAST, category_name ASC`
+       WHERE (COALESCE(s.total_sales, 0) > 0 OR COALESCE(s.sold_count, 0) > 0)
+         AND ($1::int IS NULL OR s.category_id IS NULL OR c.department_id = $1::int)
+       ORDER BY s.total_sales DESC NULLS LAST, category_name ASC`,
+      [filterDeptId]
     );
 
     res.json({ rows: result.rows, period });
@@ -4697,11 +4792,51 @@ app.get('/api/stock-categories/inventory-by-category', async (req, res) => {
       return res.status(500).json({ error: 'Database connection not configured' });
     }
 
+    const filterDeptId = parseOptionalBrandDepartmentFilter(req);
+
     const result = await pool.query(
       `WITH per_cat AS (
          SELECT
            c.id AS category_id,
            c.category_name AS category_name,
+           COUNT(*) FILTER (
+             WHERE s.sale_date IS NOT NULL
+               AND ($1::int IS NULL OR b.department_id = $1::int)
+           )::int AS sold_count,
+           COUNT(*) FILTER (
+             WHERE s.sale_date IS NULL
+               AND ($1::int IS NULL OR b.department_id = $1::int)
+           )::int AS unsold_count,
+           COALESCE(SUM(
+             CASE
+               WHEN s.sale_date IS NOT NULL
+                AND ($1::int IS NULL OR b.department_id = $1::int)
+                AND s.net_profit IS NOT NULL
+                AND TRIM(s.net_profit::text) <> ''
+               THEN s.net_profit::numeric
+               ELSE 0::numeric
+             END
+           ), 0::numeric) AS total_net_profit,
+           COALESCE(SUM(
+             CASE
+               WHEN s.sale_date IS NULL
+                AND ($1::int IS NULL OR b.department_id = $1::int)
+                AND s.purchase_price IS NOT NULL
+                AND TRIM(s.purchase_price::text) <> ''
+               THEN s.purchase_price::numeric
+               ELSE 0::numeric
+             END
+           ), 0::numeric) AS unsold_inventory_total
+         FROM category c
+         LEFT JOIN stock s ON s.category_id = c.id
+         LEFT JOIN brand b ON b.id = s.brand_id
+         WHERE ($1::int IS NULL OR c.department_id = $1::int)
+         GROUP BY c.id, c.category_name
+       ),
+       uncat AS (
+         SELECT
+           NULL::integer AS category_id,
+           'Uncategorized'::text AS category_name,
            COUNT(*) FILTER (WHERE s.sale_date IS NOT NULL)::int AS sold_count,
            COUNT(*) FILTER (WHERE s.sale_date IS NULL)::int AS unsold_count,
            COALESCE(SUM(
@@ -4722,36 +4857,10 @@ app.get('/api/stock-categories/inventory-by-category', async (req, res) => {
                ELSE 0::numeric
              END
            ), 0::numeric) AS unsold_inventory_total
-         FROM category c
-         LEFT JOIN stock s ON s.category_id = c.id
-         GROUP BY c.id, c.category_name
-       ),
-       uncat AS (
-         SELECT
-           NULL::integer AS category_id,
-           'Uncategorized'::text AS category_name,
-           COUNT(*) FILTER (WHERE sale_date IS NOT NULL)::int AS sold_count,
-           COUNT(*) FILTER (WHERE sale_date IS NULL)::int AS unsold_count,
-           COALESCE(SUM(
-             CASE
-               WHEN sale_date IS NOT NULL
-                AND net_profit IS NOT NULL
-                AND TRIM(net_profit::text) <> ''
-               THEN net_profit::numeric
-               ELSE 0::numeric
-             END
-           ), 0::numeric) AS total_net_profit,
-           COALESCE(SUM(
-             CASE
-               WHEN sale_date IS NULL
-                AND purchase_price IS NOT NULL
-                AND TRIM(purchase_price::text) <> ''
-               THEN purchase_price::numeric
-               ELSE 0::numeric
-             END
-           ), 0::numeric) AS unsold_inventory_total
-         FROM stock
-         WHERE category_id IS NULL
+         FROM stock s
+         INNER JOIN brand b ON b.id = s.brand_id
+         WHERE s.category_id IS NULL
+           AND ($1::int IS NULL OR b.department_id = $1::int)
        ),
        combined AS (
          SELECT * FROM per_cat WHERE unsold_count > 0
@@ -4779,7 +4888,8 @@ app.get('/api/stock-categories/inventory-by-category', async (req, res) => {
            ELSE 0::double precision
          END DESC NULLS LAST,
          unsold_count DESC,
-         category_name ASC`
+         category_name ASC`,
+      [filterDeptId]
     );
 
     res.json({ rows: result.rows ?? [] });
@@ -4799,6 +4909,15 @@ function parseStockClothingTypeTypeKey(typeKey) {
   const n = parseInt(s, 10);
   if (Number.isNaN(n) || n < 1) return null;
   return { uncategorized: false, categoryId: n };
+}
+
+/** Optional `?department_id=` / `?departmentId=` — scope stock rows by `brand.department_id`. */
+function parseOptionalBrandDepartmentFilter(req) {
+  const raw = req.query.department_id ?? req.query.departmentId;
+  if (raw === undefined || raw === null || String(raw).trim() === '') return null;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) return null;
+  return n;
 }
 
 /**
@@ -4824,8 +4943,15 @@ app.get('/api/stock-categories/type/:typeKey/brands', async (req, res) => {
       }
     }
 
-    const whereSql = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $1';
+    const filterDeptId = parseOptionalBrandDepartmentFilter(req);
+    const baseWhere = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $1';
     const params = parsed.uncategorized ? [] : [parsed.categoryId];
+    let deptClause = '';
+    if (filterDeptId != null) {
+      params.push(filterDeptId);
+      deptClause = ` AND b.department_id = $${params.length}`;
+    }
+    const whereSql = `${baseWhere}${deptClause}`;
 
     const result = await pool.query(
       `SELECT
@@ -4888,8 +5014,17 @@ app.get('/api/stock-categories/type/:typeKey/buy-more-by-brand-category', async 
       }
     }
 
-    const whereSql = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $1';
-    const params = parsed.uncategorized ? [limit] : [parsed.categoryId, limit];
+    const filterDeptId = parseOptionalBrandDepartmentFilter(req);
+    const baseWhere = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $1';
+    const params = [];
+    if (!parsed.uncategorized) params.push(parsed.categoryId);
+    if (filterDeptId != null) {
+      params.push(filterDeptId);
+    }
+    const deptClause = filterDeptId != null ? ` AND b.department_id = $${params.length}` : '';
+    params.push(limit);
+    const limitIdx = params.length;
+    const whereSql = `${baseWhere}${deptClause}`;
 
     const result = await pool.query(
       `SELECT
@@ -4910,7 +5045,7 @@ app.get('/api/stock-categories/type/:typeKey/buy-more-by-brand-category', async 
          (COUNT(s.id) FILTER (WHERE s.sale_date IS NULL)) ASC NULLS LAST,
          brand_name ASC,
          category_name ASC
-       LIMIT $${parsed.uncategorized ? '1' : '2'}`,
+       LIMIT $${limitIdx}`,
       params
     );
 
@@ -4952,8 +5087,17 @@ app.get('/api/stock-categories/type/:typeKey/unsold-inventory-by-brand-category'
       }
     }
 
-    const whereSql = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $1';
-    const params = parsed.uncategorized ? [limit] : [parsed.categoryId, limit];
+    const filterDeptId = parseOptionalBrandDepartmentFilter(req);
+    const baseWhere = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $1';
+    const params = [];
+    if (!parsed.uncategorized) params.push(parsed.categoryId);
+    if (filterDeptId != null) {
+      params.push(filterDeptId);
+    }
+    const deptClause = filterDeptId != null ? ` AND b.department_id = $${params.length}` : '';
+    params.push(limit);
+    const limitIdx = params.length;
+    const whereSql = `${baseWhere}${deptClause}`;
 
     const result = await pool.query(
       `SELECT
@@ -4974,7 +5118,7 @@ app.get('/api/stock-categories/type/:typeKey/unsold-inventory-by-brand-category'
          (COUNT(s.id) FILTER (WHERE s.sale_date IS NULL)) DESC NULLS LAST,
          brand_name ASC,
          category_name ASC
-       LIMIT $${parsed.uncategorized ? '1' : '2'}`,
+       LIMIT $${limitIdx}`,
       params
     );
 
@@ -5012,8 +5156,14 @@ app.get('/api/stock-categories/type/:typeKey/sold-and-stock-by-size', async (req
       }
     }
 
+    const filterDeptId = parseOptionalBrandDepartmentFilter(req);
     const typeWhere = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $1';
     const qParams = parsed.uncategorized ? [] : [parsed.categoryId];
+    let deptClause = '';
+    if (filterDeptId != null) {
+      qParams.push(filterDeptId);
+      deptClause = ` AND b.department_id = $${qParams.length}`;
+    }
 
     const result = await pool.query(
       `SELECT
@@ -5025,8 +5175,9 @@ app.get('/api/stock-categories/type/:typeKey/sold-and-stock-by-size', async (req
          COUNT(*) FILTER (WHERE s.sale_date IS NOT NULL)::int AS sold_count,
          COUNT(*) FILTER (WHERE s.sale_date IS NULL)::int AS in_stock_count
        FROM stock s
+       INNER JOIN brand b ON b.id = s.brand_id
        LEFT JOIN category_size sz ON sz.id = s.category_size_id
-       WHERE ${typeWhere}
+       WHERE ${typeWhere}${deptClause}
        GROUP BY s.category_size_id, sz.size_label, sz.sort_order
        ORDER BY COALESCE(sz.sort_order, 2147483647) ASC, size_label ASC`,
       qParams
@@ -5072,18 +5223,25 @@ app.get('/api/stock-categories/type/:typeKey/brand-inventory-items', async (req,
       return res.status(404).json({ error: 'Brand not found' });
     }
 
-    const typeWhere = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $2';
-    const stockCheckSql = parsed.uncategorized
-      ? 'SELECT 1 FROM stock WHERE brand_id = $1 AND category_id IS NULL LIMIT 1'
-      : 'SELECT 1 FROM stock WHERE brand_id = $1 AND category_id = $2 LIMIT 1';
-    const stockParams = parsed.uncategorized ? [brandId] : [brandId, parsed.categoryId];
-    const hasStock = await pool.query(stockCheckSql, stockParams);
+    const filterDeptId = parseOptionalBrandDepartmentFilter(req);
+    const qParams = [brandId];
+    let typeClause = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $2';
+    if (!parsed.uncategorized) qParams.push(parsed.categoryId);
+    if (filterDeptId != null) {
+      qParams.push(filterDeptId);
+      typeClause += ` AND b.department_id = $${qParams.length}`;
+    }
+
+    const hasStock = await pool.query(
+      `SELECT 1 FROM stock s INNER JOIN brand b ON b.id = s.brand_id
+       WHERE b.id = $1 AND ${typeClause} LIMIT 1`,
+      qParams
+    );
     if (!hasStock.rowCount) {
       return res.status(404).json({ error: 'No stock for this brand in this clothing type' });
     }
 
     const brandName = String(brandCheck.rows[0].brand_name ?? '');
-    const qParams = parsed.uncategorized ? [brandId] : [brandId, parsed.categoryId];
 
     const result = await pool.query(
       `SELECT
@@ -5098,7 +5256,7 @@ app.get('/api/stock-categories/type/:typeKey/brand-inventory-items', async (req,
        INNER JOIN brand b ON s.brand_id = b.id
        LEFT JOIN category c ON s.category_id = c.id
        WHERE b.id = $1
-         AND ${typeWhere}
+         AND ${typeClause}
        ORDER BY s.purchase_date DESC NULLS LAST, s.id DESC
        LIMIT 5000`,
       qParams
@@ -5140,11 +5298,14 @@ app.get('/api/stock-categories/type/:typeKey/detail', async (req, res) => {
       }
     }
 
-    const typeWhere = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $1';
-    const qParams = parsed.uncategorized ? [] : [parsed.categoryId];
+    const filterDeptId = parseOptionalBrandDepartmentFilter(req);
+    const qParams = parsed.uncategorized ? [filterDeptId] : [parsed.categoryId, filterDeptId];
+    const scopeWhere = parsed.uncategorized
+      ? `s.category_id IS NULL AND ($1::int IS NULL OR b.department_id = $1::int)`
+      : `s.category_id = $1 AND ($2::int IS NULL OR b.department_id = $2::int)`;
 
     const lifetimeCountResult = await pool.query(
-      `SELECT COUNT(*)::int AS c FROM stock s WHERE ${typeWhere}`,
+      `SELECT COUNT(*)::int AS c FROM stock s INNER JOIN brand b ON b.id = s.brand_id WHERE ${scopeWhere}`,
       qParams
     );
     const stockRowCountLifetime = Number(lifetimeCountResult.rows[0]?.c) || 0;
@@ -5159,7 +5320,8 @@ app.get('/api/stock-categories/type/:typeKey/detail', async (req, res) => {
            WHERE NOT (s.sale_price IS NOT NULL AND s.sale_price::numeric > 0)
          )::int AS unsold_count
        FROM stock s
-       WHERE ${typeWhere}`,
+       INNER JOIN brand b ON b.id = s.brand_id
+       WHERE ${scopeWhere}`,
       qParams
     );
     const countsRow = countsResult.rows[0] || {};
@@ -5180,7 +5342,8 @@ app.get('/api/stock-categories/type/:typeKey/detail', async (req, res) => {
            0
          )::numeric AS total_sold_revenue
        FROM stock s
-       WHERE ${typeWhere}`,
+       INNER JOIN brand b ON b.id = s.brand_id
+       WHERE ${scopeWhere}`,
       qParams
     );
     const moneyRow = moneyResult.rows[0] || {};
@@ -5203,7 +5366,8 @@ app.get('/api/stock-categories/type/:typeKey/detail', async (req, res) => {
              AND s.purchase_price::numeric > 0
          ) AS avg_sold_profit_multiple
        FROM stock s
-       WHERE ${typeWhere}`,
+       INNER JOIN brand b ON b.id = s.brand_id
+       WHERE ${scopeWhere}`,
       qParams
     );
     const soldPriceStats = soldPriceStatsResult.rows[0] || {};
@@ -5237,7 +5401,7 @@ app.get('/api/stock-categories/type/:typeKey/detail', async (req, res) => {
          s.vinted_id
        FROM stock s
        INNER JOIN brand b ON b.id = s.brand_id
-       WHERE ${typeWhere}
+       WHERE ${scopeWhere}
        ORDER BY s.purchase_date DESC NULLS LAST, s.id DESC
        LIMIT 5000`,
       qParams
@@ -5296,9 +5460,15 @@ app.get('/api/stock-categories/type/:typeKey/unsold-stock-items', async (req, re
       }
     }
 
+    const filterDeptId = parseOptionalBrandDepartmentFilter(req);
     const typeSql = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $1';
     const params = parsed.uncategorized ? [brandId] : [parsed.categoryId, brandId];
     const brandSlot = parsed.uncategorized ? '$1' : '$2';
+    let deptClause = '';
+    if (filterDeptId != null) {
+      params.push(filterDeptId);
+      deptClause = ` AND b.department_id = $${params.length}`;
+    }
 
     const result = await pool.query(
       `SELECT
@@ -5311,7 +5481,7 @@ app.get('/api/stock-categories/type/:typeKey/unsold-stock-items', async (req, re
        FROM stock s
        INNER JOIN brand b ON s.brand_id = b.id
        WHERE ${typeSql}
-         AND b.id = ${brandSlot}
+         AND b.id = ${brandSlot}${deptClause}
          AND s.sale_date IS NULL
        ORDER BY s.purchase_date DESC NULLS LAST, s.id DESC
        LIMIT 500`,
@@ -5353,9 +5523,15 @@ app.get('/api/stock-categories/type/:typeKey/sold-stock-items', async (req, res)
       }
     }
 
+    const filterDeptId = parseOptionalBrandDepartmentFilter(req);
     const typeSql = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $1';
     const params = parsed.uncategorized ? [brandId] : [parsed.categoryId, brandId];
     const brandSlot = parsed.uncategorized ? '$1' : '$2';
+    let deptClause = '';
+    if (filterDeptId != null) {
+      params.push(filterDeptId);
+      deptClause = ` AND b.department_id = $${params.length}`;
+    }
 
     const result = await pool.query(
       `SELECT
@@ -5369,7 +5545,7 @@ app.get('/api/stock-categories/type/:typeKey/sold-stock-items', async (req, res)
        FROM stock s
        INNER JOIN brand b ON s.brand_id = b.id
        WHERE ${typeSql}
-         AND b.id = ${brandSlot}
+         AND b.id = ${brandSlot}${deptClause}
          AND s.sale_date IS NOT NULL
        ORDER BY s.sale_date DESC NULLS LAST, s.id DESC
        LIMIT 500`,
@@ -6305,15 +6481,34 @@ app.get('/api/categories', async (req, res) => {
       return res.status(500).json({ error: 'Database connection not configured' });
     }
 
-    const result = await pool.query(`
+    const rawDept = req.query.department_id ?? req.query.departmentId;
+    let filterDeptId = null;
+    if (rawDept !== undefined && rawDept !== null && String(rawDept).trim() !== '') {
+      const n = Number(rawDept);
+      if (Number.isInteger(n) && n >= 1) {
+        filterDeptId = n;
+      }
+    }
+    const params = [];
+    let whereSql = '';
+    if (filterDeptId !== null) {
+      params.push(filterDeptId);
+      whereSql = `WHERE c.department_id = $${params.length}`;
+    }
+
+    const result = await pool.query(
+      `
       SELECT c.id, c.category_name, c.department_id, d.department_name,
              COUNT(s.id)::int AS stock_count
       FROM category c
       LEFT JOIN department d ON d.id = c.department_id
       LEFT JOIN stock s ON s.category_id = c.id
+      ${whereSql}
       GROUP BY c.id, c.category_name, c.department_id, d.department_name
       ORDER BY d.department_name ASC NULLS LAST, c.category_name ASC
-    `);
+    `,
+      params
+    );
 
     res.json({
       rows: result.rows ?? [],

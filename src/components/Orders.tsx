@@ -952,10 +952,6 @@ const Orders: React.FC = () => {
 
       {orderItems.length > 0 && (
         <div className="orders-list-section">
-          <div className="orders-list-header">
-            <h2>Items to Pick Up ({orderItems.length})</h2>
-          </div>
-
           {/* Desktop Table View */}
           <div className="table-wrapper">
             <table className="orders-table">
@@ -1021,11 +1017,12 @@ const Orders: React.FC = () => {
                           </button>
                           <button
                             type="button"
-                            className="orders-remove-button"
+                            className="orders-posted-button"
                             onClick={() => handleRemoveItem(item.id)}
                             disabled={ordersLoading}
+                            title="Remove from pack list — item posted / shipped"
                           >
-                            Remove
+                            Posted
                           </button>
                         </div>
                       </td>
@@ -1049,11 +1046,12 @@ const Orders: React.FC = () => {
                     <span className="orders-card-sku">SKU: {item.id}</span>
                     <button
                       type="button"
-                      className="orders-remove-button"
+                      className="orders-posted-button"
                       onClick={() => handleRemoveItem(item.id)}
                       disabled={ordersLoading}
+                      title="Remove from pack list — item posted / shipped"
                     >
-                      Remove
+                      Posted
                     </button>
                   </div>
                   <div className="orders-card-body">
