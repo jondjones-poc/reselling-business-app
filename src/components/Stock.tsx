@@ -28,7 +28,29 @@ interface StockRow {
   projected_sale_price: Nullable<string | number>;
   category_size_id: Nullable<number>;
   sourced_location?: Nullable<string>;
+  /** Business write-off: item is unsellable (damaged, defective, etc.). */
+  is_inventory_write_off?: Nullable<boolean>;
 }
+
+type StockCreateFormState = {
+  item_name: string;
+  department_id: string;
+  category_id: string;
+  purchase_price: string;
+  purchase_date: string;
+  sale_date: string;
+  sale_price: string;
+  sold_platform: string;
+  vinted_id: string;
+  ebay_id: string;
+  depop_id: string;
+  brand_id: string;
+  brand_tag_image_id: string;
+  projected_sale_price: string;
+  category_size_id: string;
+  sourced_location: string;
+  inventory_write_off: boolean;
+};
 
 interface Brand {
   id: number;
@@ -97,6 +119,11 @@ function sourcedLocationFromRow(row: { sourced_location?: Nullable<string> }): s
   const v = row.sourced_location;
   if (v === 'charity_shop' || v === 'bootsale' || v === 'online_flip') return v;
   return 'charity_shop';
+}
+
+function stockRowWriteOffFromRow(row: { is_inventory_write_off?: unknown }): boolean {
+  const v = row.is_inventory_write_off;
+  return v === true || v === 't' || v === 'true' || v === 1 || v === '1';
 }
 
 function stockSaleDatePresent(row: { sale_date?: Nullable<string> }): boolean {
@@ -386,10 +413,12 @@ const Stock: React.FC = () => {
   const [selectedMonth, setSelectedMonth] = useState<string>(String(now.getMonth() + 1));
   const [selectedYear, setSelectedYear] = useState<string>('last-30-days');
   const [selectedWeek, setSelectedWeek] = useState<string>('off');
-  const [viewMode, setViewMode] = useState<'all' | 'active-listing' | 'sales' | 'listing' | 'to-list' | 'list-on-vinted' | 'list-on-ebay'>('all');
+  const [viewMode, setViewMode] = useState<
+    'all' | 'active-listing' | 'sales' | 'listing' | 'to-list' | 'list-on-vinted' | 'list-on-ebay' | 'inventory-write-off'
+  >('all');
   const [showNewEntry, setShowNewEntry] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [createForm, setCreateForm] = useState({
+  const [createForm, setCreateForm] = useState<StockCreateFormState>({
     item_name: '',
     department_id: '',
     category_id: '',
@@ -405,7 +434,8 @@ const Stock: React.FC = () => {
     brand_tag_image_id: '',
     projected_sale_price: '',
     category_size_id: '',
-    sourced_location: 'charity_shop'
+    sourced_location: 'charity_shop',
+    inventory_write_off: false
   });
   const [categorySizes, setCategorySizes] = useState<CategorySizeRow[]>([]);
   const [categorySizesLoading, setCategorySizesLoading] = useState(false);
@@ -440,6 +470,7 @@ const Stock: React.FC = () => {
   const [newBrandName, setNewBrandName] = useState('');
   const [savingBrand, setSavingBrand] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showWriteOffConfirm, setShowWriteOffConfirm] = useState(false);
   const [showCreateInsteadOfEditConfirm, setShowCreateInsteadOfEditConfirm] = useState(false);
   /** Tracks whether the open form was started from row edit (+ Add sets 'create'). Used to catch accidental POST after edit context was lost. */
   const [formIntent, setFormIntent] = useState<'create' | 'edit'>('create');
@@ -748,6 +779,7 @@ const Stock: React.FC = () => {
       category_size_id:
         rowToEdit.category_size_id != null ? String(rowToEdit.category_size_id) : '',
       sourced_location: sourcedLocationFromRow(rowToEdit),
+      inventory_write_off: stockRowWriteOffFromRow(rowToEdit),
     });
     setShowNewEntry(true);
     setSuccessMessage(null);
@@ -1444,6 +1476,10 @@ const Stock: React.FC = () => {
         if (!hasCategoryToList && !notListedAnywhere) {
           return false;
         }
+      } else if (viewMode === 'inventory-write-off') {
+        if (!stockRowWriteOffFromRow(row)) {
+          return false;
+        }
       }
 
       let dateMatches = false;
@@ -1454,7 +1490,7 @@ const Stock: React.FC = () => {
         if (selectedWeekData) {
           const { startDate, endDate } = selectedWeekData;
           
-          if (viewMode === 'all') {
+          if (viewMode === 'all' || viewMode === 'inventory-write-off') {
             // Filter by either sold date or purchase date falling within the selected week
             dateMatches = matchesWeek(row.purchase_date, startDate, endDate) || matchesWeek(row.sale_date, startDate, endDate);
           } else if (viewMode === 'active-listing') {
@@ -1475,7 +1511,7 @@ const Stock: React.FC = () => {
           dateMatches = true;
         } else if (selectedYear === 'last-30-days') {
           // Show items from last 30 days
-          if (viewMode === 'all') {
+          if (viewMode === 'all' || viewMode === 'inventory-write-off') {
             // For "all" view, check both purchase_date and sale_date
             dateMatches = matchesLast30Days(row.purchase_date) || matchesLast30Days(row.sale_date);
           } else if (viewMode === 'listing' || viewMode === 'list-on-vinted' || viewMode === 'list-on-ebay' || viewMode === 'to-list' || viewMode === 'active-listing') {
@@ -1483,7 +1519,7 @@ const Stock: React.FC = () => {
           } else {
             dateMatches = matchesLast30Days(row.sale_date);
           }
-        } else if (viewMode === 'all') {
+        } else if (viewMode === 'all' || viewMode === 'inventory-write-off') {
           // For "all" view, check both purchase_date and sale_date
           dateMatches = matchesMonthYear(row.purchase_date, selectedMonth, selectedYear) || matchesMonthYear(row.sale_date, selectedMonth, selectedYear);
         } else if (viewMode === 'listing' || viewMode === 'list-on-vinted' || viewMode === 'list-on-ebay' || viewMode === 'to-list' || viewMode === 'active-listing') {
@@ -1843,6 +1879,7 @@ const Stock: React.FC = () => {
       projected_sale_price: stockDbNumberToFormString(row.projected_sale_price),
       category_size_id: row.category_size_id != null ? String(row.category_size_id) : '',
       sourced_location: sourcedLocationFromRow(row),
+      inventory_write_off: stockRowWriteOffFromRow(row),
     });
     console.log('startEditingRow - row data:', row);
     console.log('startEditingRow - vinted_id:', row.vinted_id);
@@ -1878,6 +1915,7 @@ const Stock: React.FC = () => {
   };
 
   const resetCreateForm = () => {
+    setShowWriteOffConfirm(false);
     setCreateForm({
       item_name: '',
       department_id: defaultDepartmentId,
@@ -1894,11 +1932,12 @@ const Stock: React.FC = () => {
       brand_tag_image_id: '',
       projected_sale_price: '',
       category_size_id: '',
-      sourced_location: 'charity_shop'
+      sourced_location: 'charity_shop',
+      inventory_write_off: false
     });
   };
 
-  const handleCreateChange = (key: keyof typeof createForm, value: string) => {
+  const handleCreateChange = (key: Exclude<keyof StockCreateFormState, 'inventory_write_off'>, value: string) => {
     setCreateForm((prev) => {
       const next = { ...prev, [key]: value };
       if (key === 'brand_id' && value !== prev.brand_id) {
@@ -1972,7 +2011,8 @@ const Stock: React.FC = () => {
           createForm.category_id && createForm.category_size_id.trim() !== ''
             ? Number(createForm.category_size_id)
             : null,
-        sourced_location: createForm.sourced_location || 'charity_shop'
+        sourced_location: createForm.sourced_location || 'charity_shop',
+        is_inventory_write_off: createForm.inventory_write_off
       };
 
       console.log('Stock submit - Payload:', payload);
@@ -2171,6 +2211,7 @@ const Stock: React.FC = () => {
       setShowCreateInsteadOfEditConfirm(false);
       resetCreateForm();
       setShowDeleteConfirm(false);
+      setShowWriteOffConfirm(false);
       clearStockEditIdFromUrl();
     } catch (err: any) {
       console.error('Stock delete error:', err);
@@ -2448,6 +2489,7 @@ const Stock: React.FC = () => {
                       setShowCreateInsteadOfEditConfirm(false);
                       resetCreateForm();
                       setShowDeleteConfirm(false);
+                      setShowWriteOffConfirm(false);
                       clearStockEditIdFromUrl();
                     }
                   }}
@@ -3145,7 +3187,7 @@ const Stock: React.FC = () => {
                 </div>
               </div>
             </div>
-            {/* Row 3: marketplace IDs + projected; add-new also has save here. Edit: sale fields + platform + save on next row. */}
+            {/* Row 3: marketplace IDs + projected; add-new also has save here. Edit: sale fields + platform + write-off + save on next row. */}
             <div
               className={
                 editingRowId
@@ -3429,6 +3471,35 @@ const Stock: React.FC = () => {
                       )}
                     </label>
                     </div>
+                    <div
+                      className="stock-edit-platform-write-off-divider"
+                      role="separator"
+                      aria-orientation="vertical"
+                      aria-hidden
+                    />
+                    <div className="new-entry-field stock-edit-write-off-field">
+                      <span className="stock-edit-write-off-field-label" id="stock-write-off-field-label">
+                        Inventory write-off
+                        <span className="stock-edit-write-off-muted"> (unsellable)</span>
+                      </span>
+                      <div className="stock-edit-write-off-box">
+                        <label className="stock-edit-write-off-checkbox-label" htmlFor={`stock-inv-write-off-${editingRowId}`}>
+                          <input
+                            id={`stock-inv-write-off-${editingRowId}`}
+                            type="checkbox"
+                            checked={createForm.inventory_write_off}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setShowWriteOffConfirm(true);
+                              } else {
+                                setCreateForm((prev) => ({ ...prev, inventory_write_off: false }));
+                              }
+                            }}
+                            aria-labelledby="stock-write-off-field-label"
+                          />
+                        </label>
+                      </div>
+                    </div>
                     <div className="stock-edit-save-in-row4">
                       <span className="stock-edit-save-in-row4-label-spacer" aria-hidden>
                         &nbsp;
@@ -3542,6 +3613,58 @@ const Stock: React.FC = () => {
                 disabled={creating}
               >
                 {creating ? 'Saving…' : 'Create new row anyway'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showWriteOffConfirm && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000
+          }}
+          onClick={() => setShowWriteOffConfirm(false)}
+        >
+          <div
+            className="new-entry-card"
+            style={{
+              maxWidth: '500px',
+              width: '90%',
+              margin: '0 auto',
+              position: 'relative'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={{ margin: '0 0 20px 0', color: 'var(--neon-primary-strong)', letterSpacing: '0.08rem' }}>
+              Mark as inventory write-off?
+            </h2>
+            <p style={{ color: 'rgba(255, 248, 226, 0.85)', marginBottom: '24px', fontSize: '1rem', lineHeight: 1.5 }}>
+              This flags the item as <strong>unsellable</strong> (e.g. faults, damage, defects) for your records—a
+              business write-off. You can clear it later by unchecking and saving.
+            </p>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <button type="button" className="cancel-button" onClick={() => setShowWriteOffConfirm(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="save-button"
+                onClick={() => {
+                  setCreateForm((prev) => ({ ...prev, inventory_write_off: true }));
+                  setShowWriteOffConfirm(false);
+                }}
+              >
+                Yes, mark as write-off
               </button>
             </div>
           </div>
@@ -3783,7 +3906,19 @@ const Stock: React.FC = () => {
         <div className="filter-group view-group">
           <select
             value={viewMode}
-            onChange={(event) => setViewMode(event.target.value as 'all' | 'active-listing' | 'sales' | 'listing' | 'to-list' | 'list-on-vinted' | 'list-on-ebay')}
+            onChange={(event) =>
+              setViewMode(
+                event.target.value as
+                  | 'all'
+                  | 'active-listing'
+                  | 'sales'
+                  | 'listing'
+                  | 'to-list'
+                  | 'list-on-vinted'
+                  | 'list-on-ebay'
+                  | 'inventory-write-off'
+              )
+            }
             className="filter-select"
           >
             <option value="all">All</option>
@@ -3793,6 +3928,7 @@ const Stock: React.FC = () => {
             <option value="to-list">To List</option>
             <option value="list-on-vinted">To List On Vinted</option>
             <option value="list-on-ebay">To List On eBay</option>
+            <option value="inventory-write-off">Inventory write-off</option>
           </select>
           <button
             type="button"

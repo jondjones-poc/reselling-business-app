@@ -504,12 +504,65 @@
 }
 
 .stock-new-entry-row-edit-sale-platform-row .stock-edit-sold-platform-field {
-  flex: 1 1 220px;
+  flex: 1 1 160px;
   min-width: 0;
+  max-width: min(100%, 280px);
+}
+
+/* In-row vertical gutter between Sold Platform and Inventory write-off (reduces mis-clicks) */
+.stock-new-entry-row-edit-sale-platform-row .stock-edit-platform-write-off-divider {
+  flex: 0 0 32px;
+  width: 32px;
+  align-self: stretch;
+  min-height: 0;
+  margin: 0 2px;
+  position: relative;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.stock-new-entry-row-edit-sale-platform-row .stock-edit-platform-write-off-divider::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  transform: translateX(-50%);
+  border-radius: 2px;
+  background: rgba(255, 214, 91, 0.28);
+  box-shadow: 0 0 8px rgba(255, 214, 91, 0.12);
+  pointer-events: none;
 }
 
 .stock-new-entry-row-edit-sale-platform-row .stock-edit-save-in-row4 {
   margin-left: auto;
+}
+
+/* Narrow edit card: stack sold platform, keep write-off + save on one logical line */
+@container stock-edit-card (max-width: 720px) {
+  .stock-new-entry-row-edit-sale-platform-row {
+    flex-wrap: wrap;
+    row-gap: 10px;
+  }
+
+  .stock-new-entry-row-edit-sale-platform-row .stock-edit-sold-platform-field {
+    flex: 1 1 100%;
+    max-width: 100%;
+  }
+
+  .stock-new-entry-row-edit-sale-platform-row .stock-edit-write-off-field.new-entry-field {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: calc(100% - 64px);
+    align-self: stretch;
+  }
+
+  .stock-new-entry-row-edit-sale-platform-row .stock-edit-save-in-row4 {
+    flex: 0 0 auto;
+    margin-left: auto;
+    align-self: flex-end;
+  }
 }
 
 .stock-new-entry-row-ids > .new-entry-field {
@@ -926,6 +979,38 @@
     align-items: stretch;
   }
 
+  .stock-new-entry-row-edit-sale-platform-row .stock-edit-platform-write-off-divider {
+    flex: 0 0 auto;
+    width: 100%;
+    max-width: 100%;
+    height: 2px;
+    min-height: 2px;
+    max-height: 2px;
+    margin: 10px 0 8px;
+    align-self: stretch;
+  }
+
+  .stock-new-entry-row-edit-sale-platform-row .stock-edit-platform-write-off-divider::after {
+    left: 6%;
+    right: 6%;
+    top: 0;
+    bottom: 0;
+    width: auto;
+    height: 2px;
+    transform: none;
+    border-radius: 1px;
+  }
+
+  .stock-new-entry-row-edit-sale-platform-row .stock-edit-sold-platform-field {
+    max-width: 100%;
+  }
+
+  .stock-new-entry-row-edit-sale-platform-row .stock-edit-write-off-field.new-entry-field {
+    flex: 1 1 auto;
+    max-width: 100%;
+    align-self: stretch;
+  }
+
   .stock-new-entry-row-edit-sale-platform-row .stock-edit-save-in-row4 {
     margin-left: 0;
     align-self: flex-end;
@@ -949,6 +1034,15 @@
   min-width: 0;
   flex: 1 1 240px;
   max-width: calc(25% - 16px);
+}
+
+/* Sale row: write-off — override global .new-entry-field flex width so it sits inline with other columns */
+.stock-new-entry-row-edit-sale-platform-row .stock-edit-write-off-field.new-entry-field {
+  flex: 0 1 124px;
+  min-width: 96px;
+  max-width: min(100%, 140px);
+  align-self: flex-end;
+  box-sizing: border-box;
 }
 
 /* Label + inline “add” — centered with Category + button as a group */
@@ -1875,6 +1969,64 @@ button.stock-close-circle-btn:disabled {
   to {
     transform: rotate(360deg);
   }
+}
+
+.stock-edit-write-off-field-label {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  text-align: center;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: 0 2px;
+  color: rgba(255, 248, 226, 0.72);
+  letter-spacing: 0.05rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+
+.stock-edit-write-off-field .stock-edit-write-off-muted {
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0.02rem;
+  color: rgba(255, 248, 226, 0.48);
+  font-size: 0.62rem;
+}
+
+.stock-edit-write-off-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 46px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  border: 1px solid var(--neon-border, rgba(255, 214, 91, 0.35));
+  background: var(--neon-surface, rgba(255, 214, 91, 0.08));
+  box-sizing: border-box;
+}
+
+.stock-edit-write-off-checkbox-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 28px;
+  margin: 0;
+  cursor: pointer;
+}
+
+.stock-edit-write-off-checkbox-label input[type='checkbox'] {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--neon-primary, #ffd65b);
+  cursor: pointer;
 }
 
 @media (max-width: 768px) {

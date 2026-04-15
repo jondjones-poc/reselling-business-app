@@ -1368,7 +1368,7 @@ app.get('/api/stock', async (req, res) => {
     }
 
     const result = await pool.query(
-      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location FROM stock ORDER BY purchase_date DESC NULLS LAST, item_name ASC'
+      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off FROM stock ORDER BY purchase_date DESC NULLS LAST, item_name ASC'
     );
 
     res.json({
@@ -1391,7 +1391,7 @@ app.get('/api/stock/sold', async (req, res) => {
     }
 
     const result = await pool.query(
-      `SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location
+      `SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off
        FROM stock
        WHERE sale_date IS NOT NULL
        ORDER BY sale_date DESC NULLS LAST, id DESC`
@@ -2218,7 +2218,8 @@ app.post('/api/stock', async (req, res) => {
       brand_tag_image_id,
       projected_sale_price,
       category_size_id,
-      sourced_location
+      sourced_location,
+      is_inventory_write_off
     } = req.body ?? {};
 
     const normalizedItemName = normalizeTextInput(item_name) ?? null;
@@ -2283,6 +2284,12 @@ app.post('/api/stock', async (req, res) => {
       throw e;
     }
 
+    const normalizedInventoryWriteOff =
+      is_inventory_write_off === true ||
+      is_inventory_write_off === 'true' ||
+      is_inventory_write_off === 1 ||
+      is_inventory_write_off === '1';
+
     const insertQuery = `
       INSERT INTO stock (
         item_name,
@@ -2300,10 +2307,11 @@ app.post('/api/stock', async (req, res) => {
         brand_tag_image_id,
         projected_sale_price,
         category_size_id,
-        sourced_location
+        sourced_location,
+        is_inventory_write_off
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-      RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+      RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off
     `;
 
     const result = await pool.query(insertQuery, [
@@ -2322,7 +2330,8 @@ app.post('/api/stock', async (req, res) => {
       normalizedBrandTagImageId,
       normalizedProjectedSalePrice,
       normalizedCategorySizeId,
-      normalizedSourcedLocation
+      normalizedSourcedLocation,
+      normalizedInventoryWriteOff
     ]);
 
     res.status(201).json({ row: result.rows[0] });
@@ -2351,7 +2360,7 @@ app.put('/api/stock/:id', async (req, res) => {
     console.log('PUT /api/stock/:id - Request body:', JSON.stringify(req.body, null, 2));
 
     const existingResult = await pool.query(
-      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location FROM stock WHERE id = $1',
+      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off FROM stock WHERE id = $1',
       [stockId]
     );
 
@@ -2519,6 +2528,16 @@ app.put('/api/stock/:id', async (req, res) => {
       }
     }
 
+    const existingInventoryWriteOff = Boolean(existing.is_inventory_write_off);
+    const finalInventoryWriteOff = hasProp('is_inventory_write_off')
+      ? Boolean(
+          req.body.is_inventory_write_off === true ||
+            req.body.is_inventory_write_off === 'true' ||
+            req.body.is_inventory_write_off === 1 ||
+            req.body.is_inventory_write_off === '1'
+        )
+      : existingInventoryWriteOff;
+
     const computedNetProfit =
       finalSalePrice !== null && finalPurchasePrice !== null
         ? finalSalePrice - finalPurchasePrice
@@ -2553,9 +2572,10 @@ app.put('/api/stock/:id', async (req, res) => {
           brand_tag_image_id = $13,
           projected_sale_price = $14,
           category_size_id = $15,
-          sourced_location = $16
-        WHERE id = $17
-        RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location
+          sourced_location = $16,
+          is_inventory_write_off = $17
+        WHERE id = $18
+        RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off
       `,
       [
         finalItemName,
@@ -2574,6 +2594,7 @@ app.put('/api/stock/:id', async (req, res) => {
         finalProjectedSalePrice,
         finalCategorySizeId,
         finalSourcedLocation,
+        finalInventoryWriteOff,
         stockId
       ]
     );
@@ -7461,7 +7482,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
             DATE_TRUNC('month', purchase_date) AS month_start,
             SUM(COALESCE(purchase_price, 0))::numeric AS total_purchase
           FROM stock
-          WHERE purchase_date IS NOT NULL
+          WHERE NOT COALESCE(is_inventory_write_off, false)
+            AND purchase_date IS NOT NULL
           GROUP BY month_start
         ),
         sale_totals AS (
@@ -7469,7 +7491,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
             DATE_TRUNC('month', sale_date) AS month_start,
             SUM(COALESCE(sale_price, 0))::numeric AS total_sales
           FROM stock
-          WHERE sale_date IS NOT NULL
+          WHERE NOT COALESCE(is_inventory_write_off, false)
+            AND sale_date IS NOT NULL
           GROUP BY month_start
         )
         SELECT
@@ -7492,7 +7515,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
             EXTRACT(MONTH FROM purchase_date)::int AS month,
             SUM(COALESCE(purchase_price, 0))::numeric AS total_purchase
           FROM stock
-          WHERE purchase_date IS NOT NULL
+          WHERE NOT COALESCE(is_inventory_write_off, false)
+            AND purchase_date IS NOT NULL
           GROUP BY month
         ),
         sale_totals AS (
@@ -7500,7 +7524,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
             EXTRACT(MONTH FROM sale_date)::int AS month,
             SUM(COALESCE(sale_price, 0))::numeric AS total_sales
           FROM stock
-          WHERE sale_date IS NOT NULL
+          WHERE NOT COALESCE(is_inventory_write_off, false)
+            AND sale_date IS NOT NULL
           GROUP BY month
         )
         SELECT
@@ -7518,7 +7543,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
             EXTRACT(MONTH FROM purchase_date)::int AS month,
             SUM(COALESCE(purchase_price, 0))::numeric AS total_purchase
           FROM stock
-          WHERE purchase_date IS NOT NULL
+          WHERE NOT COALESCE(is_inventory_write_off, false)
+            AND purchase_date IS NOT NULL
             AND EXTRACT(YEAR FROM purchase_date)::int = $1
           GROUP BY month
         ),
@@ -7527,7 +7553,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
             EXTRACT(MONTH FROM sale_date)::int AS month,
             SUM(COALESCE(sale_price, 0))::numeric AS total_sales
           FROM stock
-          WHERE sale_date IS NOT NULL
+          WHERE NOT COALESCE(is_inventory_write_off, false)
+            AND sale_date IS NOT NULL
             AND EXTRACT(YEAR FROM sale_date)::int = $1
           GROUP BY month
         )
@@ -7551,7 +7578,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
           EXTRACT(MONTH FROM purchase_date)::int AS month,
           SUM(COALESCE(purchase_price, 0))::numeric AS expense
         FROM stock
-        WHERE purchase_date IS NOT NULL
+        WHERE NOT COALESCE(is_inventory_write_off, false)
+          AND purchase_date IS NOT NULL
         GROUP BY month
         ORDER BY month ASC
       ` : `
@@ -7559,7 +7587,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
           EXTRACT(MONTH FROM purchase_date)::int AS month,
           SUM(COALESCE(purchase_price, 0))::numeric AS expense
         FROM stock
-        WHERE purchase_date IS NOT NULL
+        WHERE NOT COALESCE(is_inventory_write_off, false)
+          AND purchase_date IS NOT NULL
           AND EXTRACT(YEAR FROM purchase_date)::int = $1
         GROUP BY month
         ORDER BY month ASC
@@ -7602,7 +7631,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
           SUM(COALESCE(s.sale_price, 0))::numeric AS total_sales
         FROM stock s
         LEFT JOIN category c ON s.category_id = c.id
-        WHERE s.sale_date IS NOT NULL
+        WHERE NOT COALESCE(s.is_inventory_write_off, false)
+          AND s.sale_date IS NOT NULL
         GROUP BY COALESCE(c.category_name, 'Uncategorized')
         HAVING SUM(COALESCE(s.sale_price, 0)) > 0
         ORDER BY total_sales DESC
@@ -7612,7 +7642,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
           SUM(COALESCE(s.sale_price, 0))::numeric AS total_sales
         FROM stock s
         LEFT JOIN category c ON s.category_id = c.id
-        WHERE s.sale_date IS NOT NULL
+        WHERE NOT COALESCE(s.is_inventory_write_off, false)
+          AND s.sale_date IS NOT NULL
           AND EXTRACT(YEAR FROM s.sale_date)::int = $1
         GROUP BY COALESCE(c.category_name, 'Uncategorized')
         HAVING SUM(COALESCE(s.sale_price, 0)) > 0
@@ -7634,7 +7665,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
           COUNT(*)::int AS sold_count
         FROM stock s
         LEFT JOIN category c ON s.category_id = c.id
-        WHERE s.sale_date IS NOT NULL
+        WHERE NOT COALESCE(s.is_inventory_write_off, false)
+          AND s.sale_date IS NOT NULL
         GROUP BY COALESCE(c.category_name, 'Uncategorized')
         HAVING COUNT(*) > 0
         ORDER BY sold_count DESC
@@ -7644,7 +7676,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
           COUNT(*)::int AS sold_count
         FROM stock s
         LEFT JOIN category c ON s.category_id = c.id
-        WHERE s.sale_date IS NOT NULL
+        WHERE NOT COALESCE(s.is_inventory_write_off, false)
+          AND s.sale_date IS NOT NULL
           AND EXTRACT(YEAR FROM s.sale_date)::int = $1
         GROUP BY COALESCE(c.category_name, 'Uncategorized')
         HAVING COUNT(*) > 0
@@ -7667,7 +7700,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
           )::numeric AS net_profit
         FROM stock s
         LEFT JOIN category c ON s.category_id = c.id
-        WHERE s.sale_date IS NOT NULL
+        WHERE NOT COALESCE(s.is_inventory_write_off, false)
+          AND s.sale_date IS NOT NULL
         GROUP BY COALESCE(c.category_name, 'Uncategorized')
       ` : `
         SELECT
@@ -7677,7 +7711,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
           )::numeric AS net_profit
         FROM stock s
         LEFT JOIN category c ON s.category_id = c.id
-        WHERE s.sale_date IS NOT NULL
+        WHERE NOT COALESCE(s.is_inventory_write_off, false)
+          AND s.sale_date IS NOT NULL
           AND EXTRACT(YEAR FROM s.sale_date)::int = $1
         GROUP BY COALESCE(c.category_name, 'Uncategorized')
       `;
@@ -7697,7 +7732,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
           COUNT(*)::int AS item_count
         FROM stock s
         LEFT JOIN category c ON s.category_id = c.id
-        WHERE s.purchase_date IS NOT NULL
+        WHERE NOT COALESCE(s.is_inventory_write_off, false)
+          AND s.purchase_date IS NOT NULL
           AND s.sale_date IS NULL
         GROUP BY COALESCE(c.category_name, 'Uncategorized')
         HAVING SUM(COALESCE(s.purchase_price, 0)) > 0
@@ -7709,7 +7745,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
           COUNT(*)::int AS item_count
         FROM stock s
         LEFT JOIN category c ON s.category_id = c.id
-        WHERE s.purchase_date IS NOT NULL
+        WHERE NOT COALESCE(s.is_inventory_write_off, false)
+          AND s.purchase_date IS NOT NULL
           AND s.sale_date IS NULL
           AND EXTRACT(YEAR FROM s.purchase_date)::int = $1
         GROUP BY COALESCE(c.category_name, 'Uncategorized')
@@ -7734,7 +7771,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
           SUM(COALESCE(s.sale_price, 0))::numeric AS total_sales
         FROM stock s
         INNER JOIN brand b ON s.brand_id = b.id
-        WHERE s.sale_date IS NOT NULL
+        WHERE NOT COALESCE(s.is_inventory_write_off, false)
+          AND s.sale_date IS NOT NULL
           AND s.brand_id IS NOT NULL
           AND LOWER(TRIM(COALESCE(b.brand_name, ''))) <> 'misc'
         GROUP BY b.brand_name
@@ -7747,7 +7785,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
           SUM(COALESCE(s.sale_price, 0))::numeric AS total_sales
         FROM stock s
         INNER JOIN brand b ON s.brand_id = b.id
-        WHERE s.sale_date IS NOT NULL
+        WHERE NOT COALESCE(s.is_inventory_write_off, false)
+          AND s.sale_date IS NOT NULL
           AND s.brand_id IS NOT NULL
           AND LOWER(TRIM(COALESCE(b.brand_name, ''))) <> 'misc'
           AND EXTRACT(YEAR FROM s.sale_date)::int = $1
@@ -7778,7 +7817,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
             ) AS rn
           FROM stock s
           INNER JOIN brand b ON s.brand_id = b.id
-          WHERE s.sale_date IS NOT NULL
+          WHERE NOT COALESCE(s.is_inventory_write_off, false)
+            AND s.sale_date IS NOT NULL
             AND s.brand_id IS NOT NULL
             AND s.category_id IN (11, 25, 29, 5, 27)
           AND LOWER(TRIM(COALESCE(b.brand_name, ''))) <> 'misc'
@@ -7800,7 +7840,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
             ) AS rn
           FROM stock s
           INNER JOIN brand b ON s.brand_id = b.id
-          WHERE s.sale_date IS NOT NULL
+          WHERE NOT COALESCE(s.is_inventory_write_off, false)
+            AND s.sale_date IS NOT NULL
             AND s.brand_id IS NOT NULL
             AND s.category_id IN (11, 25, 29, 5, 27)
           AND LOWER(TRIM(COALESCE(b.brand_name, ''))) <> 'misc'
@@ -7846,7 +7887,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
           COUNT(*)::int AS item_count
         FROM stock s
         INNER JOIN brand b ON s.brand_id = b.id
-        WHERE s.sale_date IS NULL
+        WHERE NOT COALESCE(s.is_inventory_write_off, false)
+          AND s.sale_date IS NULL
           AND s.brand_id IS NOT NULL
           AND LOWER(TRIM(COALESCE(b.brand_name, ''))) <> 'misc'
         GROUP BY b.brand_name
@@ -7875,7 +7917,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
           END AS sell_through_rate
         FROM stock s
         INNER JOIN brand b ON s.brand_id = b.id
-        WHERE s.brand_id IS NOT NULL
+        WHERE NOT COALESCE(s.is_inventory_write_off, false)
+          AND s.brand_id IS NOT NULL
           AND LOWER(TRIM(COALESCE(b.brand_name, ''))) <> 'misc'
         GROUP BY b.brand_name
         HAVING COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL) > 0
@@ -7896,7 +7939,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
           END AS sell_through_rate
         FROM stock s
         INNER JOIN brand b ON s.brand_id = b.id
-        WHERE s.brand_id IS NOT NULL
+        WHERE NOT COALESCE(s.is_inventory_write_off, false)
+          AND s.brand_id IS NOT NULL
           AND LOWER(TRIM(COALESCE(b.brand_name, ''))) <> 'misc'
           AND EXTRACT(YEAR FROM s.purchase_date)::int = $1
         GROUP BY b.brand_name
@@ -7931,7 +7975,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
           END AS sell_through_rate
         FROM stock s
         INNER JOIN brand b ON s.brand_id = b.id
-        WHERE s.brand_id IS NOT NULL
+        WHERE NOT COALESCE(s.is_inventory_write_off, false)
+          AND s.brand_id IS NOT NULL
           AND LOWER(TRIM(COALESCE(b.brand_name, ''))) <> 'misc'
         GROUP BY b.brand_name
         HAVING COUNT(*) FILTER (WHERE s.purchase_date IS NOT NULL) > 0
@@ -7953,7 +7998,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
           END AS sell_through_rate
         FROM stock s
         INNER JOIN brand b ON s.brand_id = b.id
-        WHERE s.brand_id IS NOT NULL
+        WHERE NOT COALESCE(s.is_inventory_write_off, false)
+          AND s.brand_id IS NOT NULL
           AND LOWER(TRIM(COALESCE(b.brand_name, ''))) <> 'misc'
           AND EXTRACT(YEAR FROM s.purchase_date)::int = $1
         GROUP BY b.brand_name
@@ -7979,6 +8025,7 @@ app.get('/api/analytics/reporting', async (req, res) => {
         COUNT(*) FILTER (WHERE purchase_date IS NOT NULL) AS total_listed,
         COUNT(*) FILTER (WHERE sale_date IS NOT NULL) AS total_sold
       FROM stock
+      WHERE NOT COALESCE(is_inventory_write_off, false)
     `);
 
     const totalListed = Number(sellThroughRateResult.rows[0]?.total_listed || 0);
@@ -7990,7 +8037,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
         COUNT(*) FILTER (WHERE sale_date IS NOT NULL AND sale_price IS NOT NULL) AS sold_count,
         SUM(COALESCE(sale_price, 0))::numeric AS total_sales
       FROM stock
-      WHERE sale_date IS NOT NULL
+      WHERE NOT COALESCE(is_inventory_write_off, false)
+        AND sale_date IS NOT NULL
     `);
 
     const soldCount = Number(averageSellingPriceResult.rows[0]?.sold_count || 0);
@@ -8003,7 +8051,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
         SUM(COALESCE(sale_price, 0))::numeric AS total_sales,
         SUM(COALESCE(purchase_price, 0))::numeric AS total_purchases
       FROM stock
-      WHERE sale_date IS NOT NULL
+      WHERE NOT COALESCE(is_inventory_write_off, false)
+        AND sale_date IS NOT NULL
     `);
 
     const profitSoldCount = Number(averageProfitResult.rows[0]?.sold_count || 0);
@@ -8018,11 +8067,13 @@ app.get('/api/analytics/reporting', async (req, res) => {
           COALESCE(SUM(CASE WHEN sale_date IS NOT NULL THEN sale_price ELSE 0 END), 0)::numeric AS total_sales,
           COALESCE(SUM(CASE WHEN purchase_date IS NOT NULL THEN purchase_price ELSE 0 END), 0)::numeric AS total_spend
         FROM stock
+        WHERE NOT COALESCE(is_inventory_write_off, false)
       ` : `
         SELECT
           COALESCE(SUM(CASE WHEN sale_date IS NOT NULL AND EXTRACT(YEAR FROM sale_date)::int = $1 THEN sale_price ELSE 0 END), 0)::numeric AS total_sales,
           COALESCE(SUM(CASE WHEN purchase_date IS NOT NULL AND EXTRACT(YEAR FROM purchase_date)::int = $1 THEN purchase_price ELSE 0 END), 0)::numeric AS total_spend
         FROM stock
+        WHERE NOT COALESCE(is_inventory_write_off, false)
       `;
     const roiResult = await pool.query(
       roiQuery,
@@ -8038,7 +8089,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
       SELECT
         AVG(sale_date - purchase_date) AS average_days
       FROM stock
-      WHERE purchase_date IS NOT NULL AND sale_date IS NOT NULL
+      WHERE NOT COALESCE(is_inventory_write_off, false)
+        AND purchase_date IS NOT NULL AND sale_date IS NOT NULL
     `);
 
     const averageDaysToSell = averageDaysToSellResult.rows[0]?.average_days 
@@ -8048,7 +8100,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
     const activeListingsResult = await pool.query(`
       SELECT COUNT(*) AS active_count
       FROM stock
-      WHERE purchase_date IS NOT NULL AND sale_date IS NULL
+      WHERE NOT COALESCE(is_inventory_write_off, false)
+        AND purchase_date IS NOT NULL AND sale_date IS NULL
     `);
 
     const activeListingsCount = Number(activeListingsResult.rows[0]?.active_count || 0);
@@ -8057,11 +8110,13 @@ app.get('/api/analytics/reporting', async (req, res) => {
     const unsoldInventoryQuery = effectiveYear === null ? `
       SELECT SUM(COALESCE(purchase_price, 0))::numeric AS total_value
       FROM stock
-      WHERE purchase_date IS NOT NULL AND sale_date IS NULL
+      WHERE NOT COALESCE(is_inventory_write_off, false)
+        AND purchase_date IS NOT NULL AND sale_date IS NULL
     ` : `
       SELECT SUM(COALESCE(purchase_price, 0))::numeric AS total_value
       FROM stock
-      WHERE purchase_date IS NOT NULL 
+      WHERE NOT COALESCE(is_inventory_write_off, false)
+        AND purchase_date IS NOT NULL 
         AND sale_date IS NULL
         AND EXTRACT(YEAR FROM purchase_date)::int = $1
     `;
@@ -8077,7 +8132,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
           AVG(COALESCE(sale_price, 0))::numeric AS average_price,
           COUNT(*) AS item_count
         FROM stock
-        WHERE sale_date IS NOT NULL
+        WHERE NOT COALESCE(is_inventory_write_off, false)
+          AND sale_date IS NOT NULL
           AND sale_price IS NOT NULL
         GROUP BY month
         ORDER BY month ASC
@@ -8087,7 +8143,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
           AVG(COALESCE(sale_price, 0))::numeric AS average_price,
           COUNT(*) AS item_count
         FROM stock
-        WHERE sale_date IS NOT NULL
+        WHERE NOT COALESCE(is_inventory_write_off, false)
+          AND sale_date IS NOT NULL
           AND sale_price IS NOT NULL
           AND EXTRACT(YEAR FROM sale_date)::int = $1
         GROUP BY month
@@ -8110,7 +8167,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
           AVG((COALESCE(sale_price, 0) - COALESCE(purchase_price, 0)))::numeric AS average_profit,
           COUNT(*) AS item_count
         FROM stock
-        WHERE sale_date IS NOT NULL
+        WHERE NOT COALESCE(is_inventory_write_off, false)
+          AND sale_date IS NOT NULL
           AND sale_price IS NOT NULL
         GROUP BY month
         ORDER BY month ASC
@@ -8120,7 +8178,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
           AVG((COALESCE(sale_price, 0) - COALESCE(purchase_price, 0)))::numeric AS average_profit,
           COUNT(*) AS item_count
         FROM stock
-        WHERE sale_date IS NOT NULL
+        WHERE NOT COALESCE(is_inventory_write_off, false)
+          AND sale_date IS NOT NULL
           AND sale_price IS NOT NULL
           AND EXTRACT(YEAR FROM sale_date)::int = $1
         GROUP BY month
@@ -8149,7 +8208,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
           )::numeric AS average_multiple,
           COUNT(*) AS item_count
         FROM stock
-        WHERE sale_date IS NOT NULL
+        WHERE NOT COALESCE(is_inventory_write_off, false)
+          AND sale_date IS NOT NULL
           AND sale_price IS NOT NULL
           AND purchase_price IS NOT NULL
           AND COALESCE(purchase_price, 0) > 0
@@ -8167,7 +8227,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
           )::numeric AS average_multiple,
           COUNT(*) AS item_count
         FROM stock
-        WHERE sale_date IS NOT NULL
+        WHERE NOT COALESCE(is_inventory_write_off, false)
+          AND sale_date IS NOT NULL
           AND sale_price IS NOT NULL
           AND purchase_price IS NOT NULL
           AND COALESCE(purchase_price, 0) > 0
@@ -8192,11 +8253,13 @@ app.get('/api/analytics/reporting', async (req, res) => {
           COALESCE(SUM(CASE WHEN purchase_date IS NOT NULL AND purchase_price IS NOT NULL THEN purchase_price ELSE 0 END), 0)::numeric AS total_purchase,
           COALESCE(SUM(CASE WHEN sale_date IS NOT NULL AND sale_price IS NOT NULL THEN sale_price ELSE 0 END), 0)::numeric AS total_sales
         FROM stock
+        WHERE NOT COALESCE(is_inventory_write_off, false)
       ` : `
         SELECT
           COALESCE(SUM(CASE WHEN purchase_date IS NOT NULL AND purchase_price IS NOT NULL AND EXTRACT(YEAR FROM purchase_date)::int = $1 THEN purchase_price ELSE 0 END), 0)::numeric AS total_purchase,
           COALESCE(SUM(CASE WHEN sale_date IS NOT NULL AND sale_price IS NOT NULL AND EXTRACT(YEAR FROM sale_date)::int = $1 THEN sale_price ELSE 0 END), 0)::numeric AS total_sales
         FROM stock
+        WHERE NOT COALESCE(is_inventory_write_off, false)
       `;
     const yearSpecificTotalsResult = await pool.query(
       yearSpecificTotalsQuery,
@@ -8219,11 +8282,13 @@ app.get('/api/analytics/reporting', async (req, res) => {
           COALESCE(SUM(CASE WHEN sale_date IS NOT NULL AND sale_price IS NOT NULL AND sold_platform = 'Vinted' THEN sale_price ELSE 0 END), 0)::numeric AS vinted_sales,
           COALESCE(SUM(CASE WHEN sale_date IS NOT NULL AND sale_price IS NOT NULL AND sold_platform = 'eBay' THEN sale_price ELSE 0 END), 0)::numeric AS ebay_sales
         FROM stock
+        WHERE NOT COALESCE(is_inventory_write_off, false)
       ` : `
         SELECT
           COALESCE(SUM(CASE WHEN sale_date IS NOT NULL AND sale_price IS NOT NULL AND sold_platform = 'Vinted' AND EXTRACT(YEAR FROM sale_date)::int = $1 THEN sale_price ELSE 0 END), 0)::numeric AS vinted_sales,
           COALESCE(SUM(CASE WHEN sale_date IS NOT NULL AND sale_price IS NOT NULL AND sold_platform = 'eBay' AND EXTRACT(YEAR FROM sale_date)::int = $1 THEN sale_price ELSE 0 END), 0)::numeric AS ebay_sales
         FROM stock
+        WHERE NOT COALESCE(is_inventory_write_off, false)
       `;
     const platformSalesResult = await pool.query(
       platformSalesQuery,
@@ -8243,7 +8308,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
           END
         )::numeric AS average_multiple
       FROM stock
-      WHERE sale_date IS NOT NULL
+      WHERE NOT COALESCE(is_inventory_write_off, false)
+        AND sale_date IS NOT NULL
         AND sale_price IS NOT NULL
         AND purchase_price IS NOT NULL
         AND COALESCE(purchase_price, 0) > 0
@@ -8259,11 +8325,13 @@ app.get('/api/analytics/reporting', async (req, res) => {
           COUNT(*) FILTER (WHERE purchase_date IS NOT NULL) AS items_listed,
           COUNT(*) FILTER (WHERE sale_date IS NOT NULL) AS items_sold
         FROM stock
+        WHERE NOT COALESCE(is_inventory_write_off, false)
       ` : `
         SELECT
           COUNT(*) FILTER (WHERE purchase_date IS NOT NULL AND EXTRACT(YEAR FROM purchase_date)::int = $1) AS items_listed,
           COUNT(*) FILTER (WHERE sale_date IS NOT NULL AND EXTRACT(YEAR FROM sale_date)::int = $1) AS items_sold
         FROM stock
+        WHERE NOT COALESCE(is_inventory_write_off, false)
       `;
     const yearItemsResult = await pool.query(
       yearItemsQuery,
@@ -8279,7 +8347,8 @@ app.get('/api/analytics/reporting', async (req, res) => {
       `
         SELECT SUM(COALESCE(sale_price, 0))::numeric AS total_sales
         FROM stock
-        WHERE sale_date IS NOT NULL
+        WHERE NOT COALESCE(is_inventory_write_off, false)
+          AND sale_date IS NOT NULL
           AND sale_date >= $1
           AND sale_date <= $2
       `,
@@ -8298,12 +8367,35 @@ app.get('/api/analytics/reporting', async (req, res) => {
       `
         SELECT SUM(COALESCE(sale_price, 0))::numeric AS total_sales
         FROM stock
-        WHERE sale_date IS NOT NULL
+        WHERE NOT COALESCE(is_inventory_write_off, false)
+          AND sale_date IS NOT NULL
           AND sale_date >= $1
           AND sale_date <= $2
       `,
       [currentWeekStart, now]
     );
+
+    const inventoryWriteOffTotalsQuery = effectiveYear === null ? `
+        SELECT
+          COUNT(*)::int AS line_count,
+          COALESCE(SUM(COALESCE(purchase_price, 0)), 0)::numeric AS purchase_cost
+        FROM stock
+        WHERE COALESCE(is_inventory_write_off, false)
+      ` : `
+        SELECT
+          COUNT(*)::int AS line_count,
+          COALESCE(SUM(COALESCE(purchase_price, 0)), 0)::numeric AS purchase_cost
+        FROM stock
+        WHERE COALESCE(is_inventory_write_off, false)
+          AND purchase_date IS NOT NULL
+          AND EXTRACT(YEAR FROM purchase_date)::int = $1
+      `;
+    const inventoryWriteOffTotalsResult = await pool.query(
+      inventoryWriteOffTotalsQuery,
+      effectiveYear === null ? [] : [effectiveYear]
+    );
+    const inventoryWriteOffLineCount = Number(inventoryWriteOffTotalsResult.rows[0]?.line_count || 0);
+    const inventoryWriteOffPurchaseCost = Number(inventoryWriteOffTotalsResult.rows[0]?.purchase_cost || 0);
     const currentWeekSales = Number(currentWeekSalesResult.rows[0]?.total_sales || 0);
 
     res.json({
@@ -8368,7 +8460,11 @@ app.get('/api/analytics/reporting', async (req, res) => {
         sold: yearItemsSold
       },
       currentMonthSales: currentMonthSales,
-      currentWeekSales: currentWeekSales
+      currentWeekSales: currentWeekSales,
+      inventoryWriteOffTotals: {
+        lineCount: inventoryWriteOffLineCount,
+        purchaseCost: inventoryWriteOffPurchaseCost
+      }
     });
   } catch (error) {
     console.error('Reporting analytics error:', error);

@@ -166,6 +166,7 @@ interface StockRowForSalesData {
   sale_price: number | string | null;
   sold_platform?: string | null;
   category_id?: number | string | null;
+  is_inventory_write_off?: boolean | string | number | null;
 }
 
 interface ReportingCategoryRow {
@@ -192,6 +193,11 @@ function parseStockNumber(value: number | string | null | undefined): number | n
   if (value === null || value === undefined || value === '') return null;
   const n = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+function isStockWriteOffRow(row: { is_inventory_write_off?: unknown }): boolean {
+  const v = row.is_inventory_write_off;
+  return v === true || v === 'true' || v === 1 || v === '1';
 }
 
 function getItemAnalysisRange(
@@ -293,6 +299,10 @@ interface ReportingResponse {
   unsoldInventoryValue: UnsoldInventoryValue;
   currentMonthSales?: number;
   currentWeekSales?: number;
+  inventoryWriteOffTotals?: {
+    lineCount: number;
+    purchaseCost: number;
+  };
 }
 
 const API_BASE = getApiBase();
@@ -488,6 +498,10 @@ const Reporting: React.FC = () => {
   const [unsoldInventoryValue, setUnsoldInventoryValue] = useState<UnsoldInventoryValue | null>(null);
   const [currentMonthSales, setCurrentMonthSales] = useState<number>(0);
   const [currentWeekSales, setCurrentWeekSales] = useState<number>(0);
+  const [inventoryWriteOffTotals, setInventoryWriteOffTotals] = useState<{
+    lineCount: number;
+    purchaseCost: number;
+  }>({ lineCount: 0, purchaseCost: 0 });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
@@ -595,6 +609,11 @@ const Reporting: React.FC = () => {
         setUnsoldInventoryValue(data.unsoldInventoryValue || null);
         setCurrentMonthSales(data.currentMonthSales ?? 0);
         setCurrentWeekSales(data.currentWeekSales ?? 0);
+        const wo = data.inventoryWriteOffTotals;
+        setInventoryWriteOffTotals({
+          lineCount: typeof wo?.lineCount === 'number' ? wo.lineCount : 0,
+          purchaseCost: typeof wo?.purchaseCost === 'number' ? wo.purchaseCost : 0,
+        });
         if (
           viewMode !== 'sales-data' &&
           data.selectedYear !== selectedYear &&
@@ -870,11 +889,16 @@ const Reporting: React.FC = () => {
     }, 0);
   }, [monthlyProfit, yearSpecificTotals]);
 
-  /** Stock net (sales − inventory purchases) minus all rows in the expenses table — Sales Data / all-time scope only. */
-  const allTimeCompanyProfit = useMemo(
-    () => totalProfit - reportingExpensesAllTimeTotal,
-    [totalProfit, reportingExpensesAllTimeTotal]
-  );
+  const inventoryWriteOffPurchaseCost = inventoryWriteOffTotals.purchaseCost;
+
+  /** Stock net (excl. write-off rows in API totals) minus expenses minus write-off purchase cost. */
+  const allTimeCompanyProfit = useMemo(() => {
+    const writeOff = inventoryWriteOffPurchaseCost;
+    if (reportingExpensesError) {
+      return totalProfit - writeOff;
+    }
+    return totalProfit - reportingExpensesAllTimeTotal - writeOff;
+  }, [totalProfit, reportingExpensesAllTimeTotal, reportingExpensesError, inventoryWriteOffPurchaseCost]);
 
   const salesByCategoryData = useMemo(() => {
     if (salesByCategory.length === 0) {
@@ -1162,6 +1186,7 @@ const Reporting: React.FC = () => {
     const y = yearAll ? null : Number(selectedYear);
     const counts = new Map<string, number>();
     for (const row of stockRowsForSalesData) {
+      if (isStockWriteOffRow(row)) continue;
       if (row.sale_date == null || String(row.sale_date).trim() === '') continue;
       const d = new Date(row.sale_date);
       if (Number.isNaN(d.getTime())) continue;
@@ -1189,6 +1214,7 @@ const Reporting: React.FC = () => {
     const yearAll = selectedYear === 'all';
     const y = yearAll ? null : Number(selectedYear);
     for (const row of stockRowsForSalesData) {
+      if (isStockWriteOffRow(row)) continue;
       if (row.sale_date == null || String(row.sale_date).trim() === '') continue;
       const d = new Date(row.sale_date);
       if (Number.isNaN(d.getTime())) continue;
@@ -1541,6 +1567,7 @@ const Reporting: React.FC = () => {
     };
 
     stockRowsForSalesData.forEach((row) => {
+      if (isStockWriteOffRow(row)) return;
       if (isDateInSalesRange(row.purchase_date)) {
         const d = new Date(row.purchase_date as string);
         if (!Number.isNaN(d.getTime())) {
@@ -1597,6 +1624,7 @@ const Reporting: React.FC = () => {
     const values = Array(monthlyChartBuckets.length).fill(0);
     const bucketIndexByKey = new Map(monthlyChartBuckets.map((bucket, index) => [bucket.key, index]));
     stockRowsForSalesData.forEach((row) => {
+      if (isStockWriteOffRow(row)) return;
       if (isDateInSalesRange(row.sale_date)) {
         const d = new Date(row.sale_date as string);
         if (!Number.isNaN(d.getTime())) {
@@ -1643,6 +1671,7 @@ const Reporting: React.FC = () => {
     };
 
     stockRowsForSalesData.forEach((row) => {
+      if (isStockWriteOffRow(row)) return;
       if (!isDateInSalesRange(row.sale_date)) return;
       const amt = toSale(row);
       if (amt <= 0) return;
@@ -1744,6 +1773,7 @@ const Reporting: React.FC = () => {
     const values = Array(monthlyChartBuckets.length).fill(0);
     const bucketIndexByKey = new Map(monthlyChartBuckets.map((bucket, index) => [bucket.key, index]));
     stockRowsForSalesData.forEach((row) => {
+      if (isStockWriteOffRow(row)) return;
       if (isDateInSalesRange(row.purchase_date)) {
         const d = new Date(row.purchase_date as string);
         if (!Number.isNaN(d.getTime())) {
@@ -1777,6 +1807,7 @@ const Reporting: React.FC = () => {
     const counts = Array(monthlyChartBuckets.length).fill(0);
     const bucketIndexByKey = new Map(monthlyChartBuckets.map((bucket, index) => [bucket.key, index]));
     stockRowsForSalesData.forEach((row) => {
+      if (isStockWriteOffRow(row)) return;
       if (isDateInSalesRange(row.sale_date)) {
         const d = new Date(row.sale_date as string);
         const value = Number(row.sale_price ?? 0);
@@ -1813,6 +1844,7 @@ const Reporting: React.FC = () => {
     const counts = Array(monthlyChartBuckets.length).fill(0);
     const bucketIndexByKey = new Map(monthlyChartBuckets.map((bucket, index) => [bucket.key, index]));
     stockRowsForSalesData.forEach((row) => {
+      if (isStockWriteOffRow(row)) return;
       if (isDateInSalesRange(row.sale_date)) {
         const d = new Date(row.sale_date as string);
         const sale = Number(row.sale_price ?? 0);
@@ -1855,6 +1887,7 @@ const Reporting: React.FC = () => {
     const counts = Array(monthlyChartBuckets.length).fill(0);
     const bucketIndexByKey = new Map(monthlyChartBuckets.map((bucket, index) => [bucket.key, index]));
     stockRowsForSalesData.forEach((row) => {
+      if (isStockWriteOffRow(row)) return;
       if (isDateInSalesRange(row.sale_date)) {
         const d = new Date(row.sale_date as string);
         const sale = Number(row.sale_price ?? 0);
@@ -1891,6 +1924,7 @@ const Reporting: React.FC = () => {
     const values = Array(monthlyChartBuckets.length).fill(0);
     const bucketIndexByKey = new Map(monthlyChartBuckets.map((bucket, index) => [bucket.key, index]));
     stockRowsForSalesData.forEach((row) => {
+      if (isStockWriteOffRow(row)) return;
       if (isDateInSalesRange(row.purchase_date)) {
         const d = new Date(row.purchase_date as string);
         if (!Number.isNaN(d.getTime())) {
@@ -1923,6 +1957,7 @@ const Reporting: React.FC = () => {
     const values = Array(monthlyChartBuckets.length).fill(0);
     const bucketIndexByKey = new Map(monthlyChartBuckets.map((bucket, index) => [bucket.key, index]));
     stockRowsForSalesData.forEach((row) => {
+      if (isStockWriteOffRow(row)) return;
       if (isDateInSalesRange(row.sale_date)) {
         const d = new Date(row.sale_date as string);
         if (!Number.isNaN(d.getTime())) {
@@ -1961,6 +1996,7 @@ const Reporting: React.FC = () => {
     const build = (platformMatch: (row: StockRowForSalesData) => boolean): ItemAnalysisSoldRow[] => {
       const out: ItemAnalysisSoldRow[] = [];
       stockRowsForSalesData.forEach((row, idx) => {
+        if (isStockWriteOffRow(row)) return;
         if (!platformMatch(row)) return;
         if (!row.sale_date) return;
         const sd = new Date(row.sale_date);
@@ -2408,7 +2444,7 @@ const Reporting: React.FC = () => {
           )}
 
           <h2 className="reporting-section-heading">All Time Sales</h2>
-          <div className="reporting-summary reporting-summary--grid-4">
+          <div className="reporting-summary reporting-summary--grid-5">
             <div className="total-profit-card">
               <div className="total-profit-label">Total Company Profit (All Time)</div>
               {reportingExpensesLoading ? (
@@ -2426,10 +2462,10 @@ const Reporting: React.FC = () => {
               )}
               <div className="total-profit-description">
                 {reportingExpensesLoading
-                  ? 'Sales − purchases − expenses (loading expenses…)'
+                  ? 'Operating stock net − expenses − write-offs (loading expenses…)'
                   : reportingExpensesError
-                    ? 'Sales − purchases only (expenses table could not be loaded)'
-                    : 'Sales − stock purchases − expenses (sum of expenses table)'}
+                    ? 'Operating stock net − write-offs (expenses not loaded)'
+                    : 'Operating stock net (excl. write-off rows) − expenses − inventory write-off cost'}
               </div>
             </div>
             {yearSpecificTotals && (
@@ -2469,6 +2505,16 @@ const Reporting: React.FC = () => {
                 {reportingExpensesError
                   ? reportingExpensesError
                   : 'Sum of all rows in the expenses table'}
+              </div>
+            </div>
+            <div className="total-profit-card">
+              <div className="total-profit-label">Inventory write-off</div>
+              <div className={`total-profit-value${inventoryWriteOffTotals.purchaseCost > 0 ? ' negative' : ''}`}>
+                {formatCurrency(-inventoryWriteOffTotals.purchaseCost)}
+              </div>
+              <div className="total-profit-description">
+                {inventoryWriteOffTotals.lineCount.toLocaleString()} line
+                {inventoryWriteOffTotals.lineCount === 1 ? '' : 's'} marked inventory write-off (purchase cost)
               </div>
             </div>
           </div>

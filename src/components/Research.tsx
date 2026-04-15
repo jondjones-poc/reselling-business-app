@@ -1851,7 +1851,7 @@ const Research: React.FC = () => {
       { replace: true }
     );
   }, [setSearchParams]);
-
+  
   // Offline/Brand search state
   const [searchText, setSearchText] = useState('');
   const [typeaheadResults, setTypeaheadResults] = useState<TypeaheadResult[]>([]);
@@ -2730,7 +2730,7 @@ const Research: React.FC = () => {
 
     const loadMensResaleReference = async () => {
       const applyRows = (rows: MensResaleReferenceRow[]) => {
-        mensResaleReference.length = 0;
+          mensResaleReference.length = 0;
         mensResaleReference.push(...rows.map((r) => ({ ...r })));
         setOfflineReferenceTick((t) => t + 1);
       };
@@ -8034,7 +8034,16 @@ const Research: React.FC = () => {
         researchTab === 'seasonal' ||
         researchTab === 'brand') &&
         researchDepartmentsLoading && (
-        <div className="research-menswear-departments research-menswear-departments--loading">
+        <div
+          className={
+            'research-menswear-departments research-menswear-departments--loading' +
+            (researchTab === 'seasonal' ||
+            researchTab === 'clothing-types' ||
+            researchTab === 'brand'
+              ? ' research-menswear-departments--centered'
+              : '')
+          }
+        >
           Loading departments…
         </div>
       )}
@@ -8045,7 +8054,14 @@ const Research: React.FC = () => {
         !researchDepartmentsError &&
         researchDepartments.length > 0 && (
           <nav
-            className="research-menswear-departments"
+            className={
+              'research-menswear-departments' +
+              (researchTab === 'seasonal' ||
+              researchTab === 'clothing-types' ||
+              researchTab === 'brand'
+                ? ' research-menswear-departments--centered'
+                : '')
+            }
             role="navigation"
             aria-label={
               researchTab === 'brand'
@@ -8190,7 +8206,7 @@ const Research: React.FC = () => {
               <div className="brand-research-brand-toolbar-row">
                 <div className="brand-tag-examples-brand-select-wrap brand-research-brand-typeahead-wrap">
                   <div className="brand-research-brand-typeahead-inner">
-                    <input
+            <input
                       id="brand-tag-brand-select"
                       type="text"
                       role="combobox"
@@ -9433,8 +9449,8 @@ const Research: React.FC = () => {
             />
             {showTypeahead && typeaheadResults.length > 0 && (
               <div className="brand-results-dropdown" onClick={() => setShowTypeahead(false)}>
-                <div
-                  className="brand-results-dropdown-content"
+                <div 
+                  className="brand-results-dropdown-content" 
                   onClick={(e) => {
                     if (window.innerWidth <= 768) {
                       setShowTypeahead(false);
@@ -9514,7 +9530,7 @@ const Research: React.FC = () => {
                 </div>
               </div>
             )}
-          </div>
+        </div>
 
           {selectedLookupBrand && (() => {
             // Find brand in mensResaleReference for status, note, and categories
@@ -9582,17 +9598,17 @@ const Research: React.FC = () => {
                         <div className="brand-website-link-container">
                           <a
                             href={hrefSite}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="brand-website-link"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="brand-website-link"
                             title={rawSite}
                             aria-label={
                               brandLabel ? `Visit ${brandLabel} website` : 'Visit website'
                             }
-                          >
+                      >
                             {visitLabel}
-                          </a>
-                        </div>
+                      </a>
+                    </div>
                         <hr className="brand-visit-website-rule" aria-hidden="true" />
                       </div>
                     );
@@ -11475,7 +11491,7 @@ const Research: React.FC = () => {
                           })()}
                         </h3>
                         <div className="menswear-categories-brand-inventory-table-header-filter">
-                          <select
+              <select
                             id="menswear-brand-stock-lines-category-filter"
                             className="menswear-categories-brand-stock-lines-filter-select"
                             value={menswearBrandStockLinesCategoryFilter}
@@ -11485,10 +11501,10 @@ const Research: React.FC = () => {
                             {menswearBrandStockLinesCategoryFilterOptions.map((opt) => (
                               <option key={opt.value} value={opt.value}>
                                 {opt.label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
+                  </option>
+                ))}
+              </select>
+            </div>
                       </div>
                       {menswearBrandStockLinesFilteredRows.length === 0 ? (
                         <p className="menswear-categories-muted" role="status">
@@ -11525,7 +11541,7 @@ const Research: React.FC = () => {
                                 const inStock =
                                   row.sale_date == null ||
                                   String(row.sale_date).trim() === '';
-                                return (
+                  return (
                                   <tr key={row.id}>
                                     <td className="menswear-categories-avoid-drilldown-item">
                                       <Link
@@ -12150,8 +12166,8 @@ const Research: React.FC = () => {
                                             {hasVinted ? (
                                               <a
                                                 href={researchVintedItemUrl(item.vinted_id!)}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
+                        target="_blank"
+                        rel="noopener noreferrer"
                                                 className="menswear-categories-avoid-drilldown-platform-link"
                                                 onClick={(e) => e.stopPropagation()}
                                               >
@@ -12187,7 +12203,7 @@ const Research: React.FC = () => {
                                   </tbody>
                                 </table>
                               )}
-                            </div>
+                    </div>
                           )}
                         </div>
                       ) : (
@@ -12282,9 +12298,9 @@ const Research: React.FC = () => {
                                       })}
                                     </tbody>
                                   </table>
-                                </div>
+          </div>
                               ))}
-                          </div>
+        </div>
                           <div className="menswear-categories-overview-block">
                             <h4 className="menswear-categories-overview-heading">
                               Worst to buy (brand × stock category)
@@ -12292,7 +12308,7 @@ const Research: React.FC = () => {
                             {clothingTypeUnsoldBrandCategoryError && (
                               <div className="menswear-categories-error menswear-categories-error--inline" role="alert">
                                 {clothingTypeUnsoldBrandCategoryError}
-                              </div>
+      </div>
                             )}
                             {clothingTypeUnsoldBrandCategoryLoading && (
                               <p className="menswear-categories-muted">Loading…</p>

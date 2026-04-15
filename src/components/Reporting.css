@@ -226,6 +226,37 @@
   margin-top: 8px;
 }
 
+.reporting-summary--grid-5 {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.reporting-summary--grid-5 .total-profit-card {
+  width: 100%;
+  flex: initial;
+  min-width: 0;
+}
+
+@media (max-width: 1400px) {
+  .reporting-summary--grid-5 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .reporting-summary--grid-5 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .reporting-summary--grid-5 {
+    grid-template-columns: 1fr;
+  }
+}
+
 .reporting-summary--grid-4 {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
