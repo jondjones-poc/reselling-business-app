@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { pingDatabase } from '../utils/dbPing';
 import { getApiBase } from '../utils/apiBase';
+import { StockRowInfoOverlay } from './StockRowInfoOverlay';
 import './Orders.css';
 
 const API_BASE = getApiBase();
@@ -22,6 +23,7 @@ interface StockRow {
   depop_id: Nullable<string>;
   brand_id: Nullable<number>;
   category_id: Nullable<number>;
+  is_bulky_item?: Nullable<boolean>;
 }
 
 interface StockApiResponse {
@@ -39,8 +41,14 @@ interface OrderItem {
   sold_platform: Nullable<string>;
   brand_id: Nullable<number>;
   category_id: Nullable<number>;
+  is_bulky_item?: Nullable<boolean>;
 }
 
+/** Stock / sold row flag — used on Sales and To-pack tabs (explicit union avoids TS2559 weak-type checks). */
+function stockIsBulky(row: StockRow | OrderItem): boolean {
+  const v = row.is_bulky_item as unknown;
+  return v === true || v === 't' || v === 'true' || v === 1 || v === '1';
+}
 
 type OrdersTab = 'to-pack' | 'sales';
 
@@ -111,6 +119,30 @@ function parseSoldRowDate(row: StockRow): Date | null {
   if (s == null || String(s).trim() === '') return null;
   const d = new Date(s);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+const SALES_SOLD_DATE_MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec'
+] as const;
+
+/** Local calendar date as `01 Jan 2026` (zero-padded day, short month, year). */
+function formatSalesSoldDateDisplay(row: StockRow): string | null {
+  const d = parseSoldRowDate(row);
+  if (!d) return null;
+  const day = String(d.getDate()).padStart(2, '0');
+  const mon = SALES_SOLD_DATE_MONTHS[d.getMonth()];
+  return `${day} ${mon} ${d.getFullYear()}`;
 }
 
 type SalesPlatformFilter = 'all' | 'ebay' | 'vinted';
@@ -232,6 +264,7 @@ interface OrdersApiResponse {
     vinted_id: Nullable<string>;
     ebay_id: Nullable<string>;
     depop_id: Nullable<string>;
+    is_bulky_item?: Nullable<boolean>;
   }>;
   count: number;
 }
@@ -270,6 +303,8 @@ const Orders: React.FC = () => {
   const [vintedEbayCheckApiErrors, setVintedEbayCheckApiErrors] = useState<
     VintedEbayCheckResponse['apiErrors']
   >([]);
+  const [salesInfoRow, setSalesInfoRow] = useState<StockRow | null>(null);
+  const [salesInfoAnchor, setSalesInfoAnchor] = useState<HTMLElement | null>(null);
   const [missingEbayCheckLoading, setMissingEbayCheckLoading] = useState(false);
   const [missingEbayInStock, setMissingEbayInStock] = useState<MissingEbayStockRow[]>([]);
   const [missingEbayCheckError, setMissingEbayCheckError] = useState<string | null>(null);
@@ -366,17 +401,20 @@ const Orders: React.FC = () => {
 
       const data: OrdersApiResponse = await response.json();
       // Transform API response to OrderItem format
-      const transformed = (data.rows ?? []).map((row) => ({
-        id: row.id,
-        item_name: row.item_name,
-        purchase_price: row.purchase_price,
-        vinted_id: row.vinted_id,
-        ebay_id: row.ebay_id,
-        depop_id: row.depop_id,
-        sold_platform: row.sold_platform,
-        brand_id: (row as any).brand_id ?? null,
-        category_id: (row as any).category_id ?? null
-      }));
+      const transformed = (data.rows ?? [])
+        .map((row) => ({
+          id: row.id,
+          item_name: row.item_name,
+          purchase_price: row.purchase_price,
+          vinted_id: row.vinted_id,
+          ebay_id: row.ebay_id,
+          depop_id: row.depop_id,
+          sold_platform: row.sold_platform,
+          brand_id: (row as any).brand_id ?? null,
+          category_id: (row as any).category_id ?? null,
+          is_bulky_item: row.is_bulky_item ?? null,
+        }))
+        .sort((a, b) => Number(b.id) - Number(a.id));
       setOrderItems(transformed);
     } catch (err: any) {
       console.error('Orders load error:', err);
@@ -827,6 +865,11 @@ const Orders: React.FC = () => {
     [vintedEbayViolations]
   );
 
+  const dismissSalesInfo = useCallback(() => {
+    setSalesInfoRow(null);
+    setSalesInfoAnchor(null);
+  }, []);
+
   return (
     <div className="orders-container">
       <div className="orders-tabs" role="tablist" aria-label="Orders views">
@@ -891,10 +934,17 @@ const Orders: React.FC = () => {
               const isEbaySold = item.sold_platform === 'eBay' && item.ebay_id;
               const isVintedSold = item.sold_platform === 'Vinted' && item.vinted_id;
               const itemName = item.item_name || '—';
-              
+              const searchBulky = stockIsBulky(item);
+
               return (
-                <div key={item.id} className="orders-search-result-item">
-                  <span className="orders-result-sku">{item.id}</span>
+                <div
+                  key={item.id}
+                  className={`orders-search-result-item${searchBulky ? ' orders-search-result-item--bulky' : ''}`}
+                >
+                  <span className="orders-result-sku orders-result-sku-with-bulk">
+                    <span className="orders-result-sku-num">{item.id}</span>
+                    {searchBulky ? <span className="orders-sales-bulk-badge">BULK</span> : null}
+                  </span>
                   <span className="orders-result-name">
                     {isEbaySold ? (
                       <a
@@ -969,10 +1019,17 @@ const Orders: React.FC = () => {
                   const isEbaySold = item.sold_platform === 'eBay' && item.ebay_id;
                   const isVintedSold = item.sold_platform === 'Vinted' && item.vinted_id;
                   const itemName = item.item_name || '—';
-                  
+                  const packBulky = stockIsBulky(item);
+                  const packRowClass = packBulky ? 'orders-row--bulky' : undefined;
+
                   return (
-                    <tr key={item.id}>
-                      <td>{item.id}</td>
+                    <tr key={item.id} className={packRowClass}>
+                      <td>
+                        <div className="orders-sales-id-cell">
+                          <span className="orders-sales-id-num">{item.id}</span>
+                          {packBulky ? <span className="orders-sales-bulk-badge">BULK</span> : null}
+                        </div>
+                      </td>
                       <td>
                         {isEbaySold ? (
                           <a
@@ -1039,11 +1096,16 @@ const Orders: React.FC = () => {
               const isEbaySold = item.sold_platform === 'eBay' && item.ebay_id;
               const isVintedSold = item.sold_platform === 'Vinted' && item.vinted_id;
               const itemName = item.item_name || '—';
-              
+              const packBulky = stockIsBulky(item);
+
               return (
-                <div key={item.id} className="orders-card">
+                <div key={item.id} className={`orders-card${packBulky ? ' orders-card--bulky' : ''}`}>
                   <div className="orders-card-header">
-                    <span className="orders-card-sku">SKU: {item.id}</span>
+                    <span className="orders-card-sku orders-card-sku-with-bulk">
+                      <span className="orders-card-sku-label">SKU:</span>{' '}
+                      <span className="orders-card-sku-num">{item.id}</span>
+                      {packBulky ? <span className="orders-sales-bulk-badge">BULK</span> : null}
+                    </span>
                     <button
                       type="button"
                       className="orders-posted-button"
@@ -1135,122 +1197,124 @@ const Orders: React.FC = () => {
           className="orders-sales-section"
         >
           <div className="orders-sales-ebay-toolbar">
-            <div className="orders-sales-stats" aria-live="polite">
-              {soldLoading ? (
-                <span className="orders-sales-stats-loading">Updating sold counts…</span>
-              ) : salesStats.dateRangeFilter === 'all' ? (
-                <>
+            <div className="orders-sales-toolbar-top">
+              <div className="orders-sales-stats" aria-live="polite">
+                {soldLoading ? (
+                  <span className="orders-sales-stats-loading">Updating sold counts…</span>
+                ) : salesStats.dateRangeFilter === 'all' ? (
+                  <>
+                    <span className="orders-sales-stat">
+                      <strong>{salesStats.total}</strong>
+                      <span className="orders-sales-stat-label"> total items sold</span>
+                    </span>
+                    <span className="orders-sales-stat">
+                      <strong>{salesStats.thisMonth}</strong>
+                      <span className="orders-sales-stat-label"> in {salesStats.currentMonthName}</span>
+                    </span>
+                    <span className="orders-sales-stat">
+                      <strong>{salesStats.thisWeekMonSun}</strong>
+                      <span className="orders-sales-stat-label"> this week (Mon–Sun)</span>
+                    </span>
+                  </>
+                ) : (
                   <span className="orders-sales-stat">
                     <strong>{salesStats.total}</strong>
-                    <span className="orders-sales-stat-label"> total items sold</span>
+                    <span className="orders-sales-stat-label">
+                      {' '}
+                      in {salesStats.periodLabel ?? 'selected period'}
+                    </span>
                   </span>
-                  <span className="orders-sales-stat">
-                    <strong>{salesStats.thisMonth}</strong>
-                    <span className="orders-sales-stat-label"> in {salesStats.currentMonthName}</span>
-                  </span>
-                  <span className="orders-sales-stat">
-                    <strong>{salesStats.thisWeekMonSun}</strong>
-                    <span className="orders-sales-stat-label"> this week (Mon–Sun)</span>
-                  </span>
-                </>
-              ) : (
-                <span className="orders-sales-stat">
-                  <strong>{salesStats.total}</strong>
-                  <span className="orders-sales-stat-label">
-                    {' '}
-                    in {salesStats.periodLabel ?? 'selected period'}
-                  </span>
-                </span>
-              )}
-            </div>
-            <div className="orders-vinted-ebay-check-bar orders-sales-ebay-actions">
-              <div className="orders-ebay-toolbar-connect">
-                <a href={`${API_BASE}/api/ebay/oauth/start`} className="orders-ebay-oauth-connect">
-                  Connect eBay seller
-                </a>
-                {ebayOAuthStatus?.connected ? (
-                  <span className="orders-ebay-oauth-status orders-ebay-oauth-status--ok">
-                    Linked
-                    {ebayOAuthStatus.user_name ? ` as ${ebayOAuthStatus.user_name}` : ''}
-                  </span>
-                ) : null}
+                )}
               </div>
-              <button
-                type="button"
-                className="orders-vinted-ebay-check-button"
-                onClick={handleVintedEbayCheck}
-                disabled={vintedEbayCheckLoading}
-                aria-label={
-                  vintedEbayCheckLoading
-                    ? 'Checking eBay listings for items sold on Vinted'
-                    : 'Scan eBay listings for items already sold on Vinted that may still be live'
-                }
-              >
-                <EbayLogoIcon className="orders-unlist-ebay-logo" />
-                <span className="orders-unlist-ebay-label">
-                  {vintedEbayCheckLoading ? 'Checking…' : 'Unlist eBay'}
-                </span>
-              </button>
-              <button
-                type="button"
-                className="orders-vinted-ebay-check-button orders-missing-ebay-order-button"
-                onClick={handleMissingEbayOrderCheck}
-                disabled={missingEbayCheckLoading}
-                aria-label={
-                  missingEbayCheckLoading
-                    ? 'Loading eBay sold orders from your account'
-                    : 'Compare eBay sold orders to Stock listing IDs'
-                }
-              >
-                <EbayLogoIcon className="orders-unlist-ebay-logo" />
-                <span className="orders-unlist-ebay-label">
-                  {missingEbayCheckLoading ? 'Checking…' : 'Missing eBay order'}
-                </span>
-              </button>
-              <div className="orders-sales-filters-group">
-                <div className="orders-sales-date-filter-wrap">
-                  <select
-                    id="orders-sales-date-filter"
-                    className="orders-sales-platform-select orders-sales-date-filter-select"
-                    value={salesDateRangeFilter}
-                    onChange={(e) => setSalesDateRangeFilter(e.target.value as SalesDateRangeFilter)}
-                    aria-label="Filter sold items by sale date (all time, current month, or last month)"
-                  >
-                    <option value="all">All time</option>
-                    <option value="current-month">Current month</option>
-                    <option value="last-month">Last month</option>
-                  </select>
+              <div className="orders-vinted-ebay-check-bar orders-sales-ebay-actions">
+                <div className="orders-ebay-toolbar-connect">
+                  <a href={`${API_BASE}/api/ebay/oauth/start`} className="orders-ebay-oauth-connect">
+                    Connect eBay seller
+                  </a>
+                  {ebayOAuthStatus?.connected ? (
+                    <span className="orders-ebay-oauth-status orders-ebay-oauth-status--ok">
+                      Linked
+                      {ebayOAuthStatus.user_name ? ` as ${ebayOAuthStatus.user_name}` : ''}
+                    </span>
+                  ) : null}
                 </div>
-                <div className="orders-sales-platform-filter-wrap">
-                  <select
-                    id="orders-sales-platform-filter"
-                    className="orders-sales-platform-select"
-                    value={salesPlatformFilter}
-                    onChange={(e) => setSalesPlatformFilter(e.target.value as SalesPlatformFilter)}
-                    aria-label="Filter sold items by sales channel (eBay or Vinted)"
-                  >
-                    <option value="all">All platforms</option>
-                    <option value="ebay">eBay only</option>
-                    <option value="vinted">Vinted only</option>
-                  </select>
-                </div>
-                <div className="orders-sales-brand-filter-wrap">
-                  <select
-                    id="orders-sales-brand-filter"
-                    className="orders-sales-platform-select orders-sales-brand-filter-select"
-                    value={salesBrandFilter}
-                    onChange={(e) => setSalesBrandFilter(e.target.value)}
-                    disabled={salesBrandsLoading && salesBrands.length === 0}
-                    aria-label="Filter sold items by brand"
-                  >
-                    <option value="all">All brands</option>
-                    {salesBrands.map((b) => (
-                      <option key={b.id} value={String(b.id)}>
-                        {b.brand_name || `Brand #${b.id}`}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <button
+                  type="button"
+                  className="orders-vinted-ebay-check-button"
+                  onClick={handleVintedEbayCheck}
+                  disabled={vintedEbayCheckLoading}
+                  aria-label={
+                    vintedEbayCheckLoading
+                      ? 'Checking eBay listings for items sold on Vinted'
+                      : 'Scan eBay listings for items already sold on Vinted that may still be live'
+                  }
+                >
+                  <EbayLogoIcon className="orders-unlist-ebay-logo" />
+                  <span className="orders-unlist-ebay-label">
+                    {vintedEbayCheckLoading ? 'Checking…' : 'Unlist eBay'}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="orders-vinted-ebay-check-button orders-missing-ebay-order-button"
+                  onClick={handleMissingEbayOrderCheck}
+                  disabled={missingEbayCheckLoading}
+                  aria-label={
+                    missingEbayCheckLoading
+                      ? 'Loading eBay sold orders from your account'
+                      : 'Compare eBay sold orders to Stock listing IDs'
+                  }
+                >
+                  <EbayLogoIcon className="orders-unlist-ebay-logo" />
+                  <span className="orders-unlist-ebay-label">
+                    {missingEbayCheckLoading ? 'Checking…' : 'Missing eBay order'}
+                  </span>
+                </button>
+              </div>
+            </div>
+            <div className="orders-sales-filters-group orders-sales-toolbar-filters">
+              <div className="orders-sales-date-filter-wrap">
+                <select
+                  id="orders-sales-date-filter"
+                  className="orders-sales-platform-select orders-sales-date-filter-select"
+                  value={salesDateRangeFilter}
+                  onChange={(e) => setSalesDateRangeFilter(e.target.value as SalesDateRangeFilter)}
+                  aria-label="Filter sold items by sale date (all time, current month, or last month)"
+                >
+                  <option value="all">All time</option>
+                  <option value="current-month">Current month</option>
+                  <option value="last-month">Last month</option>
+                </select>
+              </div>
+              <div className="orders-sales-platform-filter-wrap">
+                <select
+                  id="orders-sales-platform-filter"
+                  className="orders-sales-platform-select"
+                  value={salesPlatformFilter}
+                  onChange={(e) => setSalesPlatformFilter(e.target.value as SalesPlatformFilter)}
+                  aria-label="Filter sold items by sales channel (eBay or Vinted)"
+                >
+                  <option value="all">All platforms</option>
+                  <option value="ebay">eBay only</option>
+                  <option value="vinted">Vinted only</option>
+                </select>
+              </div>
+              <div className="orders-sales-brand-filter-wrap">
+                <select
+                  id="orders-sales-brand-filter"
+                  className="orders-sales-platform-select orders-sales-brand-filter-select"
+                  value={salesBrandFilter}
+                  onChange={(e) => setSalesBrandFilter(e.target.value)}
+                  disabled={salesBrandsLoading && salesBrands.length === 0}
+                  aria-label="Filter sold items by brand"
+                >
+                  <option value="all">All brands</option>
+                  {salesBrands.map((b) => (
+                    <option key={b.id} value={String(b.id)}>
+                      {b.brand_name || `Brand #${b.id}`}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
           </div>
@@ -1445,9 +1509,10 @@ const Orders: React.FC = () => {
                   <tr>
                     <th>ID</th>
                     <th>Name</th>
-                    <th>Sold on</th>
+                    <th>Sold</th>
                     <th>eBay link</th>
                     <th>Vinted link</th>
+                    <th className="orders-sales-info-header">Info</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1457,12 +1522,26 @@ const Orders: React.FC = () => {
                     const ebayLabel = row.ebay_id != null ? String(row.ebay_id).trim() : '';
                     const vintedLabel = row.vinted_id != null ? String(row.vinted_id).trim() : '';
                     const rowNeedsEbayFix = vintedEbayViolationIdSet.has(row.id);
+                    const rowIsBulky = stockIsBulky(row);
+                    const salesRowClass = [
+                      rowNeedsEbayFix ? 'orders-sales-row--ebay-fix-needed' : '',
+                      rowIsBulky ? 'orders-row--bulky' : ''
+                    ]
+                      .filter(Boolean)
+                      .join(' ');
                     return (
                       <tr
                         key={row.id}
-                        className={rowNeedsEbayFix ? 'orders-sales-row--ebay-fix-needed' : undefined}
+                        className={salesRowClass || undefined}
                       >
-                        <td>{row.id}</td>
+                        <td>
+                          <div className="orders-sales-id-cell">
+                            <span className="orders-sales-id-num">{row.id}</span>
+                            {rowIsBulky ? (
+                              <span className="orders-sales-bulk-badge">BULK</span>
+                            ) : null}
+                          </div>
+                        </td>
                         <td>
                           {row.item_name?.trim() ? (
                             <Link
@@ -1477,9 +1556,7 @@ const Orders: React.FC = () => {
                           )}
                         </td>
                         <td>
-                          {row.sold_platform?.trim() ? (
-                            row.sold_platform.trim()
-                          ) : (
+                          {formatSalesSoldDateDisplay(row) ?? (
                             <span className="orders-table-dash">—</span>
                           )}
                         </td>
@@ -1513,6 +1590,19 @@ const Orders: React.FC = () => {
                             <span className="orders-table-dash">—</span>
                           )}
                         </td>
+                        <td className="orders-sales-info-cell">
+                          <button
+                            type="button"
+                            className="orders-sales-info-button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setSalesInfoRow(row);
+                              setSalesInfoAnchor(event.currentTarget.closest('tr') as HTMLElement);
+                            }}
+                          >
+                            Info
+                          </button>
+                        </td>
                       </tr>
                     );
                   })}
@@ -1522,6 +1612,13 @@ const Orders: React.FC = () => {
           )}
         </div>
       )}
+
+      <StockRowInfoOverlay
+        row={salesInfoRow}
+        anchorElement={salesInfoAnchor}
+        formatCurrency={formatCurrency}
+        onDismiss={dismissSalesInfo}
+      />
     </div>
   );
 };

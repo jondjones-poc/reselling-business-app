@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import { pingDatabase } from '../utils/dbPing';
@@ -30,6 +30,8 @@ interface StockRow {
   sourced_location?: Nullable<string>;
   /** Business write-off: item is unsellable (damaged, defective, etc.). */
   is_inventory_write_off?: Nullable<boolean>;
+  /** Large / awkward-to-ship item (highlighted on Orders → Sales). */
+  is_bulky_item?: Nullable<boolean>;
 }
 
 type StockCreateFormState = {
@@ -50,6 +52,7 @@ type StockCreateFormState = {
   category_size_id: string;
   sourced_location: string;
   inventory_write_off: boolean;
+  bulky_item: boolean;
 };
 
 interface Brand {
@@ -126,6 +129,11 @@ function stockRowWriteOffFromRow(row: { is_inventory_write_off?: unknown }): boo
   return v === true || v === 't' || v === 'true' || v === 1 || v === '1';
 }
 
+function stockRowBulkyFromRow(row: { is_bulky_item?: unknown }): boolean {
+  const v = row.is_bulky_item;
+  return v === true || v === 't' || v === 'true' || v === 1 || v === '1';
+}
+
 function stockSaleDatePresent(row: { sale_date?: Nullable<string> }): boolean {
   const d = row.sale_date;
   return d != null && String(d).trim() !== '';
@@ -193,16 +201,6 @@ const formatDate = (value: Nullable<string>) => {
     day: '2-digit'
   }).format(date);
 };
-
-function soldPlatformIsEbayStock(p: string | null | undefined): boolean {
-  const t = p?.trim();
-  return t === 'eBay' || t?.toLowerCase() === 'ebay';
-}
-
-function soldPlatformIsVintedStock(p: string | null | undefined): boolean {
-  const t = p?.trim();
-  return t === 'Vinted' || t?.toLowerCase() === 'vinted';
-}
 
 /** Envelope — add item to orders (postage / dispatch). */
 function AddToOrdersIcon({ className }: { className?: string }) {
@@ -353,16 +351,6 @@ function buildStockListingImageBackgroundPrompt(
   ].join('\n');
 }
 
-/** Parse £ / comma / space from money text fields; returns NaN if empty/invalid. */
-function parseStockMoneyInput(raw: string | undefined | null): number {
-  const s = String(raw ?? '')
-    .trim()
-    .replace(/[£,\s]/g, '');
-  if (s === '') return NaN;
-  const n = parseFloat(s);
-  return Number.isFinite(n) ? n : NaN;
-}
-
 /** Preserve numeric 0 from the API; avoid falsy checks that drop 0. */
 function stockDbNumberToFormString(value: unknown): string {
   if (value === null || value === undefined) return '';
@@ -370,7 +358,6 @@ function stockDbNumberToFormString(value: unknown): string {
 }
 
 const Stock: React.FC = () => {
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const setStockEditIdInUrl = useCallback(
@@ -435,7 +422,8 @@ const Stock: React.FC = () => {
     projected_sale_price: '',
     category_size_id: '',
     sourced_location: 'charity_shop',
-    inventory_write_off: false
+    inventory_write_off: false,
+    bulky_item: false
   });
   const [categorySizes, setCategorySizes] = useState<CategorySizeRow[]>([]);
   const [categorySizesLoading, setCategorySizesLoading] = useState(false);
@@ -450,11 +438,6 @@ const Stock: React.FC = () => {
   const [typeaheadSuggestions, setTypeaheadSuggestions] = useState<string[]>([]);
   const [unsoldFilter, setUnsoldFilter] = useState<'off' | '3' | '6' | '12'>('off');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('');
-  const [selectedDataRow, setSelectedDataRow] = useState<StockRow | null>(null);
-  const [selectedRowElement, setSelectedRowElement] = useState<HTMLElement | null>(null);
-  const [isDataPanelClosing, setIsDataPanelClosing] = useState(false);
-  const [offerPrice, setOfferPrice] = useState<string>('');
-  const [promotedFee, setPromotedFee] = useState<string>('10');
   const [showSoldPlatformDropdown, setShowSoldPlatformDropdown] = useState(false);
   const soldPlatformDropdownRef = useRef<HTMLDivElement>(null);
   /** True when the row being edited is already in the Orders list (server `orders` table). */
@@ -477,7 +460,7 @@ const Stock: React.FC = () => {
   const [deleting, setDeleting] = useState(false);
   const editFormRef = useRef<HTMLDivElement>(null);
   const [visibleItemsCount, setVisibleItemsCount] = useState(20);
-  const cardsWrapperRef = useRef<HTMLDivElement>(null);
+  const stockFiltersRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     setAddingToOrder(false);
     if (editingRowId == null) {
@@ -780,6 +763,7 @@ const Stock: React.FC = () => {
         rowToEdit.category_size_id != null ? String(rowToEdit.category_size_id) : '',
       sourced_location: sourcedLocationFromRow(rowToEdit),
       inventory_write_off: stockRowWriteOffFromRow(rowToEdit),
+      bulky_item: stockRowBulkyFromRow(rowToEdit),
     });
     setShowNewEntry(true);
     setSuccessMessage(null);
@@ -964,9 +948,14 @@ const Stock: React.FC = () => {
     }
 
     const categoryName = newCategoryName.trim();
-    
-    // Check if category already exists (case-insensitive)
-    const categoryExists = categories.some(c => c.category_name.toLowerCase() === categoryName.toLowerCase());
+    const deptId = createForm.department_id.trim();
+
+    // Same name may exist in another department; only block duplicates within the selected department
+    const categoryExists = categories.some(
+      (c) =>
+        String(c.department_id ?? '') === deptId &&
+        (c.category_name ?? '').toLowerCase() === categoryName.toLowerCase()
+    );
     if (categoryExists) {
       setError('Category already exists');
       setNewCategoryName('');
@@ -1545,68 +1534,6 @@ const Stock: React.FC = () => {
     });
   }, [rows, selectedMonth, selectedYear, selectedWeek, viewMode, searchTerm, unsoldFilter, selectedCategoryFilter, availableWeeks, categories]);
 
-  const computeDataPanelMetrics = (row: StockRow) => {
-    const purchase = row.purchase_price !== null && row.purchase_price !== undefined
-      ? Number(row.purchase_price)
-      : NaN;
-    
-    // For unsold items, show 0 for sale price
-    const sale = row.sale_price !== null && row.sale_price !== undefined
-      ? Number(row.sale_price)
-      : row.sale_date === null || row.sale_date === undefined
-        ? 0
-        : NaN;
-
-    // For unsold items, profit is negative of purchase price (or 0 if no purchase price)
-    const profit =
-      row.net_profit !== null && row.net_profit !== undefined
-        ? Number(row.net_profit)
-        : !Number.isNaN(purchase) && !Number.isNaN(sale)
-          ? sale - purchase
-          : !Number.isNaN(purchase) && (row.sale_date === null || row.sale_date === undefined)
-            ? -purchase
-            : NaN;
-
-    let profitMultiple: string | null = null;
-    if (!Number.isNaN(purchase) && purchase > 0) {
-      if (!Number.isNaN(sale) && sale > 0) {
-        const multiple = sale / purchase;
-        profitMultiple = `${multiple.toFixed(2)}x`;
-      } else if (row.sale_date === null || row.sale_date === undefined) {
-        // Unsold item - show 0x
-        profitMultiple = '0.00x';
-      }
-    }
-
-    let daysForSale: number | null = null;
-    if (row.purchase_date) {
-      if (row.sale_date) {
-        // Sold item - calculate days between purchase and sale
-        const purchaseDate = new Date(row.purchase_date);
-        const saleDate = new Date(row.sale_date);
-        if (!Number.isNaN(purchaseDate.getTime()) && !Number.isNaN(saleDate.getTime())) {
-          const diffMs = saleDate.getTime() - purchaseDate.getTime();
-          daysForSale = Math.max(0, Math.round(diffMs / (1000 * 60 * 60 * 24)));
-        }
-      } else {
-        // Unsold item - calculate days from purchase to now
-        const purchaseDate = new Date(row.purchase_date);
-        if (!Number.isNaN(purchaseDate.getTime())) {
-          const diffMs = Date.now() - purchaseDate.getTime();
-          daysForSale = Math.max(0, Math.round(diffMs / (1000 * 60 * 60 * 24)));
-        }
-      }
-    }
-
-    return {
-      purchase,
-      sale,
-      profit,
-      profitMultiple,
-      daysForSale
-    };
-  };
-
   const nextSku = useMemo(() => {
     if (rows.length === 0) {
       return 1;
@@ -1880,6 +1807,7 @@ const Stock: React.FC = () => {
       category_size_id: row.category_size_id != null ? String(row.category_size_id) : '',
       sourced_location: sourcedLocationFromRow(row),
       inventory_write_off: stockRowWriteOffFromRow(row),
+      bulky_item: stockRowBulkyFromRow(row),
     });
     console.log('startEditingRow - row data:', row);
     console.log('startEditingRow - vinted_id:', row.vinted_id);
@@ -1933,11 +1861,15 @@ const Stock: React.FC = () => {
       projected_sale_price: '',
       category_size_id: '',
       sourced_location: 'charity_shop',
-      inventory_write_off: false
+      inventory_write_off: false,
+      bulky_item: false
     });
   };
 
-  const handleCreateChange = (key: Exclude<keyof StockCreateFormState, 'inventory_write_off'>, value: string) => {
+  const handleCreateChange = (
+    key: Exclude<keyof StockCreateFormState, 'inventory_write_off' | 'bulky_item'>,
+    value: string
+  ) => {
     setCreateForm((prev) => {
       const next = { ...prev, [key]: value };
       if (key === 'brand_id' && value !== prev.brand_id) {
@@ -2012,7 +1944,8 @@ const Stock: React.FC = () => {
             ? Number(createForm.category_size_id)
             : null,
         sourced_location: createForm.sourced_location || 'charity_shop',
-        is_inventory_write_off: createForm.inventory_write_off
+        is_inventory_write_off: createForm.inventory_write_off,
+        is_bulky_item: createForm.bulky_item
       };
 
       console.log('Stock submit - Payload:', payload);
@@ -2076,15 +2009,22 @@ const Stock: React.FC = () => {
         setSuccessMessage('Stock record created successfully.');
       }
 
-      // Hide the edit section after successful save
+
+      // Close the entry section and return to list view (match delete flow)
       setShowNewEntry(false);
       setEditingRowId(null);
       setFormIntent('create');
       setShowCreateInsteadOfEditConfirm(false);
+      setShowDeleteConfirm(false);
+      setShowWriteOffConfirm(false);
       resetCreateForm();
       setSortConfig(null);
       clearStockEditIdFromUrl();
-      
+
+      window.setTimeout(() => {
+        stockFiltersRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 0);
+
       console.log('Stock submit - Success:', isEditing ? 'Updated' : 'Created', 'ID:', updatedRow.id);
     } catch (err: any) {
       console.error('Stock create error:', err);
@@ -2140,33 +2080,6 @@ const Stock: React.FC = () => {
 
     return sortConfig.direction === 'asc' ? '↑' : '↓';
   };
-
-  const handleCloseDataPanel = useCallback(() => {
-    setIsDataPanelClosing(true);
-    window.setTimeout(() => {
-      setSelectedDataRow(null);
-      setSelectedRowElement(null);
-      setOfferPrice('');
-      setPromotedFee('10');
-      setIsDataPanelClosing(false);
-    }, 220);
-  }, []);
-
-  // Close modal on ESC key
-  useEffect(() => {
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && selectedDataRow) {
-        handleCloseDataPanel();
-      }
-    };
-
-    if (selectedDataRow) {
-      document.addEventListener('keydown', handleEscape);
-      return () => {
-        document.removeEventListener('keydown', handleEscape);
-      };
-    }
-  }, [selectedDataRow, handleCloseDataPanel]);
 
   const handleDeleteClick = () => {
     setShowDeleteConfirm(true);
@@ -2313,154 +2226,6 @@ const Stock: React.FC = () => {
       setAddingToOrder(false);
     }
   };
-
-  /** One-line metrics for edit row 1 and new-item form: Vinted | eBay | eBay with fee | Profit. */
-  const buildStockEditMetricsPipeline = (): { plain: string; content: React.ReactNode } => {
-    const fmt = (n: number) =>
-      n >= 0 ? `£${n.toFixed(2)}` : `-£${Math.abs(n).toFixed(2)}`;
-    const multStr = (profit: number, purchase: number) =>
-      purchase > 0 ? `${(profit / purchase).toFixed(2)}x` : '—';
-
-    const purchaseParsed = parseStockMoneyInput(createForm.purchase_price);
-    const hasPurchasePrice = Number.isFinite(purchaseParsed);
-
-    const actualSaleParsed = parseStockMoneyInput(createForm.sale_price);
-    /** Only treat as “sold at this price” when sale is a positive number; empty/0 keeps projected in play. */
-    const hasUsableActualSale = Number.isFinite(actualSaleParsed) && actualSaleParsed > 0;
-
-    const projectedRaw = String(createForm.projected_sale_price ?? '').trim();
-    const hasProjectedPrice = projectedRaw !== '';
-    const projectedSaleParsed = parseStockMoneyInput(createForm.projected_sale_price);
-
-    /** Sale price wins for Vinted/eBay when there is a real sold price; otherwise use projected. */
-    const saleForPlatforms = hasUsableActualSale
-      ? actualSaleParsed
-      : hasProjectedPrice && Number.isFinite(projectedSaleParsed) && projectedSaleParsed >= 0
-        ? projectedSaleParsed
-        : null;
-
-    const rawSale = String(createForm.sale_price ?? '').trim();
-    let profitAmt = 0;
-    let profitMultOut = '—';
-    if (rawSale !== '') {
-      const sp = parseStockMoneyInput(createForm.sale_price);
-      const pp = purchaseParsed;
-      if (Number.isFinite(sp) && Number.isFinite(pp)) {
-        profitAmt = sp - pp;
-        profitMultOut = pp > 0 ? `${(profitAmt / pp).toFixed(2)}x` : '—';
-      }
-    }
-    const profitSeg = `${fmt(profitAmt)} / ${profitMultOut}`;
-    const profitLineTone =
-      rawSale !== '' &&
-      Number.isFinite(parseStockMoneyInput(createForm.sale_price)) &&
-      Number.isFinite(purchaseParsed)
-        ? profitAmt
-        : null;
-
-    const valuationsUseActualSale = hasUsableActualSale;
-    const soldPlat = createForm.sold_platform;
-    const highlightVinted = valuationsUseActualSale && soldPlatformIsVintedStock(soldPlat);
-    const highlightEbay = valuationsUseActualSale && soldPlatformIsEbayStock(soldPlat);
-
-    type SegmentHighlight = false | 'sold-platform' | 'profit-with-sale';
-    const pipelineValueClass = (profitTone: number | null): string => {
-      if (profitTone === null || !Number.isFinite(profitTone)) {
-        return 'stock-edit-metrics-pipeline-value stock-edit-metrics-pipeline-value--neutral';
-      }
-      if (profitTone > 0) return 'stock-edit-metrics-pipeline-value stock-edit-metrics-pipeline-value--positive';
-      if (profitTone < 0) return 'stock-edit-metrics-pipeline-value stock-edit-metrics-pipeline-value--negative';
-      return 'stock-edit-metrics-pipeline-value stock-edit-metrics-pipeline-value--neutral';
-    };
-    const segment = (
-      label: string,
-      valuePart: string,
-      highlight: SegmentHighlight = false,
-      profitTone: number | null = null,
-    ) => {
-      const body = (
-        <>
-          <strong className="stock-edit-metrics-pipeline-label">{label}</strong>
-          {': '}
-          <span className={pipelineValueClass(profitTone)}>{valuePart}</span>
-        </>
-      );
-      if (highlight === 'sold-platform') {
-        return (
-          <span className="stock-edit-metrics-pipeline-seg stock-edit-metrics-pipeline-seg--sold-platform">
-            {body}
-          </span>
-        );
-      }
-      if (highlight === 'profit-with-sale') {
-        return (
-          <span className="stock-edit-metrics-pipeline-seg stock-edit-metrics-pipeline-seg--profit-with-sale">
-            {body}
-          </span>
-        );
-      }
-      return body;
-    };
-
-    const profitHighlight: SegmentHighlight = hasUsableActualSale ? 'profit-with-sale' : false;
-
-    const cannotComputePlatforms = !hasPurchasePrice || saleForPlatforms === null;
-
-    if (cannotComputePlatforms) {
-      const itemPartial = hasPurchasePrice ? purchaseParsed : 0;
-      const multPlaceholder = itemPartial > 0 ? '0.00x' : '—';
-      const z = `£0.00 / ${multPlaceholder}`;
-      const plain = `Vinted: ${z} | eBay: ${z}\neBay with fee: ${z} | Profit: ${profitSeg}`;
-      const content = (
-        <>
-          <span className="stock-edit-metrics-pipeline-row">
-            {segment('Vinted', z, false, null)}
-            {' | '}
-            {segment('eBay', z, false, null)}
-          </span>
-          <span className="stock-edit-metrics-pipeline-row">
-            {segment('eBay with fee', z, false, null)}
-            {' | '}
-            {segment('Profit', profitSeg, profitHighlight, profitLineTone)}
-          </span>
-        </>
-      );
-      return { plain, content };
-    }
-
-    const item = hasPurchasePrice ? purchaseParsed : 0;
-    const sale = saleForPlatforms;
-    const listingFees = 0.1;
-    const promotedPercent = 10;
-    const promotedFee = (sale * promotedPercent) / 100;
-    const vintedProfit = sale - item;
-    const ebayProfitWithoutPromo = sale - (item + listingFees);
-    const totalCosts = item + listingFees + promotedFee;
-    const ebayProfitWithPromo = sale - totalCosts;
-
-    const vintedPart = `${fmt(vintedProfit)} / ${multStr(vintedProfit, item)}`;
-    const ebayPart = `${fmt(ebayProfitWithoutPromo)} / ${multStr(ebayProfitWithoutPromo, item)}`;
-    const ebayFeePart = `${fmt(ebayProfitWithPromo)} / ${multStr(ebayProfitWithPromo, item)}`;
-    const plain =
-      `Vinted: ${vintedPart} | eBay: ${ebayPart}\neBay with fee: ${ebayFeePart} | Profit: ${profitSeg}`;
-    const content = (
-      <>
-        <span className="stock-edit-metrics-pipeline-row">
-          {segment('Vinted', vintedPart, highlightVinted ? 'sold-platform' : false, vintedProfit)}
-          {' | '}
-          {segment('eBay', ebayPart, highlightEbay ? 'sold-platform' : false, ebayProfitWithoutPromo)}
-        </span>
-        <span className="stock-edit-metrics-pipeline-row">
-          {segment('eBay with fee', ebayFeePart, highlightEbay ? 'sold-platform' : false, ebayProfitWithPromo)}
-          {' | '}
-          {segment('Profit', profitSeg, profitHighlight, profitLineTone)}
-        </span>
-      </>
-    );
-    return { plain, content };
-  };
-
-  const stockEditMetricsPipeline = buildStockEditMetricsPipeline();
 
   return (
     <div className={`stock-container ${showNewEntry ? 'editing-mode' : ''}`}>
@@ -2636,18 +2401,6 @@ const Stock: React.FC = () => {
                         </div>
                       </div>
                     )}
-                  </div>
-                </div>
-                <div className="new-entry-field stock-new-entry-top-bar-pipeline">
-                  <div className="stock-edit-row-1-metrics-box stock-new-entry-row2-pipeline-box">
-                    <div
-                      className="stock-edit-metrics-pipeline"
-                      role="region"
-                      aria-label="Projected profit by platform"
-                      title={stockEditMetricsPipeline.plain}
-                    >
-                      {stockEditMetricsPipeline.content}
-                    </div>
                   </div>
                 </div>
               </div>
@@ -3222,6 +2975,19 @@ const Stock: React.FC = () => {
                   placeholder="Optional"
                 />
               </label>
+              <label className="new-entry-field stock-new-entry-id-field stock-new-entry-id-field--bulky">
+                <span>Bulky item</span>
+                <div className="stock-new-entry-bulky-input-skin">
+                  <input
+                    type="checkbox"
+                    checked={createForm.bulky_item}
+                    onChange={(event) =>
+                      setCreateForm((prev) => ({ ...prev, bulky_item: event.target.checked }))
+                    }
+                    aria-label="Bulky item"
+                  />
+                </div>
+              </label>
               <label className="new-entry-field stock-new-entry-id-field stock-new-entry-id-field--projected">
                 <span className="stock-new-entry-row3-projected-label">Projected Price (£)</span>
                 <input
@@ -3725,7 +3491,7 @@ const Stock: React.FC = () => {
         </div>
       )}
 
-      <div className="stock-filters">
+      <div className="stock-filters" ref={stockFiltersRef}>
         <div className="filter-group filter-actions">
           <button
             type="button"
@@ -3993,264 +3759,6 @@ const Stock: React.FC = () => {
         </div>
       </section>
 
-      {selectedDataRow && selectedRowElement && (() => {
-        const metrics = computeDataPanelMetrics(selectedDataRow);
-        const rect = selectedRowElement.getBoundingClientRect();
-        const container = selectedRowElement.closest('.stock-container') as HTMLElement;
-        const containerRect = container?.getBoundingClientRect();
-        
-        if (!container || !containerRect) return null;
-        
-        // Calculate position relative to container
-        const top = rect.top - containerRect.top - 10;
-        const left = 0;
-        const width = containerRect.width;
-        
-        return (
-          <div 
-            className={`stock-data-overlay${isDataPanelClosing ? ' closing' : ''}`}
-            style={{
-              position: 'absolute',
-              top: `${top}px`,
-              left: `${left}px`,
-              width: `${width}px`,
-              zIndex: 1000
-            }}
-          >
-            <div 
-              className="stock-data-panel"
-            >
-              <div className="stock-data-panel-grid" onClick={(e) => e.stopPropagation()}>
-                <button
-                  type="button"
-                  className="stock-data-close-button stock-data-close-button-mobile"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleCloseDataPanel();
-                  }}
-                  aria-label="Close panel"
-                >
-                  × Close
-                </button>
-                <div className="stock-data-item stock-data-item-title">
-                  <div className="stock-data-value stock-data-title">
-                    {selectedDataRow.item_name || '—'}
-                  </div>
-                  <div className="stock-data-title-actions">
-                    <button
-                      type="button"
-                      className="stock-data-copy-button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const title = selectedDataRow.item_name || '';
-                        if (title) {
-                          navigator.clipboard.writeText(title).then(() => {
-                            // Optional: Show a brief success message
-                          }).catch(err => {
-                            console.error('Failed to copy:', err);
-                          });
-                        }
-                      }}
-                      aria-label="Copy item title to clipboard"
-                    >
-                      📋
-                    </button>
-                    <button
-                      type="button"
-                      className="stock-data-close-button stock-data-close-button-desktop"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleCloseDataPanel();
-                      }}
-                      aria-label="Close panel"
-                    >
-                      ×
-                    </button>
-                  </div>
-                </div>
-                <div className="stock-data-item">
-                  <div className="stock-data-label">Buy Price</div>
-                  <div className="stock-data-value">
-                    {!Number.isNaN(metrics.purchase)
-                      ? formatCurrency(metrics.purchase)
-                      : '—'}
-                  </div>
-                </div>
-                <div className="stock-data-item">
-                  <div className="stock-data-label">Sold Price</div>
-                  <div className="stock-data-value">
-                    {!Number.isNaN(metrics.sale)
-                      ? formatCurrency(metrics.sale)
-                      : selectedDataRow.sale_date === null || selectedDataRow.sale_date === undefined
-                        ? formatCurrency(0)
-                        : '—'}
-                  </div>
-                </div>
-                <div className="stock-data-item">
-                  <div className="stock-data-label">Profit</div>
-                  <div className={`stock-data-value ${!Number.isNaN(metrics.profit) && metrics.profit < 0 ? 'negative' : 'positive'}`}>
-                    {!Number.isNaN(metrics.profit)
-                      ? formatCurrency(metrics.profit)
-                      : '—'}
-                  </div>
-                </div>
-                <div className="stock-data-item">
-                  <div className="stock-data-label">Profit Multiple</div>
-                  <div className="stock-data-value">
-                    {metrics.profitMultiple || 
-                      ((selectedDataRow.sale_date === null || selectedDataRow.sale_date === undefined) && !Number.isNaN(metrics.purchase) && metrics.purchase > 0
-                        ? '0.00x'
-                        : '—')}
-                  </div>
-                </div>
-                <div className="stock-data-item">
-                  <div className="stock-data-label">Days For Sale</div>
-                  <div className="stock-data-value">
-                    {metrics.daysForSale !== null 
-                      ? `${metrics.daysForSale} days` 
-                      : (selectedDataRow.purchase_date && (selectedDataRow.sale_date === null || selectedDataRow.sale_date === undefined))
-                        ? '0 days'
-                        : '—'}
-                  </div>
-                </div>
-                {selectedDataRow.vinted_id && selectedDataRow.vinted_id.trim() && (
-                  <div className="stock-data-item">
-                    <div className="stock-data-label">Vinted Listing</div>
-                    <div className="stock-data-value">
-                      <a
-                        href={`https://www.vinted.co.uk/items/${selectedDataRow.vinted_id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        style={{
-                          color: 'var(--neon-primary-strong)',
-                          textDecoration: 'underline',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        View on Vinted
-                      </a>
-                    </div>
-                  </div>
-                )}
-                {selectedDataRow.ebay_id && selectedDataRow.ebay_id.trim() && (
-                  <div className="stock-data-item">
-                    <div className="stock-data-label">eBay Listing</div>
-                    <div className="stock-data-value">
-                      <a
-                        href={`https://www.ebay.co.uk/itm/${selectedDataRow.ebay_id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        style={{
-                          color: 'var(--neon-primary-strong)',
-                          textDecoration: 'underline',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        View on eBay
-                      </a>
-                    </div>
-                  </div>
-                )}
-                {selectedDataRow.depop_id && selectedDataRow.depop_id.trim() && (
-                  <div className="stock-data-item">
-                    <div className="stock-data-label">Depop Listing</div>
-                    <div className="stock-data-value">
-                      <a
-                        href={`https://www.depop.com/products/${selectedDataRow.depop_id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        style={{
-                          color: 'var(--neon-primary-strong)',
-                          textDecoration: 'underline',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        View on Depop
-                      </a>
-                    </div>
-                  </div>
-                )}
-                <div className="stock-data-prediction-section" onClick={(e) => e.stopPropagation()}>
-                  <div className="stock-data-prediction-input-group">
-                    <label className="stock-data-label">Offer</label>
-                    <input
-                      type="number"
-                      value={offerPrice}
-                      onChange={(e) => setOfferPrice(e.target.value)}
-                      onClick={(e) => e.stopPropagation()}
-                      onFocus={(e) => e.stopPropagation()}
-                      placeholder="0.00"
-                      step="0.01"
-                      min="0"
-                      className="stock-data-prediction-input"
-                    />
-                  </div>
-                  <div className="stock-data-prediction-input-group">
-                    <label className="stock-data-label">Fee (%)</label>
-                    <input
-                      type="number"
-                      value={promotedFee}
-                      onChange={(e) => setPromotedFee(e.target.value)}
-                      onClick={(e) => e.stopPropagation()}
-                      onFocus={(e) => e.stopPropagation()}
-                      placeholder="10"
-                      step="0.1"
-                      min="0"
-                      max="100"
-                      className="stock-data-prediction-input"
-                    />
-                  </div>
-                  <div className="stock-data-prediction-result">
-                    <label className="stock-data-label">Predicted Profit</label>
-                    <div className="stock-data-prediction-profit-text">
-                      {(() => {
-                        const purchase = metrics.purchase;
-                        const offer = parseFloat(offerPrice) || 0;
-                        const feePercent = parseFloat(promotedFee) || 0;
-                        
-                        if (Number.isNaN(purchase) || purchase <= 0 || offer <= 0) {
-                          return '—';
-                        }
-                        
-                        // eBay Final Value Fee for clothing: 10%
-                        const finalValueFeePercent = 10;
-                        const totalFeePercent = finalValueFeePercent + feePercent;
-                        // Fees are calculated on the sale price (purchase price)
-                        const totalFees = purchase * (totalFeePercent / 100);
-                        // Predicted Profit = Offer (total amount) - Purchase Price - Fees
-                        const predictedProfit = offer - purchase - totalFees;
-                        
-                        return (
-                          <span className={`stock-data-prediction-profit-value ${predictedProfit >= 0 ? 'positive' : 'negative'}`}>
-                            {formatCurrency(predictedProfit)}
-                          </span>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                </div>
-                <div className="stock-data-edit-button-container">
-                  <button
-                    type="button"
-                    className="stock-data-edit-button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleCloseDataPanel();
-                      navigate(`/stock?editId=${selectedDataRow.id}`);
-                    }}
-                  >
-                    Edit
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
       {/* Desktop Table View */}
       <div className="table-wrapper">
         <table className="stock-table">
@@ -4321,13 +3829,12 @@ const Stock: React.FC = () => {
                   Net Profit <span className="sort-indicator">{resolveSortIndicator('net_profit')}</span>
                 </button>
               </th>
-              <th className="stock-table-actions-header">Info</th>
             </tr>
           </thead>
           <tbody>
             {!loading && sortedRows.length === 0 && (
               <tr>
-                <td colSpan={9} className="empty-state">
+                <td colSpan={8} className="empty-state">
                   No stock records found.
                 </td>
               </tr>
@@ -4409,22 +3916,6 @@ const Stock: React.FC = () => {
                   <td>
                     <span className={profitClass}>{profitDisplay}</span>
                   </td>
-                  <td className="stock-table-actions-cell">
-                    <div className="row-actions">
-                      <button
-                        type="button"
-                        className="row-hint-button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setIsDataPanelClosing(false);
-                          setSelectedDataRow(row);
-                          setSelectedRowElement(event.currentTarget.closest('tr') as HTMLElement);
-                        }}
-                      >
-                        Info
-                      </button>
-                    </div>
-                  </td>
                 </tr>
               );
             })}
@@ -4433,7 +3924,7 @@ const Stock: React.FC = () => {
       </div>
 
       {/* Mobile Card View */}
-      <div className="stock-cards-wrapper" ref={cardsWrapperRef}>
+      <div className="stock-cards-wrapper">
         {!loading && sortedRows.length === 0 && (
           <div className="stock-empty-state">
             No stock records found.
@@ -4448,19 +3939,6 @@ const Stock: React.FC = () => {
             <div key={row.id} className="stock-card">
               <div className="stock-card-header">
                 <span className="stock-card-sku"><span className="sku-label">SKU: </span>{row.id}</span>
-                <button
-                  type="button"
-                  className="stock-card-info-button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setIsDataPanelClosing(false);
-                    setSelectedDataRow(row);
-                    const cardElement = event.currentTarget.closest('.stock-card') as HTMLElement;
-                    setSelectedRowElement(cardElement);
-                  }}
-                >
-                  Info
-                </button>
               </div>
               <div className="stock-card-body">
                 <button

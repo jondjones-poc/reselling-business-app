@@ -1368,7 +1368,7 @@ app.get('/api/stock', async (req, res) => {
     }
 
     const result = await pool.query(
-      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off FROM stock ORDER BY purchase_date DESC NULLS LAST, item_name ASC'
+      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item FROM stock ORDER BY purchase_date DESC NULLS LAST, item_name ASC'
     );
 
     res.json({
@@ -1391,7 +1391,7 @@ app.get('/api/stock/sold', async (req, res) => {
     }
 
     const result = await pool.query(
-      `SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off
+      `SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item
        FROM stock
        WHERE sale_date IS NOT NULL
        ORDER BY sale_date DESC NULLS LAST, id DESC`
@@ -2219,7 +2219,8 @@ app.post('/api/stock', async (req, res) => {
       projected_sale_price,
       category_size_id,
       sourced_location,
-      is_inventory_write_off
+      is_inventory_write_off,
+      is_bulky_item
     } = req.body ?? {};
 
     const normalizedItemName = normalizeTextInput(item_name) ?? null;
@@ -2290,6 +2291,12 @@ app.post('/api/stock', async (req, res) => {
       is_inventory_write_off === 1 ||
       is_inventory_write_off === '1';
 
+    const normalizedBulkyItem =
+      is_bulky_item === true ||
+      is_bulky_item === 'true' ||
+      is_bulky_item === 1 ||
+      is_bulky_item === '1';
+
     const insertQuery = `
       INSERT INTO stock (
         item_name,
@@ -2308,10 +2315,11 @@ app.post('/api/stock', async (req, res) => {
         projected_sale_price,
         category_size_id,
         sourced_location,
-        is_inventory_write_off
+        is_inventory_write_off,
+        is_bulky_item
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-      RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+      RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item
     `;
 
     const result = await pool.query(insertQuery, [
@@ -2331,7 +2339,8 @@ app.post('/api/stock', async (req, res) => {
       normalizedProjectedSalePrice,
       normalizedCategorySizeId,
       normalizedSourcedLocation,
-      normalizedInventoryWriteOff
+      normalizedInventoryWriteOff,
+      normalizedBulkyItem
     ]);
 
     res.status(201).json({ row: result.rows[0] });
@@ -2360,7 +2369,7 @@ app.put('/api/stock/:id', async (req, res) => {
     console.log('PUT /api/stock/:id - Request body:', JSON.stringify(req.body, null, 2));
 
     const existingResult = await pool.query(
-      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off FROM stock WHERE id = $1',
+      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item FROM stock WHERE id = $1',
       [stockId]
     );
 
@@ -2538,6 +2547,16 @@ app.put('/api/stock/:id', async (req, res) => {
         )
       : existingInventoryWriteOff;
 
+    const existingBulkyItem = Boolean(existing.is_bulky_item);
+    const finalBulkyItem = hasProp('is_bulky_item')
+      ? Boolean(
+          req.body.is_bulky_item === true ||
+            req.body.is_bulky_item === 'true' ||
+            req.body.is_bulky_item === 1 ||
+            req.body.is_bulky_item === '1'
+        )
+      : existingBulkyItem;
+
     const computedNetProfit =
       finalSalePrice !== null && finalPurchasePrice !== null
         ? finalSalePrice - finalPurchasePrice
@@ -2573,9 +2592,10 @@ app.put('/api/stock/:id', async (req, res) => {
           projected_sale_price = $14,
           category_size_id = $15,
           sourced_location = $16,
-          is_inventory_write_off = $17
-        WHERE id = $18
-        RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off
+          is_inventory_write_off = $17,
+          is_bulky_item = $18
+        WHERE id = $19
+        RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item
       `,
       [
         finalItemName,
@@ -2595,6 +2615,7 @@ app.put('/api/stock/:id', async (req, res) => {
         finalCategorySizeId,
         finalSourcedLocation,
         finalInventoryWriteOff,
+        finalBulkyItem,
         stockId
       ]
     );
@@ -6786,14 +6807,18 @@ app.post('/api/categories', async (req, res) => {
       }
     }
 
-    // Check if category already exists (case-insensitive)
+    // Same name allowed in different departments; block duplicates within one department (case-insensitive)
     const existingResult = await pool.query(
-      'SELECT id FROM category WHERE LOWER(TRIM(category_name)) = LOWER($1)',
-      [normalizedCategoryName]
+      `SELECT id FROM category
+       WHERE department_id = $1
+         AND LOWER(TRIM(BOTH FROM category_name)) = LOWER(TRIM(BOTH FROM $2::text))`,
+      [departmentId, normalizedCategoryName]
     );
 
     if (existingResult.rowCount > 0) {
-      return res.status(400).json({ error: 'Category already exists' });
+      return res.status(400).json({
+        error: 'A category with this name already exists in this department',
+      });
     }
 
     const insertQuery = `
@@ -6835,14 +6860,18 @@ app.patch('/api/categories/:id', async (req, res) => {
 
     const normalizedCategoryName = category_name.trim();
 
-    const existingResult = await pool.query(
-      'SELECT id FROM category WHERE LOWER(TRIM(category_name)) = LOWER($1) AND id <> $2',
-      [normalizedCategoryName, id]
+    const currentRow = await pool.query(
+      'SELECT id, department_id FROM category WHERE id = $1',
+      [id]
     );
-
-    if (existingResult.rowCount > 0) {
-      return res.status(400).json({ error: 'Category already exists' });
+    if (!currentRow.rowCount) {
+      return res.status(404).json({ error: 'Category not found' });
     }
+
+    let finalDepartmentId =
+      currentRow.rows[0].department_id !== null && currentRow.rows[0].department_id !== undefined
+        ? Number(currentRow.rows[0].department_id)
+        : null;
 
     let departmentIdSql = '';
     const params = [normalizedCategoryName];
@@ -6855,9 +6884,25 @@ app.patch('/api/categories/:id', async (req, res) => {
       if (!depOk.rowCount) {
         return res.status(400).json({ error: 'department_id not found' });
       }
+      finalDepartmentId = did;
       departmentIdSql = ', department_id = $2';
       params.push(did);
     }
+
+    const dupResult = await pool.query(
+      `SELECT id FROM category
+       WHERE id <> $1
+         AND LOWER(TRIM(BOTH FROM category_name)) = LOWER(TRIM(BOTH FROM $2::text))
+         AND department_id IS NOT DISTINCT FROM $3`,
+      [id, normalizedCategoryName, finalDepartmentId]
+    );
+
+    if (dupResult.rowCount > 0) {
+      return res.status(400).json({
+        error: 'A category with this name already exists in this department',
+      });
+    }
+
     params.push(id);
 
     const updateQuery = `
@@ -7337,10 +7382,11 @@ app.get('/api/orders', async (req, res) => {
           s.ebay_id,
           s.depop_id,
           s.brand_id,
-          s.category_id
+          s.category_id,
+          s.is_bulky_item
         FROM orders o
         INNER JOIN stock s ON o.stock_id = s.id
-        ORDER BY o.created_at DESC`
+        ORDER BY s.id DESC, o.created_at DESC`
       );
 
     res.json({
