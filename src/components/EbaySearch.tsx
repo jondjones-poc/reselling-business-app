@@ -679,8 +679,27 @@ const EbaySearch: React.FC = () => {
         )}
 
         <div className="category-section">
-          {/* Row 1: Brands, Categories, Patterns */}
+          {/* Row 1: Apply Mens Filter, Brands, Categories */}
           <div className="category-filter-row">
+            <div className="category-control category-control--toggle">
+              <button
+                type="button"
+                id="include-mens-toggle"
+                className={
+                  'ebay-include-mens-toggle' + (includeMens ? ' ebay-include-mens-toggle--on' : '')
+                }
+                onClick={() => setIncludeMens((v) => !v)}
+                aria-pressed={includeMens}
+                aria-label={
+                  includeMens
+                    ? 'Mens filter applied to search, press to turn off'
+                    : 'Mens filter not applied, press to turn on'
+                }
+              >
+                {includeMens ? 'Apply Mens Filter' : 'Off'}
+              </button>
+            </div>
+
             <div className="category-control">
               <select
                 id="brand-select"
@@ -714,7 +733,10 @@ const EbaySearch: React.FC = () => {
                 ))}
               </select>
             </div>
+          </div>
 
+          {/* Row 2: Patterns, Colors, Materials */}
+          <div className="category-filter-row">
             <div className="category-control">
               <select
                 id="pattern-select"
@@ -731,10 +753,7 @@ const EbaySearch: React.FC = () => {
                 ))}
               </select>
             </div>
-          </div>
 
-          {/* Row 2: Colors, Materials, Apply Mens Filter */}
-          <div className="category-filter-row">
             <div className="category-control">
               <select
                 id="color-select"
@@ -767,25 +786,6 @@ const EbaySearch: React.FC = () => {
                   </option>
                 ))}
               </select>
-            </div>
-
-            <div className="category-control category-control--toggle">
-              <button
-                type="button"
-                id="include-mens-toggle"
-                className={
-                  'ebay-include-mens-toggle' + (includeMens ? ' ebay-include-mens-toggle--on' : '')
-                }
-                onClick={() => setIncludeMens((v) => !v)}
-                aria-pressed={includeMens}
-                aria-label={
-                  includeMens
-                    ? 'Mens filter applied to search, press to turn off'
-                    : 'Mens filter not applied, press to turn on'
-                }
-              >
-                {includeMens ? 'Apply Mens Filter' : 'Off'}
-              </button>
             </div>
           </div>
         </div>

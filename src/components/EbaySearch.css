@@ -383,7 +383,7 @@
   gap: 10px;
 }
 
-/* Two explicit filter rows (3 equal columns each): row 1 brand/category/pattern; row 2 color/material/mens */
+/* Two explicit filter rows (3 equal columns each): row 1 mens/brand/category; row 2 pattern/color/material */
 .category-filter-row {
   grid-column: 1 / -1;
   display: grid;

@@ -3124,26 +3124,26 @@ button.image-upload-label {
   box-sizing: border-box;
 }
 
-/* Single 4×2 grid so row 1 and row 2 share column tracks (aligned with full-width divider). */
-.brand-research-brand-totals--sales-metrics-eight {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+/* Two full rows of 5: row 1 spend/sold/net/avg range/mean; row 2 stock/sold/sell ratio/through/multiple. */
+.brand-research-brand-totals--sales-metrics-nine {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   column-gap: 24px;
   row-gap: 0;
   max-width: 100%;
 }
 
-.brand-research-brand-sales-metrics .brand-research-brand-totals--sales-metrics-eight {
+.brand-research-brand-sales-metrics .brand-research-brand-totals--sales-metrics-nine {
   margin-top: 0;
   margin-bottom: 0;
   padding: 20px 0 8px;
   border-top: 1px solid rgba(255, 214, 91, 0.15);
 }
 
-.brand-research-brand-totals--sales-metrics-eight .brand-research-brand-totals-col:nth-child(-n + 4) {
+.brand-research-brand-totals--sales-metrics-nine .brand-research-brand-totals-col:nth-child(-n + 5) {
   padding-bottom: 14px;
 }
 
-.brand-research-brand-totals--sales-metrics-eight .brand-research-brand-totals-col:nth-child(n + 6) {
+.brand-research-brand-totals--sales-metrics-nine .brand-research-brand-totals-col:nth-child(n + 6) {
   padding-top: 14px;
 }
 
@@ -3157,13 +3157,13 @@ button.image-upload-label {
 }
 
 @media (max-width: 900px) {
-  .brand-research-brand-totals--sales-metrics-eight {
+  .brand-research-brand-totals--sales-metrics-nine {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 640px) {
-  .brand-research-brand-totals.brand-research-brand-totals--sales-metrics-eight {
+  .brand-research-brand-totals.brand-research-brand-totals--sales-metrics-nine {
     grid-template-columns: 1fr;
   }
 }
@@ -4832,7 +4832,7 @@ button.image-upload-label {
   box-sizing: border-box;
 }
 
-.clothing-type-detail-metrics .brand-research-brand-totals.brand-research-brand-totals--sales-metrics-eight {
+.clothing-type-detail-metrics .brand-research-brand-totals.brand-research-brand-totals--sales-metrics-nine {
   width: 100%;
   max-width: none;
   margin: 0;
@@ -6217,6 +6217,13 @@ a.menswear-categories-card:focus-visible {
   border-radius: 12px;
   border: 1px solid rgba(255, 214, 91, 0.18);
   overflow: hidden;
+}
+
+/* Clothing types → category detail: left column “Brands” list only (not menswear tab list) */
+.clothing-type-brands-sidebar-list .menswear-categories-brand-link {
+  text-align: left;
+  display: block;
+  align-self: flex-start;
 }
 
 .menswear-categories-brand-row {

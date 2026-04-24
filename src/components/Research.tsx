@@ -710,35 +710,28 @@ function BrandStockSpendSoldNetTotals({
   const minP = summary.minSoldSalePrice;
   const maxP = summary.maxSoldSalePrice;
 
-  const sellThroughDisplay = (() => {
-    const pctStr =
+  if (extendedMetrics) {
+    const sellRatioDisplay =
+      totalListed > 0 ? `${summary.soldCount} / ${totalListed}` : '—';
+    const sellThroughPctOnly =
       sellThroughPct != null
         ? `${
             Math.abs(sellThroughPct - Math.round(sellThroughPct)) < 0.05
               ? Math.round(sellThroughPct)
               : sellThroughPct.toFixed(1)
           }%`
+        : '—';
+    const meanSalePrice =
+      summary.soldCount > 0
+        ? summary.totalSoldRevenue / summary.soldCount
         : null;
-    const multStr =
-      summary.avgSoldProfitMultiple != null
-        ? formatSoldMultipleDisplay(summary.avgSoldProfitMultiple)
-        : null;
-    if (pctStr && multStr) return `${pctStr} / ${multStr}`;
-    if (pctStr) return pctStr;
-    if (multStr) return multStr;
-    return '—';
-  })();
-
-  if (extendedMetrics) {
-    const sellRatioDisplay =
-      totalListed > 0 ? `${summary.soldCount} / ${totalListed}` : '—';
 
     return (
       <div
         className="brand-research-brand-sales-metrics"
-        aria-label="Brand spend, counts, sell ratio, sell-through, and average sale price"
+        aria-label="Brand spend, mean sale price, counts, sell ratio, sell-through, and average profit multiple"
       >
-        <div className="brand-research-brand-totals brand-research-brand-totals--sales-metrics-eight">
+        <div className="brand-research-brand-totals brand-research-brand-totals--sales-metrics-nine">
           <div className="brand-research-brand-totals-col">
             <span className="brand-research-brand-totals-label">Total spent</span>
             <span className="brand-research-brand-totals-value">
@@ -783,6 +776,15 @@ function BrandStockSpendSoldNetTotals({
             </span>
             <span className="brand-research-brand-totals-hint">per sale</span>
           </div>
+          <div className="brand-research-brand-totals-col">
+            <span className="brand-research-brand-totals-label">Mean sale price</span>
+            <span className="brand-research-brand-totals-value">
+              {meanSalePrice != null && Number.isFinite(meanSalePrice)
+                ? formatResearchCurrency(meanSalePrice)
+                : '—'}
+            </span>
+            <span className="brand-research-brand-totals-hint">Total sold ÷ sold items</span>
+          </div>
           <hr className="brand-research-brand-metrics-row-divider" aria-hidden="true" />
           <div className="brand-research-brand-totals-col">
             <span className="brand-research-brand-totals-label">In stock</span>
@@ -804,13 +806,18 @@ function BrandStockSpendSoldNetTotals({
           <div className="brand-research-brand-totals-col">
             <span className="brand-research-brand-totals-label">Sell-through</span>
             <span className="brand-research-brand-totals-value brand-research-brand-totals-value--multiline">
-              {sellThroughDisplay}
+              {sellThroughPctOnly}
             </span>
-            <span className="brand-research-brand-totals-hint">
+            <span className="brand-research-brand-totals-hint">Share of listed items that sold</span>
+          </div>
+          <div className="brand-research-brand-totals-col">
+            <span className="brand-research-brand-totals-label">Average profit multiple</span>
+            <span className="brand-research-brand-totals-value brand-research-brand-totals-value--multiline">
               {summary.avgSoldProfitMultiple != null
-                ? 'Listed sell-through · avg sale ÷ buy'
-                : 'Listed sell-through · add buy prices for avg ×'}
+                ? formatSoldMultipleDisplay(summary.avgSoldProfitMultiple)
+                : '—'}
             </span>
+            <span className="brand-research-brand-totals-hint">Mean sale ÷ buy (sold items with both prices)</span>
           </div>
         </div>
       </div>
@@ -930,7 +937,7 @@ function parseBrandStockSummaryPayload(data: unknown): BrandStockSummaryPayload 
     minSp != null && Number.isFinite(Number(minSp)) ? Number(minSp) : null;
   const maxSoldSalePrice =
     maxSp != null && Number.isFinite(Number(maxSp)) ? Number(maxSp) : null;
-  const avgMult = d.avgSoldProfitMultiple;
+  const avgMult = d.avgSoldProfitMultiple ?? d.avg_sold_profit_multiple;
   const avgSoldProfitMultiple =
     avgMult != null && Number.isFinite(Number(avgMult)) ? Number(avgMult) : null;
 
@@ -12052,7 +12059,7 @@ const Research: React.FC = () => {
                         <div className="menswear-categories-muted">Loading brands…</div>
                       )}
                       {!clothingTypeBrandsLoading && !clothingTypeBrandsError && (
-                        <ul className="menswear-categories-brands">
+                        <ul className="menswear-categories-brands clothing-type-brands-sidebar-list">
                           {clothingTypeBrands.length === 0 ? (
                             <li className="menswear-categories-empty">No brands with stock in this category yet.</li>
                           ) : (
@@ -12061,6 +12068,10 @@ const Research: React.FC = () => {
                                 typeof b.total_sales === 'number'
                                   ? b.total_sales
                                   : parseFloat(String(b.total_sales)) || 0;
+                              const inStock =
+                                typeof b.unsold_count === 'number'
+                                  ? b.unsold_count
+                                  : parseInt(String(b.unsold_count ?? '0'), 10) || 0;
                               return (
                                 <li key={b.id} className="menswear-categories-brand-row">
                                   <a
@@ -12074,7 +12085,7 @@ const Research: React.FC = () => {
                                     {b.brand_name || '—'}
                                   </a>
                                   <span className="menswear-categories-brand-sales">
-                                    {b.sold_count} sold · {formatResearchCurrency(salesNum)}
+                                    {b.sold_count} sold · {inStock} in stock - {formatResearchCurrency(salesNum)}
                                   </span>
                                 </li>
                               );

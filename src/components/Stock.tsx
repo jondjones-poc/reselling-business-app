@@ -459,6 +459,8 @@ const Stock: React.FC = () => {
   const [formIntent, setFormIntent] = useState<'create' | 'edit'>('create');
   const [deleting, setDeleting] = useState(false);
   const editFormRef = useRef<HTMLDivElement>(null);
+  /** Block auto-opening `?editId=` for this SKU until the param changes or is cleared (avoids reopen after save). */
+  const suppressAutoOpenEditSkuRef = useRef<number | null>(null);
   const [visibleItemsCount, setVisibleItemsCount] = useState(20);
   const stockFiltersRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -720,12 +722,25 @@ const Stock: React.FC = () => {
   // Keep `editId` in the URL while editing so reload/back restores this view.
   useEffect(() => {
     const editIdParam = searchParams.get('editId');
-    if (!editIdParam || rows.length === 0 || loading || editingRowId != null || creating) {
+    if (!editIdParam) {
+      suppressAutoOpenEditSkuRef.current = null;
+      return;
+    }
+    if (rows.length === 0 || loading || editingRowId != null || creating) {
       return;
     }
     const editId = parseInt(editIdParam, 10);
     if (Number.isNaN(editId)) {
       clearStockEditIdFromUrl();
+      return;
+    }
+    if (
+      suppressAutoOpenEditSkuRef.current !== null &&
+      suppressAutoOpenEditSkuRef.current !== editId
+    ) {
+      suppressAutoOpenEditSkuRef.current = null;
+    }
+    if (suppressAutoOpenEditSkuRef.current === editId) {
       return;
     }
     const rowToEdit = rows.find((row) => Number(row.id) === editId);
@@ -1770,6 +1785,7 @@ const Stock: React.FC = () => {
     if (creating) {
       return;
     }
+    suppressAutoOpenEditSkuRef.current = null;
 
     // Ensure row has a valid ID before setting editing state
     if (!row.id) {
@@ -1864,6 +1880,22 @@ const Stock: React.FC = () => {
       inventory_write_off: false,
       bulky_item: false
     });
+  };
+
+  const closeStockEntryPanel = () => {
+    // While `?editId=` is still in the URL for a frame after `setSearchParams`, the deep-link effect
+    // would otherwise see editingRowId=null + editId in URL and reopen—feels like a "double close" bug.
+    if (editingRowId != null) {
+      suppressAutoOpenEditSkuRef.current = Number(editingRowId);
+    }
+    clearStockEditIdFromUrl();
+    setShowNewEntry(false);
+    setEditingRowId(null);
+    setFormIntent('create');
+    setShowCreateInsteadOfEditConfirm(false);
+    setShowDeleteConfirm(false);
+    setShowWriteOffConfirm(false);
+    resetCreateForm();
   };
 
   const handleCreateChange = (
@@ -2009,17 +2041,10 @@ const Stock: React.FC = () => {
         setSuccessMessage('Stock record created successfully.');
       }
 
-
-      // Close the entry section and return to list view (match delete flow)
-      setShowNewEntry(false);
-      setEditingRowId(null);
-      setFormIntent('create');
-      setShowCreateInsteadOfEditConfirm(false);
-      setShowDeleteConfirm(false);
-      setShowWriteOffConfirm(false);
-      resetCreateForm();
+      // Close panel and clear URL; block this SKU from auto-reopening until `editId` leaves the URL
+      suppressAutoOpenEditSkuRef.current = Number(updatedRow.id);
+      closeStockEntryPanel();
       setSortConfig(null);
-      clearStockEditIdFromUrl();
 
       window.setTimeout(() => {
         stockFiltersRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -2116,16 +2141,8 @@ const Stock: React.FC = () => {
         prev.filter((row) => Number(row.id) !== Number(editingRowId))
       );
       setSuccessMessage('Stock record deleted successfully.');
-      
-      // Close the form and reset
-      setShowNewEntry(false);
-      setEditingRowId(null);
-      setFormIntent('create');
-      setShowCreateInsteadOfEditConfirm(false);
-      resetCreateForm();
-      setShowDeleteConfirm(false);
-      setShowWriteOffConfirm(false);
-      clearStockEditIdFromUrl();
+
+      closeStockEntryPanel();
     } catch (err: any) {
       console.error('Stock delete error:', err);
       setError(err.message || 'Unable to delete stock record');
@@ -2247,18 +2264,11 @@ const Stock: React.FC = () => {
                   type="button"
                   className={`cancel-button stock-close-circle-btn${editingRowId ? ' stock-close-circle-btn--edit' : ''}`}
                   onClick={() => {
-                    if (!creating && !deleting) {
-                      setShowNewEntry(false);
-                      setEditingRowId(null);
-                      setFormIntent('create');
-                      setShowCreateInsteadOfEditConfirm(false);
-                      resetCreateForm();
-                      setShowDeleteConfirm(false);
-                      setShowWriteOffConfirm(false);
-                      clearStockEditIdFromUrl();
+                    if (!deleting) {
+                      closeStockEntryPanel();
                     }
                   }}
-                  disabled={creating || deleting}
+                  disabled={deleting}
                   aria-label="Close"
                   title="Close"
                 >
