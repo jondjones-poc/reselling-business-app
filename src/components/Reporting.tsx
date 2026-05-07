@@ -298,7 +298,9 @@ interface ReportingResponse {
   activeListingsCount: ActiveListingsCount;
   unsoldInventoryValue: UnsoldInventoryValue;
   currentMonthSales?: number;
+  currentMonthSoldCount?: number;
   currentWeekSales?: number;
+  currentWeekSoldCount?: number;
   inventoryWriteOffTotals?: {
     lineCount: number;
     purchaseCost: number;
@@ -497,7 +499,9 @@ const Reporting: React.FC = () => {
   const [activeListingsCount, setActiveListingsCount] = useState<ActiveListingsCount | null>(null);
   const [unsoldInventoryValue, setUnsoldInventoryValue] = useState<UnsoldInventoryValue | null>(null);
   const [currentMonthSales, setCurrentMonthSales] = useState<number>(0);
+  const [currentMonthSoldCount, setCurrentMonthSoldCount] = useState<number>(0);
   const [currentWeekSales, setCurrentWeekSales] = useState<number>(0);
+  const [currentWeekSoldCount, setCurrentWeekSoldCount] = useState<number>(0);
   const [inventoryWriteOffTotals, setInventoryWriteOffTotals] = useState<{
     lineCount: number;
     purchaseCost: number;
@@ -608,7 +612,9 @@ const Reporting: React.FC = () => {
         setActiveListingsCount(data.activeListingsCount || null);
         setUnsoldInventoryValue(data.unsoldInventoryValue || null);
         setCurrentMonthSales(data.currentMonthSales ?? 0);
+        setCurrentMonthSoldCount(data.currentMonthSoldCount ?? 0);
         setCurrentWeekSales(data.currentWeekSales ?? 0);
+        setCurrentWeekSoldCount(data.currentWeekSoldCount ?? 0);
         const wo = data.inventoryWriteOffTotals;
         setInventoryWriteOffTotals({
           lineCount: typeof wo?.lineCount === 'number' ? wo.lineCount : 0,
@@ -2219,8 +2225,23 @@ const Reporting: React.FC = () => {
           <div className="reporting-summary">
             <div className="total-profit-card" style={{ paddingBottom: '12px' }}>
               <div className="total-profit-label">Current Sales</div>
-              <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: '16px', flexWrap: 'wrap', flex: 1, minHeight: 0 }}>
-                <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '4px' }}>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
+                  columnGap: 'clamp(20px, 6vw, 44px)',
+                  rowGap: '14px',
+                  justifyItems: 'center',
+                  alignItems: 'start',
+                  width: '100%',
+                  maxWidth: '420px',
+                  margin: '0 auto',
+                  flex: 1,
+                  minHeight: 0,
+                }}
+              >
+                {/* Row 1: revenue */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', width: '100%' }}>
                   <div className="total-profit-value positive" style={{ fontSize: '1.1rem', margin: 0 }}>
                     {formatCurrency(currentWeekSales)}
                   </div>
@@ -2228,12 +2249,51 @@ const Reporting: React.FC = () => {
                     /Week
                   </div>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '4px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', width: '100%' }}>
                   <div className="total-profit-value positive" style={{ fontSize: '1.1rem', margin: 0 }}>
                     {formatCurrency(currentMonthSales)}
                   </div>
                   <div className="total-profit-description" style={{ fontSize: '0.85rem', margin: 0 }}>
                     /Month
+                  </div>
+                </div>
+                {/* Row 2: sold counts — smaller type only on this line */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', width: '100%' }}>
+                  <div
+                    style={{
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      letterSpacing: '0.04rem',
+                      color: 'rgba(255, 248, 226, 0.88)',
+                      fontVariantNumeric: 'tabular-nums',
+                      margin: 0,
+                    }}
+                  >
+                    {currentWeekSoldCount.toLocaleString()}
+                    <span style={{ fontWeight: 600, color: 'rgba(255, 248, 226, 0.55)', margin: '0 0.25rem' }}>
+                      {' '}
+                      / Sold ·{' '}
+                    </span>
+                    Week
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', width: '100%' }}>
+                  <div
+                    style={{
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      letterSpacing: '0.04rem',
+                      color: 'rgba(255, 248, 226, 0.88)',
+                      fontVariantNumeric: 'tabular-nums',
+                      margin: 0,
+                    }}
+                  >
+                    {currentMonthSoldCount.toLocaleString()}
+                    <span style={{ fontWeight: 600, color: 'rgba(255, 248, 226, 0.55)', margin: '0 0.25rem' }}>
+                      {' '}
+                      / Sold ·{' '}
+                    </span>
+                    Month
                   </div>
                 </div>
               </div>

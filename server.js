@@ -8391,7 +8391,9 @@ app.get('/api/analytics/reporting', async (req, res) => {
     const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const currentMonthSalesResult = await pool.query(
       `
-        SELECT SUM(COALESCE(sale_price, 0))::numeric AS total_sales
+        SELECT
+          SUM(COALESCE(sale_price, 0))::numeric AS total_sales,
+          COUNT(*)::int AS sold_count
         FROM stock
         WHERE NOT COALESCE(is_inventory_write_off, false)
           AND sale_date IS NOT NULL
@@ -8401,6 +8403,7 @@ app.get('/api/analytics/reporting', async (req, res) => {
       [currentMonthStart, now]
     );
     const currentMonthSales = Number(currentMonthSalesResult.rows[0]?.total_sales || 0);
+    const currentMonthSoldCount = Number(currentMonthSalesResult.rows[0]?.sold_count || 0);
 
     // Calculate current week sales (from start of current week - Monday - to now)
     const currentWeekStart = new Date(now);
@@ -8411,7 +8414,9 @@ app.get('/api/analytics/reporting', async (req, res) => {
     
     const currentWeekSalesResult = await pool.query(
       `
-        SELECT SUM(COALESCE(sale_price, 0))::numeric AS total_sales
+        SELECT
+          SUM(COALESCE(sale_price, 0))::numeric AS total_sales,
+          COUNT(*)::int AS sold_count
         FROM stock
         WHERE NOT COALESCE(is_inventory_write_off, false)
           AND sale_date IS NOT NULL
@@ -8443,6 +8448,7 @@ app.get('/api/analytics/reporting', async (req, res) => {
     const inventoryWriteOffLineCount = Number(inventoryWriteOffTotalsResult.rows[0]?.line_count || 0);
     const inventoryWriteOffPurchaseCost = Number(inventoryWriteOffTotalsResult.rows[0]?.purchase_cost || 0);
     const currentWeekSales = Number(currentWeekSalesResult.rows[0]?.total_sales || 0);
+    const currentWeekSoldCount = Number(currentWeekSalesResult.rows[0]?.sold_count || 0);
 
     res.json({
       availableYears,
@@ -8506,7 +8512,9 @@ app.get('/api/analytics/reporting', async (req, res) => {
         sold: yearItemsSold
       },
       currentMonthSales: currentMonthSales,
+      currentMonthSoldCount: currentMonthSoldCount,
       currentWeekSales: currentWeekSales,
+      currentWeekSoldCount: currentWeekSoldCount,
       inventoryWriteOffTotals: {
         lineCount: inventoryWriteOffLineCount,
         purchaseCost: inventoryWriteOffPurchaseCost
