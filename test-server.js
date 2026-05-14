@@ -737,7 +737,7 @@ const buildDirectory = path.join(__dirname, 'build');
 if (fs.existsSync(buildDirectory)) {
   app.use(express.static(buildDirectory));
 
-  const clientRoutes = ['/', '/brand-research', '/research', '/stock'];
+  const clientRoutes = ['/', '/brand-research', '/analytics', '/research', '/stock'];
   clientRoutes.forEach((routePath) => {
     app.get(routePath, (_req, res) => {
       res.sendFile(path.join(buildDirectory, 'index.html'));

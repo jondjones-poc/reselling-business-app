@@ -1366,6 +1366,15 @@
   background: rgba(255, 214, 91, 0.1);
 }
 
+/* Research hub (/research): tabs are <a> NavLinks — same look as Analytics <button.research-tab> */
+a.research-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  color: inherit;
+}
+
 .research-tool-container {
   max-width: 1000px;
   margin: 40px auto 0 auto;

@@ -48,7 +48,7 @@ function clothingTypesDetailHref(
     qs.set('departmentId', String(departmentId));
   }
   qs.set('clothingTypeId', String(clothingTypeId));
-  return `/research?${qs.toString()}`;
+  return `/analytics?${qs.toString()}`;
 }
 
 function clothingTypesBrandDetailHref(
@@ -63,7 +63,7 @@ function clothingTypesBrandDetailHref(
   }
   qs.set('clothingTypeId', String(clothingTypeId));
   qs.set('clothingTypeBrandId', String(brandId));
-  return `/research?${qs.toString()}`;
+  return `/analytics?${qs.toString()}`;
 }
 
 async function copyResearchTextToClipboard(text: string): Promise<void> {
@@ -1671,7 +1671,12 @@ function BrandTagQualityFilterIcon(): React.ReactElement {
   );
 }
 
-const Research: React.FC = () => {
+export type ResearchProps = {
+  /** When set, only that tab’s content is shown (no main Analytics tab bar). Used from Research hub. */
+  forcedView?: 'offline' | 'ai';
+};
+
+const Research: React.FC<ResearchProps> = ({ forcedView }) => {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const brandQueryParam = searchParams.get('brand');
@@ -1685,6 +1690,9 @@ const Research: React.FC = () => {
     | 'seasonal'
     | 'sourced'
   >(() => {
+    if (forcedView === 'offline' || forcedView === 'ai') {
+      return forcedView;
+    }
     const t = searchParams.get('tab');
     if (
       t === 'offline' ||
@@ -1696,7 +1704,7 @@ const Research: React.FC = () => {
     )
       return t;
     return 'brand';
-  }, [searchParams]);
+  }, [forcedView, searchParams]);
 
   /** When on menswear tab, category detail comes from `?menswearCategoryId=` (full reload on list pick). */
   const menswearCategoryIdFromUrl = useMemo(() => {
@@ -1754,8 +1762,6 @@ const Research: React.FC = () => {
     (
       tab:
         | 'brand'
-        | 'offline'
-        | 'ai'
         | 'menswear-categories'
         | 'clothing-types'
         | 'seasonal'
@@ -1811,16 +1817,16 @@ const Research: React.FC = () => {
   }, [setSearchParams]);
 
   const goToClothingTypesTab = useCallback(() => {
-    window.location.assign('/research?tab=clothing-types');
+    window.location.assign('/analytics?tab=clothing-types');
   }, []);
 
   const openBrandResearchInUrl = useCallback(
     (brandId: number) => {
       const qs = new URLSearchParams();
       qs.set('brand', String(brandId));
-      window.location.assign(`${location.pathname}?${qs.toString()}`);
+      window.location.assign(`/analytics?${qs.toString()}`);
     },
-    [location.pathname]
+    []
   );
 
   const openMenswearBrandInventoryInUrl = useCallback(
@@ -2142,9 +2148,9 @@ const Research: React.FC = () => {
       const qs = new URLSearchParams();
       qs.set('tab', 'menswear-categories');
       qs.set('menswearCategoryId', String(categoryId));
-      window.location.assign(`${location.pathname}?${qs.toString()}`);
+      window.location.assign(`/analytics?${qs.toString()}`);
     },
-    [location.pathname]
+    []
   );
 
   const menswearCategoryHref = useCallback(
@@ -2152,9 +2158,9 @@ const Research: React.FC = () => {
       const qs = new URLSearchParams();
       qs.set('tab', 'menswear-categories');
       qs.set('menswearCategoryId', String(categoryId));
-      return `${location.pathname}?${qs.toString()}`;
+      return `/analytics?${qs.toString()}`;
     },
-    [location.pathname]
+    []
   );
 
   const openClothingTypeInUrl = useCallback(
@@ -7950,6 +7956,7 @@ const Research: React.FC = () => {
           {researchApiOfflineMessage}
         </div>
       )}
+      {!forcedView && (
       <nav className="research-tabs" role="tablist" aria-label="Research sections">
         <button
           type="button"
@@ -8006,29 +8013,8 @@ const Research: React.FC = () => {
         >
           Sourced
         </button>
-        <button
-          type="button"
-          role="tab"
-          id="research-tab-offline"
-          aria-selected={researchTab === 'offline'}
-          aria-controls="research-panel-offline"
-          className={`research-tab${researchTab === 'offline' ? ' active' : ''}`}
-          onClick={() => setResearchTab('offline')}
-        >
-          Brand offline research
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="research-tab-ai"
-          aria-selected={researchTab === 'ai'}
-          aria-controls="research-panel-ai"
-          className={`research-tab${researchTab === 'ai' ? ' active' : ''}`}
-          onClick={() => setResearchTab('ai')}
-        >
-          AI research
-        </button>
       </nav>
+      )}
       {(researchTab === 'clothing-types' ||
         researchTab === 'seasonal' ||
         researchTab === 'brand') &&
@@ -8475,7 +8461,7 @@ const Research: React.FC = () => {
                   q.set('tab', 'menswear-categories');
                   q.set('menswearCategoryId', String(clothingCatId));
                   q.set('menswearBrandId', String(br.id));
-                  return `/research?${q.toString()}`;
+                  return `/analytics?${q.toString()}`;
                 })();
                 const currentBrandInStockLabel = savedBrandLabel
                   ? `Current ${savedBrandLabel} in stock`
@@ -9429,7 +9415,8 @@ const Research: React.FC = () => {
         <div
           id="research-panel-offline"
           role="tabpanel"
-          aria-labelledby="research-tab-offline"
+          aria-labelledby={forcedView ? undefined : 'research-tab-offline'}
+          aria-label={forcedView ? 'Brand offline research' : undefined}
           className="research-tab-panel"
         >
       <div className="brand-lookup-container">
@@ -9634,7 +9621,8 @@ const Research: React.FC = () => {
         <div
           id="research-panel-ai"
           role="tabpanel"
-          aria-labelledby="research-tab-ai"
+          aria-labelledby={forcedView ? undefined : 'research-tab-ai'}
+          aria-label={forcedView ? 'AI research' : undefined}
           className="research-tab-panel"
         >
       <div className="research-tool-container">
@@ -11595,7 +11583,7 @@ const Research: React.FC = () => {
                         const researchBrandLabel = researchBrandDisplayName || 'brand';
                         return (
                           <Link
-                            to={`/research?brand=${encodeURIComponent(String(menswearBrandIdFromUrl))}`}
+                            to={`/analytics?brand=${encodeURIComponent(String(menswearBrandIdFromUrl))}`}
                             className="menswear-categories-brand-stock-lines-research-link-below"
                             aria-label={`Research: ${researchBrandLabel}`}
                           >
@@ -12741,7 +12729,7 @@ const Research: React.FC = () => {
                   )}
                   <div className="menswear-categories-brand-stock-lines-research-below">
                     <Link
-                      to={`/research?brand=${encodeURIComponent(String(clothingTypeBrandIdFromUrl))}`}
+                      to={`/analytics?brand=${encodeURIComponent(String(clothingTypeBrandIdFromUrl))}`}
                       className="menswear-categories-brand-stock-lines-research-link-below"
                       aria-label="Open full brand research"
                     >

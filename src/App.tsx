@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { NavLink, Route, Routes, Navigate, useLocation, type NavLinkProps } from 'react-router-dom';
 import EbaySearch from './components/EbaySearch';
 import Research from './components/Research';
+import ResearchRoute from './components/ResearchRoute';
 import Reporting from './components/Reporting';
 import Stock from './components/Stock';
 import Expenses from './components/Expenses';
@@ -14,12 +15,13 @@ import './App.css';
 
 const navItems = [
   { to: '/', label: 'Price', end: true },
-  { to: '/research', label: 'Research' },
   { to: '/stock', label: 'Stock' },
   { to: '/orders', label: 'Orders' },
   { to: '/reporting', label: 'Reporting' },
-  { to: '/expenses', label: 'Expenses' },
-  { to: '/sourcing', label: 'Sourcing' }
+  { to: '/analytics', label: 'Analytics' },
+  { to: '/research', label: 'Research' },
+  { to: '/expenses', label: 'Accounting' },
+  { to: '/sourcing', label: 'Sourcing' },
 ] as const;
 
 /** Preserves ?tab= when opening Orders from another page (uses sessionStorage set on the Orders screen). */
@@ -102,7 +104,8 @@ function App() {
 
         <Routes>
           <Route path="/" element={<EbaySearch />} />
-          <Route path="/research" element={<Research />} />
+          <Route path="/analytics" element={<Research />} />
+          <Route path="/research" element={<ResearchRoute />} />
           <Route path="/stock" element={<Stock />} />
           <Route path="/expenses" element={<Expenses />} />
           <Route path="/reporting" element={<Reporting />} />

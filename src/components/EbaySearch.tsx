@@ -1087,7 +1087,7 @@ const EbaySearch: React.FC = () => {
                     <div className="potential-profit-stock-sold-prices-links">
                       <Link
                         className="potential-profit-stock-sold-prices-link"
-                        to={`/research?brand=${encodeURIComponent(String(resolvedHomeBrandCategoryIds.brandId))}`}
+                        to={`/analytics?brand=${encodeURIComponent(String(resolvedHomeBrandCategoryIds.brandId))}`}
                       >
                         Research
                       </Link>
@@ -1096,7 +1096,7 @@ const EbaySearch: React.FC = () => {
                       </span>
                       <Link
                         className="potential-profit-stock-sold-prices-link"
-                        to={`/research?tab=menswear-categories&menswearCategoryId=${resolvedHomeBrandCategoryIds.categoryId}&menswearBrandId=${resolvedHomeBrandCategoryIds.brandId}`}
+                        to={`/analytics?tab=menswear-categories&menswearCategoryId=${resolvedHomeBrandCategoryIds.categoryId}&menswearBrandId=${resolvedHomeBrandCategoryIds.brandId}`}
                       >
                         Inventory
                       </Link>

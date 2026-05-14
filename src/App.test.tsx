@@ -31,5 +31,6 @@ test('renders main navigation', async () => {
   await waitFor(() => {
     expect(screen.getByRole('navigation', { name: /main/i })).toBeInTheDocument();
   });
-  expect(screen.getByRole('link', { name: /research/i })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: /analytics/i })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: /^research$/i })).toBeInTheDocument();
 });

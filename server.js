@@ -1003,17 +1003,23 @@ const EBAY_GB_MENS_CLOTHING_CATEGORY_ID = (process.env.EBAY_BROWSE_CATEGORY_IDS 
  * @param {number|null} [opts.soldDateRangeDays] — if set with soldOnly, soldDate window in days (overrides lastMonthOnly for sold)
  * @param {boolean} [opts.requireUsedCondition=true] — if false, omit Used-only filter (more sold comps)
  * @param {string|null} [opts.categoryIds] — Browse `category_ids` (single ID). Default men's clothing UK; `null` to omit.
+ * @param {string|null} [opts.offset] — Browse API `offset` (pagination).
+ * @param {number|null} [opts.minPriceGbp] — Minimum sold price in GBP (adds price + priceCurrency filters).
+ * @param {number|null} [opts.maxPriceGbp] — Maximum sold price in GBP (upper bound of price range filter).
  */
 const getBrowseSearch = async ({
   query,
   accessToken,
   limit = '5',
   sort = '-price',
+  offset = null,
   soldOnly = false,
   lastMonthOnly = false,
   soldDateRangeDays = null,
   requireUsedCondition = true,
-  categoryIds = EBAY_GB_MENS_CLOTHING_CATEGORY_ID
+  categoryIds = EBAY_GB_MENS_CLOTHING_CATEGORY_ID,
+  minPriceGbp = null,
+  maxPriceGbp = null
 }) => {
   const params = new URLSearchParams({
     q: query,
@@ -1022,6 +1028,13 @@ const getBrowseSearch = async ({
     marketplaceId: 'EBAY_GB'
   });
 
+  if (offset != null && String(offset).trim() !== '') {
+    const o = Math.trunc(Number(offset));
+    if (Number.isFinite(o) && o >= 0) {
+      params.set('offset', String(Math.min(10000, o)));
+    }
+  }
+
   if (categoryIds != null && String(categoryIds).trim() !== '') {
     params.set('category_ids', String(categoryIds).trim());
   }
@@ -1029,6 +1042,16 @@ const getBrowseSearch = async ({
   const filterParts = [];
 
   filterParts.push('deliveryCountry:GB');
+
+  if (minPriceGbp != null && Number.isFinite(Number(minPriceGbp)) && Number(minPriceGbp) > 0) {
+    const lo = Math.trunc(Number(minPriceGbp));
+    let hi = 10000000;
+    if (maxPriceGbp != null && Number.isFinite(Number(maxPriceGbp)) && Number(maxPriceGbp) > lo) {
+      hi = Math.trunc(Number(maxPriceGbp));
+    }
+    filterParts.push(`price:[${lo}..${hi}]`);
+    filterParts.push('priceCurrency:GBP');
+  }
 
   if (requireUsedCondition !== false) {
     filterParts.push('conditionIds:{3000}');
@@ -1084,6 +1107,39 @@ const getBrowseSearch = async ({
 
   return response.json();
 };
+
+function sanitizeEbayFeedSearchTerm(raw) {
+  let s = typeof raw === 'string' ? raw : String(raw ?? '');
+  s = s.replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (s.length > 120) {
+    s = s.slice(0, 120).trim();
+  }
+  return s;
+}
+
+function mapEbayItemSummaryToFeedCard(s, tagId, tagTerm) {
+  const imageUrl =
+    (s && s.image && typeof s.image.imageUrl === 'string' && s.image.imageUrl) ||
+    (Array.isArray(s?.thumbnailImages) &&
+      s.thumbnailImages[0] &&
+      typeof s.thumbnailImages[0].imageUrl === 'string' &&
+      s.thumbnailImages[0].imageUrl) ||
+    null;
+  let priceLabel = '—';
+  if (s?.price && s.price.value != null && String(s.price.value).trim()) {
+    const cur = (s.price.currency && String(s.price.currency)) || 'GBP';
+    priceLabel = `${s.price.value} ${cur}`;
+  }
+  return {
+    itemId: s?.itemId != null ? String(s.itemId) : null,
+    title: typeof s?.title === 'string' ? s.title : '',
+    imageUrl,
+    priceLabel,
+    itemWebUrl: typeof s?.itemWebUrl === 'string' ? s.itemWebUrl : null,
+    tagId,
+    tagTerm
+  };
+}
 
 app.get('/api/ebay/search', async (req, res) => {
   try {
@@ -1207,6 +1263,185 @@ app.get('/api/ebay/research', async (req, res) => {
   } catch (error) {
     console.error('Research endpoint error:', error);
     res.status(500).json({ error: 'Failed to fetch research data', details: error.message });
+  }
+});
+
+/** Saved eBay feed tags — table created by scripts/add-ebay-research-feed-tag.sql (run once). */
+app.get('/api/research-feed/tags', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const result = await pool.query(
+      `SELECT id, term, created_at FROM ebay_research_feed_tag ORDER BY created_at ASC, id ASC`
+    );
+    res.json({ rows: result.rows ?? [] });
+  } catch (error) {
+    console.error('research-feed tags list failed:', error);
+    res.status(500).json({ error: 'Failed to load feed tags', details: error.message });
+  }
+});
+
+app.post('/api/research-feed/tags', async (req, res) => {
+  const raw = req.body && typeof req.body.term === 'string' ? req.body.term : '';
+  const term = sanitizeEbayFeedSearchTerm(raw);
+  if (!term) {
+    return res.status(400).json({ error: 'term is required (non-empty string, max 120 characters)' });
+  }
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const dup = await pool.query(
+      `SELECT id, term, created_at FROM ebay_research_feed_tag WHERE lower(trim(term)) = lower(trim($1)) LIMIT 1`,
+      [term]
+    );
+    if (dup.rowCount) {
+      return res.json({ row: dup.rows[0], created: false });
+    }
+    const ins = await pool.query(
+      `INSERT INTO ebay_research_feed_tag (term) VALUES ($1) RETURNING id, term, created_at`,
+      [term]
+    );
+    res.status(201).json({ row: ins.rows[0], created: true });
+  } catch (error) {
+    console.error('research-feed tag insert failed:', error);
+    res.status(500).json({ error: 'Failed to save tag', details: error.message });
+  }
+});
+
+app.delete('/api/research-feed/tags/:id', async (req, res) => {
+  const id = parseInt(String(req.params.id ?? ''), 10);
+  if (!Number.isFinite(id) || id < 1) {
+    return res.status(400).json({ error: 'Invalid tag id' });
+  }
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const del = await pool.query(`DELETE FROM ebay_research_feed_tag WHERE id = $1 RETURNING id`, [id]);
+    if (!del.rowCount) {
+      return res.status(404).json({ error: 'Tag not found' });
+    }
+    res.json({ ok: true, id: del.rows[0].id });
+  } catch (error) {
+    console.error('research-feed tag delete failed:', error);
+    res.status(500).json({ error: 'Failed to delete tag', details: error.message });
+  }
+});
+
+/**
+ * Sold comps on eBay UK (GBP price band), one interleaved page across saved tags.
+ * GET /api/research-feed/items?page=0&pageSize=12&minPriceGbp=50&maxPriceGbp=200
+ * min/max clamped to 20–200; defaults min 50, max 200. Range is normalized so max > min.
+ */
+app.get('/api/research-feed/items', async (req, res) => {
+  const page = Math.max(0, parseInt(String(req.query.page ?? '0'), 10) || 0);
+  const pageSize = Math.min(48, Math.max(6, parseInt(String(req.query.pageSize ?? '12'), 10) || 12));
+  const rawMin = parseInt(String(req.query.minPriceGbp ?? '50'), 10);
+  const rawMax = parseInt(String(req.query.maxPriceGbp ?? '200'), 10);
+  const minSel = Math.min(200, Math.max(20, Number.isFinite(rawMin) ? rawMin : 50));
+  const maxSel = Math.min(200, Math.max(20, Number.isFinite(rawMax) ? rawMax : 200));
+  let priceLo = Math.min(minSel, maxSel);
+  let priceHi = Math.max(minSel, maxSel);
+  if (priceHi <= priceLo) {
+    priceHi = Math.min(priceLo + 5, 200);
+  }
+  if (priceHi <= priceLo) {
+    priceLo = Math.max(priceHi - 5, 20);
+  }
+
+  const appId = process.env.REACT_APP_EBAY_APP_ID || process.env.EBAY_APP;
+  const certId = process.env.REACT_APP_EBAY_CERT_ID;
+  if (!appId || !certId) {
+    return res.status(500).json({
+      error: 'eBay credentials not configured',
+      details: 'Set REACT_APP_EBAY_APP_ID and REACT_APP_EBAY_CERT_ID.'
+    });
+  }
+
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured', items: [], tags: [], hasMore: false });
+    }
+
+    const tagsResult = await pool.query(
+      `SELECT id, term, created_at FROM ebay_research_feed_tag ORDER BY created_at ASC, id ASC`
+    );
+    const tagRows = tagsResult.rows ?? [];
+    if (tagRows.length === 0) {
+      return res.json({ items: [], tags: [], hasMore: false, page: 0, pageSize });
+    }
+
+    const accessToken = await getAccessToken(appId, certId);
+    const nTags = tagRows.length;
+    const perTag = Math.min(50, Math.max(1, Math.ceil(pageSize / nTags)));
+    const offsetNum = page * perTag;
+
+    const perTagResults = await Promise.all(
+      tagRows.map(async (row) => {
+        const q = sanitizeEbayFeedSearchTerm(row.term);
+        if (!q) {
+          return { tagId: row.id, tagTerm: row.term, items: [], full: false };
+        }
+        try {
+          const data = await getBrowseSearch({
+            query: q,
+            accessToken,
+            limit: String(perTag),
+            offset: String(offsetNum),
+            sort: '-price',
+            soldOnly: true,
+            soldDateRangeDays: 180,
+            lastMonthOnly: false,
+            requireUsedCondition: false,
+            categoryIds: null,
+            minPriceGbp: priceLo,
+            maxPriceGbp: priceHi
+          });
+          const arr = Array.isArray(data.itemSummaries) ? data.itemSummaries : [];
+          const items = arr.map((s) => mapEbayItemSummaryToFeedCard(s, row.id, row.term));
+          return { tagId: row.id, tagTerm: row.term, items, full: arr.length >= perTag };
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          console.warn(`research-feed eBay fetch failed for tag "${row.term}":`, msg);
+          return { tagId: row.id, tagTerm: row.term, items: [], full: false, error: msg };
+        }
+      })
+    );
+
+    const maxLen = Math.max(...perTagResults.map((r) => r.items.length), 0);
+    const interleaved = [];
+    const seen = new Set();
+    for (let i = 0; i < maxLen; i += 1) {
+      for (const block of perTagResults) {
+        const card = block.items[i];
+        if (!card || !card.itemId) continue;
+        if (seen.has(card.itemId)) continue;
+        seen.add(card.itemId);
+        interleaved.push(card);
+        if (interleaved.length >= pageSize) break;
+      }
+      if (interleaved.length >= pageSize) break;
+    }
+
+    const hasMore = perTagResults.some((r) => r.full);
+
+    res.json({
+      items: interleaved,
+      tags: tagRows.map((r) => ({ id: r.id, term: r.term, created_at: r.created_at })),
+      hasMore,
+      page,
+      pageSize,
+      errors: perTagResults.filter((r) => r.error).map((r) => ({ tagTerm: r.tagTerm, error: r.error }))
+    });
+  } catch (error) {
+    console.error('research-feed items failed:', error);
+    res.status(500).json({ error: 'Failed to load feed', details: error.message });
   }
 });
 

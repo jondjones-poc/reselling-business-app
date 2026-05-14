@@ -4084,3 +4084,11 @@ button.stock-close-circle-btn:disabled {
 .expenses-projections-week-table-vs--even {
   color: rgba(255, 248, 226, 0.55);
 }
+
+/* Accounting page (route /expenses; nav label “Accounting”) */
+.accounting-page-title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin: 0 0 1rem;
+  color: #0f172a;
+}

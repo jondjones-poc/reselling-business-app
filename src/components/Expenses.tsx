@@ -1184,7 +1184,9 @@ const Expenses: React.FC = () => {
       {error && <div className="stock-error">{error}</div>}
       {successMessage && <div className="stock-success">{successMessage}</div>}
 
-      <div className="expenses-tabs" role="tablist" aria-label="Expenses sections">
+      <h1 className="accounting-page-title">Accounting</h1>
+
+      <div className="expenses-tabs" role="tablist" aria-label="Accounting sections">
         <button
           type="button"
           role="tab"
