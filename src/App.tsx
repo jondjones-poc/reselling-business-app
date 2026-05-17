@@ -27,13 +27,15 @@ const navItems = [
 /** Preserves ?tab= when opening Orders from another page (uses sessionStorage set on the Orders screen). */
 function OrdersNavLink({ className }: Pick<NavLinkProps, 'className'>) {
   const location = useLocation();
-  let tab: 'sales' | 'to-pack' = 'to-pack';
+  let tab: 'sales' | 'to-pack' | 'sales-summary' = 'to-pack';
   if (location.pathname === '/orders') {
     const q = new URLSearchParams(location.search).get('tab');
-    tab = q === 'sales' ? 'sales' : 'to-pack';
+    if (q === 'sales') tab = 'sales';
+    else if (q === 'sales-summary') tab = 'sales-summary';
   } else {
     try {
-      if (sessionStorage.getItem('ordersTab') === 'sales') tab = 'sales';
+      const saved = sessionStorage.getItem('ordersTab');
+      if (saved === 'sales' || saved === 'sales-summary') tab = saved;
     } catch {
       /* ignore */
     }

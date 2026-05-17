@@ -295,8 +295,22 @@ app.get('/api/test', (req, res) => {
   res.json({ message: 'Server is working!', timestamp: new Date().toISOString() });
 });
 
-/** Minimal DB round-trip to wake free-tier Supabase when idle. */
+/**
+ * Minimal DB round-trip to wake free-tier Supabase when idle.
+ * If DB_KEEPALIVE_SECRET is set on the server, callers must send the same value as
+ * `Authorization: Bearer <secret>` or `?secret=<secret>` (header preferred).
+ */
 app.get('/api/db-ping', async (req, res) => {
+  const keepSecret = process.env.DB_KEEPALIVE_SECRET;
+  if (keepSecret) {
+    const auth = String(req.get('authorization') || '').trim();
+    const m = /^Bearer\s+(.+)$/i.exec(auth);
+    const bearer = m ? m[1].trim() : '';
+    const qSecret = String(req.query.secret ?? '').trim();
+    if (bearer !== keepSecret && qSecret !== keepSecret) {
+      return res.status(401).json({ ok: false, error: 'Unauthorized' });
+    }
+  }
   try {
     const pool = getDatabasePool();
     if (!pool) {
@@ -1006,6 +1020,7 @@ const EBAY_GB_MENS_CLOTHING_CATEGORY_ID = (process.env.EBAY_BROWSE_CATEGORY_IDS 
  * @param {string|null} [opts.offset] — Browse API `offset` (pagination).
  * @param {number|null} [opts.minPriceGbp] — Minimum sold price in GBP (adds price + priceCurrency filters).
  * @param {number|null} [opts.maxPriceGbp] — Maximum sold price in GBP (upper bound of price range filter).
+ * @param {boolean} [opts.ukItemsOnly=false] — When true, add itemLocationCountry:GB (UK-sited listings).
  */
 const getBrowseSearch = async ({
   query,
@@ -1019,7 +1034,8 @@ const getBrowseSearch = async ({
   requireUsedCondition = true,
   categoryIds = EBAY_GB_MENS_CLOTHING_CATEGORY_ID,
   minPriceGbp = null,
-  maxPriceGbp = null
+  maxPriceGbp = null,
+  ukItemsOnly = false
 }) => {
   const params = new URLSearchParams({
     q: query,
@@ -1042,6 +1058,10 @@ const getBrowseSearch = async ({
   const filterParts = [];
 
   filterParts.push('deliveryCountry:GB');
+
+  if (ukItemsOnly) {
+    filterParts.push('itemLocationCountry:GB');
+  }
 
   if (minPriceGbp != null && Number.isFinite(Number(minPriceGbp)) && Number(minPriceGbp) > 0) {
     const lo = Math.trunc(Number(minPriceGbp));
@@ -1117,6 +1137,25 @@ function sanitizeEbayFeedSearchTerm(raw) {
   return s;
 }
 
+function ebaySummaryListedAtMs(s) {
+  const raw = s?.itemCreationDate;
+  if (raw == null || String(raw).trim() === '') return 0;
+  const t = Date.parse(String(raw));
+  return Number.isFinite(t) ? t : 0;
+}
+
+/** Post-filter when API location metadata is present (Browse itemLocationCountry:GB is primary). */
+function isUkItemSummary(s) {
+  const loc = s?.itemLocation;
+  const country =
+    loc && typeof loc.country === 'string' ? loc.country.trim().toUpperCase() : '';
+  if (country === 'GB' || country === 'UK') return true;
+  const url = typeof s?.itemWebUrl === 'string' ? s.itemWebUrl : '';
+  if (/ebay\.co\.uk/i.test(url)) return true;
+  if (!country && !url) return true;
+  return false;
+}
+
 function mapEbayItemSummaryToFeedCard(s, tagId, tagTerm) {
   const imageUrl =
     (s && s.image && typeof s.image.imageUrl === 'string' && s.image.imageUrl) ||
@@ -1130,6 +1169,7 @@ function mapEbayItemSummaryToFeedCard(s, tagId, tagTerm) {
     const cur = (s.price.currency && String(s.price.currency)) || 'GBP';
     priceLabel = `${s.price.value} ${cur}`;
   }
+  const listedAtMs = ebaySummaryListedAtMs(s);
   return {
     itemId: s?.itemId != null ? String(s.itemId) : null,
     title: typeof s?.title === 'string' ? s.title : '',
@@ -1137,7 +1177,8 @@ function mapEbayItemSummaryToFeedCard(s, tagId, tagTerm) {
     priceLabel,
     itemWebUrl: typeof s?.itemWebUrl === 'string' ? s.itemWebUrl : null,
     tagId,
-    tagTerm
+    tagTerm,
+    listedAtMs
   };
 }
 
@@ -1334,7 +1375,7 @@ app.delete('/api/research-feed/tags/:id', async (req, res) => {
 });
 
 /**
- * Sold comps on eBay UK (GBP price band), one interleaved page across saved tags.
+ * Sold comps on eBay UK (GBP price band, UK-sited listings), newest listed first.
  * GET /api/research-feed/items?page=0&pageSize=12&minPriceGbp=50&maxPriceGbp=200
  * min/max clamped to 20–200; defaults min 50, max 200. Range is normalized so max > min.
  */
@@ -1394,16 +1435,19 @@ app.get('/api/research-feed/items', async (req, res) => {
             accessToken,
             limit: String(perTag),
             offset: String(offsetNum),
-            sort: '-price',
+            sort: 'newlyListed',
             soldOnly: true,
             soldDateRangeDays: 180,
             lastMonthOnly: false,
             requireUsedCondition: false,
             categoryIds: null,
             minPriceGbp: priceLo,
-            maxPriceGbp: priceHi
+            maxPriceGbp: priceHi,
+            ukItemsOnly: true
           });
-          const arr = Array.isArray(data.itemSummaries) ? data.itemSummaries : [];
+          const arr = (Array.isArray(data.itemSummaries) ? data.itemSummaries : []).filter(
+            isUkItemSummary
+          );
           const items = arr.map((s) => mapEbayItemSummaryToFeedCard(s, row.id, row.term));
           return { tagId: row.id, tagTerm: row.term, items, full: arr.length >= perTag };
         } catch (e) {
@@ -1414,22 +1458,19 @@ app.get('/api/research-feed/items', async (req, res) => {
       })
     );
 
-    const maxLen = Math.max(...perTagResults.map((r) => r.items.length), 0);
-    const interleaved = [];
+    const merged = [];
     const seen = new Set();
-    for (let i = 0; i < maxLen; i += 1) {
-      for (const block of perTagResults) {
-        const card = block.items[i];
-        if (!card || !card.itemId) continue;
-        if (seen.has(card.itemId)) continue;
+    for (const block of perTagResults) {
+      for (const card of block.items) {
+        if (!card || !card.itemId || seen.has(card.itemId)) continue;
         seen.add(card.itemId);
-        interleaved.push(card);
-        if (interleaved.length >= pageSize) break;
+        merged.push(card);
       }
-      if (interleaved.length >= pageSize) break;
     }
+    merged.sort((a, b) => (b.listedAtMs ?? 0) - (a.listedAtMs ?? 0));
+    const interleaved = merged.slice(0, pageSize);
 
-    const hasMore = perTagResults.some((r) => r.full);
+    const hasMore = perTagResults.some((r) => r.full) || merged.length > pageSize;
 
     res.json({
       items: interleaved,

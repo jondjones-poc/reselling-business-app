@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { pingDatabase } from '../utils/dbPing';
 import { getApiBase } from '../utils/apiBase';
-import { StockRowInfoOverlay } from './StockRowInfoOverlay';
+import { StockRowInfoOverlay, computeStockInfoPanelMetrics } from './StockRowInfoOverlay';
 import './Orders.css';
 
 const API_BASE = getApiBase();
@@ -50,7 +50,101 @@ function stockIsBulky(row: StockRow | OrderItem): boolean {
   return v === true || v === 't' || v === 'true' || v === 1 || v === '1';
 }
 
-type OrdersTab = 'to-pack' | 'sales';
+type OrdersTab = 'to-pack' | 'sales' | 'sales-summary';
+
+const SALES_SUMMARY_WEEKS_BACK = 9;
+
+function parseOrdersTabParam(raw: string | null): OrdersTab {
+  if (raw === 'sales') return 'sales';
+  if (raw === 'sales-summary') return 'sales-summary';
+  return 'to-pack';
+}
+
+function weekMondayKey(d: Date): string {
+  const { weekStart } = getMondayToSundayBounds(d);
+  const y = weekStart.getFullYear();
+  const m = String(weekStart.getMonth() + 1).padStart(2, '0');
+  const day = String(weekStart.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function formatWeekRangeLabel(weekStart: Date, weekEnd: Date): string {
+  const startOpts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' };
+  const endOpts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric' };
+  const start = weekStart.toLocaleDateString('en-GB', startOpts);
+  const end = weekEnd.toLocaleDateString('en-GB', endOpts);
+  return `${start} – ${end}`;
+}
+
+function buildSalesSummaryWeekOptions(ref: Date, weeksBack: number) {
+  const options: Array<{ value: string; label: string; weekStart: Date; weekEnd: Date }> = [];
+  for (let i = 0; i < weeksBack; i += 1) {
+    const anchor = new Date(ref);
+    anchor.setDate(anchor.getDate() - i * 7);
+    const { weekStart, weekEnd } = getMondayToSundayBounds(anchor);
+    options.push({
+      value: weekMondayKey(anchor),
+      label: formatWeekRangeLabel(weekStart, weekEnd),
+      weekStart,
+      weekEnd,
+    });
+  }
+  return options;
+}
+
+function soldRowInWeek(row: StockRow, weekStart: Date, weekEnd: Date): boolean {
+  const d = parseSoldRowDate(row);
+  if (!d) return false;
+  return d >= weekStart && d <= weekEnd;
+}
+
+function SalesSummaryPlatformLink({
+  listing,
+  children,
+  className = '',
+  title,
+}: {
+  listing: { href: string; platform: string };
+  children: React.ReactNode;
+  className?: string;
+  title?: string;
+}) {
+  const mod =
+    listing.platform === 'eBay'
+      ? ' orders-platform-link--ebay'
+      : listing.platform === 'Vinted'
+        ? ' orders-platform-link--vinted'
+        : '';
+  return (
+    <a
+      href={listing.href}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={title ?? `Open on ${listing.platform}`}
+      className={`orders-platform-link${mod}${className ? ` ${className}` : ''}`}
+    >
+      {children}
+    </a>
+  );
+}
+
+function soldPlatformListingHref(row: StockRow): { href: string; platform: string } | null {
+  const platformRaw = row.sold_platform?.trim() ?? '';
+  const pl = platformRaw.toLowerCase();
+  if (pl.includes('ebay') || platformRaw === 'eBay') {
+    const href = ebayListingHref(row.ebay_id);
+    if (href) return { href, platform: 'eBay' };
+  }
+  if (pl.includes('vinted') || platformRaw === 'Vinted') {
+    const href = vintedListingHref(row.vinted_id);
+    if (href) return { href, platform: 'Vinted' };
+  }
+  const ebay = ebayListingHref(row.ebay_id);
+  if (ebay) return { href: ebay, platform: 'eBay' };
+  const vinted = vintedListingHref(row.vinted_id);
+  if (vinted) return { href: vinted, platform: 'Vinted' };
+  return null;
+}
 
 /** Compact eBay wordmark (brand colors) for buttons — not an official asset; typographic approximation. */
 function EbayLogoIcon({ className }: { className?: string }) {
@@ -272,7 +366,7 @@ interface OrdersApiResponse {
 const Orders: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const ordersTab: OrdersTab = searchParams.get('tab') === 'sales' ? 'sales' : 'to-pack';
+  const ordersTab: OrdersTab = parseOrdersTabParam(searchParams.get('tab'));
 
   const setOrdersTab = (tab: OrdersTab) => {
     try {
@@ -297,6 +391,7 @@ const Orders: React.FC = () => {
   const [salesBrands, setSalesBrands] = useState<Array<{ id: number; brand_name: string }>>([]);
   const [salesBrandsLoading, setSalesBrandsLoading] = useState(false);
   const [salesDateRangeFilter, setSalesDateRangeFilter] = useState<SalesDateRangeFilter>('all');
+  const [salesSummaryWeekKey, setSalesSummaryWeekKey] = useState(() => weekMondayKey(new Date()));
   const [vintedEbayCheckLoading, setVintedEbayCheckLoading] = useState(false);
   const [vintedEbayViolations, setVintedEbayViolations] = useState<VintedEbayViolation[]>([]);
   const [vintedEbayCheckError, setVintedEbayCheckError] = useState<string | null>(null);
@@ -439,7 +534,7 @@ const Orders: React.FC = () => {
   // Normalize URL: /orders with missing/invalid ?tab= uses last tab from sessionStorage (nav + refresh).
   useEffect(() => {
     const q = searchParams.get('tab');
-    if (q === 'sales' || q === 'to-pack') {
+    if (q === 'sales' || q === 'to-pack' || q === 'sales-summary') {
       try {
         sessionStorage.setItem('ordersTab', q);
       } catch {
@@ -450,7 +545,7 @@ const Orders: React.FC = () => {
     let initial: OrdersTab = 'to-pack';
     try {
       const saved = sessionStorage.getItem('ordersTab');
-      if (saved === 'sales') initial = 'sales';
+      if (saved === 'sales' || saved === 'sales-summary') initial = saved;
     } catch {
       /* ignore */
     }
@@ -458,7 +553,7 @@ const Orders: React.FC = () => {
   }, [searchParams, setSearchParams]);
 
   useEffect(() => {
-    if (ordersTab !== 'sales') {
+    if (ordersTab !== 'sales' && ordersTab !== 'sales-summary') {
       return;
     }
     let cancelled = false;
@@ -648,6 +743,48 @@ const Orders: React.FC = () => {
       periodLabel,
     };
   }, [soldRowsFiltered, salesDateRangeFilter]);
+
+  const salesSummaryWeekOptions = useMemo(
+    () => buildSalesSummaryWeekOptions(new Date(), SALES_SUMMARY_WEEKS_BACK),
+    []
+  );
+
+  const salesSummarySelectedWeek = useMemo(() => {
+    const found = salesSummaryWeekOptions.find((w) => w.value === salesSummaryWeekKey);
+    if (found) return found;
+    return salesSummaryWeekOptions[0] ?? null;
+  }, [salesSummaryWeekOptions, salesSummaryWeekKey]);
+
+  const salesSummaryRows = useMemo(() => {
+    if (!salesSummarySelectedWeek) return [];
+    const { weekStart, weekEnd } = salesSummarySelectedWeek;
+    return soldRows
+      .filter((r) => soldRowInWeek(r, weekStart, weekEnd))
+      .sort((a, b) => {
+        const da = parseSoldRowDate(a)?.getTime() ?? 0;
+        const db = parseSoldRowDate(b)?.getTime() ?? 0;
+        return db - da;
+      });
+  }, [soldRows, salesSummarySelectedWeek]);
+
+  const salesSummaryTotals = useMemo(() => {
+    let totalSales = 0;
+    let totalProfit = 0;
+    let hasSales = false;
+    let hasProfit = false;
+    for (const row of salesSummaryRows) {
+      const { sale, profit } = computeStockInfoPanelMetrics(row);
+      if (!Number.isNaN(sale)) {
+        totalSales += sale;
+        hasSales = true;
+      }
+      if (!Number.isNaN(profit)) {
+        totalProfit += profit;
+        hasProfit = true;
+      }
+    }
+    return { totalSales, totalProfit, hasSales, hasProfit };
+  }, [salesSummaryRows]);
 
   const handleAddItem = async (item: StockRow) => {
     // Check if item is already in the order (client-side check)
@@ -887,6 +1024,17 @@ const Orders: React.FC = () => {
         <button
           type="button"
           role="tab"
+          id="orders-tab-sales-summary"
+          aria-selected={ordersTab === 'sales-summary'}
+          aria-controls="orders-panel-sales-summary"
+          className={`orders-tab${ordersTab === 'sales-summary' ? ' orders-tab--active' : ''}`}
+          onClick={() => setOrdersTab('sales-summary')}
+        >
+          Sales Summary
+        </button>
+        <button
+          type="button"
+          role="tab"
           id="orders-tab-sales"
           aria-selected={ordersTab === 'sales'}
           aria-controls="orders-panel-sales"
@@ -899,6 +1047,9 @@ const Orders: React.FC = () => {
 
       {ordersTab === 'to-pack' && error && <div className="orders-error">{error}</div>}
       {ordersTab === 'sales' && soldError && <div className="orders-error">{soldError}</div>}
+      {ordersTab === 'sales-summary' && soldError && (
+        <div className="orders-error">{soldError}</div>
+      )}
 
       {ordersTab === 'to-pack' && (
         <div
@@ -1602,6 +1753,135 @@ const Orders: React.FC = () => {
                           >
                             Info
                           </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {ordersTab === 'sales-summary' && (
+        <div
+          id="orders-panel-sales-summary"
+          role="tabpanel"
+          aria-labelledby="orders-tab-sales-summary"
+          className="orders-sales-summary-section"
+        >
+          <div className="orders-sales-summary-toolbar">
+            <label htmlFor="orders-sales-summary-week" className="orders-sales-summary-week-label">
+              Week
+            </label>
+            <select
+              id="orders-sales-summary-week"
+              className="orders-sales-platform-select orders-sales-summary-week-select"
+              value={salesSummarySelectedWeek?.value ?? salesSummaryWeekKey}
+              onChange={(e) => setSalesSummaryWeekKey(e.target.value)}
+              aria-label="Filter sales by week (last two months)"
+            >
+              {salesSummaryWeekOptions.map((w) => (
+                <option key={w.value} value={w.value}>
+                  {w.label}
+                  {w.value === weekMondayKey(new Date()) ? ' (Current)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {!soldLoading && salesSummarySelectedWeek && (
+            <div className="orders-sales-summary-totals" aria-live="polite">
+              <span className="orders-sales-stat">
+                <strong>{formatCurrency(salesSummaryTotals.totalSales)}</strong>
+                <span className="orders-sales-stat-label"> Total Sales</span>
+              </span>
+              <span className="orders-sales-stat">
+                <strong
+                  className={
+                    salesSummaryTotals.hasProfit && salesSummaryTotals.totalProfit < 0
+                      ? 'orders-sales-summary-profit--negative'
+                      : 'orders-sales-summary-profit--positive'
+                  }
+                >
+                  {formatCurrency(salesSummaryTotals.totalProfit)}
+                </strong>
+                <span className="orders-sales-stat-label"> Total Profit</span>
+              </span>
+            </div>
+          )}
+
+          {soldLoading ? (
+            <div className="orders-empty-state">
+              <p>Loading sales…</p>
+            </div>
+          ) : soldRows.length === 0 ? (
+            <div className="orders-empty-state">
+              <p>No sold items yet.</p>
+            </div>
+          ) : salesSummaryRows.length === 0 ? (
+            <div className="orders-empty-state">
+              <p>No sales in {salesSummarySelectedWeek?.label ?? 'this period'}.</p>
+              <p>Choose another week from the filter above.</p>
+            </div>
+          ) : (
+            <div className="table-wrapper orders-sales-summary-table-wrap">
+              <table className="orders-table orders-sales-summary-table">
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>Sale price</th>
+                    <th>Buy price</th>
+                    <th>Profit</th>
+                    <th>Listing</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {salesSummaryRows.map((row) => {
+                    const { sale, profit } = computeStockInfoPanelMetrics(row);
+                    const listing = soldPlatformListingHref(row);
+                    const title = row.item_name?.trim() || '—';
+                    const profitClass =
+                      !Number.isNaN(profit) && profit < 0
+                        ? 'orders-sales-summary-profit--negative'
+                        : 'orders-sales-summary-profit--positive';
+                    return (
+                      <tr key={row.id}>
+                        <td>
+                          {listing ? (
+                            <SalesSummaryPlatformLink listing={listing} title={`Open on ${listing.platform}`}>
+                              {title}
+                            </SalesSummaryPlatformLink>
+                          ) : (
+                            <Link
+                              to={`/stock?editId=${row.id}`}
+                              className="orders-sales-stock-name-link"
+                              title={`Edit item ${row.id} in Stock`}
+                            >
+                              {title}
+                            </Link>
+                          )}
+                        </td>
+                        <td>{formatCurrency(Number.isNaN(sale) ? null : sale)}</td>
+                        <td>
+                          {formatCurrency(
+                            row.purchase_price !== null && row.purchase_price !== undefined
+                              ? Number(row.purchase_price)
+                              : null
+                          )}
+                        </td>
+                        <td className={profitClass}>
+                          {formatCurrency(Number.isNaN(profit) ? null : profit)}
+                        </td>
+                        <td>
+                          {listing ? (
+                            <SalesSummaryPlatformLink listing={listing}>
+                              {listing.platform}
+                            </SalesSummaryPlatformLink>
+                          ) : (
+                            <span className="orders-table-dash">—</span>
+                          )}
                         </td>
                       </tr>
                     );

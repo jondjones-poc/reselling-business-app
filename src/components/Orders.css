@@ -16,7 +16,7 @@
   display: flex;
   gap: 0;
   width: 100%;
-  max-width: 520px;
+  max-width: 720px;
   margin: 0 auto 28px auto;
   padding: 0;
   border-radius: 16px;
@@ -27,7 +27,7 @@
 }
 
 .orders-tab {
-  flex: 1 1 50%;
+  flex: 1 1 33.33%;
   margin: 0;
   padding: 14px 20px;
   border: none;
@@ -61,6 +61,95 @@
 
 .orders-sales-section {
   margin-top: 8px;
+}
+
+.orders-sales-summary-section {
+  margin-top: 8px;
+}
+
+.orders-sales-summary-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.orders-sales-summary-week-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255, 248, 226, 0.65);
+}
+
+.orders-sales-summary-week-select {
+  min-width: min(100%, 280px);
+}
+
+.orders-sales-summary-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 28px;
+  align-items: baseline;
+  margin-bottom: 1.35rem;
+  padding: 0.85rem 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 214, 91, 0.28);
+  background: rgba(255, 214, 91, 0.08);
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: rgba(255, 248, 226, 0.88);
+}
+
+.orders-sales-summary-profit--positive {
+  color: #8cffc3;
+}
+
+.orders-sales-summary-profit--negative {
+  color: #ff9a9a;
+}
+
+.orders-sales-summary-table-wrap {
+  margin-top: 0.25rem;
+}
+
+.orders-sales-summary-table th,
+.orders-sales-summary-table td {
+  vertical-align: middle;
+}
+
+.orders-platform-link {
+  display: inline;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  word-break: break-word;
+}
+
+.orders-platform-link--ebay {
+  color: #7dd3fc;
+}
+
+.orders-platform-link--ebay:hover {
+  color: #bae6fd;
+}
+
+.orders-platform-link--vinted {
+  color: #5eead4;
+}
+
+.orders-platform-link--vinted:hover {
+  color: #99f6e4;
+}
+
+.orders-sales-summary-table .orders-platform-link {
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.orders-sales-summary-table td:last-child .orders-platform-link {
+  white-space: nowrap;
 }
 
 .orders-sales-ebay-toolbar {

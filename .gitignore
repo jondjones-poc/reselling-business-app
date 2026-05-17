@@ -127,3 +127,7 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+# Cloudflare Wrangler (workers/db-keepalive)
+workers/**/.wrangler/
+workers/**/.dev.vars

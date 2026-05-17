@@ -12,7 +12,12 @@ type FeedItem = {
   itemWebUrl: string | null;
   tagId: number;
   tagTerm: string;
+  listedAtMs?: number;
 };
+
+function sortFeedNewestFirst(items: FeedItem[]): FeedItem[] {
+  return [...items].sort((a, b) => (b.listedAtMs ?? 0) - (a.listedAtMs ?? 0));
+}
 
 async function readJson<T>(res: Response): Promise<T> {
   const text = await res.text();
@@ -113,7 +118,11 @@ const ResearchEbayFeed: React.FC = () => {
         throw new Error(data.error || res.statusText);
       }
       const nextItems = Array.isArray(data.items) ? data.items : [];
-      setItems((prev) => (append ? dedupeByItemId(prev, nextItems) : dedupeByItemId([], nextItems)));
+      setItems((prev) =>
+        sortFeedNewestFirst(
+          append ? dedupeByItemId(prev, nextItems) : dedupeByItemId([], nextItems)
+        )
+      );
       setHasMore(Boolean(data.hasMore));
       setFeedPage(page);
       if (data.errors && data.errors.length > 0) {
@@ -370,7 +379,9 @@ const ResearchEbayFeed: React.FC = () => {
       )}
 
       {tags.length > 0 && !feedLoading && !feedError && items.length === 0 && (
-        <p className="research-ebay-feed-muted">No sold listings matched these tags with the current filters.</p>
+        <p className="research-ebay-feed-muted">
+          No UK sold listings matched these tags with the current filters.
+        </p>
       )}
 
       {tags.length > 0 && items.length > 0 && (

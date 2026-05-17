@@ -454,7 +454,7 @@
   padding: 0 14px;
   border-radius: 16px;
   border: 1px solid rgba(255, 214, 91, 0.28);
-  background: rgba(255, 214, 91, 0.08);
+  background: rgba(5, 4, 3, 0.88);
   transition:
     border-color 0.3s ease,
     box-shadow 0.3s ease,
@@ -464,7 +464,7 @@
 .stock-new-entry-row-ids .stock-new-entry-id-field--bulky .stock-new-entry-bulky-input-skin:focus-within {
   border-color: var(--neon-border-strong);
   box-shadow: var(--neon-shadow);
-  background: rgba(255, 214, 91, 0.16);
+  background: rgba(5, 4, 3, 0.94);
 }
 
 /* Reset global .new-entry-field input text-field sizing so the control reads as one band */
@@ -655,6 +655,107 @@
 .stock-new-entry-tags-field,
 .stock-new-entry-size-field {
   min-width: 0;
+}
+
+.stock-form-dropdown {
+  position: relative;
+  width: 100%;
+}
+
+.stock-form-dropdown-trigger {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: calc(28px + 0.95rem * 1.2 + 2px);
+  padding: 14px 18px;
+  padding-right: 40px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 214, 91, 0.28);
+  background-color: rgba(5, 4, 3, 0.88);
+  color: var(--text-strong);
+  font-size: 0.95rem;
+  cursor: pointer;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: 0.02rem;
+  box-sizing: border-box;
+}
+
+.stock-form-dropdown-trigger--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.stock-form-dropdown-trigger:focus-visible {
+  border-color: var(--neon-border-strong);
+  box-shadow: var(--neon-shadow);
+  background-color: rgba(5, 4, 3, 0.94);
+  outline: none;
+}
+
+.stock-form-dropdown-trigger-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.stock-form-dropdown-placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.stock-form-dropdown-chevron {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  opacity: 0.7;
+  position: absolute;
+  right: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.stock-form-dropdown-panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 1000;
+  max-height: 240px;
+  overflow-y: auto;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 214, 91, 0.28);
+  background: rgba(5, 4, 3, 0.98);
+  padding: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.stock-form-dropdown-option {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-strong);
+  font-size: 0.95rem;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: 0.02rem;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.stock-form-dropdown-option:hover {
+  background: rgba(255, 214, 91, 0.1);
+}
+
+.stock-form-dropdown-option--selected {
+  background: rgba(255, 214, 91, 0.1);
 }
 
 .stock-brand-tag-dropdown {
@@ -2185,18 +2286,37 @@ button.stock-close-circle-btn:disabled {
 }
 
 .new-entry-field input,
-.new-entry-field select,
 .new-entry-field .react-datepicker__input-container input {
   width: 100%;
   padding: 14px 18px;
   border-radius: 16px;
   border: 1px solid rgba(255, 214, 91, 0.28);
-  background: rgba(255, 214, 91, 0.08);
+  background: rgba(5, 4, 3, 0.88);
   color: var(--text-strong);
   font-size: 0.95rem;
   outline: none;
   transition: all 0.3s ease;
   box-sizing: border-box;
+  color-scheme: dark;
+}
+
+.new-entry-field input::placeholder,
+.new-entry-field .react-datepicker__input-container input::placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.new-entry-field select {
+  width: 100%;
+  padding: 14px 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 214, 91, 0.28);
+  background-color: rgba(5, 4, 3, 0.88);
+  color: var(--text-strong);
+  font-size: 0.95rem;
+  outline: none;
+  transition: all 0.3s ease;
+  box-sizing: border-box;
+  color-scheme: dark;
 }
 
 /* Match control band height; line-height = content box so value/placeholder sit vertically centred */
@@ -2211,52 +2331,22 @@ button.stock-close-circle-btn:disabled {
 }
 
 .new-entry-field input:focus,
-.new-entry-field select:focus,
 .new-entry-field .react-datepicker__input-container input:focus {
   border-color: var(--neon-border-strong);
   box-shadow: var(--neon-shadow);
-  background: rgba(255, 214, 91, 0.16);
+  background: rgba(5, 4, 3, 0.94);
+}
+
+.new-entry-field select:focus,
+.new-entry-select:focus {
+  border-color: var(--neon-border-strong);
+  box-shadow: var(--neon-shadow);
+  background-color: rgba(5, 4, 3, 0.94);
 }
 
 .new-entry-field .react-datepicker-wrapper,
 .new-entry-field .react-datepicker__input-container {
   display: block;
-}
-
-.new-entry-field .react-datepicker-popper {
-  z-index: 2000;
-}
-
-.date-picker-calendar {
-  background: rgba(5, 4, 3, 0.96);
-  border: 1px solid rgba(255, 214, 91, 0.28);
-  box-shadow: var(--neon-shadow);
-  color: var(--text-strong);
-}
-
-.date-picker-calendar .react-datepicker__header {
-  background: rgba(255, 214, 91, 0.16);
-  border-bottom: 1px solid rgba(255, 214, 91, 0.28);
-}
-
-.date-picker-calendar .react-datepicker__current-month,
-.date-picker-calendar .react-datepicker__day-name {
-  color: var(--text-strong);
-  letter-spacing: 0.05rem;
-}
-
-.date-picker-calendar .react-datepicker__day {
-  color: var(--text-strong);
-}
-
-.date-picker-calendar .react-datepicker__day--selected,
-.date-picker-calendar .react-datepicker__day--keyboard-selected {
-  background: rgba(255, 214, 91, 0.35);
-  color: #1e1a12;
-}
-
-.date-picker-calendar .react-datepicker__day:hover {
-  background: rgba(255, 214, 91, 0.25);
 }
 
 .new-entry-actions {
@@ -3156,8 +3246,39 @@ button.stock-close-circle-btn:disabled {
   background-size: 12px;
   padding-right: 40px;
   cursor: pointer;
-  background-color: rgba(255, 214, 91, 0.08);
+  background-color: rgba(5, 4, 3, 0.88);
   color: var(--text-strong);
+  color-scheme: dark;
+}
+
+.new-entry-field select:disabled,
+.new-entry-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.stock-edit-sold-platform-trigger {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 46px;
+  height: auto;
+  line-height: 1.2;
+  padding: 11px 13px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 214, 91, 0.28);
+  background-color: rgba(5, 4, 3, 0.88);
+  color: var(--text-strong);
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+.stock-edit-sold-platform-trigger:focus-visible {
+  border-color: var(--neon-border-strong);
+  box-shadow: var(--neon-shadow);
+  background-color: rgba(5, 4, 3, 0.94);
+  outline: none;
 }
 
 .new-entry-field select option,

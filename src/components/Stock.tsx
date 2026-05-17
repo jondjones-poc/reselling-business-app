@@ -2,9 +2,11 @@ import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
+import '../react-datepicker-dark.css';
 import { pingDatabase } from '../utils/dbPing';
 import { getApiBase } from '../utils/apiBase';
 import './Stock.css';
+import { StockFormDropdown } from './StockFormDropdown';
 
 const API_BASE = getApiBase();
 
@@ -2459,22 +2461,19 @@ const Stock: React.FC = () => {
                   </label>
                   <label className="new-entry-field stock-new-entry-department-field">
                     <span id="stock-form-department-label">Department</span>
-                    <select
-                      className="new-entry-select"
-                      aria-labelledby="stock-form-department-label"
+                    <StockFormDropdown
                       value={createForm.department_id}
-                      onChange={(event) => handleCreateChange('department_id', event.target.value)}
+                      options={departments.map((d) => ({
+                        value: String(d.id),
+                        label: d.department_name,
+                      }))}
+                      onChange={(next) => handleCreateChange('department_id', next)}
                       disabled={departments.length === 0}
-                    >
-                      <option value="">
-                        {departments.length === 0 ? 'Loading departments…' : 'Select department…'}
-                      </option>
-                      {departments.map((d) => (
-                        <option key={d.id} value={String(d.id)}>
-                          {d.department_name}
-                        </option>
-                      ))}
-                    </select>
+                      placeholder={
+                        departments.length === 0 ? 'Loading departments…' : 'Select department…'
+                      }
+                      ariaLabelledBy="stock-form-department-label"
+                    />
                   </label>
                   <div className="new-entry-field stock-new-entry-category-field" style={{ position: 'relative' }}>
                     <div className="new-entry-field-label-row">
@@ -2519,24 +2518,21 @@ const Stock: React.FC = () => {
                         +
                       </button>
                     </div>
-                    <select
-                      className="new-entry-select"
-                      aria-labelledby="stock-form-category-label"
+                    <StockFormDropdown
                       value={createForm.category_id}
-                      onChange={(event) => handleCreateChange('category_id', event.target.value)}
+                      options={categoriesForDepartment.map((category) => ({
+                        value: String(category.id),
+                        label: category.category_name,
+                      }))}
+                      onChange={(next) => handleCreateChange('category_id', next)}
                       disabled={!createForm.department_id?.trim()}
-                    >
-                      <option value="">
-                        {!createForm.department_id?.trim()
+                      placeholder={
+                        !createForm.department_id?.trim()
                           ? 'Select department first'
-                          : 'Select category…'}
-                      </option>
-                      {categoriesForDepartment.map((category) => (
-                        <option key={category.id} value={category.id}>
-                          {category.category_name}
-                        </option>
-                      ))}
-                    </select>
+                          : 'Select category…'
+                      }
+                      ariaLabelledBy="stock-form-category-label"
+                    />
                     {showAddCategory && (
                       <div
                         style={{
@@ -2568,7 +2564,7 @@ const Stock: React.FC = () => {
                             padding: '8px 12px',
                             borderRadius: '8px',
                             border: '1px solid rgba(255, 214, 91, 0.28)',
-                            background: 'rgba(5, 4, 3, 0.6)',
+                            background: 'rgba(5, 4, 3, 0.88)',
                             color: 'var(--text-strong)',
                             fontSize: '0.9rem',
                             outline: 'none'
@@ -2656,29 +2652,21 @@ const Stock: React.FC = () => {
                         +
                       </button>
                     </div>
-                    <select
-                      className="new-entry-select"
-                      aria-labelledby="stock-form-brand-label"
+                    <StockFormDropdown
                       value={createForm.brand_id}
-                      onChange={(event) => handleCreateChange('brand_id', event.target.value)}
+                      options={brandsForBrandSelect.map((brand) => ({
+                        value: String(brand.id),
+                        label: brand.brand_name,
+                      }))}
+                      onChange={(next) => handleCreateChange('brand_id', next)}
                       disabled={!createForm.department_id?.trim()}
-                      title={
+                      placeholder={
                         createForm.department_id?.trim()
-                          ? undefined
-                          : 'Select a department to choose a brand'
-                      }
-                    >
-                      <option value="">
-                        {createForm.department_id?.trim()
                           ? '-- No Brand --'
-                          : '-- Select department first --'}
-                      </option>
-                      {brandsForBrandSelect.map((brand) => (
-                        <option key={brand.id} value={String(brand.id)}>
-                          {brand.brand_name}
-                        </option>
-                      ))}
-                    </select>
+                          : '-- Select department first --'
+                      }
+                      ariaLabelledBy="stock-form-brand-label"
+                    />
                     {showAddBrand && (
                       <div
                         style={{
@@ -2710,7 +2698,7 @@ const Stock: React.FC = () => {
                             padding: '8px 12px',
                             borderRadius: '8px',
                             border: '1px solid rgba(255, 214, 91, 0.28)',
-                            background: 'rgba(5, 4, 3, 0.6)',
+                            background: 'rgba(5, 4, 3, 0.88)',
                             color: 'var(--text-strong)',
                             fontSize: '0.9rem',
                             outline: 'none'
@@ -2761,26 +2749,23 @@ const Stock: React.FC = () => {
                   </div>
                   <label className="new-entry-field stock-new-entry-size-field">
                     <span id="stock-form-size-label">Size</span>
-                    <select
-                      className="new-entry-select"
-                      aria-labelledby="stock-form-size-label"
+                    <StockFormDropdown
                       value={createForm.category_size_id}
-                      onChange={(event) => handleCreateChange('category_size_id', event.target.value)}
+                      options={categorySizes.map((siz) => ({
+                        value: String(siz.id),
+                        label: siz.size_label,
+                      }))}
+                      onChange={(next) => handleCreateChange('category_size_id', next)}
                       disabled={!createForm.category_id?.trim() || categorySizesLoading}
-                    >
-                      <option value="">
-                        {!createForm.category_id?.trim()
+                      placeholder={
+                        !createForm.category_id?.trim()
                           ? 'Select category first'
                           : categorySizesLoading
                             ? 'Loading…'
-                            : 'None'}
-                      </option>
-                      {categorySizes.map((siz) => (
-                        <option key={siz.id} value={String(siz.id)}>
-                          {siz.size_label}
-                        </option>
-                      ))}
-                    </select>
+                            : 'None'
+                      }
+                      ariaLabelledBy="stock-form-size-label"
+                    />
                   </label>
                 </div>
               </div>
@@ -2812,19 +2797,18 @@ const Stock: React.FC = () => {
                 />
               </label>
               <label className="new-entry-field new-entry-field--stock-row2-sourced new-entry-field--stock-row2-equal">
-                <span>Sourced</span>
-                <select
-                  className="new-entry-select"
+                <span id="stock-form-sourced-label">Sourced</span>
+                <StockFormDropdown
                   value={createForm.sourced_location}
-                  onChange={(event) => handleCreateChange('sourced_location', event.target.value)}
-                  aria-label="Where the item was sourced"
-                >
-                  {SOURCED_LOCATION_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
+                  options={SOURCED_LOCATION_OPTIONS.map((o) => ({
+                    value: o.value,
+                    label: o.label,
+                  }))}
+                  onChange={(next) => handleCreateChange('sourced_location', next)}
+                  placeholder="Select source…"
+                  includeEmptyOption={false}
+                  ariaLabelledBy="stock-form-sourced-label"
+                />
               </label>
               <div className="new-entry-field stock-new-entry-tags-field new-entry-field--stock-row2-equal">
                 <div className="new-entry-field-label-row">
@@ -3096,22 +3080,6 @@ const Stock: React.FC = () => {
                         <span>Sold Platform</span>
                         <div
                           className="new-entry-select stock-edit-sold-platform-trigger"
-                          style={{
-                            position: 'relative',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            padding: '11px 13px',
-                            borderRadius: '14px',
-                            border: '1px solid rgba(255, 214, 91, 0.28)',
-                            background: 'rgba(255, 214, 91, 0.08)',
-                            color: 'var(--text-strong)',
-                            gap: '6px',
-                            minHeight: '46px',
-                            height: 'auto',
-                            lineHeight: '1.2',
-                            boxSizing: 'border-box',
-                          }}
                           onClick={() => setShowSoldPlatformDropdown(!showSoldPlatformDropdown)}
                         >
                         {createForm.sold_platform ? (
