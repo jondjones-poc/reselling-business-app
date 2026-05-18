@@ -61,6 +61,7 @@ interface Brand {
   id: number;
   brand_name: string;
   department_id?: number | null;
+  category_id?: number | null;
 }
 
 interface Department {
@@ -541,20 +542,25 @@ const Stock: React.FC = () => {
     return categories.filter((c) => String(c.department_id ?? '') === d);
   }, [categories, createForm.department_id]);
 
-  /** Brand dropdown + quick-add: only brands for the selected department; keep current selection visible if legacy mismatch. */
+  /** Brand dropdown: brands for selected stock category (legacy: department-only brands with null category_id). */
   const brandsForBrandSelect = useMemo(() => {
     const d = createForm.department_id?.trim();
+    const catId = createForm.category_id?.trim();
     const bid = createForm.brand_id?.trim();
-    if (!d) return [];
-    const forDept = brands.filter((b) => String(b.department_id ?? '') === d);
-    const sorted = [...forDept].sort((a, b) =>
+    if (!d || !catId) return [];
+    const forCategory = brands.filter(
+      (b) =>
+        String(b.category_id ?? '') === catId ||
+        (b.category_id == null && String(b.department_id ?? '') === d)
+    );
+    const sorted = [...forCategory].sort((a, b) =>
       a.brand_name.localeCompare(b.brand_name, undefined, { sensitivity: 'base' })
     );
     if (!bid) return sorted;
     if (sorted.some((b) => String(b.id) === bid)) return sorted;
     const current = brands.find((b) => String(b.id) === bid);
     return current ? [current, ...sorted] : sorted;
-  }, [brands, createForm.department_id, createForm.brand_id]);
+  }, [brands, createForm.department_id, createForm.category_id, createForm.brand_id]);
 
   useEffect(() => {
     if (defaultDepartmentId === '') return;
@@ -673,10 +679,17 @@ const Stock: React.FC = () => {
               const x = Math.floor(Number(depRaw));
               if (Number.isFinite(x) && x >= 1) department_id = x;
             }
+            const catRaw = r.category_id;
+            let category_id: number | null = null;
+            if (catRaw !== undefined && catRaw !== null && catRaw !== '') {
+              const y = Math.floor(Number(catRaw));
+              if (Number.isFinite(y) && y >= 1) category_id = y;
+            }
             return {
               id: Number.isFinite(id) && id >= 1 ? id : -1,
               brand_name: String(r.brand_name ?? '').trim(),
               department_id,
+              category_id,
             };
           })
           .filter((b: Brand) => b.id >= 1);
@@ -974,9 +987,7 @@ const Stock: React.FC = () => {
         (c.category_name ?? '').toLowerCase() === categoryName.toLowerCase()
     );
     if (categoryExists) {
-      setError('Category already exists');
-      setNewCategoryName('');
-      setShowAddCategory(false);
+      setError('A category with this name already exists in this department');
       return;
     }
 
@@ -1041,18 +1052,22 @@ const Stock: React.FC = () => {
       return;
     }
 
+    if (!createForm.category_id?.trim()) {
+      setError('Select a category before adding a brand');
+      return;
+    }
+
     const brandName = newBrandName.trim();
     const deptId = Number(createForm.department_id);
+    const catId = Number(createForm.category_id);
 
     const brandExists = brands.some(
       (b) =>
         b.brand_name.toLowerCase() === brandName.toLowerCase() &&
-        String(b.department_id ?? '') === String(deptId)
+        String(b.category_id ?? '') === String(catId)
     );
     if (brandExists) {
-      setError('A brand with this name already exists in this department');
-      setNewBrandName('');
-      setShowAddBrand(false);
+      setError('A brand with this name already exists in this category');
       return;
     }
 
@@ -1065,7 +1080,11 @@ const Stock: React.FC = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ brand_name: brandName, department_id: deptId }),
+        body: JSON.stringify({
+          brand_name: brandName,
+          department_id: deptId,
+          category_id: catId,
+        }),
       });
 
       console.log('Brand API response status:', response.status);
@@ -1927,7 +1946,9 @@ const Stock: React.FC = () => {
           brands.some(
             (b) =>
               String(b.id) === String(prev.brand_id) &&
-              String(b.department_id ?? '') === String(value)
+              (String(b.department_id ?? '') === String(value) ||
+                (prev.category_id &&
+                  String(b.category_id ?? '') === String(prev.category_id)))
           );
         if (!keepBrand) {
           next.brand_id = '';
@@ -1936,6 +1957,20 @@ const Stock: React.FC = () => {
       }
       if (key === 'category_id' && value !== prev.category_id) {
         next.category_size_id = '';
+        const keepBrand =
+          prev.brand_id &&
+          value.trim() !== '' &&
+          brands.some(
+            (b) =>
+              String(b.id) === String(prev.brand_id) &&
+              (String(b.category_id ?? '') === String(value) ||
+                (b.category_id == null &&
+                  String(b.department_id ?? '') === String(prev.department_id)))
+          );
+        if (!keepBrand) {
+          next.brand_id = '';
+          next.brand_tag_image_id = '';
+        }
       }
       return next;
     });
@@ -2620,11 +2655,13 @@ const Stock: React.FC = () => {
                           setShowAddBrand(!showAddBrand);
                           setNewBrandName('');
                         }}
-                        disabled={!createForm.department_id?.trim()}
+                        disabled={!createForm.category_id?.trim()}
                         title={
-                          createForm.department_id?.trim()
+                          createForm.category_id?.trim()
                             ? 'Add new brand'
-                            : 'Select a department first'
+                            : createForm.department_id?.trim()
+                              ? 'Select a category first'
+                              : 'Select a department first'
                         }
                         style={{
                           background: 'rgba(255, 214, 91, 0.15)',
@@ -2659,11 +2696,13 @@ const Stock: React.FC = () => {
                         label: brand.brand_name,
                       }))}
                       onChange={(next) => handleCreateChange('brand_id', next)}
-                      disabled={!createForm.department_id?.trim()}
+                      disabled={!createForm.category_id?.trim()}
                       placeholder={
-                        createForm.department_id?.trim()
-                          ? '-- No Brand --'
-                          : '-- Select department first --'
+                        !createForm.department_id?.trim()
+                          ? '-- Select department first --'
+                          : !createForm.category_id?.trim()
+                            ? '-- Select category first --'
+                            : '-- No Brand --'
                       }
                       ariaLabelledBy="stock-form-brand-label"
                     />

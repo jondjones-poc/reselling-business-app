@@ -1307,6 +1307,163 @@ app.get('/api/ebay/research', async (req, res) => {
   }
 });
 
+/** Scouting bootsale todo — table: database/scouting_source_item.sql */
+function sanitizeScoutingSourceTitle(raw) {
+  if (typeof raw !== 'string') return '';
+  return raw.trim().slice(0, 200);
+}
+
+function sanitizeScoutingSourceNotes(raw) {
+  if (raw == null) return null;
+  if (typeof raw !== 'string') return null;
+  const t = raw.trim();
+  if (!t) return null;
+  return t.slice(0, 500);
+}
+
+app.get('/api/scouting/source-items', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const result = await pool.query(
+      `SELECT id, title, notes, is_completed, sort_order, created_at, updated_at
+       FROM scouting_source_item
+       ORDER BY is_completed ASC, sort_order ASC, created_at DESC, id DESC`
+    );
+    res.json({ rows: result.rows ?? [] });
+  } catch (error) {
+    console.error('scouting source-items list failed:', error);
+    res.status(500).json({
+      error: 'Failed to load scouting source items',
+      details: error.message,
+      hint: 'Run database/scouting_source_item.sql in your database.',
+    });
+  }
+});
+
+app.post('/api/scouting/source-items', async (req, res) => {
+  const title = sanitizeScoutingSourceTitle(req.body?.title);
+  if (!title) {
+    return res.status(400).json({ error: 'title is required (non-empty, max 200 characters)' });
+  }
+  const notes = sanitizeScoutingSourceNotes(req.body?.notes);
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const maxSort = await pool.query(
+      `SELECT COALESCE(MAX(sort_order), -1) AS max_sort FROM scouting_source_item WHERE is_completed = FALSE`
+    );
+    const sortOrder = (maxSort.rows[0]?.max_sort ?? -1) + 1;
+    const ins = await pool.query(
+      `INSERT INTO scouting_source_item (title, notes, sort_order)
+       VALUES ($1, $2, $3)
+       RETURNING id, title, notes, is_completed, sort_order, created_at, updated_at`,
+      [title, notes, sortOrder]
+    );
+    res.status(201).json({ row: ins.rows[0] });
+  } catch (error) {
+    console.error('scouting source-item insert failed:', error);
+    res.status(500).json({
+      error: 'Failed to add scouting source item',
+      details: error.message,
+      hint: 'Run database/scouting_source_item.sql in your database.',
+    });
+  }
+});
+
+app.patch('/api/scouting/source-items/:id', async (req, res) => {
+  const id = parseInt(String(req.params.id ?? ''), 10);
+  if (!Number.isFinite(id) || id < 1) {
+    return res.status(400).json({ error: 'Invalid item id' });
+  }
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const sets = [];
+  const vals = [];
+  let i = 1;
+
+  if (body.title !== undefined) {
+    const title = sanitizeScoutingSourceTitle(body.title);
+    if (!title) {
+      return res.status(400).json({ error: 'title cannot be empty' });
+    }
+    sets.push(`title = $${i++}`);
+    vals.push(title);
+  }
+  if (body.notes !== undefined) {
+    sets.push(`notes = $${i++}`);
+    vals.push(sanitizeScoutingSourceNotes(body.notes));
+  }
+  if (body.is_completed !== undefined) {
+    sets.push(`is_completed = $${i++}`);
+    vals.push(Boolean(body.is_completed));
+  }
+  if (body.sort_order !== undefined) {
+    const sortOrder = parseInt(String(body.sort_order), 10);
+    if (!Number.isFinite(sortOrder)) {
+      return res.status(400).json({ error: 'sort_order must be an integer' });
+    }
+    sets.push(`sort_order = $${i++}`);
+    vals.push(sortOrder);
+  }
+
+  if (sets.length === 0) {
+    return res.status(400).json({ error: 'No valid fields to update' });
+  }
+
+  sets.push(`updated_at = NOW()`);
+  vals.push(id);
+
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const upd = await pool.query(
+      `UPDATE scouting_source_item SET ${sets.join(', ')} WHERE id = $${i}
+       RETURNING id, title, notes, is_completed, sort_order, created_at, updated_at`,
+      vals
+    );
+    if (!upd.rowCount) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+    res.json({ row: upd.rows[0] });
+  } catch (error) {
+    console.error('scouting source-item patch failed:', error);
+    res.status(500).json({
+      error: 'Failed to update scouting source item',
+      details: error.message,
+    });
+  }
+});
+
+app.delete('/api/scouting/source-items/:id', async (req, res) => {
+  const id = parseInt(String(req.params.id ?? ''), 10);
+  if (!Number.isFinite(id) || id < 1) {
+    return res.status(400).json({ error: 'Invalid item id' });
+  }
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const del = await pool.query(`DELETE FROM scouting_source_item WHERE id = $1 RETURNING id`, [id]);
+    if (!del.rowCount) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+    res.json({ ok: true, id: del.rows[0].id });
+  } catch (error) {
+    console.error('scouting source-item delete failed:', error);
+    res.status(500).json({
+      error: 'Failed to delete scouting source item',
+      details: error.message,
+    });
+  }
+});
+
 /** Saved eBay feed tags — table created by scripts/add-ebay-research-feed-tag.sql (run once). */
 app.get('/api/research-feed/tags', async (req, res) => {
   try {
@@ -3066,7 +3223,7 @@ app.get('/api/brands', async (req, res) => {
 
     const result = await pool.query(
       `SELECT b.id, b.brand_name, b.created_at, b.updated_at, b.brand_website, b.things_to_buy, b.things_to_avoid,
-              b.description, b.menswear_category_id, b.department_id, d.department_name
+              b.description, b.menswear_category_id, b.department_id, b.category_id, d.department_name
        FROM public.brand b
        LEFT JOIN public.department d ON d.id = b.department_id
        ORDER BY b.brand_name ASC`
@@ -3107,6 +3264,10 @@ app.get('/api/brands', async (req, res) => {
           row.department_id != null && row.department_id !== ''
             ? Number(row.department_id)
             : null,
+        category_id:
+          row.category_id != null && row.category_id !== ''
+            ? Number(row.category_id)
+            : null,
         department_name:
           row.department_name != null && String(row.department_name).trim() !== ''
             ? String(row.department_name).trim()
@@ -3138,8 +3299,12 @@ app.get('/api/brands', async (req, res) => {
 
 app.post('/api/brands', async (req, res) => {
   const pool = getDatabasePool();
-  const { brand_name, menswear_category_id: bodyMenswearCatId, department_id: bodyBrandDeptId } =
-    req.body ?? {};
+  const {
+    brand_name,
+    menswear_category_id: bodyMenswearCatId,
+    department_id: bodyBrandDeptId,
+    category_id: bodyStockCategoryId,
+  } = req.body ?? {};
   const normalizedBrandName =
     typeof brand_name === 'string' && brand_name.trim() ? brand_name.trim() : '';
 
@@ -3173,33 +3338,71 @@ app.post('/api/brands', async (req, res) => {
       menswearCategoryId = cid;
     }
 
-    // Same name allowed in different departments; block duplicates within one department (case-insensitive)
-    const existingResult = await pool.query(
-      `SELECT id FROM brand
-       WHERE LOWER(TRIM(BOTH FROM brand_name)) = LOWER(TRIM($1::text))
-         AND department_id = $2`,
-      [normalizedBrandName, brandDepartmentId]
-    );
+    let stockCategoryId = null;
+    if (bodyStockCategoryId !== undefined && bodyStockCategoryId !== null && bodyStockCategoryId !== '') {
+      stockCategoryId = Number(bodyStockCategoryId);
+      if (!Number.isInteger(stockCategoryId) || stockCategoryId < 1) {
+        return res.status(400).json({ error: 'category_id must be a positive integer when provided' });
+      }
+      const catRow = await pool.query(
+        'SELECT id, department_id FROM category WHERE id = $1',
+        [stockCategoryId]
+      );
+      if (!catRow.rowCount) {
+        return res.status(400).json({ error: 'category_id not found' });
+      }
+      const catDept = catRow.rows[0].department_id != null ? Number(catRow.rows[0].department_id) : null;
+      if (catDept != null && catDept !== brandDepartmentId) {
+        return res.status(400).json({
+          error: 'category_id does not belong to the selected department',
+        });
+      }
+    }
 
-    if (existingResult.rowCount > 0) {
-      const hit = existingResult.rows[0];
-      return res.status(400).json({
-        error: 'A brand with this name already exists in this department',
-        existing_brand_id: hit.id,
-        department_id: brandDepartmentId,
-      });
+    if (stockCategoryId != null) {
+      const existingResult = await pool.query(
+        `SELECT id FROM brand
+         WHERE category_id = $1
+           AND LOWER(TRIM(BOTH FROM brand_name)) = LOWER(TRIM($2::text))`,
+        [stockCategoryId, normalizedBrandName]
+      );
+      if (existingResult.rowCount > 0) {
+        const hit = existingResult.rows[0];
+        return res.status(400).json({
+          error: 'A brand with this name already exists in this category',
+          existing_brand_id: hit.id,
+          category_id: stockCategoryId,
+        });
+      }
+    } else {
+      const existingResult = await pool.query(
+        `SELECT id FROM brand
+         WHERE LOWER(TRIM(BOTH FROM brand_name)) = LOWER(TRIM($1::text))
+           AND department_id = $2
+           AND category_id IS NULL`,
+        [normalizedBrandName, brandDepartmentId]
+      );
+      if (existingResult.rowCount > 0) {
+        const hit = existingResult.rows[0];
+        return res.status(400).json({
+          error: 'A brand with this name already exists in this department',
+          existing_brand_id: hit.id,
+          department_id: brandDepartmentId,
+        });
+      }
     }
 
     const insertQuery = `
-      INSERT INTO brand (brand_name, menswear_category_id, department_id)
-      VALUES ($1, $2, $3)
-      RETURNING id, brand_name, menswear_category_id, department_id
+      INSERT INTO brand (brand_name, menswear_category_id, department_id, category_id)
+      VALUES ($1, $2, $3, $4)
+      RETURNING id, brand_name, menswear_category_id, department_id, category_id
     `;
 
     const result = await pool.query(insertQuery, [
       normalizedBrandName,
       menswearCategoryId,
       brandDepartmentId,
+      stockCategoryId,
     ]);
 
     const row = result.rows[0];
@@ -3236,8 +3439,11 @@ app.post('/api/brands', async (req, res) => {
       } catch (lookupErr) {
         console.warn('Brand insert 23505 lookup:', lookupErr.message);
       }
+      const isCategoryScoped = bodyStockCategoryId != null && bodyStockCategoryId !== '';
       return res.status(400).json({
-        error: 'A brand with this name already exists in this department',
+        error: isCategoryScoped
+          ? 'A brand with this name already exists in this category'
+          : 'A brand with this name already exists in this department',
         code: 'BRAND_DUPLICATE',
         hint,
       });
@@ -3266,13 +3472,17 @@ app.patch('/api/brands/:id', async (req, res) => {
     let n = 1;
 
     const currentBrand = await pool.query(
-      'SELECT department_id FROM public.brand WHERE id = $1',
+      'SELECT department_id, category_id FROM public.brand WHERE id = $1',
       [id]
     );
     if (!currentBrand.rowCount) {
       return res.status(404).json({ error: 'Brand not found' });
     }
     let effectiveDepartmentIdForNameCheck = Number(currentBrand.rows[0].department_id);
+    let effectiveCategoryIdForNameCheck =
+      currentBrand.rows[0].category_id != null && currentBrand.rows[0].category_id !== ''
+        ? Number(currentBrand.rows[0].category_id)
+        : null;
     if (
       Object.prototype.hasOwnProperty.call(body, 'department_id') &&
       body.department_id !== null &&
@@ -3288,22 +3498,58 @@ app.patch('/api/brands/:id', async (req, res) => {
       }
     }
 
+    if (Object.prototype.hasOwnProperty.call(body, 'category_id')) {
+      const raw = body.category_id;
+      if (raw === null || raw === undefined || raw === '') {
+        effectiveCategoryIdForNameCheck = null;
+        sets.push(`category_id = $${n++}`);
+        vals.push(null);
+      } else {
+        const cid = Number(raw);
+        if (!Number.isInteger(cid) || cid < 1) {
+          return res.status(400).json({ error: 'category_id must be a positive integer or null' });
+        }
+        const catCheck = await pool.query('SELECT id FROM category WHERE id = $1', [cid]);
+        if (!catCheck.rowCount) {
+          return res.status(400).json({ error: 'category_id not found' });
+        }
+        effectiveCategoryIdForNameCheck = cid;
+        sets.push(`category_id = $${n++}`);
+        vals.push(cid);
+      }
+    }
+
     if (Object.prototype.hasOwnProperty.call(body, 'brand_name')) {
       const raw = body.brand_name;
       if (typeof raw !== 'string' || !raw.trim()) {
         return res.status(400).json({ error: 'brand_name cannot be empty' });
       }
       const normalizedName = raw.trim().slice(0, 500);
-      const dup = await pool.query(
-        `SELECT id FROM brand
-         WHERE LOWER(TRIM(BOTH FROM brand_name)) = LOWER(TRIM($1::text))
-           AND department_id = $2
-           AND id <> $3`,
-        [normalizedName, effectiveDepartmentIdForNameCheck, id]
-      );
+      let dup;
+      if (effectiveCategoryIdForNameCheck != null) {
+        dup = await pool.query(
+          `SELECT id FROM brand
+           WHERE LOWER(TRIM(BOTH FROM brand_name)) = LOWER(TRIM($1::text))
+             AND category_id = $2
+             AND id <> $3`,
+          [normalizedName, effectiveCategoryIdForNameCheck, id]
+        );
+      } else {
+        dup = await pool.query(
+          `SELECT id FROM brand
+           WHERE LOWER(TRIM(BOTH FROM brand_name)) = LOWER(TRIM($1::text))
+             AND department_id = $2
+             AND category_id IS NULL
+             AND id <> $3`,
+          [normalizedName, effectiveDepartmentIdForNameCheck, id]
+        );
+      }
       if (dup.rowCount > 0) {
         return res.status(400).json({
-          error: 'A brand with this name already exists in this department',
+          error:
+            effectiveCategoryIdForNameCheck != null
+              ? 'A brand with this name already exists in this category'
+              : 'A brand with this name already exists in this department',
         });
       }
       sets.push(`brand_name = $${n++}`);
@@ -3707,7 +3953,8 @@ async function ensureBrandUniquePerDepartmentSchema(pool) {
   try {
     await pool.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_brand_department_name_lower
-      ON public.brand (department_id, (LOWER(TRIM(BOTH FROM brand_name))));
+      ON public.brand (department_id, (LOWER(TRIM(BOTH FROM brand_name))))
+      WHERE category_id IS NULL;
     `);
   } catch (e) {
     console.warn(
@@ -3715,6 +3962,141 @@ async function ensureBrandUniquePerDepartmentSchema(pool) {
       e.message,
       '— fix duplicate brand names within the same department if needed'
     );
+  }
+  await ensureBrandStockCategorySchema(pool);
+}
+
+/**
+ * Stock category on brand: same brand_name may exist under different stock categories.
+ * database/brand_add_stock_category.sql
+ */
+async function ensureBrandStockCategorySchema(pool) {
+  await pool.query(`
+    ALTER TABLE public.brand
+    ADD COLUMN IF NOT EXISTS category_id INTEGER;
+  `);
+  const fkExists = await pool.query(
+    `SELECT 1 FROM pg_constraint WHERE conname = 'brand_category_id_fkey'`
+  );
+  if (!fkExists.rowCount) {
+    try {
+      await pool.query(`
+        ALTER TABLE public.brand
+        ADD CONSTRAINT brand_category_id_fkey
+        FOREIGN KEY (category_id) REFERENCES public.category (id) ON DELETE SET NULL;
+      `);
+    } catch (e) {
+      if (e.code !== '42P01') throw e;
+    }
+  }
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_brand_category_id ON public.brand (category_id);
+  `);
+  try {
+    await pool.query(`DROP INDEX IF EXISTS public.idx_brand_department_name_lower`);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_brand_department_name_lower
+      ON public.brand (department_id, (LOWER(TRIM(BOTH FROM brand_name))))
+      WHERE category_id IS NULL;
+    `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_brand_stock_category_name_lower
+      ON public.brand (category_id, (LOWER(TRIM(BOTH FROM brand_name))))
+      WHERE category_id IS NOT NULL;
+    `);
+  } catch (e) {
+    console.warn('ensureBrandStockCategorySchema (indexes):', e.message);
+  }
+}
+
+/**
+ * Stock category table: name unique per department.
+ * database/category_unique_per_department.sql
+ */
+async function ensureStockCategoryDepartmentSchema(pool) {
+  await pool.query(`
+    ALTER TABLE public.category
+    ADD COLUMN IF NOT EXISTS department_id INTEGER;
+  `);
+  const fkExists = await pool.query(
+    `SELECT 1 FROM pg_constraint WHERE conname = 'category_department_id_fkey'`
+  );
+  if (!fkExists.rowCount) {
+    try {
+      await pool.query(`
+        ALTER TABLE public.category
+        ADD CONSTRAINT category_department_id_fkey
+        FOREIGN KEY (department_id) REFERENCES public.department (id) ON DELETE RESTRICT;
+      `);
+    } catch (e) {
+      if (e.code !== '42P01') throw e;
+    }
+  }
+  await ensureCategoryUniquePerDepartmentSchema(pool);
+}
+
+async function ensureCategoryUniquePerDepartmentSchema(pool) {
+  try {
+    const { rows } = await pool.query(`
+      SELECT c.conname
+      FROM pg_constraint c
+      JOIN pg_class t ON c.conrelid = t.oid
+      JOIN pg_namespace n ON n.oid = t.relnamespace
+      WHERE n.nspname = 'public'
+        AND t.relname = 'category'
+        AND c.contype = 'u'
+        AND array_length(c.conkey, 1) = 1
+        AND EXISTS (
+          SELECT 1 FROM pg_attribute a
+          WHERE a.attrelid = c.conrelid
+            AND a.attnum = c.conkey[1]
+            AND a.attname = 'category_name'
+        )
+    `);
+    for (const { conname } of rows) {
+      if (typeof conname !== 'string' || !/^[a-zA-Z0-9_]+$/.test(conname)) continue;
+      await pool.query(`ALTER TABLE public.category DROP CONSTRAINT IF EXISTS ${conname}`);
+    }
+  } catch (e) {
+    console.warn('ensureCategoryUniquePerDepartmentSchema (drop legacy unique):', e.message);
+  }
+  for (const legacyCon of ['category_category_name_key', 'category_name_key']) {
+    try {
+      await pool.query(`ALTER TABLE public.category DROP CONSTRAINT IF EXISTS ${legacyCon}`);
+    } catch (e) {
+      console.warn(`ensureCategoryUniquePerDepartmentSchema DROP CONSTRAINT ${legacyCon}:`, e.message);
+    }
+  }
+  try {
+    const { rows: allCatIdx } = await pool.query(`
+      SELECT indexname, indexdef
+      FROM pg_indexes
+      WHERE schemaname = 'public'
+        AND tablename = 'category'
+        AND indexname IS NOT NULL
+        AND indexname <> 'idx_category_department_name_lower'
+    `);
+    for (const row of allCatIdx) {
+      const indexname = row.indexname;
+      const indexdef = String(row.indexdef ?? '').toLowerCase();
+      if (typeof indexname !== 'string' || !/^[a-zA-Z0-9_]+$/.test(indexname)) continue;
+      if (indexname === 'category_pkey' || indexname.endsWith('_pkey')) continue;
+      if (!indexdef.includes('unique')) continue;
+      if (!indexdef.includes('category_name')) continue;
+      if (indexdef.includes('department_id')) continue;
+      await pool.query(`DROP INDEX IF EXISTS public.${indexname}`);
+    }
+  } catch (e) {
+    console.warn('ensureCategoryUniquePerDepartmentSchema (drop legacy index):', e.message);
+  }
+  try {
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_category_department_name_lower
+      ON public.category (department_id, (LOWER(TRIM(BOTH FROM category_name))))
+      WHERE department_id IS NOT NULL;
+    `);
+  } catch (e) {
+    console.warn('ensureCategoryUniquePerDepartmentSchema (composite index):', e.message);
   }
 }
 
@@ -7046,8 +7428,10 @@ app.post('/api/categories', async (req, res) => {
     const pool = getDatabasePool();
 
     if (!pool) {
-      return res.status(500).json({ error: 'Database connection not configured' });
+      return res.status(500).json({ error: 'Database not configured' });
     }
+
+    await ensureStockCategoryDepartmentSchema(pool);
 
     const { category_name, department_id: bodyDepartmentId } = req.body ?? {};
 
@@ -7108,8 +7492,11 @@ app.post('/api/categories', async (req, res) => {
     res.status(201).json({ row: result.rows[0] });
   } catch (error) {
     console.error('Category insert failed:', error);
-    if (error.code === '23505') { // Unique violation
-      return res.status(400).json({ error: 'Category already exists' });
+    if (error.code === '23505') {
+      return res.status(409).json({
+        error: 'A category with this name already exists in this department',
+        hint: 'Run database/category_unique_per_department.sql if this name is only used in another department.',
+      });
     }
     res.status(500).json({ error: 'Failed to create category', details: error.message });
   }
@@ -7120,8 +7507,10 @@ app.patch('/api/categories/:id', async (req, res) => {
     const pool = getDatabasePool();
 
     if (!pool) {
-      return res.status(500).json({ error: 'Database connection not configured' });
+      return res.status(500).json({ error: 'Database not configured' });
     }
+
+    await ensureStockCategoryDepartmentSchema(pool);
 
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id) || id < 1) {
@@ -7198,7 +7587,9 @@ app.patch('/api/categories/:id', async (req, res) => {
   } catch (error) {
     console.error('Category update failed:', error);
     if (error.code === '23505') {
-      return res.status(400).json({ error: 'Category already exists' });
+      return res.status(409).json({
+        error: 'A category with this name already exists in this department',
+      });
     }
     res.status(500).json({ error: 'Failed to update category', details: error.message });
   }

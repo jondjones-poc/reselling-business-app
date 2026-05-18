@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { NavLink, Route, Routes, Navigate, useLocation, type NavLinkProps } from 'react-router-dom';
-import EbaySearch from './components/EbaySearch';
+import ScoutingRoute from './components/ScoutingRoute';
 import Research from './components/Research';
 import ResearchRoute from './components/ResearchRoute';
 import Reporting from './components/Reporting';
@@ -14,7 +14,7 @@ import { pingDatabase } from './utils/dbPing';
 import './App.css';
 
 const navItems = [
-  { to: '/', label: 'Price', end: true },
+  { to: '/', label: 'Scouting', end: true },
   { to: '/stock', label: 'Stock' },
   { to: '/orders', label: 'Orders' },
   { to: '/reporting', label: 'Reporting' },
@@ -105,7 +105,7 @@ function App() {
         </nav>
 
         <Routes>
-          <Route path="/" element={<EbaySearch />} />
+          <Route path="/" element={<ScoutingRoute />} />
           <Route path="/analytics" element={<Research />} />
           <Route path="/research" element={<ResearchRoute />} />
           <Route path="/stock" element={<Stock />} />
