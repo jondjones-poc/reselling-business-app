@@ -1785,6 +1785,138 @@ button.stock-close-circle-btn:disabled {
   background: rgba(255, 214, 91, 0.12);
   border: 1px solid rgba(255, 214, 91, 0.38);
   box-sizing: border-box;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.15s ease;
+}
+
+.stock-edit-sku-id-circle:hover:not(:disabled) {
+  background: rgba(255, 214, 91, 0.22);
+  border-color: rgba(255, 214, 91, 0.55);
+  box-shadow: 0 0 14px rgba(255, 214, 91, 0.25);
+  transform: scale(1.03);
+}
+
+.stock-edit-sku-id-circle:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.stock-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.stock-change-sku-modal {
+  max-width: 520px;
+  width: 100%;
+  margin: 0;
+  position: relative;
+}
+
+.stock-change-sku-title {
+  margin: 0 0 12px;
+  color: var(--neon-primary-strong);
+  letter-spacing: 0.08rem;
+  font-size: 1.35rem;
+}
+
+.stock-change-sku-lead {
+  margin: 0 0 20px;
+  color: rgba(255, 248, 226, 0.85);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.stock-change-sku-error {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 120, 120, 0.35);
+  background: rgba(255, 120, 120, 0.1);
+  color: #ffb0b0;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.stock-change-sku-actions {
+  margin-bottom: 18px;
+}
+
+.stock-change-sku-btn {
+  width: 100%;
+  padding: 14px 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(140, 255, 195, 0.45);
+  background: rgba(140, 255, 195, 0.15);
+  color: #8cffc3;
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.04rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.2s ease;
+}
+
+.stock-change-sku-btn:hover:not(:disabled) {
+  background: rgba(140, 255, 195, 0.28);
+}
+
+.stock-change-sku-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.stock-change-sku-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.stock-change-sku-field span {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.06rem;
+  text-transform: uppercase;
+  color: rgba(255, 248, 226, 0.7);
+}
+
+.stock-change-sku-field input {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 214, 91, 0.28);
+  background: rgba(5, 4, 3, 0.88);
+  color: var(--text-strong);
+  font-size: 0.95rem;
+  box-sizing: border-box;
+  color-scheme: dark;
+}
+
+.stock-change-sku-field input:focus {
+  border-color: var(--neon-border-strong);
+  box-shadow: var(--neon-shadow);
+  outline: none;
+}
+
+.stock-change-sku-footer {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 /* Pill + icon — same row as Image / Instagram prompts; green when actionable */

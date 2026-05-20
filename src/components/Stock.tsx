@@ -458,6 +458,11 @@ const Stock: React.FC = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showWriteOffConfirm, setShowWriteOffConfirm] = useState(false);
   const [showCreateInsteadOfEditConfirm, setShowCreateInsteadOfEditConfirm] = useState(false);
+  const [showChangeSkuModal, setShowChangeSkuModal] = useState(false);
+  const [changeSkuNextId, setChangeSkuNextId] = useState<number | null>(null);
+  const [changeSkuManualId, setChangeSkuManualId] = useState('');
+  const [changeSkuLoading, setChangeSkuLoading] = useState(false);
+  const [changeSkuError, setChangeSkuError] = useState<string | null>(null);
   /** Tracks whether the open form was started from row edit (+ Add sets 'create'). Used to catch accidental POST after edit context was lost. */
   const [formIntent, setFormIntent] = useState<'create' | 'edit'>('create');
   const [deleting, setDeleting] = useState(false);
@@ -2192,6 +2197,105 @@ const Stock: React.FC = () => {
     setShowDeleteConfirm(false);
   };
 
+  const openChangeSkuModal = async () => {
+    if (!editingRowId) return;
+    setChangeSkuError(null);
+    setChangeSkuManualId('');
+    setShowChangeSkuModal(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/stock/next-id`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || data.details || 'Failed to load next SKU');
+      }
+      setChangeSkuNextId(Number(data.next_id));
+    } catch (err) {
+      setChangeSkuNextId(
+        rows.length > 0 ? Math.max(...rows.map((r) => Number(r.id))) + 1 : editingRowId + 1
+      );
+      setChangeSkuError(err instanceof Error ? err.message : 'Could not load next SKU from server');
+    }
+  };
+
+  const closeChangeSkuModal = () => {
+    if (changeSkuLoading) return;
+    setShowChangeSkuModal(false);
+    setChangeSkuError(null);
+    setChangeSkuManualId('');
+  };
+
+  const applyStockSkuChange = async (newId: number) => {
+    if (!editingRowId) return;
+    if (!Number.isInteger(newId) || newId < 1) {
+      setChangeSkuError('Enter a valid positive SKU number');
+      return;
+    }
+    if (newId === editingRowId) {
+      setChangeSkuError('New SKU must be different from the current SKU');
+      return;
+    }
+
+    setChangeSkuLoading(true);
+    setChangeSkuError(null);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/stock/${editingRowId}/change-id`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_id: newId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        let msg = data.error || data.details || 'Failed to change SKU';
+        if (Array.isArray(data.conflicting_ids) && data.conflicting_ids.length >= 2) {
+          msg = `${msg} Conflicting SKU IDs: ${data.conflicting_ids.join(' and ')}.`;
+        } else if (data.new_id != null && data.old_id != null && res.status === 409) {
+          msg = `${msg} (SKU ${data.new_id} is already in use.)`;
+        }
+        throw new Error(msg);
+      }
+
+      const updatedRow = data.row as StockRow;
+      const oldId = editingRowId;
+
+      setRows((prev) =>
+        prev
+          .filter((row) => Number(row.id) !== Number(oldId))
+          .concat(updatedRow)
+          .sort((a, b) => {
+            const ad = a.purchase_date ? new Date(a.purchase_date).getTime() : 0;
+            const bd = b.purchase_date ? new Date(b.purchase_date).getTime() : 0;
+            if (bd !== ad) return bd - ad;
+            return String(a.item_name ?? '').localeCompare(String(b.item_name ?? ''));
+          })
+      );
+
+      suppressAutoOpenEditSkuRef.current = newId;
+      setEditingRowId(newId);
+      setStockEditIdInUrl(newId);
+      setShowChangeSkuModal(false);
+      setChangeSkuManualId('');
+      setSuccessMessage(`SKU updated from ${oldId} to ${newId}`);
+
+      try {
+        const ordersRes = await fetch(`${API_BASE}/api/orders`);
+        if (ordersRes.ok) {
+          const ordersData = await ordersRes.json();
+          const stockIds = new Set(
+            (ordersData.rows ?? []).map((r: { stock_id?: number | string }) => Number(r.stock_id))
+          );
+          setEditingRowInOrders(stockIds.has(newId));
+        }
+      } catch {
+        /* ignore */
+      }
+    } catch (err) {
+      setChangeSkuError(err instanceof Error ? err.message : 'Failed to change SKU');
+    } finally {
+      setChangeSkuLoading(false);
+    }
+  };
+
   const handleInstagramAskAi = useCallback(async () => {
     if (!editingRowId) return;
     setError(null);
@@ -2326,9 +2430,16 @@ const Stock: React.FC = () => {
                   </svg>
                 </button>
                 {editingRowId ? (
-                  <div className="stock-edit-sku-id-circle" title={`SKU ${editingRowId}`}>
+                  <button
+                    type="button"
+                    className="stock-edit-sku-id-circle"
+                    title={`SKU ${editingRowId} — click to change`}
+                    aria-label={`Change SKU ${editingRowId}`}
+                    onClick={() => void openChangeSkuModal()}
+                    disabled={creating || deleting || changeSkuLoading}
+                  >
                     {editingRowId}
-                  </div>
+                  </button>
                 ) : null}
               </div>
               {editingRowId ? (
@@ -3448,6 +3559,92 @@ const Stock: React.FC = () => {
                 }}
               >
                 Yes, mark as write-off
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showChangeSkuModal && editingRowId != null && (
+        <div
+          className="stock-modal-backdrop"
+          role="presentation"
+          onClick={closeChangeSkuModal}
+        >
+          <div
+            className="new-entry-card stock-change-sku-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="stock-change-sku-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="stock-change-sku-title" className="stock-change-sku-title">
+              Change SKU
+            </h2>
+            <p className="stock-change-sku-lead">
+              Current sticker SKU: <strong>{editingRowId}</strong>. The item is copied to the new ID,
+              then the old row is removed — an existing SKU cannot be overwritten.
+            </p>
+
+            {changeSkuError && (
+              <div className="stock-change-sku-error" role="alert">
+                {changeSkuError}
+              </div>
+            )}
+
+            <div className="stock-change-sku-actions">
+              <button
+                type="button"
+                className="stock-change-sku-btn stock-change-sku-btn--primary"
+                disabled={changeSkuLoading || changeSkuNextId == null}
+                onClick={() => {
+                  if (changeSkuNextId != null) void applyStockSkuChange(changeSkuNextId);
+                }}
+              >
+                {changeSkuLoading ? 'Updating…' : `Update ID To Latest${changeSkuNextId != null ? ` (${changeSkuNextId})` : ''}`}
+              </button>
+            </div>
+
+            <label className="stock-change-sku-field">
+              <span>Or enter a new SKU</span>
+              <input
+                type="number"
+                min={1}
+                step={1}
+                inputMode="numeric"
+                value={changeSkuManualId}
+                onChange={(e) => setChangeSkuManualId(e.target.value)}
+                placeholder={changeSkuNextId != null ? String(changeSkuNextId) : 'e.g. 1093'}
+                disabled={changeSkuLoading}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const n = parseInt(changeSkuManualId.trim(), 10);
+                    if (Number.isFinite(n)) void applyStockSkuChange(n);
+                  }
+                }}
+              />
+            </label>
+
+            <div className="stock-change-sku-footer">
+              <button
+                type="button"
+                className="cancel-button"
+                onClick={closeChangeSkuModal}
+                disabled={changeSkuLoading}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="save-button"
+                disabled={changeSkuLoading || !changeSkuManualId.trim()}
+                onClick={() => {
+                  const n = parseInt(changeSkuManualId.trim(), 10);
+                  void applyStockSkuChange(n);
+                }}
+              >
+                {changeSkuLoading ? 'Updating…' : 'Apply new SKU'}
               </button>
             </div>
           </div>

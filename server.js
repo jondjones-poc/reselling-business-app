@@ -2628,6 +2628,204 @@ function normalizeSourcedLocation(raw) {
   throw err;
 }
 
+const STOCK_ROW_SELECT_COLUMNS = `id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item`;
+
+const STOCK_COPY_COLUMNS = [
+  'item_name',
+  'category_id',
+  'purchase_price',
+  'purchase_date',
+  'sale_date',
+  'sale_price',
+  'sold_platform',
+  'net_profit',
+  'vinted_id',
+  'ebay_id',
+  'depop_id',
+  'brand_id',
+  'brand_tag_image_id',
+  'projected_sale_price',
+  'category_size_id',
+  'sourced_location',
+  'is_inventory_write_off',
+  'is_bulky_item',
+];
+
+async function queryNextStockId(pool) {
+  const result = await pool.query(
+    'SELECT COALESCE(MAX(id), 0)::int + 1 AS next_id FROM stock'
+  );
+  return Number(result.rows[0]?.next_id ?? 1);
+}
+
+/**
+ * Move a stock row to a new primary key (sticker SKU): insert at new_id, re-link orders, delete old row.
+ * Runs in a transaction — never overwrites an existing id.
+ */
+async function migrateStockPrimaryKey(pool, oldId, newId) {
+  if (!Number.isInteger(oldId) || oldId < 1 || !Number.isInteger(newId) || newId < 1) {
+    const err = new Error('Stock id must be a positive integer');
+    err.status = 400;
+    throw err;
+  }
+  if (oldId === newId) {
+    const err = new Error('New SKU must be different from the current SKU');
+    err.status = 400;
+    throw err;
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const oldLock = await client.query('SELECT id FROM stock WHERE id = $1 FOR UPDATE', [oldId]);
+    if (!oldLock.rowCount) {
+      await client.query('ROLLBACK');
+      const err = new Error('Stock record not found');
+      err.status = 404;
+      throw err;
+    }
+
+    const targetCheck = await client.query('SELECT id FROM stock WHERE id = $1', [newId]);
+    if (targetCheck.rowCount > 0) {
+      await client.query('ROLLBACK');
+      const err = new Error(`SKU ${newId} is already in use`);
+      err.status = 409;
+      err.code = 'STOCK_ID_CONFLICT';
+      err.old_id = oldId;
+      err.new_id = newId;
+      throw err;
+    }
+
+    const copyCols = STOCK_COPY_COLUMNS.join(', ');
+    await client.query(
+      `INSERT INTO stock (id, ${copyCols})
+       SELECT $1, ${copyCols}
+       FROM stock
+       WHERE id = $2`,
+      [newId, oldId]
+    );
+
+    try {
+      await client.query('UPDATE orders SET stock_id = $1 WHERE stock_id = $2', [newId, oldId]);
+    } catch (ordersErr) {
+      if (ordersErr.code !== '42P01') {
+        throw ordersErr;
+      }
+    }
+
+    const del = await client.query('DELETE FROM stock WHERE id = $1 RETURNING id', [oldId]);
+    if (!del.rowCount) {
+      await client.query('ROLLBACK');
+      const err = new Error('Failed to remove old stock row after creating the new SKU');
+      err.status = 500;
+      throw err;
+    }
+
+    await client.query(
+      `SELECT setval(
+         pg_get_serial_sequence('public.stock', 'id'),
+         (SELECT COALESCE(MAX(id), 1) FROM public.stock),
+         true
+       )`
+    );
+
+    const newRow = await client.query(
+      `SELECT ${STOCK_ROW_SELECT_COLUMNS} FROM stock WHERE id = $1`,
+      [newId]
+    );
+
+    await client.query('COMMIT');
+    return newRow.rows[0];
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackErr) {
+      console.warn('migrateStockPrimaryKey rollback:', rollbackErr.message);
+    }
+
+    const dupCheck = await pool.query('SELECT id FROM stock WHERE id = ANY($1::int[])', [
+      [oldId, newId],
+    ]);
+    if (dupCheck.rowCount >= 2) {
+      const err = new Error(
+        'Stock SKU change did not complete cleanly — both the old and new SKU IDs still exist. Remove the duplicate row manually or try again.'
+      );
+      err.status = 409;
+      err.code = 'STOCK_ID_DUPLICATE_ROWS';
+      err.old_id = oldId;
+      err.new_id = newId;
+      err.conflicting_ids = dupCheck.rows.map((r) => Number(r.id)).sort((a, b) => a - b);
+      throw err;
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/** Next unused stock primary key (MAX(id) + 1). */
+app.get('/api/stock/next-id', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    const nextId = await queryNextStockId(pool);
+    res.json({ next_id: nextId });
+  } catch (error) {
+    console.error('stock next-id failed:', error);
+    res.status(500).json({ error: 'Failed to compute next stock id', details: error.message });
+  }
+});
+
+/**
+ * POST /api/stock/:id/change-id — body: { new_id: number }
+ * Copies row to new_id, updates orders.stock_id, deletes old row (transaction).
+ */
+app.post('/api/stock/:id/change-id', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const oldId = Number(req.params.id);
+    if (!Number.isInteger(oldId) || oldId < 1) {
+      return res.status(400).json({ error: 'Invalid stock id' });
+    }
+
+    const rawNew = req.body?.new_id ?? req.body?.newId;
+    const newId = Number(rawNew);
+    if (!Number.isInteger(newId) || newId < 1) {
+      return res.status(400).json({ error: 'new_id must be a positive integer' });
+    }
+
+    const row = await migrateStockPrimaryKey(pool, oldId, newId);
+    res.json({
+      row,
+      old_id: oldId,
+      new_id: newId,
+      message: `Stock SKU changed from ${oldId} to ${newId}`,
+    });
+  } catch (error) {
+    console.error('stock change-id failed:', error);
+    const status = error.status && Number.isInteger(error.status) ? error.status : 500;
+    const body = {
+      error: error.message || 'Failed to change stock SKU',
+      details: error.detail || error.details || undefined,
+      code: error.code || undefined,
+      old_id: error.old_id ?? Number(req.params.id),
+      new_id: error.new_id ?? undefined,
+      conflicting_ids: error.conflicting_ids ?? undefined,
+    };
+    if (error.code === 'STOCK_ID_CONFLICT') {
+      body.error = `SKU ${body.new_id} is already assigned to another item`;
+    }
+    res.status(status).json(body);
+  }
+});
+
 app.post('/api/stock', async (req, res) => {
   try {
     const pool = getDatabasePool();
