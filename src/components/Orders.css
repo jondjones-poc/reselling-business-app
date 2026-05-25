@@ -110,6 +110,16 @@
   color: #ff9a9a;
 }
 
+.orders-sales-summary-profit--neutral {
+  color: #ffd666;
+}
+
+.orders-sales-summary-totals .orders-sales-stat-count {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: rgba(255, 248, 226, 0.62);
+}
+
 .orders-sales-summary-table-wrap {
   margin-top: 0.25rem;
 }

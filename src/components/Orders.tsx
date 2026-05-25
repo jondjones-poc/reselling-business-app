@@ -76,6 +76,42 @@ function formatWeekRangeLabel(weekStart: Date, weekEnd: Date): string {
   return `${start} – ${end}`;
 }
 
+const SALES_SUMMARY_NEAR_ZERO_MARGIN = 0.05;
+
+function salesSummaryProfitMargin(row: StockRow, profit: number): number | null {
+  if (Number.isNaN(profit)) return null;
+  const purchase =
+    row.purchase_price !== null && row.purchase_price !== undefined
+      ? Number(row.purchase_price)
+      : NaN;
+  if (!Number.isNaN(purchase) && purchase > 0) return profit / purchase;
+  const sale =
+    row.sale_price !== null && row.sale_price !== undefined ? Number(row.sale_price) : NaN;
+  if (!Number.isNaN(sale) && sale > 0) return profit / sale;
+  return null;
+}
+
+function salesSummaryProfitClass(row: StockRow, profit: number): string {
+  if (Number.isNaN(profit)) return '';
+  const margin = salesSummaryProfitMargin(row, profit);
+  if (margin !== null && Math.abs(margin) <= SALES_SUMMARY_NEAR_ZERO_MARGIN) {
+    return 'orders-sales-summary-profit--neutral';
+  }
+  if (profit < 0) return 'orders-sales-summary-profit--negative';
+  return 'orders-sales-summary-profit--positive';
+}
+
+function salesSummaryTotalProfitClass(totalProfit: number, totalPurchase: number): string {
+  if (totalPurchase > 0) {
+    const margin = totalProfit / totalPurchase;
+    if (Math.abs(margin) <= SALES_SUMMARY_NEAR_ZERO_MARGIN) {
+      return 'orders-sales-summary-profit--neutral';
+    }
+  }
+  if (totalProfit < 0) return 'orders-sales-summary-profit--negative';
+  return 'orders-sales-summary-profit--positive';
+}
+
 function buildSalesSummaryWeekOptions(ref: Date, weeksBack: number) {
   const options: Array<{ value: string; label: string; weekStart: Date; weekEnd: Date }> = [];
   for (let i = 0; i < weeksBack; i += 1) {
@@ -770,6 +806,7 @@ const Orders: React.FC = () => {
   const salesSummaryTotals = useMemo(() => {
     let totalSales = 0;
     let totalProfit = 0;
+    let totalPurchase = 0;
     let hasSales = false;
     let hasProfit = false;
     for (const row of salesSummaryRows) {
@@ -782,8 +819,22 @@ const Orders: React.FC = () => {
         totalProfit += profit;
         hasProfit = true;
       }
+      const purchase =
+        row.purchase_price !== null && row.purchase_price !== undefined
+          ? Number(row.purchase_price)
+          : NaN;
+      if (!Number.isNaN(purchase)) {
+        totalPurchase += purchase;
+      }
     }
-    return { totalSales, totalProfit, hasSales, hasProfit };
+    return {
+      totalSales,
+      totalProfit,
+      totalPurchase,
+      saleCount: salesSummaryRows.length,
+      hasSales,
+      hasProfit
+    };
   }, [salesSummaryRows]);
 
   const handleAddItem = async (item: StockRow) => {
@@ -1796,13 +1847,21 @@ const Orders: React.FC = () => {
               <span className="orders-sales-stat">
                 <strong>{formatCurrency(salesSummaryTotals.totalSales)}</strong>
                 <span className="orders-sales-stat-label"> Total Sales</span>
+                <span className="orders-sales-stat-count">
+                  {' '}
+                  ({salesSummaryTotals.saleCount}{' '}
+                  {salesSummaryTotals.saleCount === 1 ? 'sale' : 'sales'})
+                </span>
               </span>
               <span className="orders-sales-stat">
                 <strong
                   className={
-                    salesSummaryTotals.hasProfit && salesSummaryTotals.totalProfit < 0
-                      ? 'orders-sales-summary-profit--negative'
-                      : 'orders-sales-summary-profit--positive'
+                    salesSummaryTotals.hasProfit
+                      ? salesSummaryTotalProfitClass(
+                          salesSummaryTotals.totalProfit,
+                          salesSummaryTotals.totalPurchase
+                        )
+                      : ''
                   }
                 >
                   {formatCurrency(salesSummaryTotals.totalProfit)}
@@ -1842,10 +1901,7 @@ const Orders: React.FC = () => {
                     const { sale, profit } = computeStockInfoPanelMetrics(row);
                     const listing = soldPlatformListingHref(row);
                     const title = row.item_name?.trim() || '—';
-                    const profitClass =
-                      !Number.isNaN(profit) && profit < 0
-                        ? 'orders-sales-summary-profit--negative'
-                        : 'orders-sales-summary-profit--positive';
+                    const profitClass = salesSummaryProfitClass(row, profit);
                     return (
                       <tr key={row.id}>
                         <td>

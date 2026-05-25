@@ -1,12 +1,16 @@
-/* Sub-tabs sit directly under fixed main nav (override research-page-container spacing). */
+/* Clear fixed main nav; align with other pages (research-page-container uses 120px). */
 .scouting-route.research-page-container {
-  margin-top: 0;
-  padding: 52px 16px 24px;
+  margin-top: 120px;
+  padding: 24px 16px 24px;
   box-sizing: border-box;
 }
 
 .scouting-route .research-tabs {
   margin-bottom: 24px;
+}
+
+.scouting-route--side-quests .research-tabs {
+  margin-bottom: 48px;
 }
 
 .scouting-route .ebay-search-container {
@@ -15,14 +19,15 @@
 
 @media (max-width: 768px) {
   .scouting-route.research-page-container {
-    padding-top: 96px;
+    margin-top: 100px;
+    padding: 16px 16px 24px;
   }
 }
 
 .scouting-source-page {
   max-width: 720px;
-  margin: 0 auto;
-  padding: 20px 28px 48px;
+  margin: 24px auto 0;
+  padding: 28px 28px 48px;
   background: var(--neon-surface);
   border-radius: 28px;
   border: 1px solid var(--neon-border);

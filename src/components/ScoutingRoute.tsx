@@ -16,7 +16,9 @@ const ScoutingRoute: React.FC = () => {
   const view = normalizeView(searchParams.get('view'));
 
   return (
-    <div className="research-page-container scouting-route">
+    <div
+      className={`research-page-container scouting-route${view === 'source' ? ' scouting-route--side-quests' : ''}`}
+    >
       <nav className="research-tabs" role="tablist" aria-label="Scouting sections">
         <NavLink
           to="/"
@@ -32,7 +34,7 @@ const ScoutingRoute: React.FC = () => {
           aria-selected={view === 'source'}
           className={() => `research-tab${view === 'source' ? ' active' : ''}`}
         >
-          Items To Source
+          Side Quests
         </NavLink>
       </nav>
 

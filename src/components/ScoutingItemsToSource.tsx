@@ -105,8 +105,8 @@ const ScoutingItemsToSource: React.FC = () => {
             type="button"
             className="scouting-source-add-circle"
             onClick={() => setShowAddForm(true)}
-            aria-label="Add item to source list"
-            title="Add item"
+            aria-label="Add side quest"
+            title="Add side quest"
           >
             +
           </button>
@@ -145,7 +145,7 @@ const ScoutingItemsToSource: React.FC = () => {
                 Cancel
               </button>
               <button type="submit" className="scouting-source-save-btn" disabled={saving || !newTitle.trim()}>
-                {saving ? 'Adding…' : 'Add item'}
+                {saving ? 'Adding…' : 'Add quest'}
               </button>
             </div>
           </form>
@@ -166,7 +166,7 @@ const ScoutingItemsToSource: React.FC = () => {
       {loading ? (
         <p className="scouting-source-muted">Loading…</p>
       ) : rows.length > 0 ? (
-        <section className="scouting-source-section" aria-label="Items to source">
+        <section className="scouting-source-section" aria-label="Side quests">
           <ul className="scouting-source-list">
             {rows.map((row) => (
               <li key={row.id} className="scouting-source-row">

@@ -401,7 +401,7 @@ const Stock: React.FC = () => {
   const now = useMemo(() => new Date(), []);
   const currentYear = String(now.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState<string>(String(now.getMonth() + 1));
-  const [selectedYear, setSelectedYear] = useState<string>('last-30-days');
+  const [selectedYear, setSelectedYear] = useState<string>('all-time');
   const [selectedWeek, setSelectedWeek] = useState<string>('off');
   const [viewMode, setViewMode] = useState<
     'all' | 'active-listing' | 'sales' | 'listing' | 'to-list' | 'list-on-vinted' | 'list-on-ebay' | 'inventory-write-off'
@@ -1178,9 +1178,9 @@ const Stock: React.FC = () => {
       return;
     }
 
-    // If selectedYear is not "all-time", "last-30-days", and not in available years, reset to last-30-days
+    // If selectedYear is not "all-time", "last-30-days", and not in available years, reset to all-time
     if (selectedYear !== 'all-time' && selectedYear !== 'last-30-days' && !availableYears.includes(selectedYear) && selectedYear !== currentYear) {
-      setSelectedYear('last-30-days');
+      setSelectedYear('all-time');
     }
   }, [availableYears, selectedYear, currentYear]);
 
@@ -3749,7 +3749,7 @@ const Stock: React.FC = () => {
                 onClick={() => {
                   setSearchTerm('');
                   setSelectedMonth(String(now.getMonth() + 1));
-                  setSelectedYear('last-30-days');
+                  setSelectedYear('all-time');
                   setSelectedWeek('off');
                   setViewMode('all');
                   setSelectedCategoryFilter('');
