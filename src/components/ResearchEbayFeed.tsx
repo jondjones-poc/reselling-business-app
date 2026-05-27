@@ -48,6 +48,46 @@ const FEED_PRICE_OPTIONS: number[] = (() => {
   return o;
 })();
 
+const RESEARCH_FEED_TAGS_COOKIE = 'research_ebay_feed_tags';
+const RESEARCH_FEED_TAGS_COOKIE_MAX_AGE_SEC = 60 * 60 * 24 * 30;
+
+function isFeedTagRow(raw: unknown): raw is FeedTag {
+  if (!raw || typeof raw !== 'object') return false;
+  const r = raw as Record<string, unknown>;
+  return typeof r.id === 'number' && typeof r.term === 'string';
+}
+
+function readTagsCookie(): FeedTag[] | null {
+  try {
+    const match = document.cookie.match(
+      new RegExp(`(?:^|; )${RESEARCH_FEED_TAGS_COOKIE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}=([^;]*)`)
+    );
+    if (!match?.[1]) return null;
+    const parsed = JSON.parse(decodeURIComponent(match[1])) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    return parsed.filter(isFeedTagRow);
+  } catch {
+    return null;
+  }
+}
+
+function writeTagsCookie(tags: FeedTag[]) {
+  try {
+    const value = encodeURIComponent(JSON.stringify(tags));
+    document.cookie = `${RESEARCH_FEED_TAGS_COOKIE}=${value};path=/;max-age=${RESEARCH_FEED_TAGS_COOKIE_MAX_AGE_SEC};SameSite=Lax`;
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+function clearTagsCookie() {
+  try {
+    document.cookie = `${RESEARCH_FEED_TAGS_COOKIE}=;path=/;max-age=0;expires=Thu, 01 Jan 1970 00:00:00 GMT;SameSite=Lax`;
+  } catch {
+    /* ignore */
+  }
+}
+
 const ResearchEbayFeed: React.FC = () => {
   const [tags, setTags] = useState<FeedTag[]>([]);
   const [tagsLoading, setTagsLoading] = useState(true);
@@ -68,7 +108,14 @@ const ResearchEbayFeed: React.FC = () => {
   const loadInFlight = useRef(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-  const loadTags = useCallback(async () => {
+  const loadTags = useCallback(async (options?: { skipCookie?: boolean }): Promise<FeedTag[]> => {
+    const skipCookie = options?.skipCookie === true;
+    if (!skipCookie) {
+      const cached = readTagsCookie();
+      if (cached) {
+        setTags(cached);
+      }
+    }
     setTagsLoading(true);
     setTagsError(null);
     try {
@@ -77,10 +124,16 @@ const ResearchEbayFeed: React.FC = () => {
       if (!res.ok) {
         throw new Error((data as { error?: string }).error || res.statusText);
       }
-      setTags(Array.isArray(data.rows) ? data.rows : []);
+      const rows = Array.isArray(data.rows) ? data.rows : [];
+      setTags(rows);
+      writeTagsCookie(rows);
+      return rows;
     } catch (e) {
       setTagsError(e instanceof Error ? e.message : 'Could not load tags');
-      setTags([]);
+      if (skipCookie || !readTagsCookie()) {
+        setTags([]);
+      }
+      return [];
     } finally {
       setTagsLoading(false);
     }
@@ -90,8 +143,9 @@ const ResearchEbayFeed: React.FC = () => {
     void loadTags();
   }, [loadTags]);
 
-  const fetchFeedPage = useCallback(async (page: number, append: boolean) => {
-    if (tags.length === 0) {
+  const fetchFeedPage = useCallback(async (page: number, append: boolean, tagCount?: number) => {
+    const activeTagCount = tagCount ?? tags.length;
+    if (activeTagCount === 0) {
       setItems([]);
       setHasMore(false);
       setFeedPage(0);
@@ -153,10 +207,17 @@ const ResearchEbayFeed: React.FC = () => {
     void fetchFeedPage(feedPage + 1, true);
   }, [hasMore, feedLoading, tags.length, feedPage, fetchFeedPage]);
 
-  const handleRefreshFeed = useCallback(() => {
-    if (tags.length === 0) return;
-    void fetchFeedPage(0, false);
-  }, [tags.length, fetchFeedPage]);
+  const handleRefreshFeed = useCallback(async () => {
+    clearTagsCookie();
+    const loaded = await loadTags({ skipCookie: true });
+    if (loaded.length === 0) {
+      setItems([]);
+      setHasMore(false);
+      setFeedPage(0);
+      return;
+    }
+    void fetchFeedPage(0, false, loaded.length);
+  }, [loadTags, fetchFeedPage]);
 
   useEffect(() => {
     const el = sentinelRef.current;
@@ -192,7 +253,9 @@ const ResearchEbayFeed: React.FC = () => {
       if (data.row) {
         setTags((prev) => {
           const without = prev.filter((t) => t.id !== data.row!.id);
-          return [...without, data.row!].sort((a, b) => a.id - b.id);
+          const next = [...without, data.row!].sort((a, b) => a.id - b.id);
+          writeTagsCookie(next);
+          return next;
         });
       }
       setNewTag('');
@@ -211,7 +274,11 @@ const ResearchEbayFeed: React.FC = () => {
       if (!res.ok) {
         throw new Error(data.error || res.statusText);
       }
-      setTags((prev) => prev.filter((t) => t.id !== id));
+      setTags((prev) => {
+        const next = prev.filter((t) => t.id !== id);
+        writeTagsCookie(next);
+        return next;
+      });
     } catch (err) {
       setTagsError(err instanceof Error ? err.message : 'Could not remove tag');
     }
@@ -283,9 +350,9 @@ const ResearchEbayFeed: React.FC = () => {
             type="button"
             className="stock-refresh-icon-button"
             onClick={handleRefreshFeed}
-            disabled={tags.length === 0 || feedLoading}
-            title="Refresh feed"
-            aria-label="Refresh feed"
+            disabled={tags.length === 0 || feedLoading || tagsLoading}
+            title="Clear tag cache and refresh feed from database"
+            aria-label="Clear tag cache and refresh feed from database"
           >
             ↻
           </button>

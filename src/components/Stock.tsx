@@ -575,9 +575,9 @@ const Stock: React.FC = () => {
     });
   }, [defaultDepartmentId]);
 
-  // Scroll to edit form when it opens on mobile
+  // Scroll to entry form when it opens (edit at top, add below Next SKU)
   useEffect(() => {
-    if (showNewEntry && editingRowId && editFormRef.current) {
+    if (showNewEntry && editFormRef.current) {
       const isMobile = window.innerWidth <= 768;
       const scrollToForm = () => {
         if (editFormRef.current) {
@@ -2385,12 +2385,7 @@ const Stock: React.FC = () => {
     }
   };
 
-  return (
-    <div className={`stock-container ${showNewEntry ? 'editing-mode' : ''}`}>
-      {error && <div className="stock-error">{error}</div>}
-      {successMessage && <div className="stock-success">{successMessage}</div>}
-
-      {showNewEntry && (
+  const stockEntryFormEl = showNewEntry ? (
         <div className="new-entry-card" ref={editFormRef}>
           <div className="new-entry-grid">
             <div className="stock-new-entry-top-bar">
@@ -3435,7 +3430,14 @@ const Stock: React.FC = () => {
             )}
           </div>
         </div>
-      )}
+  ) : null;
+
+  return (
+    <div className={`stock-container ${showNewEntry ? 'editing-mode' : ''}`}>
+      {error && <div className="stock-error">{error}</div>}
+      {successMessage && <div className="stock-success">{successMessage}</div>}
+
+      {editingRowId != null && stockEntryFormEl}
 
       {showCreateInsteadOfEditConfirm && (
         <div
@@ -3718,6 +3720,15 @@ const Stock: React.FC = () => {
               resetCreateForm();
               setSuccessMessage(null);
               clearStockEditIdFromUrl();
+              setTimeout(() => {
+                if (!editFormRef.current) return;
+                const isMobile = window.innerWidth <= 768;
+                editFormRef.current.scrollIntoView({
+                  behavior: 'smooth',
+                  block: isMobile ? 'center' : 'start',
+                  inline: 'nearest',
+                });
+              }, 200);
             }}
             disabled={showNewEntry || creating}
           >
@@ -3972,6 +3983,10 @@ const Stock: React.FC = () => {
           <span className="summary-value">{sortedRows.length.toLocaleString()}</span>
         </div>
       </section>
+
+      {editingRowId == null && stockEntryFormEl && (
+        <div className="stock-add-form-below-summary">{stockEntryFormEl}</div>
+      )}
 
       {/* Desktop Table View */}
       <div className="table-wrapper">

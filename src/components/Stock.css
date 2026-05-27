@@ -3125,6 +3125,12 @@ button.stock-close-circle-btn:disabled {
   margin-bottom: 32px;
 }
 
+.stock-add-form-below-summary {
+  margin: -12px 0 28px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .summary-card {
   background: rgba(5, 4, 3, 0.92);
   border-radius: 22px;
