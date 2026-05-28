@@ -51,6 +51,12 @@ const ResearchRoute: React.FC = () => {
     const q = next.toString();
     return <Navigate to={q ? `/research?${q}` : '/research'} replace />;
   }
+  if (tab === 'tag-sell-through') {
+    const next = new URLSearchParams(searchParams);
+    next.delete('tab');
+    next.set('view', 'tag-sell-through');
+    return <Navigate to={`/research?${next.toString()}`} replace />;
+  }
 
   if (tab === 'feed') {
     const next = new URLSearchParams(searchParams);

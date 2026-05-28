@@ -13,6 +13,7 @@ import {
 } from 'chart.js';
 import { Bar, Line } from 'react-chartjs-2';
 import { getApiBase } from '../utils/apiBase';
+import { parseDateOnlyParts } from '../utils/dateOnly';
 import './Reporting.css';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend);
@@ -164,8 +165,11 @@ interface StockRowForSalesData {
   sale_date: string | null;
   purchase_price: number | string | null;
   sale_price: number | string | null;
+  vinted_id?: string | null;
+  ebay_id?: string | null;
   sold_platform?: string | null;
   category_id?: number | string | null;
+  sourced_location?: string | null;
   is_inventory_write_off?: boolean | string | number | null;
 }
 
@@ -177,6 +181,29 @@ interface ReportingCategoryRow {
 type ItemAnalysisPreset = 'current-month' | 'last-month' | 'custom-month' | 'current-year' | 'last-3-years';
 
 type ItemAnalysisPlatformTab = 'vinted' | 'ebay';
+interface CashFlowPurchasedItem {
+  id: number | null;
+  itemName: string;
+  sourceKey: 'bootsale' | 'charity_shop' | 'online_flip' | 'other';
+  sourceLabel: string;
+  categoryLabel: string;
+  purchasePrice: number;
+  salePrice: number;
+  difference: number;
+  vintedUrl: string | null;
+  ebayUrl: string | null;
+}
+
+interface CashFlowDaySummary {
+  day: number;
+  spent: number;
+  sold: number;
+  difference: number;
+  recoupedPct: number;
+  remainingToRecoupPct: number;
+  purchaseCount: number;
+  purchasedItems: CashFlowPurchasedItem[];
+}
 
 const monthLabelsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -248,6 +275,36 @@ function soldPlatformIsEbay(p: string | null | undefined): boolean {
 function soldPlatformIsVinted(p: string | null | undefined): boolean {
   const t = p?.trim();
   return t === 'Vinted' || t?.toLowerCase() === 'vinted';
+}
+
+function normalizeCashFlowSource(raw: string | null | undefined): CashFlowPurchasedItem['sourceKey'] {
+  const v = String(raw ?? '').trim().toLowerCase();
+  if (v === 'bootsale') return 'bootsale';
+  if (v === 'charity_shop') return 'charity_shop';
+  if (v === 'online_flip') return 'online_flip';
+  return 'other';
+}
+
+function cashFlowSourceLabel(sourceKey: CashFlowPurchasedItem['sourceKey']): string {
+  if (sourceKey === 'bootsale') return 'Bootsale';
+  if (sourceKey === 'charity_shop') return 'Charity Shop';
+  if (sourceKey === 'online_flip') return 'Online Flip';
+  return 'Other';
+}
+
+function cashFlowEbayUrl(raw: string | null | undefined): string | null {
+  const id = String(raw ?? '').trim();
+  if (!id) return null;
+  if (/^https?:\/\//i.test(id)) return id;
+  const legacy = id.replace(/\D/g, '');
+  return legacy ? `https://www.ebay.co.uk/itm/${legacy}` : `https://www.ebay.co.uk/itm/${encodeURIComponent(id)}`;
+}
+
+function cashFlowVintedUrl(raw: string | null | undefined): string | null {
+  const id = String(raw ?? '').trim();
+  if (!id) return null;
+  if (/^https?:\/\//i.test(id)) return id;
+  return `https://www.vinted.co.uk/items/${encodeURIComponent(id)}`;
 }
 
 /** Left-trim monthly charts: first index where this chart has data; if none, keep full range. */
@@ -463,9 +520,11 @@ const itemAnalysisChartOptions: ChartOptions<'bar'> = {
 const Reporting: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const tabFromUrl = searchParams.get('tab');
-  const initialViewMode: 'sales-data' | 'stock-analysis' | 'item-analysis' =
+  const initialViewMode: 'sales-data' | 'stock-analysis' | 'cash-flow-analysis' | 'item-analysis' =
     tabFromUrl === 'stock-analysis'
       ? 'stock-analysis'
+      : tabFromUrl === 'cash-flow-analysis'
+        ? 'cash-flow-analysis'
       : tabFromUrl === 'item-analysis'
         ? 'item-analysis'
         : 'sales-data';
@@ -510,7 +569,7 @@ const Reporting: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   
   // Monthly view state
-  const [viewMode, setViewMode] = useState<'sales-data' | 'stock-analysis' | 'item-analysis'>(initialViewMode);
+  const [viewMode, setViewMode] = useState<'sales-data' | 'stock-analysis' | 'cash-flow-analysis' | 'item-analysis'>(initialViewMode);
   const [itemAnalysisPreset, setItemAnalysisPreset] = useState<ItemAnalysisPreset>('current-month');
   const [itemAnalysisCustomYear, setItemAnalysisCustomYear] = useState(() => new Date().getFullYear());
   const [itemAnalysisCustomMonth, setItemAnalysisCustomMonth] = useState(() => new Date().getMonth() + 1);
@@ -560,7 +619,12 @@ const Reporting: React.FC = () => {
   const [trailingInventoryLoading, setTrailingInventoryLoading] = useState(false);
   const [stockRowsForSalesData, setStockRowsForSalesData] = useState<StockRowForSalesData[]>([]);
   const [salesDateFilter, setSalesDateFilter] = useState<'all-time' | 'last-30-days' | 'last-3-months' | 'current-year' | 'previous-year'>('all-time');
+  const [cashFlowPinnedDay, setCashFlowPinnedDay] = useState<number | null>(null);
+  const [cashFlowHoverDay, setCashFlowHoverDay] = useState<number | null>(null);
   const now = useMemo(() => new Date(), []);
+  const [cashFlowMonthCursor, setCashFlowMonthCursor] = useState<Date>(
+    () => new Date(now.getFullYear(), now.getMonth(), 1)
+  );
 
   useEffect(() => {
     const fetchData = async () => {
@@ -640,8 +704,14 @@ const Reporting: React.FC = () => {
 
   useEffect(() => {
     const t = searchParams.get('tab');
-    const nextViewMode: 'sales-data' | 'stock-analysis' | 'item-analysis' =
-      t === 'stock-analysis' ? 'stock-analysis' : t === 'item-analysis' ? 'item-analysis' : 'sales-data';
+    const nextViewMode: 'sales-data' | 'stock-analysis' | 'cash-flow-analysis' | 'item-analysis' =
+      t === 'stock-analysis'
+        ? 'stock-analysis'
+        : t === 'cash-flow-analysis'
+          ? 'cash-flow-analysis'
+          : t === 'item-analysis'
+            ? 'item-analysis'
+            : 'sales-data';
     setViewMode((prev) => (prev === nextViewMode ? prev : nextViewMode));
   }, [searchParams]);
 
@@ -661,22 +731,23 @@ const Reporting: React.FC = () => {
     setItemAnalysisPlatform(p === 'ebay' ? 'ebay' : 'vinted');
   }, [searchParams]);
 
-  useEffect(() => {
-    const fetchStockRows = async () => {
-      try {
-        const response = await fetch(`${API_BASE}/api/stock`);
-        if (!response.ok) {
-          return;
-        }
-        const data = await response.json();
-        setStockRowsForSalesData(Array.isArray(data?.rows) ? data.rows : []);
-      } catch (err) {
-        console.error('Failed to load stock rows for sales-data filters:', err);
-        setStockRowsForSalesData([]);
+  const loadStockRowsForSalesData = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/stock`);
+      if (!response.ok) {
+        return;
       }
-    };
-    fetchStockRows();
+      const data = await response.json();
+      setStockRowsForSalesData(Array.isArray(data?.rows) ? data.rows : []);
+    } catch (err) {
+      console.error('Failed to load stock rows for sales-data filters:', err);
+      setStockRowsForSalesData([]);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadStockRowsForSalesData();
+  }, [loadStockRowsForSalesData]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2158,6 +2229,152 @@ const Reporting: React.FC = () => {
     [searchParams, setSearchParams]
   );
 
+  const categoryNameById = useMemo(() => {
+    const map = new Map<number, string>();
+    reportingCategoryRows.forEach((row) => {
+      map.set(Number(row.id), row.category_name?.trim() || 'Uncategorized');
+    });
+    return map;
+  }, [reportingCategoryRows]);
+
+  const cashFlowCalendar = useMemo(() => {
+    const year = cashFlowMonthCursor.getFullYear();
+    const monthIndex = cashFlowMonthCursor.getMonth();
+    const monthStart = new Date(year, monthIndex, 1);
+    const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+    const leadingBlankDays = (monthStart.getDay() + 6) % 7; // Monday-first layout
+
+    const byDay = new Map<number, CashFlowDaySummary>();
+
+    for (const row of stockRowsForSalesData) {
+      if (!row.purchase_date) continue;
+      const pdParts = parseDateOnlyParts(row.purchase_date);
+      if (!pdParts) continue;
+      if (pdParts.year !== year || pdParts.month - 1 !== monthIndex) continue;
+
+      const day = pdParts.day;
+      const spent = parseStockNumber(row.purchase_price) ?? 0;
+      const sold = parseStockNumber(row.sale_price) ?? 0;
+      const existing = byDay.get(day);
+      const sourceKey = normalizeCashFlowSource(row.sourced_location);
+      const sourceLabel = cashFlowSourceLabel(sourceKey);
+      const ebayUrl = cashFlowEbayUrl(row.ebay_id);
+      const vintedUrl = cashFlowVintedUrl(row.vinted_id);
+      const categoryNum = Number(row.category_id);
+      const categoryLabel =
+        Number.isFinite(categoryNum) && categoryNameById.has(categoryNum)
+          ? categoryNameById.get(categoryNum) || 'Uncategorized'
+          : 'Uncategorized';
+
+      if (!existing) {
+        const purchaseValue = Math.max(0, spent);
+        const soldValue = Math.max(0, sold);
+        byDay.set(day, {
+          day,
+          spent: purchaseValue,
+          sold: soldValue,
+          difference: soldValue - purchaseValue,
+          recoupedPct: 0,
+          remainingToRecoupPct: 100,
+          purchaseCount: 1,
+          purchasedItems: [
+            {
+              id: typeof row.id === 'number' ? row.id : null,
+              itemName: row.item_name?.trim() || 'Untitled item',
+              sourceKey,
+              sourceLabel,
+              categoryLabel,
+              purchasePrice: purchaseValue,
+              salePrice: soldValue,
+              difference: soldValue - purchaseValue,
+              ebayUrl,
+              vintedUrl,
+            },
+          ],
+        });
+      } else {
+        const purchaseValue = Math.max(0, spent);
+        const soldValue = Math.max(0, sold);
+        existing.spent += purchaseValue;
+        existing.sold += soldValue;
+        existing.purchaseCount += 1;
+        existing.difference = existing.sold - existing.spent;
+        existing.purchasedItems.push({
+          id: typeof row.id === 'number' ? row.id : null,
+          itemName: row.item_name?.trim() || 'Untitled item',
+          sourceKey,
+          sourceLabel,
+          categoryLabel,
+          purchasePrice: purchaseValue,
+          salePrice: soldValue,
+          difference: soldValue - purchaseValue,
+          ebayUrl,
+          vintedUrl,
+        });
+      }
+    }
+
+    Array.from(byDay.values()).forEach((summary) => {
+      if (summary.spent > 0) {
+        summary.recoupedPct = (summary.sold / summary.spent) * 100;
+        summary.remainingToRecoupPct = Math.max(0, 100 - summary.recoupedPct);
+      } else {
+        summary.recoupedPct = 0;
+        summary.remainingToRecoupPct = 0;
+      }
+    });
+
+    const daySummaries = Array.from({ length: daysInMonth }, (_, idx) => ({
+      day: idx + 1,
+      summary: byDay.get(idx + 1) ?? null,
+    }));
+
+    return {
+      monthLabel: `${monthLabels[monthIndex]} ${year}`,
+      leadingBlankDays,
+      daySummaries,
+    };
+  }, [cashFlowMonthCursor, stockRowsForSalesData, categoryNameById]);
+
+  const cashFlowIsCurrentMonth =
+    cashFlowMonthCursor.getFullYear() === now.getFullYear() &&
+    cashFlowMonthCursor.getMonth() === now.getMonth();
+
+  const cashFlowActiveDay = cashFlowPinnedDay ?? cashFlowHoverDay;
+  const cashFlowActiveSummary = useMemo(() => {
+    if (cashFlowActiveDay == null) return null;
+    return cashFlowCalendar.daySummaries.find((d) => d.day === cashFlowActiveDay)?.summary ?? null;
+  }, [cashFlowActiveDay, cashFlowCalendar.daySummaries]);
+  const cashFlowUnsoldAmount = cashFlowActiveSummary
+    ? Math.max(0, cashFlowActiveSummary.spent - cashFlowActiveSummary.sold)
+    : 0;
+  const cashFlowGroups = useMemo(() => {
+    if (!cashFlowActiveSummary) return [];
+    const groups = new Map<CashFlowPurchasedItem['sourceKey'], CashFlowPurchasedItem[]>();
+    cashFlowActiveSummary.purchasedItems.forEach((item) => {
+      const arr = groups.get(item.sourceKey) ?? [];
+      arr.push(item);
+      groups.set(item.sourceKey, arr);
+    });
+    const orderedKeys: CashFlowPurchasedItem['sourceKey'][] = ['bootsale', 'charity_shop', 'online_flip', 'other'];
+    return orderedKeys
+      .map((key) => {
+        const items = groups.get(key) ?? [];
+        if (items.length === 0) return null;
+        const categoryCosts = new Map<string, number>();
+        items.forEach((item) => {
+          categoryCosts.set(item.categoryLabel, (categoryCosts.get(item.categoryLabel) ?? 0) + item.purchasePrice);
+        });
+        return {
+          key,
+          label: cashFlowSourceLabel(key),
+          items,
+          categoryBreakdown: Array.from(categoryCosts.entries()).sort((a, b) => b[1] - a[1]),
+        };
+      })
+      .filter((g): g is { key: CashFlowPurchasedItem['sourceKey']; label: string; items: CashFlowPurchasedItem[]; categoryBreakdown: Array<[string, number]> } => g != null);
+  }, [cashFlowActiveSummary]);
+
   return (
     <div className="reporting-container">
 
@@ -2177,6 +2394,12 @@ const Reporting: React.FC = () => {
           onClick={() => setViewMode('stock-analysis')}
         >
           Stock Analysis
+        </button>
+        <button
+          className={`view-toggle-button ${viewMode === 'cash-flow-analysis' ? 'active' : ''}`}
+          onClick={() => setViewMode('cash-flow-analysis')}
+        >
+          Cash Flow Analysis
         </button>
         <button
           className={`view-toggle-button ${viewMode === 'item-analysis' ? 'active' : ''}`}
@@ -3244,6 +3467,267 @@ const Reporting: React.FC = () => {
           </section>
 
         </div>
+      </div>
+
+      <div className={`view-content ${viewMode === 'cash-flow-analysis' ? 'active' : ''}`}>
+        <section className="reporting-card cash-flow-calendar-card">
+          <div className="cash-flow-calendar">
+            <div className="cash-flow-calendar-nav">
+              <button
+                type="button"
+                className="cash-flow-calendar-nav-button"
+                onClick={() => {
+                  setCashFlowPinnedDay(null);
+                  setCashFlowHoverDay(null);
+                  setCashFlowMonthCursor((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+                }}
+                aria-label="Show previous month"
+                title="Previous month"
+              >
+                ←
+              </button>
+              <div className="cash-flow-calendar-nav-label">{cashFlowCalendar.monthLabel}</div>
+              <button
+                type="button"
+                className="cash-flow-calendar-nav-button"
+                onClick={() => {
+                  setCashFlowPinnedDay(null);
+                  setCashFlowHoverDay(null);
+                  setCashFlowMonthCursor((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+                }}
+                disabled={cashFlowIsCurrentMonth}
+                aria-label="Show next month"
+                title={cashFlowIsCurrentMonth ? 'Current month' : 'Next month'}
+              >
+                →
+              </button>
+            </div>
+            <div className="cash-flow-calendar-weekdays">
+              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((wd) => (
+                <div key={wd} className="cash-flow-calendar-weekday">
+                  {wd}
+                </div>
+              ))}
+            </div>
+            <div className="cash-flow-calendar-grid">
+              {Array.from({ length: cashFlowCalendar.leadingBlankDays }).map((_, i) => (
+                <div key={`blank-${i}`} className="cash-flow-day cash-flow-day--blank" />
+              ))}
+              {cashFlowCalendar.daySummaries.map(({ day, summary }) => (
+                <div key={`day-${day}`} className={`cash-flow-day${summary ? ' cash-flow-day--has-pin' : ''}`}>
+                  <div className="cash-flow-day-header">
+                    <div className="cash-flow-day-number">{day}</div>
+                    {summary ? (
+                      <span
+                        className={`cash-flow-day-status ${
+                          summary.difference > 0
+                            ? 'cash-flow-day-status--profit'
+                            : summary.difference < 0
+                              ? 'cash-flow-day-status--loss'
+                              : 'cash-flow-day-status--breakeven'
+                        }`}
+                        title={
+                          summary.difference > 0
+                            ? 'Day in profit'
+                            : summary.difference < 0
+                              ? 'Day in loss'
+                              : 'Day at breakeven'
+                        }
+                        aria-hidden
+                      >
+                        {summary.difference > 0 ? '✓' : summary.difference < 0 ? '✕' : '●'}
+                      </span>
+                    ) : null}
+                  </div>
+                  {summary ? (
+                    <>
+                      <button
+                        type="button"
+                        className="cash-flow-day-info"
+                        onMouseEnter={() => setCashFlowHoverDay(day)}
+                        onMouseLeave={() => setCashFlowHoverDay((prev) => (prev === day ? null : prev))}
+                        onClick={() => setCashFlowPinnedDay((prev) => (prev === day ? null : day))}
+                        title={`${summary.purchaseCount} purchases · Spend ${formatCurrency(summary.spent)}`}
+                        aria-label={`Cash flow details for ${cashFlowCalendar.monthLabel} day ${day}`}
+                      >
+                        i
+                      </button>
+                      {cashFlowActiveDay === day && (
+                        <div className="cash-flow-day-popover" role="tooltip">
+                          <div className="cash-flow-day-popover-title">
+                            {cashFlowCalendar.monthLabel} {day}
+                          </div>
+                          <div className="cash-flow-day-popover-row">Spent: {formatCurrency(summary.spent)}</div>
+                          <div className="cash-flow-day-popover-row">Sold: {formatCurrency(summary.sold)}</div>
+                          <div
+                            className={
+                              `cash-flow-day-popover-row cash-flow-day-diff ${summary.difference >= 0 ? 'cash-flow-day-diff--pos' : 'cash-flow-day-diff--neg'}`
+                            }
+                          >
+                            Difference: {formatCurrency(summary.difference)}
+                          </div>
+                          <div className="cash-flow-day-popover-row">
+                            To recoup: {Math.max(0, 100 - summary.recoupedPct).toFixed(1)}%
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {cashFlowActiveSummary && (
+            <div className="cash-flow-items-section">
+              <h3 className="cash-flow-items-heading">
+                Purchased on {cashFlowCalendar.monthLabel} {cashFlowActiveSummary.day}
+              </h3>
+              <div className="cash-flow-stats-row">
+                <article className="cash-flow-stat-card cash-flow-stat-card--primary">
+                  <span className="cash-flow-stat-label">Amount Spent</span>
+                  <span className="cash-flow-stat-value cash-flow-stat-value--big">
+                    {formatCurrency(cashFlowActiveSummary.spent)}
+                  </span>
+                </article>
+                <article className="cash-flow-stat-card">
+                  <span className="cash-flow-stat-label">Amount Sold</span>
+                  <span className="cash-flow-stat-value">{formatCurrency(cashFlowActiveSummary.sold)}</span>
+                </article>
+                <article className="cash-flow-stat-card">
+                  <span className="cash-flow-stat-label">Amount Unsold</span>
+                  <span className="cash-flow-stat-value">{formatCurrency(cashFlowUnsoldAmount)}</span>
+                </article>
+                <article className="cash-flow-stat-card">
+                  <span className="cash-flow-stat-label">Difference</span>
+                  <span
+                    className={`cash-flow-stat-value ${
+                      cashFlowActiveSummary.difference >= 0
+                        ? 'cash-flow-day-diff--pos'
+                        : 'cash-flow-day-diff--neg'
+                    }`}
+                  >
+                    {formatCurrency(cashFlowActiveSummary.difference)}
+                  </span>
+                </article>
+                <article className="cash-flow-stat-card">
+                  <span className="cash-flow-stat-label">To Recoup</span>
+                  <span className="cash-flow-stat-value">
+                    {Math.max(0, 100 - cashFlowActiveSummary.recoupedPct).toFixed(1)}%
+                  </span>
+                </article>
+              </div>
+              <div className="cash-flow-source-groups">
+                {cashFlowGroups.map((group) => (
+                  <section
+                    key={group.key}
+                    className={`cash-flow-source-group cash-flow-source-group--${group.key}`}
+                  >
+                    <h4 className="cash-flow-source-heading">{group.label}</h4>
+                    <div className="cash-flow-source-breakdown">
+                      {group.categoryBreakdown.map(([category, amount]) => (
+                        <span key={`${group.key}-${category}`} className="cash-flow-source-breakdown-chip">
+                          {category}: {formatCurrency(amount)}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="cash-flow-source-rule" />
+                    <div className="cash-flow-items-grid">
+                      {group.items.map((item, idx) => {
+                        const isSold = item.salePrice > 0;
+                        const body = (
+                          <>
+                            <div className={`cash-flow-item-name ${isSold ? 'cash-flow-item-name--sold' : ''}`}>
+                              {item.itemName}
+                            </div>
+                            <div
+                              className={`cash-flow-item-meta ${
+                                isSold ? '' : 'cash-flow-item-meta--unsold-spent'
+                              }`}
+                            >
+                              Spent: {formatCurrency(item.purchasePrice)}
+                            </div>
+                            <div
+                              className={`cash-flow-item-meta ${
+                                isSold ? 'cash-flow-item-meta--sold' : ''
+                              }`}
+                            >
+                              Sold: {formatCurrency(item.salePrice)}
+                            </div>
+                            {(item.ebayUrl || item.vintedUrl) && (
+                              <div className="cash-flow-item-market-links">
+                                {item.ebayUrl && (
+                                  <a
+                                    href={item.ebayUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="cash-flow-item-market-link"
+                                    onClick={(event) => event.stopPropagation()}
+                                  >
+                                    eBay
+                                  </a>
+                                )}
+                                {item.vintedUrl && (
+                                  <a
+                                    href={item.vintedUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="cash-flow-item-market-link"
+                                    onClick={(event) => event.stopPropagation()}
+                                  >
+                                    Vinted
+                                  </a>
+                                )}
+                              </div>
+                            )}
+                          </>
+                        );
+                        if (item.id != null) {
+                          return (
+                            <article
+                              key={`${group.key}-${item.id}-${idx}`}
+                              className="cash-flow-item-card cash-flow-item-card--link"
+                              title={`Open SKU ${item.id} in Stock edit mode`}
+                              role="link"
+                              tabIndex={0}
+                              onClick={() => window.open(`/stock?editId=${item.id}`, '_blank', 'noopener,noreferrer')}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault();
+                                  window.open(`/stock?editId=${item.id}`, '_blank', 'noopener,noreferrer');
+                                }
+                              }}
+                            >
+                              {body}
+                            </article>
+                          );
+                        }
+                        return (
+                          <article className="cash-flow-item-card" key={`${group.key}-item-${idx}`}>
+                            {body}
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ))}
+              </div>
+              <div className="cash-flow-refresh-wrap">
+                <button
+                  type="button"
+                  className="cash-flow-refresh-button"
+                  onClick={() => {
+                    setCashFlowPinnedDay(null);
+                    setCashFlowHoverDay(null);
+                    void loadStockRowsForSalesData();
+                  }}
+                >
+                  Refresh
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
       </div>
 
       <div className={`view-content ${viewMode === 'item-analysis' ? 'active' : ''}`}>

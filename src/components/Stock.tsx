@@ -5,6 +5,12 @@ import 'react-datepicker/dist/react-datepicker.css';
 import '../react-datepicker-dark.css';
 import { pingDatabase } from '../utils/dbPing';
 import { getApiBase } from '../utils/apiBase';
+import {
+  dateOnlyStringToLocalDate,
+  formatDateOnlyForDisplay,
+  localDateToDateOnlyString,
+  normalizeDateOnlyString,
+} from '../utils/dateOnly';
 import './Stock.css';
 import { StockFormDropdown } from './StockFormDropdown';
 
@@ -188,22 +194,7 @@ const formatCurrency = (value: Nullable<string | number>) => {
   }).format(parsed);
 };
 
-const formatDate = (value: Nullable<string>) => {
-  if (!value) {
-    return '—';
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat('en-GB', {
-    year: 'numeric',
-    month: 'short',
-    day: '2-digit'
-  }).format(date);
-};
+const formatDate = (value: Nullable<string>) => formatDateOnlyForDisplay(value ?? null);
 
 /** Envelope — add item to orders (postage / dispatch). */
 function AddToOrdersIcon({ className }: { className?: string }) {
@@ -235,36 +226,6 @@ function AddToOrdersIcon({ className }: { className?: string }) {
   );
 }
 
-
-const normalizeDateInput = (value: Nullable<string>) => {
-  if (!value) {
-    return '';
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return '';
-  }
-
-  const iso = date.toISOString();
-  return iso.slice(0, 10);
-};
-
-const stringToDate = (value: Nullable<string>) => {
-  if (!value) {
-    return null;
-  }
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
-};
-
-const dateToIsoString = (value: Date | null) => {
-  if (!value) {
-    return '';
-  }
-  const iso = value.toISOString();
-  return iso.slice(0, 10);
-};
 
 function buildStockInstagramAskAiPrompt(input: {
   itemName: string;
@@ -783,8 +744,8 @@ const Stock: React.FC = () => {
       department_id: deptForRow,
       category_id: rowToEdit.category_id ? String(rowToEdit.category_id) : '',
       purchase_price: stockDbNumberToFormString(rowToEdit.purchase_price),
-      purchase_date: normalizeDateInput(rowToEdit.purchase_date ?? ''),
-      sale_date: normalizeDateInput(rowToEdit.sale_date ?? ''),
+      purchase_date: normalizeDateOnlyString(rowToEdit.purchase_date ?? ''),
+      sale_date: normalizeDateOnlyString(rowToEdit.sale_date ?? ''),
       sale_price: stockDbNumberToFormString(rowToEdit.sale_price),
       sold_platform: rowToEdit.sold_platform ?? '',
       vinted_id: rowToEdit.vinted_id ?? '',
@@ -1836,8 +1797,8 @@ const Stock: React.FC = () => {
       department_id: deptForRow,
       category_id: row.category_id ? String(row.category_id) : '',
       purchase_price: stockDbNumberToFormString(row.purchase_price),
-      purchase_date: normalizeDateInput(row.purchase_date ?? ''),
-      sale_date: normalizeDateInput(row.sale_date ?? ''),
+      purchase_date: normalizeDateOnlyString(row.purchase_date ?? ''),
+      sale_date: normalizeDateOnlyString(row.sale_date ?? ''),
       sale_price: stockDbNumberToFormString(row.sale_price),
       sold_platform: row.sold_platform ?? '',
       vinted_id: row.vinted_id ?? '',
@@ -1995,6 +1956,12 @@ const Stock: React.FC = () => {
       setCreating(true);
       setError(null);
       setShowCreateInsteadOfEditConfirm(false);
+
+      if (!createForm.purchase_date?.trim()) {
+        setError('Purchase date is required.');
+        setCreating(false);
+        return;
+      }
 
       const payload = {
         item_name: createForm.item_name,
@@ -2930,10 +2897,11 @@ const Stock: React.FC = () => {
               <label className="new-entry-field new-entry-field--stock-compact-date new-entry-field--stock-row2-equal">
                 <span>Purchase Date</span>
                 <DatePicker
-                  selected={stringToDate(createForm.purchase_date)}
+                  selected={dateOnlyStringToLocalDate(createForm.purchase_date)}
                   onChange={(date) =>
-                    handleCreateChange('purchase_date', dateToIsoString(date ?? null))
+                    handleCreateChange('purchase_date', localDateToDateOnlyString(date ?? null))
                   }
+                  calendarStartDay={1}
                   dateFormat="yyyy-MM-dd"
                   placeholderText="Select purchase date"
                   className="date-picker-input"
@@ -3194,10 +3162,11 @@ const Stock: React.FC = () => {
                   <label className="new-entry-field new-entry-field--stock-compact-date">
                     <span>Sale Date</span>
                     <DatePicker
-                      selected={stringToDate(createForm.sale_date)}
+                      selected={dateOnlyStringToLocalDate(createForm.sale_date)}
                       onChange={(date) =>
-                        handleCreateChange('sale_date', dateToIsoString(date ?? null))
+                        handleCreateChange('sale_date', localDateToDateOnlyString(date ?? null))
                       }
+                      calendarStartDay={1}
                       dateFormat="yyyy-MM-dd"
                       placeholderText="Select sale date"
                       className="date-picker-input"

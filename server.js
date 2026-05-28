@@ -9,7 +9,11 @@ const multer = require('multer');
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
+// Keep all server-side Date handling on UK timezone (GMT/BST).
+process.env.TZ = process.env.TZ || 'Europe/London';
+
 const ebaySellerOAuth = require('./ebaySellerOAuth');
+const { normalizeDateOnlyString } = require('./utils/dateOnly');
 
 const app = express();
 const PORT = process.env.PORT || 5003;
@@ -87,24 +91,15 @@ const normalizeDateInputValue = (value, fieldName) => {
     return null;
   }
 
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
+  const normalized = normalizeDateOnlyString(value);
+  if (!normalized) {
     throw buildBadRequest(`Invalid date for ${fieldName}. Please use the YYYY-MM-DD format.`);
   }
 
-  return date.toISOString().slice(0, 10);
+  return normalized;
 };
 
-const ensureIsoDateString = (value) => {
-  if (!value) {
-    return null;
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-  return date.toISOString().slice(0, 10);
-};
+const ensureIsoDateString = (value) => normalizeDateOnlyString(value);
 
 const loadSettings = () => {
   try {
@@ -202,6 +197,12 @@ const getDatabasePool = () => {
 
   dbPool.on('error', (poolError) => {
     console.error('Unexpected Postgres client error:', poolError);
+  });
+
+  dbPool.on('connect', (client) => {
+    client
+      .query("SET TIME ZONE 'Europe/London'")
+      .catch((timezoneError) => console.error('Failed to set Postgres session timezone:', timezoneError));
   });
 
   return dbPool;
@@ -1531,18 +1532,14 @@ app.delete('/api/research-feed/tags/:id', async (req, res) => {
   }
 });
 
-/**
- * Sold comps on eBay UK (GBP price band, UK-sited listings), newest listed first.
- * GET /api/research-feed/items?page=0&pageSize=12&minPriceGbp=50&maxPriceGbp=200
- * min/max clamped to 20–200; defaults min 50, max 200. Range is normalized so max > min.
- */
-app.get('/api/research-feed/items', async (req, res) => {
-  const page = Math.max(0, parseInt(String(req.query.page ?? '0'), 10) || 0);
-  const pageSize = Math.min(48, Math.max(6, parseInt(String(req.query.pageSize ?? '12'), 10) || 12));
-  const rawMin = parseInt(String(req.query.minPriceGbp ?? '50'), 10);
-  const rawMax = parseInt(String(req.query.maxPriceGbp ?? '200'), 10);
-  const minSel = Math.min(200, Math.max(20, Number.isFinite(rawMin) ? rawMin : 50));
-  const maxSel = Math.min(200, Math.max(20, Number.isFinite(rawMax) ? rawMax : 200));
+const RESEARCH_FEED_SOLD_DAYS_DEFAULT = 180;
+const RESEARCH_FEED_TAG_STATS_TTL_HOURS = 24;
+
+function normalizeResearchFeedPriceBand(rawMin, rawMax) {
+  const rawMinP = parseInt(String(rawMin ?? '50'), 10);
+  const rawMaxP = parseInt(String(rawMax ?? '200'), 10);
+  const minSel = Math.min(200, Math.max(20, Number.isFinite(rawMinP) ? rawMinP : 50));
+  const maxSel = Math.min(200, Math.max(20, Number.isFinite(rawMaxP) ? rawMaxP : 200));
   let priceLo = Math.min(minSel, maxSel);
   let priceHi = Math.max(minSel, maxSel);
   if (priceHi <= priceLo) {
@@ -1551,6 +1548,434 @@ app.get('/api/research-feed/items', async (req, res) => {
   if (priceHi <= priceLo) {
     priceLo = Math.max(priceHi - 5, 20);
   }
+  return { priceLo, priceHi };
+}
+
+function parseResearchFeedSoldDays(raw) {
+  let days = parseInt(String(raw ?? String(RESEARCH_FEED_SOLD_DAYS_DEFAULT)), 10);
+  if (Number.isNaN(days)) days = RESEARCH_FEED_SOLD_DAYS_DEFAULT;
+  return Math.min(365, Math.max(7, days));
+}
+
+function browseSearchTotal(data, logLabel = 'search') {
+  const raw = data?.total;
+  const n = raw !== null && raw !== undefined && raw !== '' ? Number(raw) : NaN;
+  if (Number.isFinite(n) && n >= 0) {
+    return Math.trunc(n);
+  }
+  // Never use itemSummaries.length here — stats calls use limit=1, so length is always 1 → fake 100% STR.
+  console.warn(`[browseSearchTotal] missing or invalid total (${logLabel})`, {
+    total: raw,
+    limit: data?.limit,
+    returned: Array.isArray(data?.itemSummaries) ? data.itemSummaries.length : 0
+  });
+  return null;
+}
+
+function mapResearchFeedTagStatsRow(row) {
+  const ratio =
+    row.sell_through_ratio != null && row.sell_through_ratio !== ''
+      ? Number(row.sell_through_ratio)
+      : null;
+  return {
+    tagId: row.tag_id,
+    minPriceGbp: row.min_price_gbp,
+    maxPriceGbp: row.max_price_gbp,
+    soldDays: row.sold_days,
+    activeCount: row.active_count != null ? Number(row.active_count) : null,
+    soldCount: row.sold_count != null ? Number(row.sold_count) : null,
+    sellThroughRatio: Number.isFinite(ratio) ? ratio : null,
+    queryUsed: row.query_used != null ? String(row.query_used) : null,
+    fetchError: row.fetch_error != null ? String(row.fetch_error) : null,
+    fetchedAt: row.fetched_at ? new Date(row.fetched_at).toISOString() : null
+  };
+}
+
+async function fetchResearchFeedTagStatsFromEbay(term, accessToken, priceLo, priceHi, soldDays) {
+  const q = sanitizeEbayFeedSearchTerm(term);
+  if (!q) {
+    const err = new Error('Tag search term is empty');
+    err.code = 'EMPTY_TERM';
+    throw err;
+  }
+  const searchBase = {
+    query: q,
+    accessToken,
+    limit: '50',
+    requireUsedCondition: false,
+    categoryIds: null,
+    minPriceGbp: priceLo,
+    maxPriceGbp: priceHi,
+    ukItemsOnly: true
+  };
+  const [activeData, soldData] = await Promise.all([
+    getBrowseSearch({ ...searchBase, soldOnly: false }),
+    getBrowseSearch({
+      ...searchBase,
+      soldOnly: true,
+      soldDateRangeDays: soldDays,
+      sort: 'newlyListed'
+    })
+  ]);
+  const activeCount = browseSearchTotal(activeData, `active:${q}`);
+  const soldCount = browseSearchTotal(soldData, `sold:${q}`);
+  if (activeCount == null || soldCount == null) {
+    const err = new Error(
+      'eBay did not return listing totals for this tag. Try again or narrow the search term.'
+    );
+    err.code = 'EBAY_TOTAL_MISSING';
+    throw err;
+  }
+  const sellThroughRatio = activeCount > 0 ? soldCount / activeCount : null;
+  return { queryUsed: q, activeCount, soldCount, sellThroughRatio };
+}
+
+async function upsertResearchFeedTagStatsCache(pool, tagId, priceLo, priceHi, soldDays, stats) {
+  await pool.query(
+    `INSERT INTO ebay_research_feed_tag_stats_cache (
+       tag_id, min_price_gbp, max_price_gbp, sold_days,
+       active_count, sold_count, sell_through_ratio, query_used, fetch_error, fetched_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+     ON CONFLICT (tag_id, min_price_gbp, max_price_gbp, sold_days)
+     DO UPDATE SET
+       active_count = EXCLUDED.active_count,
+       sold_count = EXCLUDED.sold_count,
+       sell_through_ratio = EXCLUDED.sell_through_ratio,
+       query_used = EXCLUDED.query_used,
+       fetch_error = EXCLUDED.fetch_error,
+       fetched_at = NOW()`,
+    [
+      tagId,
+      priceLo,
+      priceHi,
+      soldDays,
+      stats.activeCount,
+      stats.soldCount,
+      stats.sellThroughRatio,
+      stats.queryUsed,
+      stats.fetchError ?? null
+    ]
+  );
+}
+
+function researchFeedTagStatsTableHint(error) {
+  if (error.code === '42P01') {
+    return {
+      status: 503,
+      body: {
+        error: 'ebay_research_feed_tag_stats_cache table missing',
+        details: 'Run database/ebay_research_feed_tag_stats_cache.sql in your database.'
+      }
+    };
+  }
+  return null;
+}
+
+async function readCachedResearchFeedTagStats(pool, tagId, priceLo, priceHi, soldDays) {
+  const cached = await pool.query(
+    `SELECT tag_id, min_price_gbp, max_price_gbp, sold_days,
+            active_count, sold_count, sell_through_ratio, query_used, fetch_error, fetched_at
+     FROM ebay_research_feed_tag_stats_cache
+     WHERE tag_id = $1 AND min_price_gbp = $2 AND max_price_gbp = $3 AND sold_days = $4
+       AND fetched_at >= NOW() - INTERVAL '1 hour' * $5
+     LIMIT 1`,
+    [tagId, priceLo, priceHi, soldDays, RESEARCH_FEED_TAG_STATS_TTL_HOURS]
+  );
+  if (!cached.rowCount) return null;
+  return mapResearchFeedTagStatsRow(cached.rows[0]);
+}
+
+async function resolveResearchFeedTagStatsForTag(
+  pool,
+  tag,
+  priceLo,
+  priceHi,
+  soldDays,
+  accessToken,
+  forceRefresh
+) {
+  const tagId = tag.id;
+  const term = typeof tag.term === 'string' ? tag.term : '';
+
+  if (!forceRefresh) {
+    const cached = await readCachedResearchFeedTagStats(pool, tagId, priceLo, priceHi, soldDays);
+    if (cached) {
+      return {
+        ...cached,
+        term,
+        cached: true,
+        error: cached.fetchError ?? null
+      };
+    }
+  }
+
+  try {
+    const stats = await fetchResearchFeedTagStatsFromEbay(term, accessToken, priceLo, priceHi, soldDays);
+    await upsertResearchFeedTagStatsCache(pool, tagId, priceLo, priceHi, soldDays, {
+      ...stats,
+      fetchError: null
+    });
+    return {
+      tagId,
+      term,
+      minPriceGbp: priceLo,
+      maxPriceGbp: priceHi,
+      soldDays,
+      activeCount: stats.activeCount,
+      soldCount: stats.soldCount,
+      sellThroughRatio: stats.sellThroughRatio,
+      queryUsed: stats.queryUsed,
+      fetchError: null,
+      fetchedAt: new Date().toISOString(),
+      cached: false,
+      error: null
+    };
+  } catch (ebayErr) {
+    const msg = ebayErr instanceof Error ? ebayErr.message : String(ebayErr);
+    await upsertResearchFeedTagStatsCache(pool, tagId, priceLo, priceHi, soldDays, {
+      queryUsed: sanitizeEbayFeedSearchTerm(term),
+      activeCount: null,
+      soldCount: null,
+      sellThroughRatio: null,
+      fetchError: msg
+    });
+    return {
+      tagId,
+      term,
+      minPriceGbp: priceLo,
+      maxPriceGbp: priceHi,
+      soldDays,
+      activeCount: null,
+      soldCount: null,
+      sellThroughRatio: null,
+      queryUsed: sanitizeEbayFeedSearchTerm(term),
+      fetchError: msg,
+      fetchedAt: new Date().toISOString(),
+      cached: false,
+      error: msg
+    };
+  }
+}
+
+/**
+ * Clear all cached tag stats (e.g. when user refreshes the feed).
+ * DELETE /api/research-feed/tag-stats/cache
+ */
+app.delete('/api/research-feed/tag-stats/cache', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const del = await pool.query('DELETE FROM ebay_research_feed_tag_stats_cache');
+    res.json({ ok: true, deleted: del.rowCount ?? 0 });
+  } catch (error) {
+    const hint = researchFeedTagStatsTableHint(error);
+    if (hint) return res.status(hint.status).json(hint.body);
+    console.error('research-feed tag stats cache clear failed:', error);
+    res.status(500).json({ error: 'Failed to clear tag stats cache', details: error.message });
+  }
+});
+
+/**
+ * Sell-through stats for all feed tags (24h DB cache per tag).
+ * GET /api/research-feed/tag-stats?minPriceGbp=50&maxPriceGbp=200&soldDays=180&refresh=0
+ */
+app.get('/api/research-feed/tag-stats', async (req, res) => {
+  const { priceLo, priceHi } = normalizeResearchFeedPriceBand(
+    req.query.minPriceGbp,
+    req.query.maxPriceGbp
+  );
+  const soldDays = parseResearchFeedSoldDays(req.query.soldDays);
+  const forceRefresh = parseEbayQueryBool(req.query.refresh, false);
+
+  const appId = process.env.REACT_APP_EBAY_APP_ID || process.env.EBAY_APP;
+  const certId = process.env.REACT_APP_EBAY_CERT_ID;
+  if (!appId || !certId) {
+    return res.status(500).json({
+      error: 'eBay credentials not configured',
+      details: 'Set REACT_APP_EBAY_APP_ID and REACT_APP_EBAY_CERT_ID.'
+    });
+  }
+
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured', rows: [] });
+    }
+
+    const tagsResult = await pool.query(
+      `SELECT id, term FROM ebay_research_feed_tag ORDER BY term ASC, id ASC`
+    );
+    const tagRows = tagsResult.rows ?? [];
+    if (tagRows.length === 0) {
+      return res.json({
+        rows: [],
+        minPriceGbp: priceLo,
+        maxPriceGbp: priceHi,
+        soldDays,
+        ttlHours: RESEARCH_FEED_TAG_STATS_TTL_HOURS
+      });
+    }
+
+    let accessToken = null;
+    const rows = [];
+    for (const tag of tagRows) {
+      let needsEbay = forceRefresh;
+      if (!needsEbay) {
+        const cached = await readCachedResearchFeedTagStats(
+          pool,
+          tag.id,
+          priceLo,
+          priceHi,
+          soldDays
+        );
+        if (cached) {
+          rows.push({
+            ...cached,
+            term: tag.term,
+            cached: true,
+            error: cached.fetchError ?? null
+          });
+          continue;
+        }
+        needsEbay = true;
+      }
+      if (needsEbay && !accessToken) {
+        accessToken = await getAccessToken(appId, certId);
+      }
+      const row = await resolveResearchFeedTagStatsForTag(
+        pool,
+        tag,
+        priceLo,
+        priceHi,
+        soldDays,
+        accessToken,
+        true
+      );
+      rows.push(row);
+    }
+
+    res.json({
+      rows,
+      minPriceGbp: priceLo,
+      maxPriceGbp: priceHi,
+      soldDays,
+      ttlHours: RESEARCH_FEED_TAG_STATS_TTL_HOURS
+    });
+  } catch (error) {
+    const hint = researchFeedTagStatsTableHint(error);
+    if (hint) return res.status(hint.status).json(hint.body);
+    console.error('research-feed tag stats (all) failed:', error);
+    res.status(500).json({ error: 'Failed to load tag stats', details: error.message });
+  }
+});
+
+/**
+ * Active vs sold totals and sell-through for one feed tag (24h DB cache).
+ * GET /api/research-feed/tags/:id/stats?minPriceGbp=50&maxPriceGbp=200&soldDays=180&refresh=0
+ */
+app.get('/api/research-feed/tags/:id/stats', async (req, res) => {
+  const tagId = parseInt(String(req.params.id ?? ''), 10);
+  if (!Number.isFinite(tagId) || tagId < 1) {
+    return res.status(400).json({ error: 'Invalid tag id' });
+  }
+
+  const { priceLo, priceHi } = normalizeResearchFeedPriceBand(
+    req.query.minPriceGbp,
+    req.query.maxPriceGbp
+  );
+  const soldDays = parseResearchFeedSoldDays(req.query.soldDays);
+  const forceRefresh = parseEbayQueryBool(req.query.refresh, false);
+
+  const appId = process.env.REACT_APP_EBAY_APP_ID || process.env.EBAY_APP;
+  const certId = process.env.REACT_APP_EBAY_CERT_ID;
+  if (!appId || !certId) {
+    return res.status(500).json({
+      error: 'eBay credentials not configured',
+      details: 'Set REACT_APP_EBAY_APP_ID and REACT_APP_EBAY_CERT_ID.'
+    });
+  }
+
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+
+    const tagRow = await pool.query(
+      `SELECT id, term FROM ebay_research_feed_tag WHERE id = $1`,
+      [tagId]
+    );
+    if (!tagRow.rowCount) {
+      return res.status(404).json({ error: 'Tag not found' });
+    }
+
+    if (!forceRefresh) {
+      const cached = await readCachedResearchFeedTagStats(pool, tagId, priceLo, priceHi, soldDays);
+      if (cached) {
+        return res.json({
+          cached: true,
+          ...cached,
+          ttlHours: RESEARCH_FEED_TAG_STATS_TTL_HOURS
+        });
+      }
+    }
+
+    const accessToken = await getAccessToken(appId, certId);
+    const row = await resolveResearchFeedTagStatsForTag(
+      pool,
+      tagRow.rows[0],
+      priceLo,
+      priceHi,
+      soldDays,
+      accessToken,
+      true
+    );
+    if (row.error) {
+      return res.status(502).json({
+        cached: false,
+        error: 'eBay stats request failed',
+        details: row.error,
+        ...row,
+        ttlHours: RESEARCH_FEED_TAG_STATS_TTL_HOURS
+      });
+    }
+
+    res.json({
+      cached: row.cached,
+      tagId: row.tagId,
+      minPriceGbp: row.minPriceGbp,
+      maxPriceGbp: row.maxPriceGbp,
+      soldDays: row.soldDays,
+      activeCount: row.activeCount,
+      soldCount: row.soldCount,
+      sellThroughRatio: row.sellThroughRatio,
+      queryUsed: row.queryUsed,
+      fetchError: row.fetchError,
+      fetchedAt: row.fetchedAt,
+      ttlHours: RESEARCH_FEED_TAG_STATS_TTL_HOURS
+    });
+  } catch (error) {
+    const hint = researchFeedTagStatsTableHint(error);
+    if (hint) return res.status(hint.status).json(hint.body);
+    console.error('research-feed tag stats failed:', error);
+    res.status(500).json({ error: 'Failed to load tag stats', details: error.message });
+  }
+});
+
+/**
+ * Sold comps on eBay UK (GBP price band, UK-sited listings), newest listed first.
+ * GET /api/research-feed/items?page=0&pageSize=12&minPriceGbp=50&maxPriceGbp=200
+ * min/max clamped to 20–200; defaults min 50, max 200. Range is normalized so max > min.
+ */
+app.get('/api/research-feed/items', async (req, res) => {
+  const page = Math.max(0, parseInt(String(req.query.page ?? '0'), 10) || 0);
+  const pageSize = Math.min(48, Math.max(6, parseInt(String(req.query.pageSize ?? '12'), 10) || 12));
+  const { priceLo, priceHi } = normalizeResearchFeedPriceBand(
+    req.query.minPriceGbp,
+    req.query.maxPriceGbp
+  );
 
   const appId = process.env.REACT_APP_EBAY_APP_ID || process.env.EBAY_APP;
   const certId = process.env.REACT_APP_EBAY_CERT_ID;
@@ -2861,6 +3286,11 @@ app.post('/api/stock', async (req, res) => {
     const normalizedSalePrice = normalizeDecimalInput(sale_price, 'sale_price');
     const normalizedPurchaseDate = normalizeDateInputValue(purchase_date, 'purchase_date');
     const normalizedSaleDate = normalizeDateInputValue(sale_date, 'sale_date');
+    if (!normalizedPurchaseDate) {
+      return res
+        .status(400)
+        .json({ error: 'Failed to create stock record', details: 'purchase_date is required' });
+    }
     const computedNetProfit =
       normalizedSalePrice !== null && normalizedPurchasePrice !== null
         ? normalizedSalePrice - normalizedPurchasePrice
@@ -3044,6 +3474,11 @@ app.put('/api/stock/:id', async (req, res) => {
     const finalPurchaseDate = hasProp('purchase_date')
       ? normalizeDateInputValue(req.body.purchase_date, 'purchase_date')
       : ensureIsoDateString(existing.purchase_date);
+    if (!finalPurchaseDate) {
+      return res
+        .status(400)
+        .json({ error: 'Failed to update stock record', details: 'purchase_date is required' });
+    }
 
     const finalSaleDate = hasProp('sale_date')
       ? normalizeDateInputValue(req.body.sale_date, 'sale_date')

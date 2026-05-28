@@ -351,8 +351,8 @@ const ResearchEbayFeed: React.FC = () => {
             className="stock-refresh-icon-button"
             onClick={handleRefreshFeed}
             disabled={tags.length === 0 || feedLoading || tagsLoading}
-            title="Clear tag cache and refresh feed from database"
-            aria-label="Clear tag cache and refresh feed from database"
+            title="Clear tag list cache and refresh feed"
+            aria-label="Clear tag list cache and refresh feed"
           >
             ↻
           </button>
