@@ -292,6 +292,18 @@ function cashFlowSourceLabel(sourceKey: CashFlowPurchasedItem['sourceKey']): str
   return 'Other';
 }
 
+const CASH_FLOW_SOURCE_ORDER: CashFlowPurchasedItem['sourceKey'][] = [
+  'bootsale',
+  'charity_shop',
+  'online_flip',
+  'other',
+];
+
+function cashFlowDaySources(items: CashFlowPurchasedItem[]): CashFlowPurchasedItem['sourceKey'][] {
+  const present = new Set(items.map((item) => item.sourceKey));
+  return CASH_FLOW_SOURCE_ORDER.filter((key) => present.has(key));
+}
+
 function cashFlowEbayUrl(raw: string | null | undefined): string | null {
   const id = String(raw ?? '').trim();
   if (!id) return null;
@@ -620,7 +632,6 @@ const Reporting: React.FC = () => {
   const [stockRowsForSalesData, setStockRowsForSalesData] = useState<StockRowForSalesData[]>([]);
   const [salesDateFilter, setSalesDateFilter] = useState<'all-time' | 'last-30-days' | 'last-3-months' | 'current-year' | 'previous-year'>('all-time');
   const [cashFlowPinnedDay, setCashFlowPinnedDay] = useState<number | null>(null);
-  const [cashFlowHoverDay, setCashFlowHoverDay] = useState<number | null>(null);
   const now = useMemo(() => new Date(), []);
   const [cashFlowMonthCursor, setCashFlowMonthCursor] = useState<Date>(
     () => new Date(now.getFullYear(), now.getMonth(), 1)
@@ -2340,11 +2351,10 @@ const Reporting: React.FC = () => {
     cashFlowMonthCursor.getFullYear() === now.getFullYear() &&
     cashFlowMonthCursor.getMonth() === now.getMonth();
 
-  const cashFlowActiveDay = cashFlowPinnedDay ?? cashFlowHoverDay;
   const cashFlowActiveSummary = useMemo(() => {
-    if (cashFlowActiveDay == null) return null;
-    return cashFlowCalendar.daySummaries.find((d) => d.day === cashFlowActiveDay)?.summary ?? null;
-  }, [cashFlowActiveDay, cashFlowCalendar.daySummaries]);
+    if (cashFlowPinnedDay == null) return null;
+    return cashFlowCalendar.daySummaries.find((d) => d.day === cashFlowPinnedDay)?.summary ?? null;
+  }, [cashFlowPinnedDay, cashFlowCalendar.daySummaries]);
   const cashFlowUnsoldAmount = cashFlowActiveSummary
     ? Math.max(0, cashFlowActiveSummary.spent - cashFlowActiveSummary.sold)
     : 0;
@@ -3478,7 +3488,6 @@ const Reporting: React.FC = () => {
                 className="cash-flow-calendar-nav-button"
                 onClick={() => {
                   setCashFlowPinnedDay(null);
-                  setCashFlowHoverDay(null);
                   setCashFlowMonthCursor((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
                 }}
                 aria-label="Show previous month"
@@ -3492,7 +3501,6 @@ const Reporting: React.FC = () => {
                 className="cash-flow-calendar-nav-button"
                 onClick={() => {
                   setCashFlowPinnedDay(null);
-                  setCashFlowHoverDay(null);
                   setCashFlowMonthCursor((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
                 }}
                 disabled={cashFlowIsCurrentMonth}
@@ -3513,68 +3521,90 @@ const Reporting: React.FC = () => {
               {Array.from({ length: cashFlowCalendar.leadingBlankDays }).map((_, i) => (
                 <div key={`blank-${i}`} className="cash-flow-day cash-flow-day--blank" />
               ))}
-              {cashFlowCalendar.daySummaries.map(({ day, summary }) => (
-                <div key={`day-${day}`} className={`cash-flow-day${summary ? ' cash-flow-day--has-pin' : ''}`}>
-                  <div className="cash-flow-day-header">
-                    <div className="cash-flow-day-number">{day}</div>
-                    {summary ? (
-                      <span
-                        className={`cash-flow-day-status ${
-                          summary.difference > 0
-                            ? 'cash-flow-day-status--profit'
-                            : summary.difference < 0
-                              ? 'cash-flow-day-status--loss'
-                              : 'cash-flow-day-status--breakeven'
-                        }`}
-                        title={
-                          summary.difference > 0
-                            ? 'Day in profit'
-                            : summary.difference < 0
-                              ? 'Day in loss'
-                              : 'Day at breakeven'
-                        }
-                        aria-hidden
-                      >
-                        {summary.difference > 0 ? '✓' : summary.difference < 0 ? '✕' : '●'}
-                      </span>
-                    ) : null}
-                  </div>
-                  {summary ? (
-                    <>
-                      <button
-                        type="button"
-                        className="cash-flow-day-info"
-                        onMouseEnter={() => setCashFlowHoverDay(day)}
-                        onMouseLeave={() => setCashFlowHoverDay((prev) => (prev === day ? null : prev))}
-                        onClick={() => setCashFlowPinnedDay((prev) => (prev === day ? null : day))}
-                        title={`${summary.purchaseCount} purchases · Spend ${formatCurrency(summary.spent)}`}
-                        aria-label={`Cash flow details for ${cashFlowCalendar.monthLabel} day ${day}`}
-                      >
-                        i
-                      </button>
-                      {cashFlowActiveDay === day && (
-                        <div className="cash-flow-day-popover" role="tooltip">
-                          <div className="cash-flow-day-popover-title">
-                            {cashFlowCalendar.monthLabel} {day}
-                          </div>
-                          <div className="cash-flow-day-popover-row">Spent: {formatCurrency(summary.spent)}</div>
-                          <div className="cash-flow-day-popover-row">Sold: {formatCurrency(summary.sold)}</div>
-                          <div
-                            className={
-                              `cash-flow-day-popover-row cash-flow-day-diff ${summary.difference >= 0 ? 'cash-flow-day-diff--pos' : 'cash-flow-day-diff--neg'}`
+              {cashFlowCalendar.daySummaries.map(({ day, summary }) => {
+                const isSelected = cashFlowPinnedDay === day;
+                return (
+                  <div
+                    key={`day-${day}`}
+                    className={`cash-flow-day${
+                      summary ? ' cash-flow-day--has-purchase cash-flow-day--clickable' : ''
+                    }${isSelected ? ' cash-flow-day--selected' : ''}`}
+                    role={summary ? 'button' : undefined}
+                    tabIndex={summary ? 0 : undefined}
+                    aria-pressed={summary ? isSelected : undefined}
+                    aria-label={
+                      summary
+                        ? `${cashFlowCalendar.monthLabel} ${day}: spent ${formatCurrency(summary.spent)}, sold ${formatCurrency(summary.sold)}`
+                        : undefined
+                    }
+                    onClick={
+                      summary
+                        ? () => setCashFlowPinnedDay((prev) => (prev === day ? null : day))
+                        : undefined
+                    }
+                    onKeyDown={
+                      summary
+                        ? (event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault();
+                              setCashFlowPinnedDay((prev) => (prev === day ? null : day));
                             }
+                          }
+                        : undefined
+                    }
+                  >
+                    <div className="cash-flow-day-header">
+                      <div className="cash-flow-day-number">{day}</div>
+                      {summary ? (
+                        <span
+                          className={`cash-flow-day-status ${
+                            summary.difference > 0
+                              ? 'cash-flow-day-status--profit'
+                              : summary.difference < 0
+                                ? 'cash-flow-day-status--loss'
+                                : 'cash-flow-day-status--breakeven'
+                          }`}
+                          title={
+                            summary.difference > 0
+                              ? 'Day in profit'
+                              : summary.difference < 0
+                                ? 'Day in loss'
+                                : 'Day at breakeven'
+                          }
+                          aria-hidden
+                        >
+                          {summary.difference > 0 ? '✓' : summary.difference < 0 ? '✕' : '●'}
+                        </span>
+                      ) : null}
+                    </div>
+                    {summary ? (
+                      <>
+                        <div className="cash-flow-day-source-tags">
+                          {cashFlowDaySources(summary.purchasedItems).map((sourceKey) => (
+                            <span
+                              key={sourceKey}
+                              className={`cash-flow-day-source-tag cash-flow-day-source-tag--${sourceKey}`}
+                            >
+                              {cashFlowSourceLabel(sourceKey)}
+                            </span>
+                          ))}
+                        </div>
+                        <div className="cash-flow-day-stats">
+                          <div className="cash-flow-day-stat">Spent: {formatCurrency(summary.spent)}</div>
+                          <div className="cash-flow-day-stat">Sold: {formatCurrency(summary.sold)}</div>
+                          <div
+                            className={`cash-flow-day-stat cash-flow-day-diff ${
+                              summary.difference >= 0 ? 'cash-flow-day-diff--pos' : 'cash-flow-day-diff--neg'
+                            }`}
                           >
                             Difference: {formatCurrency(summary.difference)}
                           </div>
-                          <div className="cash-flow-day-popover-row">
-                            To recoup: {Math.max(0, 100 - summary.recoupedPct).toFixed(1)}%
-                          </div>
                         </div>
-                      )}
-                    </>
-                  ) : null}
-                </div>
-              ))}
+                      </>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -3718,7 +3748,6 @@ const Reporting: React.FC = () => {
                   className="cash-flow-refresh-button"
                   onClick={() => {
                     setCashFlowPinnedDay(null);
-                    setCashFlowHoverDay(null);
                     void loadStockRowsForSalesData();
                   }}
                 >
