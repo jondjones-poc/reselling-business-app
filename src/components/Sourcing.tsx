@@ -192,7 +192,7 @@ const Sourcing: React.FC = () => {
 
   return (
     <div className="sourcing-container">
-      <h2>Sourcing</h2>
+      <h2>Sniping</h2>
       <div className="sourcing-search-section">
         <div className="sourcing-input-group">
           <div className="sourcing-autocomplete-wrapper">

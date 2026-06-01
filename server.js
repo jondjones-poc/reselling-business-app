@@ -10,10 +10,10 @@ const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
 // Keep all server-side Date handling on UK timezone (GMT/BST).
-process.env.TZ = process.env.TZ || 'Europe/London';
+process.env.TZ = 'Europe/London';
 
 const ebaySellerOAuth = require('./ebaySellerOAuth');
-const { normalizeDateOnlyString } = require('./utils/dateOnly');
+const { normalizeDateOnlyString, serializeStockDateFields } = require('./utils/dateOnly');
 
 const app = express();
 const PORT = process.env.PORT || 5003;
@@ -100,6 +100,12 @@ const normalizeDateInputValue = (value, fieldName) => {
 };
 
 const ensureIsoDateString = (value) => normalizeDateOnlyString(value);
+
+const STOCK_DATE_SELECT_SQL = `to_char(purchase_date, 'YYYY-MM-DD') AS purchase_date, to_char(sale_date, 'YYYY-MM-DD') AS sale_date`;
+
+const STOCK_ROW_SELECT_COLUMNS = `id, item_name, purchase_price, ${STOCK_DATE_SELECT_SQL}, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item`;
+
+const STOCK_ROW_RETURNING_COLUMNS = `id, item_name, purchase_price, ${STOCK_DATE_SELECT_SQL}, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item`;
 
 const loadSettings = () => {
   try {
@@ -2226,11 +2232,11 @@ app.get('/api/stock', async (req, res) => {
     }
 
     const result = await pool.query(
-      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item FROM stock ORDER BY purchase_date DESC NULLS LAST, item_name ASC'
+      `SELECT ${STOCK_ROW_SELECT_COLUMNS} FROM stock ORDER BY purchase_date DESC NULLS LAST, item_name ASC`
     );
 
     res.json({
-      rows: result.rows ?? [],
+      rows: (result.rows ?? []).map(serializeStockDateFields),
       count: result.rowCount ?? 0
     });
   } catch (error) {
@@ -2249,14 +2255,14 @@ app.get('/api/stock/sold', async (req, res) => {
     }
 
     const result = await pool.query(
-      `SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item
+      `SELECT ${STOCK_ROW_SELECT_COLUMNS}
        FROM stock
        WHERE sale_date IS NOT NULL
        ORDER BY sale_date DESC NULLS LAST, id DESC`
     );
 
     res.json({
-      rows: result.rows ?? [],
+      rows: (result.rows ?? []).map(serializeStockDateFields),
       count: result.rowCount ?? 0
     });
   } catch (error) {
@@ -3053,8 +3059,6 @@ function normalizeSourcedLocation(raw) {
   throw err;
 }
 
-const STOCK_ROW_SELECT_COLUMNS = `id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item`;
-
 const STOCK_COPY_COLUMNS = [
   'item_name',
   'category_id',
@@ -3379,8 +3383,8 @@ app.post('/api/stock', async (req, res) => {
         is_inventory_write_off,
         is_bulky_item
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
-      RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item
+      VALUES ($1, $2, $3, $4::date, $5::date, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+      RETURNING ${STOCK_ROW_RETURNING_COLUMNS}
     `;
 
     const result = await pool.query(insertQuery, [
@@ -3404,7 +3408,7 @@ app.post('/api/stock', async (req, res) => {
       normalizedBulkyItem
     ]);
 
-    res.status(201).json({ row: result.rows[0] });
+    res.status(201).json({ row: serializeStockDateFields(result.rows[0]) });
   } catch (error) {
     console.error('Stock insert failed:', error);
     if (error.status === 400) {
@@ -3645,8 +3649,8 @@ app.put('/api/stock/:id', async (req, res) => {
           item_name = $1,
           category_id = $2,
           purchase_price = $3,
-          purchase_date = $4,
-          sale_date = $5,
+          purchase_date = $4::date,
+          sale_date = $5::date,
           sale_price = $6,
           sold_platform = $7,
           net_profit = $8,
@@ -3661,7 +3665,7 @@ app.put('/api/stock/:id', async (req, res) => {
           is_inventory_write_off = $17,
           is_bulky_item = $18
         WHERE id = $19
-        RETURNING id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item
+        RETURNING ${STOCK_ROW_RETURNING_COLUMNS}
       `,
       [
         finalItemName,
@@ -3687,7 +3691,7 @@ app.put('/api/stock/:id', async (req, res) => {
     );
 
     console.log('PUT /api/stock/:id - Update successful, returned row:', updateResult.rows[0]);
-    res.json({ row: updateResult.rows[0] });
+    res.json({ row: serializeStockDateFields(updateResult.rows[0]) });
   } catch (error) {
     console.error('Stock update failed:', error);
     console.error('Stock update error details:', {
@@ -6730,10 +6734,16 @@ app.get('/api/stock-categories/type/:typeKey/detail', async (req, res) => {
          s.sale_price,
          b.id AS brand_id,
          b.brand_name,
+         s.category_size_id,
+         COALESCE(
+           sz.size_label,
+           CASE WHEN s.category_size_id IS NULL THEN '(no size)' ELSE '(unknown size)' END
+         ) AS size_label,
          s.ebay_id,
          s.vinted_id
        FROM stock s
        INNER JOIN brand b ON b.id = s.brand_id
+       LEFT JOIN category_size sz ON sz.id = s.category_size_id
        WHERE ${scopeWhere}
        ORDER BY s.purchase_date DESC NULLS LAST, s.id DESC
        LIMIT 5000`,

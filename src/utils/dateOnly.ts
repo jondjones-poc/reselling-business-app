@@ -1,12 +1,18 @@
 /** Calendar date parts (no timezone). */
 export type DateOnlyParts = { year: number; month: number; day: number };
 
-const DATE_ONLY_PREFIX = /^(\d{4})-(\d{2})-(\d{2})/;
+const DATE_ONLY_PLAIN = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-/** Parse leading YYYY-MM-DD from API/DB values without timezone shifts. */
-export function parseDateOnlyParts(value: string | null | undefined): DateOnlyParts | null {
-  if (value == null || value === '') return null;
-  const match = DATE_ONLY_PREFIX.exec(String(value).trim());
+function calendarPartsFromDate(date: Date): DateOnlyParts {
+  return {
+    year: date.getFullYear(),
+    month: date.getMonth() + 1,
+    day: date.getDate(),
+  };
+}
+
+function partsFromPlainDateString(value: string): DateOnlyParts | null {
+  const match = DATE_ONLY_PLAIN.exec(value.trim());
   if (!match) return null;
   const year = Number(match[1]);
   const month = Number(match[2]);
@@ -16,61 +22,69 @@ export function parseDateOnlyParts(value: string | null | undefined): DateOnlyPa
   return { year, month, day };
 }
 
+/** Parse API/DB values to calendar parts without UTC day shifts. */
+export function parseDateOnlyParts(value: string | Date | null | undefined): DateOnlyParts | null {
+  if (value == null || value === '') return null;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return calendarPartsFromDate(value);
+  }
+
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+
+  const plain = partsFromPlainDateString(trimmed);
+  if (plain) return plain;
+
+  const date = new Date(trimmed);
+  if (Number.isNaN(date.getTime())) return null;
+  return calendarPartsFromDate(date);
+}
+
 export function formatDateOnlyParts(parts: DateOnlyParts): string {
   const month = String(parts.month).padStart(2, '0');
   const day = String(parts.day).padStart(2, '0');
   return `${parts.year}-${month}-${day}`;
 }
 
-/** Normalize any date-like string to YYYY-MM-DD for form state / API payloads. */
-export function normalizeDateOnlyString(value: string | null | undefined): string {
+/** Normalize any date-like value to YYYY-MM-DD for form state / API payloads. */
+export function normalizeDateOnlyString(value: string | Date | null | undefined): string {
   const parts = parseDateOnlyParts(value);
-  if (parts) return formatDateOnlyParts(parts);
-  if (value == null || value === '') return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return formatDateOnlyParts({
-    year: date.getFullYear(),
-    month: date.getMonth() + 1,
-    day: date.getDate(),
-  });
+  return parts ? formatDateOnlyParts(parts) : '';
 }
 
 /** Local Date at midnight for react-datepicker `selected`. */
 export function dateOnlyStringToLocalDate(value: string | null | undefined): Date | null {
   const parts = parseDateOnlyParts(value);
-  if (!parts) {
-    if (value == null || value === '') return null;
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
+  if (!parts) return null;
   return new Date(parts.year, parts.month - 1, parts.day);
 }
 
 /** From picker selection to YYYY-MM-DD (local calendar, not UTC). */
 export function localDateToDateOnlyString(value: Date | null | undefined): string {
   if (!value || Number.isNaN(value.getTime())) return '';
-  return formatDateOnlyParts({
-    year: value.getFullYear(),
-    month: value.getMonth() + 1,
-    day: value.getDate(),
-  });
+  return formatDateOnlyParts(calendarPartsFromDate(value));
+}
+
+export function dateOnlyToLocalDate(value: string | Date | null | undefined): Date | null {
+  const parts = parseDateOnlyParts(value);
+  if (!parts) return null;
+  return new Date(parts.year, parts.month - 1, parts.day);
+}
+
+export function dateOnlyToTime(value: string | Date | null | undefined): number {
+  const date = dateOnlyToLocalDate(value);
+  return date ? date.getTime() : Number.NEGATIVE_INFINITY;
 }
 
 export function formatDateOnlyForDisplay(
-  value: string | null | undefined,
+  value: string | Date | null | undefined,
   locale = 'en-GB'
 ): string {
   const parts = parseDateOnlyParts(value);
   if (!parts) {
     if (value == null || value === '') return '—';
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return String(value);
-    return new Intl.DateTimeFormat(locale, {
-      year: 'numeric',
-      month: 'short',
-      day: '2-digit',
-    }).format(date);
+    return String(value);
   }
   const date = new Date(parts.year, parts.month - 1, parts.day);
   return new Intl.DateTimeFormat(locale, {

@@ -2075,6 +2075,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     item_name: string | null;
     brand_id: number;
     brand_name: string;
+    category_size_id: number | null;
+    size_label: string;
     purchase_price: string | number | null;
     purchase_date: string | null;
     sale_date: string | null;
@@ -2082,6 +2084,10 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     ebay_id: string | null;
     vinted_id: string | null;
   };
+
+  type ClothingTypeInStockFilter =
+    | { kind: 'size'; categorySizeId: number | null; sizeLabel: string }
+    | { kind: 'brand'; brandId: number; brandName: string };
 
   type ClothingTypeSizeSoldStockRow = {
     category_size_id: number | null;
@@ -2302,6 +2308,9 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
   const [clothingTypeSizeSoldStockError, setClothingTypeSizeSoldStockError] = useState<string | null>(null);
   const [clothingTypeStockDrilldown, setClothingTypeStockDrilldown] =
     useState<MenswearStockDrilldownKey | null>(null);
+  const [clothingTypeInStockFilter, setClothingTypeInStockFilter] =
+    useState<ClothingTypeInStockFilter | null>(null);
+  const clothingTypeInStockSectionRef = useRef<HTMLElement | null>(null);
   const [clothingTypeDrilldownItems, setClothingTypeDrilldownItems] = useState<
     MenswearDrilldownStockItemRow[]
   >([]);
@@ -2888,6 +2897,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       setClothingTypeUnsoldBrandCategoryError(null);
       setClothingTypeUnsoldBrandCategoryLoading(false);
       setClothingTypeStockDrilldown(null);
+      setClothingTypeInStockFilter(null);
       setClothingTypeDrilldownItems([]);
       setClothingTypeDrilldownItemsError(null);
       setClothingTypeDrilldownItemsLoading(false);
@@ -3901,6 +3911,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       setClothingTypeDetailStockRows([]);
       setClothingTypeDetailError(null);
       setClothingTypeDetailLoading(false);
+      setClothingTypeInStockFilter(null);
       return;
     }
     if (clothingTypesListDepartmentIdForApi == null) {
@@ -3939,6 +3950,11 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                   item_name: r.item_name != null ? String(r.item_name) : null,
                   brand_id: Number(r.brand_id) || 0,
                   brand_name: String(r.brand_name ?? '—'),
+                  category_size_id:
+                    r.category_size_id != null && Number.isFinite(Number(r.category_size_id))
+                      ? Number(r.category_size_id)
+                      : null,
+                  size_label: String(r.size_label ?? '(no size)'),
                   purchase_price: (r.purchase_price ?? null) as string | number | null,
                   purchase_date: r.purchase_date != null ? String(r.purchase_date) : null,
                   sale_date: r.sale_date != null ? String(r.sale_date) : null,
@@ -7423,6 +7439,61 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     () => clothingTypeUnsoldBrandCategory.slice(0, 5),
     [clothingTypeUnsoldBrandCategory]
   );
+
+  const scrollClothingTypeInStockSectionIntoView = useCallback(() => {
+    clothingTypeInStockSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
+  const applyClothingTypeSizeInStockFilter = useCallback(
+    (row: ClothingTypeSizeSoldStockRow) => {
+      setClothingTypeInStockFilter((prev) => {
+        const next =
+          prev?.kind === 'size' &&
+          prev.categorySizeId === row.category_size_id &&
+          prev.sizeLabel === row.size_label
+            ? null
+            : {
+                kind: 'size' as const,
+                categorySizeId: row.category_size_id,
+                sizeLabel: row.size_label,
+              };
+        if (next) scrollClothingTypeInStockSectionIntoView();
+        return next;
+      });
+    },
+    [scrollClothingTypeInStockSectionIntoView]
+  );
+
+  const applyClothingTypeBrandInStockFilter = useCallback(
+    (brandId: number, brandName: string) => {
+      setClothingTypeStockDrilldown(null);
+      setClothingTypeInStockFilter((prev) => {
+        const next =
+          prev?.kind === 'brand' && prev.brandId === brandId
+            ? null
+            : { kind: 'brand' as const, brandId, brandName };
+        if (next) scrollClothingTypeInStockSectionIntoView();
+        return next;
+      });
+    },
+    [scrollClothingTypeInStockSectionIntoView]
+  );
+
+  const clothingTypeInStockDisplayRows = useMemo(() => {
+    const unsold = clothingTypeDetailStockRows.filter(
+      (row) => row.sale_date == null || String(row.sale_date).trim() === ''
+    );
+    if (!clothingTypeInStockFilter) return unsold;
+    if (clothingTypeInStockFilter.kind === 'size') {
+      const targetSizeId = clothingTypeInStockFilter.categorySizeId;
+      return unsold.filter((row) =>
+        targetSizeId == null
+          ? row.category_size_id == null
+          : row.category_size_id === targetSizeId
+      );
+    }
+    return unsold.filter((row) => row.brand_id === clothingTypeInStockFilter.brandId);
+  }, [clothingTypeDetailStockRows, clothingTypeInStockFilter]);
 
   const clothingTypeDrilldownItemsSorted = useMemo(() => {
     const kind = clothingTypeStockDrilldown?.kind;
@@ -12254,34 +12325,32 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                                           row.unsold_count,
                                           sold
                                         );
+                                        const isBrandFilterActive =
+                                          clothingTypeInStockFilter?.kind === 'brand' &&
+                                          clothingTypeInStockFilter.brandId === row.brand_id;
                                         return (
                                           <tr
                                             key={`ct-best-${row.brand_id}-${row.category_id ?? 'u'}-${idx}`}
-                                            className="menswear-categories-buy-more-stock-row-link"
+                                            className={`menswear-categories-buy-more-stock-row-link${isBrandFilterActive ? ' menswear-categories-buy-more-stock-row-link--active' : ''}`}
                                             role="button"
                                             tabIndex={0}
                                             onClick={() =>
-                                              setClothingTypeStockDrilldown({
-                                                kind: 'buy-more',
-                                                brandId: row.brand_id,
-                                                categoryId: row.category_id,
-                                                brandName: row.brand_name,
-                                                categoryName: row.category_name,
-                                              })
+                                              applyClothingTypeBrandInStockFilter(
+                                                row.brand_id,
+                                                row.brand_name
+                                              )
                                             }
                                             onKeyDown={(e) => {
                                               if (e.key === 'Enter' || e.key === ' ') {
                                                 e.preventDefault();
-                                                setClothingTypeStockDrilldown({
-                                                  kind: 'buy-more',
-                                                  brandId: row.brand_id,
-                                                  categoryId: row.category_id,
-                                                  brandName: row.brand_name,
-                                                  categoryName: row.category_name,
-                                                });
+                                                applyClothingTypeBrandInStockFilter(
+                                                  row.brand_id,
+                                                  row.brand_name
+                                                );
                                               }
                                             }}
-                                            aria-label={`View sold lines: ${row.brand_name}, ${row.category_name}`}
+                                            aria-label={`Filter in stock by ${row.brand_name}`}
+                                            aria-pressed={isBrandFilterActive}
                                           >
                                             <td>{row.brand_name}</td>
                                             <td>{row.category_name}</td>
@@ -12347,34 +12416,32 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                                           row.unsold_count,
                                           sold
                                         );
+                                        const isBrandFilterActive =
+                                          clothingTypeInStockFilter?.kind === 'brand' &&
+                                          clothingTypeInStockFilter.brandId === row.brand_id;
                                         return (
                                           <tr
                                             key={`ct-worst-${row.brand_id}-${row.category_id ?? 'u'}-${idx}`}
-                                            className="menswear-categories-buy-more-stock-row-link"
+                                            className={`menswear-categories-buy-more-stock-row-link${isBrandFilterActive ? ' menswear-categories-buy-more-stock-row-link--active' : ''}`}
                                             role="button"
                                             tabIndex={0}
                                             onClick={() =>
-                                              setClothingTypeStockDrilldown({
-                                                kind: 'avoid',
-                                                brandId: row.brand_id,
-                                                categoryId: row.category_id,
-                                                brandName: row.brand_name,
-                                                categoryName: row.category_name,
-                                              })
+                                              applyClothingTypeBrandInStockFilter(
+                                                row.brand_id,
+                                                row.brand_name
+                                              )
                                             }
                                             onKeyDown={(e) => {
                                               if (e.key === 'Enter' || e.key === ' ') {
                                                 e.preventDefault();
-                                                setClothingTypeStockDrilldown({
-                                                  kind: 'avoid',
-                                                  brandId: row.brand_id,
-                                                  categoryId: row.category_id,
-                                                  brandName: row.brand_name,
-                                                  categoryName: row.category_name,
-                                                });
+                                                applyClothingTypeBrandInStockFilter(
+                                                  row.brand_id,
+                                                  row.brand_name
+                                                );
                                               }
                                             }}
-                                            aria-label={`View unsold: ${row.brand_name}, ${row.category_name}`}
+                                            aria-label={`Filter in stock by ${row.brand_name}`}
+                                            aria-pressed={isBrandFilterActive}
                                           >
                                             <td>{row.brand_name}</td>
                                             <td>{row.category_name}</td>
@@ -12426,17 +12493,38 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                                       </tr>
                                     </thead>
                                     <tbody>
-                                      {clothingTypeSizeSoldStock.map((row) => (
-                                        <tr key={row.category_size_id ?? `no-size-${row.size_label}`}>
-                                          <td>{row.size_label}</td>
-                                          <td className="menswear-categories-overview-metric">
-                                            {row.sold_count}
-                                          </td>
-                                          <td className="menswear-categories-overview-metric">
-                                            {row.in_stock_count}
-                                          </td>
-                                        </tr>
-                                      ))}
+                                      {clothingTypeSizeSoldStock.map((row) => {
+                                        const isSizeFilterActive =
+                                          clothingTypeInStockFilter?.kind === 'size' &&
+                                          clothingTypeInStockFilter.categorySizeId ===
+                                            row.category_size_id &&
+                                          clothingTypeInStockFilter.sizeLabel === row.size_label;
+                                        return (
+                                          <tr
+                                            key={row.category_size_id ?? `no-size-${row.size_label}`}
+                                            className={`menswear-categories-buy-more-stock-row-link${isSizeFilterActive ? ' menswear-categories-buy-more-stock-row-link--active' : ''}`}
+                                            role="button"
+                                            tabIndex={0}
+                                            onClick={() => applyClothingTypeSizeInStockFilter(row)}
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Enter' || e.key === ' ') {
+                                                e.preventDefault();
+                                                applyClothingTypeSizeInStockFilter(row);
+                                              }
+                                            }}
+                                            aria-label={`Filter in stock by size ${row.size_label}`}
+                                            aria-pressed={isSizeFilterActive}
+                                          >
+                                            <td>{row.size_label}</td>
+                                            <td className="menswear-categories-overview-metric">
+                                              {row.sold_count}
+                                            </td>
+                                            <td className="menswear-categories-overview-metric">
+                                              {row.in_stock_count}
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
                                     </tbody>
                                   </table>
                                 </div>
@@ -12448,15 +12536,37 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                   </div>
                   {!clothingTypeDetailLoading && clothingTypeDetailSummary ? (
                     <section
+                      ref={clothingTypeInStockSectionRef}
                       className="clothing-type-detail-items-section"
                       aria-label={`${selectedClothingTypeLabel} in stock`}
                     >
                       <h3 className="clothing-type-detail-items-heading">
                         {selectedClothingTypeLabel} in stock
+                        {clothingTypeInStockFilter ? (
+                          <span className="clothing-type-in-stock-filter-badge">
+                            {' '}
+                            ·{' '}
+                            {clothingTypeInStockFilter.kind === 'size'
+                              ? `Size ${clothingTypeInStockFilter.sizeLabel}`
+                              : clothingTypeInStockFilter.brandName}
+                            <button
+                              type="button"
+                              className="clothing-type-in-stock-filter-clear"
+                              onClick={() => setClothingTypeInStockFilter(null)}
+                              aria-label="Clear in stock filter"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ) : null}
                       </h3>
                       <hr className="clothing-type-detail-heading-rule" aria-hidden />
-                      {clothingTypeDetailStockRows.length === 0 ? (
-                        <p className="menswear-categories-muted">No items in this category yet.</p>
+                      {clothingTypeInStockDisplayRows.length === 0 ? (
+                        <p className="menswear-categories-muted">
+                          {clothingTypeInStockFilter
+                            ? 'No in-stock items match this filter.'
+                            : 'No items in this category yet.'}
+                        </p>
                       ) : (
                         <div className="clothing-type-detail-items-table-wrap">
                           <table className="menswear-categories-avoid-drilldown-table clothing-type-detail-items-table">
@@ -12464,34 +12574,23 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                               <tr>
                                 <th scope="col">Item</th>
                                 <th scope="col">Brand</th>
+                                <th scope="col">Size</th>
                                 <th scope="col" className="menswear-categories-avoid-drilldown-num">
                                   Purchase
                                 </th>
                                 <th scope="col" className="menswear-categories-avoid-drilldown-date">
                                   Purchased
                                 </th>
-                                <th scope="col" className="menswear-categories-avoid-drilldown-num">
-                                  Sale
-                                </th>
-                                <th scope="col" className="menswear-categories-avoid-drilldown-date">
-                                  Sold
-                                </th>
                                 <th scope="col">Listings</th>
                               </tr>
                             </thead>
                             <tbody>
-                              {clothingTypeDetailStockRows.map((item) => {
+                              {clothingTypeInStockDisplayRows.map((item) => {
                                 const purchaseNum =
                                   item.purchase_price != null && item.purchase_price !== ''
                                     ? typeof item.purchase_price === 'number'
                                       ? item.purchase_price
                                       : parseFloat(String(item.purchase_price))
-                                    : NaN;
-                                const saleNum =
-                                  item.sale_price != null && item.sale_price !== ''
-                                    ? typeof item.sale_price === 'number'
-                                      ? item.sale_price
-                                      : parseFloat(String(item.sale_price))
                                     : NaN;
                                 const title =
                                   item.item_name && item.item_name.trim().length > 0
@@ -12521,6 +12620,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                                         {item.brand_name || '—'}
                                       </a>
                                     </td>
+                                    <td>{item.size_label || '—'}</td>
                                     <td className="menswear-categories-avoid-drilldown-num">
                                       {Number.isFinite(purchaseNum)
                                         ? formatResearchCurrency(purchaseNum)
@@ -12528,12 +12628,6 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                                     </td>
                                     <td className="menswear-categories-avoid-drilldown-date">
                                       {formatResearchShortDate(item.purchase_date)}
-                                    </td>
-                                    <td className="menswear-categories-avoid-drilldown-num">
-                                      {Number.isFinite(saleNum) ? formatResearchCurrency(saleNum) : '—'}
-                                    </td>
-                                    <td className="menswear-categories-avoid-drilldown-date">
-                                      {formatResearchShortDate(item.sale_date)}
                                     </td>
                                     <td className="menswear-categories-avoid-drilldown-links">
                                       {hasVinted ? (

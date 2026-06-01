@@ -7,9 +7,12 @@ import { pingDatabase } from '../utils/dbPing';
 import { getApiBase } from '../utils/apiBase';
 import {
   dateOnlyStringToLocalDate,
+  dateOnlyToLocalDate,
+  dateOnlyToTime,
   formatDateOnlyForDisplay,
   localDateToDateOnlyString,
   normalizeDateOnlyString,
+  parseDateOnlyParts,
 } from '../utils/dateOnly';
 import './Stock.css';
 import { StockFormDropdown } from './StockFormDropdown';
@@ -195,6 +198,16 @@ const formatCurrency = (value: Nullable<string | number>) => {
 };
 
 const formatDate = (value: Nullable<string>) => formatDateOnlyForDisplay(value ?? null);
+
+function normalizeStockRowDates(row: StockRow): StockRow {
+  const purchaseDate = normalizeDateOnlyString(row.purchase_date ?? '');
+  const saleDate = normalizeDateOnlyString(row.sale_date ?? '');
+  return {
+    ...row,
+    purchase_date: purchaseDate || null,
+    sale_date: saleDate || null,
+  };
+}
 
 /** Envelope — add item to orders (postage / dispatch). */
 function AddToOrdersIcon({ className }: { className?: string }) {
@@ -602,7 +615,7 @@ const Stock: React.FC = () => {
           console.log('Found row with ebay_id 297907143894:', testRow);
         }
       }
-      const nextRows = Array.isArray(data.rows) ? data.rows : [];
+      const nextRows = (Array.isArray(data.rows) ? data.rows : []).map(normalizeStockRowDates);
       setRows(nextRows);
       // Never clear editingRowId on refresh — that left the form open while Save switched to POST (duplicate rows).
       setEditingRowId((prevId) => {
@@ -1118,14 +1131,14 @@ const Stock: React.FC = () => {
   const availableYears = useMemo(() => {
     const yearSet = new Set<number>([now.getFullYear()]);
     rows.forEach((row) => {
-      const purchaseDate = row.purchase_date ? new Date(row.purchase_date) : null;
-      if (purchaseDate && !Number.isNaN(purchaseDate.getTime())) {
-        yearSet.add(purchaseDate.getFullYear());
+      const purchaseParts = parseDateOnlyParts(row.purchase_date);
+      if (purchaseParts) {
+        yearSet.add(purchaseParts.year);
       }
 
-      const saleDate = row.sale_date ? new Date(row.sale_date) : null;
-      if (saleDate && !Number.isNaN(saleDate.getTime())) {
-        yearSet.add(saleDate.getFullYear());
+      const saleParts = parseDateOnlyParts(row.sale_date);
+      if (saleParts) {
+        yearSet.add(saleParts.year);
       }
     });
 
@@ -1216,29 +1229,18 @@ const Stock: React.FC = () => {
   }, [selectedMonth, selectedYear]);
 
   const matchesMonthYear = (dateValue: Nullable<string>, month: string, year: string) => {
-    if (!dateValue) {
+    const parts = parseDateOnlyParts(dateValue);
+    if (!parts) {
       return false;
     }
 
-    const date = new Date(dateValue);
-    if (Number.isNaN(date.getTime())) {
-      return false;
-    }
-
-    return (
-      String(date.getMonth() + 1) === month &&
-      String(date.getFullYear()) === year
-    );
+    return String(parts.month) === month && String(parts.year) === year;
   };
 
   // Check if a date falls within the last 30 days
   const matchesLast30Days = (dateValue: Nullable<string>) => {
-    if (!dateValue) {
-      return false;
-    }
-
-    const date = new Date(dateValue);
-    if (Number.isNaN(date.getTime())) {
+    const date = dateOnlyToLocalDate(dateValue);
+    if (!date) {
       return false;
     }
 
@@ -1253,16 +1255,11 @@ const Stock: React.FC = () => {
 
   // Check if a date falls within the selected week
   const matchesWeek = (dateValue: Nullable<string>, weekStartDate: Date, weekEndDate: Date) => {
-    if (!dateValue) {
+    const date = dateOnlyToLocalDate(dateValue);
+    if (!date) {
       return false;
     }
 
-    const date = new Date(dateValue);
-    if (Number.isNaN(date.getTime())) {
-      return false;
-    }
-
-    // Set time to midnight for accurate comparison
     const checkDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
     const start = new Date(weekStartDate.getFullYear(), weekStartDate.getMonth(), weekStartDate.getDate());
     const end = new Date(weekEndDate.getFullYear(), weekEndDate.getMonth(), weekEndDate.getDate());
@@ -1332,8 +1329,8 @@ const Stock: React.FC = () => {
           return false;
         }
 
-        const purchaseDate = new Date(row.purchase_date);
-        if (Number.isNaN(purchaseDate.getTime())) {
+        const purchaseDate = dateOnlyToLocalDate(row.purchase_date);
+        if (!purchaseDate) {
           return false;
         }
 
@@ -1631,8 +1628,7 @@ const Stock: React.FC = () => {
       }
 
       if (key === 'purchase_date' || key === 'sale_date') {
-        const date = new Date(String(value));
-        return Number.isNaN(date.getTime()) ? Number.NEGATIVE_INFINITY : date.getTime();
+        return dateOnlyToTime(String(value));
       }
 
       return String(value).toLowerCase();
@@ -1967,8 +1963,8 @@ const Stock: React.FC = () => {
         item_name: createForm.item_name,
         category_id: createForm.category_id ? Number(createForm.category_id) : null,
         purchase_price: createForm.purchase_price,
-        purchase_date: createForm.purchase_date,
-        sale_date: createForm.sale_date,
+        purchase_date: normalizeDateOnlyString(createForm.purchase_date),
+        sale_date: normalizeDateOnlyString(createForm.sale_date) || null,
         sale_price: createForm.sale_price,
         sold_platform: createForm.sold_platform,
         vinted_id: createForm.vinted_id ? createForm.vinted_id.trim() : null,
@@ -2028,7 +2024,7 @@ const Stock: React.FC = () => {
       }
 
       const data = await response.json();
-      const updatedRow: StockRow | undefined = data?.row;
+      const updatedRow: StockRow | undefined = data?.row ? normalizeStockRowDates(data.row) : undefined;
 
       console.log('Stock update response - updatedRow:', updatedRow);
       console.log('Stock update response - brand_id:', updatedRow?.brand_id);
@@ -2230,8 +2226,8 @@ const Stock: React.FC = () => {
           .filter((row) => Number(row.id) !== Number(oldId))
           .concat(updatedRow)
           .sort((a, b) => {
-            const ad = a.purchase_date ? new Date(a.purchase_date).getTime() : 0;
-            const bd = b.purchase_date ? new Date(b.purchase_date).getTime() : 0;
+            const ad = dateOnlyToTime(a.purchase_date);
+            const bd = dateOnlyToTime(b.purchase_date);
             if (bd !== ad) return bd - ad;
             return String(a.item_name ?? '').localeCompare(String(b.item_name ?? ''));
           })

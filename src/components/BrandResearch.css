@@ -4904,6 +4904,34 @@ button.image-upload-label {
   text-decoration: underline;
 }
 
+.clothing-type-in-stock-filter-badge {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: rgba(255, 214, 91, 0.88);
+}
+
+.clothing-type-in-stock-filter-clear {
+  appearance: none;
+  background: none;
+  border: none;
+  margin: 0 0 0 6px;
+  padding: 0 4px;
+  font: inherit;
+  font-size: 1.1rem;
+  line-height: 1;
+  color: rgba(255, 214, 91, 0.75);
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.clothing-type-in-stock-filter-clear:hover {
+  color: rgba(255, 248, 226, 0.95);
+}
+
+.menswear-categories-buy-more-stock-row-link--active td {
+  background: rgba(80, 180, 120, 0.14);
+}
+
 .clothing-type-detail-signals-heading {
   margin: 24px 0 10px 0;
   font-size: 1.2rem;

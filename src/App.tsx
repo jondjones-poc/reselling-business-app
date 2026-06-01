@@ -21,7 +21,7 @@ const navItems = [
   { to: '/analytics', label: 'Analytics' },
   { to: '/research', label: 'Research' },
   { to: '/expenses', label: 'Accounting' },
-  { to: '/sourcing', label: 'Sourcing' },
+  { to: '/sniping', label: 'Sniping' },
 ] as const;
 
 /** Preserves ?tab= when opening Orders from another page (uses sessionStorage set on the Orders screen). */
@@ -112,7 +112,8 @@ function App() {
           <Route path="/expenses" element={<Expenses />} />
           <Route path="/reporting" element={<Reporting />} />
           <Route path="/orders" element={<Orders />} />
-          <Route path="/sourcing" element={<Sourcing />} />
+          <Route path="/sniping" element={<Sourcing />} />
+          <Route path="/sourcing" element={<Navigate to="/sniping" replace />} />
           <Route path="/config" element={<Config />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
