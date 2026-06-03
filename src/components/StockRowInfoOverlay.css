@@ -114,18 +114,6 @@
   border-bottom: none;
 }
 
-.stock-data-edit-button-container {
-  margin-top: 20px;
-  padding-top: 20px;
-  border-top: 1px solid rgba(255, 214, 91, 0.2);
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  width: 100%;
-  max-width: 100%;
-  box-sizing: border-box;
-}
-
 .stock-data-edit-button {
   padding: 12px 22px;
   border-radius: 12px;
@@ -142,6 +130,19 @@
     box-shadow 0.2s ease;
   font-size: 0.95rem;
   min-width: 96px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stock-data-edit-button--inline {
+  min-width: auto;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  border-radius: 6px;
+  height: 36px;
+  box-sizing: border-box;
 }
 
 .stock-data-edit-button:hover {
@@ -368,11 +369,7 @@
     padding: 6px;
   }
 
-  .stock-data-edit-button-container {
-    justify-content: stretch;
-  }
-
-  .stock-data-edit-button {
-    width: 100%;
+  .stock-data-edit-button--inline {
+    height: 36px;
   }
 }

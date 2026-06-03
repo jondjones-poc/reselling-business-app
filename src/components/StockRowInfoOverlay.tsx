@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import './StockRowInfoOverlay.css';
 
 type Nullable<T> = T | null | undefined;
@@ -92,7 +92,6 @@ export const StockRowInfoOverlay: React.FC<StockRowInfoOverlayProps> = ({
   formatCurrency,
   onDismiss,
 }) => {
-  const navigate = useNavigate();
   const [isClosing, setIsClosing] = useState(false);
   const [offerPrice, setOfferPrice] = useState('');
   const [promotedFee, setPromotedFee] = useState('10');
@@ -179,6 +178,16 @@ export const StockRowInfoOverlay: React.FC<StockRowInfoOverlayProps> = ({
               >
                 📋
               </button>
+              <Link
+                to={`/stock?editId=${row.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="stock-data-edit-button stock-data-edit-button--inline"
+                title={`Edit item ${row.id} in Stock (opens in new tab)`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                Edit
+              </Link>
               <button
                 type="button"
                 className="stock-data-close-button stock-data-close-button-desktop"
@@ -360,19 +369,6 @@ export const StockRowInfoOverlay: React.FC<StockRowInfoOverlayProps> = ({
                 })()}
               </div>
             </div>
-          </div>
-          <div className="stock-data-edit-button-container">
-            <button
-              type="button"
-              className="stock-data-edit-button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDismiss();
-                navigate(`/stock?editId=${row.id}`);
-              }}
-            >
-              Edit
-            </button>
           </div>
         </div>
       </div>

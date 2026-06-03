@@ -3,6 +3,7 @@ const cors = require('cors');
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
 const dns = require('dns');
 const { Pool } = require('pg');
 const multer = require('multer');
@@ -103,9 +104,9 @@ const ensureIsoDateString = (value) => normalizeDateOnlyString(value);
 
 const STOCK_DATE_SELECT_SQL = `to_char(purchase_date, 'YYYY-MM-DD') AS purchase_date, to_char(sale_date, 'YYYY-MM-DD') AS sale_date`;
 
-const STOCK_ROW_SELECT_COLUMNS = `id, item_name, purchase_price, ${STOCK_DATE_SELECT_SQL}, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item`;
+const STOCK_ROW_SELECT_COLUMNS = `id, item_name, purchase_price, ${STOCK_DATE_SELECT_SQL}, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item, is_ebay_draft`;
 
-const STOCK_ROW_RETURNING_COLUMNS = `id, item_name, purchase_price, ${STOCK_DATE_SELECT_SQL}, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item`;
+const STOCK_ROW_RETURNING_COLUMNS = `id, item_name, purchase_price, ${STOCK_DATE_SELECT_SQL}, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item, is_ebay_draft`;
 
 const loadSettings = () => {
   try {
@@ -3078,6 +3079,7 @@ const STOCK_COPY_COLUMNS = [
   'sourced_location',
   'is_inventory_write_off',
   'is_bulky_item',
+  'is_ebay_draft',
 ];
 
 async function queryNextStockId(pool) {
@@ -3280,7 +3282,8 @@ app.post('/api/stock', async (req, res) => {
       category_size_id,
       sourced_location,
       is_inventory_write_off,
-      is_bulky_item
+      is_bulky_item,
+      is_ebay_draft
     } = req.body ?? {};
 
     const normalizedItemName = normalizeTextInput(item_name) ?? null;
@@ -3362,6 +3365,12 @@ app.post('/api/stock', async (req, res) => {
       is_bulky_item === 1 ||
       is_bulky_item === '1';
 
+    const normalizedEbayDraft =
+      is_ebay_draft === true ||
+      is_ebay_draft === 'true' ||
+      is_ebay_draft === 1 ||
+      is_ebay_draft === '1';
+
     const insertQuery = `
       INSERT INTO stock (
         item_name,
@@ -3381,9 +3390,10 @@ app.post('/api/stock', async (req, res) => {
         category_size_id,
         sourced_location,
         is_inventory_write_off,
-        is_bulky_item
+        is_bulky_item,
+        is_ebay_draft
       )
-      VALUES ($1, $2, $3, $4::date, $5::date, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+      VALUES ($1, $2, $3, $4::date, $5::date, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
       RETURNING ${STOCK_ROW_RETURNING_COLUMNS}
     `;
 
@@ -3405,7 +3415,8 @@ app.post('/api/stock', async (req, res) => {
       normalizedCategorySizeId,
       normalizedSourcedLocation,
       normalizedInventoryWriteOff,
-      normalizedBulkyItem
+      normalizedBulkyItem,
+      normalizedEbayDraft
     ]);
 
     res.status(201).json({ row: serializeStockDateFields(result.rows[0]) });
@@ -3434,7 +3445,7 @@ app.put('/api/stock/:id', async (req, res) => {
     console.log('PUT /api/stock/:id - Request body:', JSON.stringify(req.body, null, 2));
 
     const existingResult = await pool.query(
-      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item FROM stock WHERE id = $1',
+      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item, is_ebay_draft FROM stock WHERE id = $1',
       [stockId]
     );
 
@@ -3627,6 +3638,16 @@ app.put('/api/stock/:id', async (req, res) => {
         )
       : existingBulkyItem;
 
+    const existingEbayDraft = Boolean(existing.is_ebay_draft);
+    const finalEbayDraft = hasProp('is_ebay_draft')
+      ? Boolean(
+          req.body.is_ebay_draft === true ||
+            req.body.is_ebay_draft === 'true' ||
+            req.body.is_ebay_draft === 1 ||
+            req.body.is_ebay_draft === '1'
+        )
+      : existingEbayDraft;
+
     const computedNetProfit =
       finalSalePrice !== null && finalPurchasePrice !== null
         ? finalSalePrice - finalPurchasePrice
@@ -3663,8 +3684,9 @@ app.put('/api/stock/:id', async (req, res) => {
           category_size_id = $15,
           sourced_location = $16,
           is_inventory_write_off = $17,
-          is_bulky_item = $18
-        WHERE id = $19
+          is_bulky_item = $18,
+          is_ebay_draft = $19
+        WHERE id = $20
         RETURNING ${STOCK_ROW_RETURNING_COLUMNS}
       `,
       [
@@ -3686,6 +3708,7 @@ app.put('/api/stock/:id', async (req, res) => {
         finalSourcedLocation,
         finalInventoryWriteOff,
         finalBulkyItem,
+        finalEbayDraft,
         stockId
       ]
     );
@@ -10229,8 +10252,104 @@ app.post('/api/gemini/research', async (req, res) => {
 
 const buildDirectory = path.join(__dirname, 'build');
 
-if (fs.existsSync(buildDirectory)) {
-  app.use(express.static(buildDirectory));
+function shouldUseFrontendDevProxy() {
+  const v = process.env.FRONTEND_DEV_PROXY;
+  return v === '1' || v === 'true';
+}
+
+function createFrontendDevProxyMiddleware(targetOrigin) {
+  const target = new URL(targetOrigin);
+  const port = Number(target.port) || 3000;
+  const hostname = target.hostname;
+
+  return (req, res, next) => {
+    if (req.path.startsWith('/api')) return next();
+
+    const proxyReq = http.request(
+      {
+        hostname,
+        port,
+        path: req.url,
+        method: req.method,
+        headers: {
+          ...req.headers,
+          host: target.host,
+        },
+      },
+      (proxyRes) => {
+        res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+        proxyRes.pipe(res);
+      }
+    );
+
+    proxyReq.on('error', (err) => {
+      console.error('Frontend dev proxy error:', err.message);
+      if (!res.headersSent) {
+        res
+          .status(502)
+          .type('text/plain')
+          .send(
+            `React dev server not reachable at ${target.origin}. Run "npm start" or "npm run dev".`
+          );
+      }
+    });
+
+    req.pipe(proxyReq);
+  };
+}
+
+function attachFrontendDevProxyUpgrade(server, targetOrigin) {
+  const target = new URL(targetOrigin);
+  const port = Number(target.port) || 3000;
+  const hostname = target.hostname;
+
+  server.on('upgrade', (req, socket, head) => {
+    if (req.url?.startsWith('/api')) {
+      socket.destroy();
+      return;
+    }
+
+    const proxyReq = http.request({
+      hostname,
+      port,
+      path: req.url,
+      method: req.method,
+      headers: {
+        ...req.headers,
+        host: target.host,
+      },
+    });
+
+    proxyReq.on('upgrade', (proxyRes, proxySocket, proxyHead) => {
+      const headerLines = Object.entries(proxyRes.headers)
+        .map(([key, value]) => `${key}: ${value}`)
+        .join('\r\n');
+      socket.write(`HTTP/1.1 101 Switching Protocols\r\n${headerLines}\r\n\r\n`);
+      if (proxyHead?.length) proxySocket.unshift(proxyHead);
+      proxySocket.pipe(socket).pipe(proxySocket);
+    });
+
+    proxyReq.on('error', () => socket.destroy());
+    proxyReq.end();
+  });
+}
+
+const frontendDevOrigin = process.env.FRONTEND_DEV_ORIGIN || 'http://localhost:3000';
+
+if (shouldUseFrontendDevProxy()) {
+  console.log(`Frontend dev proxy enabled: ${frontendDevOrigin} → port ${PORT} (hot reload)`);
+  app.use(createFrontendDevProxyMiddleware(frontendDevOrigin));
+} else if (fs.existsSync(buildDirectory)) {
+  app.use(
+    express.static(buildDirectory, {
+      index: false,
+      setHeaders(res, filePath) {
+        if (path.basename(filePath) === 'index.html') {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        }
+      },
+    })
+  );
 
   // Serve the React app for any non-API route so that client-side routing works.
   // Use a regular expression here to avoid path-to-regexp wildcard issues in Express 5.
@@ -10243,16 +10362,24 @@ if (fs.existsSync(buildDirectory)) {
       });
     }
 
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     return res.sendFile(path.join(buildDirectory, 'index.html'));
   });
 }
 
 async function startServer() {
   await ensureDatabaseSchema();
-  app.listen(PORT, () => {
+  const server = http.createServer(app);
+  if (shouldUseFrontendDevProxy()) {
+    attachFrontendDevProxyUpgrade(server, frontendDevOrigin);
+  }
+  server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`Settings endpoint: http://localhost:${PORT}/api/settings`);
     console.log(`eBay API: http://localhost:${PORT}/api/ebay/search | sold-recent: /api/ebay/sold-recent?q=...`);
+    if (shouldUseFrontendDevProxy()) {
+      console.log(`UI (dev proxy): http://localhost:${PORT}`);
+    }
   });
 }
 

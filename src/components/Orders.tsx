@@ -24,6 +24,7 @@ interface StockRow {
   brand_id: Nullable<number>;
   category_id: Nullable<number>;
   is_bulky_item?: Nullable<boolean>;
+  is_ebay_draft?: Nullable<boolean>;
 }
 
 interface StockApiResponse {
@@ -51,8 +52,11 @@ function stockIsBulky(row: StockRow | OrderItem): boolean {
 }
 
 type OrdersTab = 'to-pack' | 'sales' | 'sales-summary';
+type SalesSummaryPeriodMode = 'week' | 'month';
 
 const SALES_SUMMARY_WEEKS_BACK = 9;
+const SALES_SUMMARY_MONTHS_BACK = 12;
+const SALES_PAGE_SIZE = 40;
 
 function parseOrdersTabParam(raw: string | null): OrdersTab {
   if (raw === 'sales') return 'sales';
@@ -128,10 +132,39 @@ function buildSalesSummaryWeekOptions(ref: Date, weeksBack: number) {
   return options;
 }
 
-function soldRowInWeek(row: StockRow, weekStart: Date, weekEnd: Date): boolean {
+function monthKey(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
+
+function formatMonthLabel(year: number, monthIndex: number): string {
+  return new Date(year, monthIndex, 1).toLocaleDateString('en-GB', {
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
+function buildSalesSummaryMonthOptions(ref: Date, monthsBack: number) {
+  const options: Array<{ value: string; label: string; monthStart: Date; monthEnd: Date }> = [];
+  for (let i = 0; i < monthsBack; i += 1) {
+    const anchor = new Date(ref.getFullYear(), ref.getMonth() - i, 1);
+    const monthStart = new Date(anchor.getFullYear(), anchor.getMonth(), 1, 0, 0, 0, 0);
+    const monthEnd = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0, 23, 59, 59, 999);
+    options.push({
+      value: monthKey(anchor),
+      label: formatMonthLabel(anchor.getFullYear(), anchor.getMonth()),
+      monthStart,
+      monthEnd,
+    });
+  }
+  return options;
+}
+
+function soldRowInDateRange(row: StockRow, rangeStart: Date, rangeEnd: Date): boolean {
   const d = parseSoldRowDate(row);
   if (!d) return false;
-  return d >= weekStart && d <= weekEnd;
+  return d >= rangeStart && d <= rangeEnd;
 }
 
 function SalesSummaryPlatformLink({
@@ -224,6 +257,31 @@ const vintedListingHref = (vintedId: Nullable<string>): string | null => {
   if (/^https?:\/\//i.test(s)) return s;
   return `https://www.vinted.co.uk/items/${encodeURIComponent(s)}`;
 };
+
+function stockEbayIsDraft(row: Pick<StockRow, 'ebay_id' | 'is_ebay_draft'>): boolean {
+  const flag = row.is_ebay_draft as unknown;
+  if (flag === true || flag === 't' || flag === 'true' || flag === 1 || flag === '1') {
+    return true;
+  }
+  const s = row.ebay_id?.trim() ?? '';
+  if (!s) return false;
+  const lower = s.toLowerCase();
+  return lower === 'draft' || /draftid|\/lstng/i.test(s);
+}
+
+function salesRowListingIssues(row: StockRow): string[] {
+  const issues: string[] = [];
+  const platform = row.sold_platform?.trim().toLowerCase() ?? '';
+
+  if (platform.includes('ebay')) {
+    if (!ebayListingHref(row.ebay_id)) issues.push('No eBay');
+    if (stockEbayIsDraft(row)) issues.push('eBay draft');
+  } else if (platform.includes('vinted')) {
+    if (!vintedListingHref(row.vinted_id)) issues.push('No Vinted');
+  }
+
+  return issues;
+}
 
 /** Current calendar week Monday 00:00:00 – Sunday 23:59:59.999 (local time). */
 function getMondayToSundayBounds(ref: Date): { weekStart: Date; weekEnd: Date } {
@@ -424,10 +482,15 @@ const Orders: React.FC = () => {
   const [soldError, setSoldError] = useState<string | null>(null);
   const [salesPlatformFilter, setSalesPlatformFilter] = useState<SalesPlatformFilter>('all');
   const [salesBrandFilter, setSalesBrandFilter] = useState<string>('all');
+  const [salesMissingOnlineIdFilter, setSalesMissingOnlineIdFilter] = useState(false);
   const [salesBrands, setSalesBrands] = useState<Array<{ id: number; brand_name: string }>>([]);
   const [salesBrandsLoading, setSalesBrandsLoading] = useState(false);
   const [salesDateRangeFilter, setSalesDateRangeFilter] = useState<SalesDateRangeFilter>('all');
+  const [salesPage, setSalesPage] = useState(1);
   const [salesSummaryWeekKey, setSalesSummaryWeekKey] = useState(() => weekMondayKey(new Date()));
+  const [salesSummaryMonthKey, setSalesSummaryMonthKey] = useState(() => monthKey(new Date()));
+  const [salesSummaryPeriodMode, setSalesSummaryPeriodMode] =
+    useState<SalesSummaryPeriodMode>('week');
   const [vintedEbayCheckLoading, setVintedEbayCheckLoading] = useState(false);
   const [vintedEbayViolations, setVintedEbayViolations] = useState<VintedEbayViolation[]>([]);
   const [vintedEbayCheckError, setVintedEbayCheckError] = useState<string | null>(null);
@@ -744,10 +807,36 @@ const Orders: React.FC = () => {
     [soldByPlatformOnly, salesBrandFilter]
   );
 
-  const soldRowsFiltered = useMemo(
+  const soldRowsForPeriod = useMemo(
     () => soldByPlatformAndBrand.filter((r) => soldRowMatchesDateRange(r, salesDateRangeFilter)),
     [soldByPlatformAndBrand, salesDateRangeFilter]
   );
+
+  const soldRowsFiltered = useMemo(() => {
+    if (!salesMissingOnlineIdFilter) return soldRowsForPeriod;
+    return soldRowsForPeriod.filter((row) => salesRowListingIssues(row).length > 0);
+  }, [soldRowsForPeriod, salesMissingOnlineIdFilter]);
+
+  const salesPageCount = useMemo(
+    () => Math.max(1, Math.ceil(soldRowsFiltered.length / SALES_PAGE_SIZE)),
+    [soldRowsFiltered.length]
+  );
+
+  const soldRowsPaged = useMemo(() => {
+    const safePage = Math.min(Math.max(salesPage, 1), salesPageCount);
+    const start = (safePage - 1) * SALES_PAGE_SIZE;
+    return soldRowsFiltered.slice(start, start + SALES_PAGE_SIZE);
+  }, [soldRowsFiltered, salesPage, salesPageCount]);
+
+  useEffect(() => {
+    setSalesPage(1);
+  }, [salesPlatformFilter, salesBrandFilter, salesDateRangeFilter, salesMissingOnlineIdFilter]);
+
+  useEffect(() => {
+    if (salesPage > salesPageCount) {
+      setSalesPage(salesPageCount);
+    }
+  }, [salesPage, salesPageCount]);
 
   const salesStats = useMemo(() => {
     const now = new Date();
@@ -785,23 +874,53 @@ const Orders: React.FC = () => {
     []
   );
 
+  const salesSummaryMonthOptions = useMemo(
+    () => buildSalesSummaryMonthOptions(new Date(), SALES_SUMMARY_MONTHS_BACK),
+    []
+  );
+
   const salesSummarySelectedWeek = useMemo(() => {
     const found = salesSummaryWeekOptions.find((w) => w.value === salesSummaryWeekKey);
     if (found) return found;
     return salesSummaryWeekOptions[0] ?? null;
   }, [salesSummaryWeekOptions, salesSummaryWeekKey]);
 
+  const salesSummarySelectedMonth = useMemo(() => {
+    const found = salesSummaryMonthOptions.find((m) => m.value === salesSummaryMonthKey);
+    if (found) return found;
+    return salesSummaryMonthOptions[0] ?? null;
+  }, [salesSummaryMonthOptions, salesSummaryMonthKey]);
+
+  const salesSummaryPeriod = useMemo(() => {
+    if (salesSummaryPeriodMode === 'week') {
+      if (!salesSummarySelectedWeek) return null;
+      return {
+        mode: 'week' as const,
+        label: salesSummarySelectedWeek.label,
+        rangeStart: salesSummarySelectedWeek.weekStart,
+        rangeEnd: salesSummarySelectedWeek.weekEnd,
+      };
+    }
+    if (!salesSummarySelectedMonth) return null;
+    return {
+      mode: 'month' as const,
+      label: salesSummarySelectedMonth.label,
+      rangeStart: salesSummarySelectedMonth.monthStart,
+      rangeEnd: salesSummarySelectedMonth.monthEnd,
+    };
+  }, [salesSummaryPeriodMode, salesSummarySelectedWeek, salesSummarySelectedMonth]);
+
   const salesSummaryRows = useMemo(() => {
-    if (!salesSummarySelectedWeek) return [];
-    const { weekStart, weekEnd } = salesSummarySelectedWeek;
+    if (!salesSummaryPeriod) return [];
+    const { rangeStart, rangeEnd } = salesSummaryPeriod;
     return soldRows
-      .filter((r) => soldRowInWeek(r, weekStart, weekEnd))
+      .filter((r) => soldRowInDateRange(r, rangeStart, rangeEnd))
       .sort((a, b) => {
         const da = parseSoldRowDate(a)?.getTime() ?? 0;
         const db = parseSoldRowDate(b)?.getTime() ?? 0;
         return db - da;
       });
-  }, [soldRows, salesSummarySelectedWeek]);
+  }, [soldRows, salesSummaryPeriod]);
 
   const salesSummaryTotals = useMemo(() => {
     let totalSales = 0;
@@ -833,7 +952,13 @@ const Orders: React.FC = () => {
       totalPurchase,
       saleCount: salesSummaryRows.length,
       hasSales,
-      hasProfit
+      hasProfit,
+      hasPurchase: totalPurchase > 0 || salesSummaryRows.some(
+        (row) =>
+          row.purchase_price !== null &&
+          row.purchase_price !== undefined &&
+          !Number.isNaN(Number(row.purchase_price))
+      ),
     };
   }, [salesSummaryRows]);
 
@@ -962,6 +1087,7 @@ const Orders: React.FC = () => {
   };
 
   const handleVintedEbayCheck = async () => {
+    if (!ebaySellerConnected) return;
     setVintedEbayCheckLoading(true);
     setVintedEbayCheckError(null);
     try {
@@ -1007,6 +1133,7 @@ const Orders: React.FC = () => {
   };
 
   const handleMissingEbayOrderCheck = async () => {
+    if (!ebaySellerConnected) return;
     setMissingEbayCheckLoading(true);
     setMissingEbayCheckError(null);
     try {
@@ -1047,6 +1174,8 @@ const Orders: React.FC = () => {
       setMissingEbayCheckLoading(false);
     }
   };
+
+  const ebaySellerConnected = ebayOAuthStatus?.connected === true;
 
   const vintedEbayViolationIdSet = useMemo(
     () => new Set(vintedEbayViolations.map((v) => v.id)),
@@ -1399,7 +1528,7 @@ const Orders: React.FC = () => {
           className="orders-sales-section"
         >
           <div className="orders-sales-ebay-toolbar">
-            <div className="orders-sales-toolbar-top">
+            <div className="orders-sales-toolbar-stats-row">
               <div className="orders-sales-stats" aria-live="polite">
                 {soldLoading ? (
                   <span className="orders-sales-stats-loading">Updating sold counts…</span>
@@ -1428,95 +1557,165 @@ const Orders: React.FC = () => {
                   </span>
                 )}
               </div>
-              <div className="orders-vinted-ebay-check-bar orders-sales-ebay-actions">
-                <div className="orders-ebay-toolbar-connect">
-                  <a href={`${API_BASE}/api/ebay/oauth/start`} className="orders-ebay-oauth-connect">
-                    Connect eBay seller
-                  </a>
+            </div>
+            <div className="orders-sales-toolbar-controls-row">
+              <div className="orders-sales-filters-group orders-sales-toolbar-filters">
+                <div className="orders-sales-date-filter-wrap">
+                  <select
+                    id="orders-sales-date-filter"
+                    className="orders-sales-platform-select orders-sales-date-filter-select"
+                    value={salesDateRangeFilter}
+                    onChange={(e) => setSalesDateRangeFilter(e.target.value as SalesDateRangeFilter)}
+                    aria-label="Filter sold items by sale date (all time, current month, or last month)"
+                  >
+                    <option value="all">All time</option>
+                    <option value="current-month">Current month</option>
+                    <option value="last-month">Last month</option>
+                  </select>
+                </div>
+                <div className="orders-sales-platform-filter-wrap">
+                  <select
+                    id="orders-sales-platform-filter"
+                    className="orders-sales-platform-select"
+                    value={salesPlatformFilter}
+                    onChange={(e) => setSalesPlatformFilter(e.target.value as SalesPlatformFilter)}
+                    aria-label="Filter sold items by sales channel (eBay or Vinted)"
+                  >
+                    <option value="all">All platforms</option>
+                    <option value="ebay">eBay only</option>
+                    <option value="vinted">Vinted only</option>
+                  </select>
+                </div>
+                <div className="orders-sales-brand-filter-wrap">
+                  <select
+                    id="orders-sales-brand-filter"
+                    className="orders-sales-platform-select orders-sales-brand-filter-select"
+                    value={salesBrandFilter}
+                    onChange={(e) => setSalesBrandFilter(e.target.value)}
+                    disabled={salesBrandsLoading && salesBrands.length === 0}
+                    aria-label="Filter sold items by brand"
+                  >
+                    <option value="all">All brands</option>
+                    {salesBrands.map((b) => (
+                      <option key={b.id} value={String(b.id)}>
+                        {b.brand_name || `Brand #${b.id}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="orders-sales-missing-online-id-toggle">
+                  <span
+                    className="orders-sales-missing-online-id-toggle-label"
+                    id="orders-sales-missing-online-id-label"
+                  >
+                    Missing Online ID
+                  </span>
+                  <button
+                    type="button"
+                    role="switch"
+                    className={`orders-sales-missing-online-id-switch${
+                      salesMissingOnlineIdFilter
+                        ? ' orders-sales-missing-online-id-switch--on'
+                        : ''
+                    }`}
+                    aria-checked={salesMissingOnlineIdFilter}
+                    aria-labelledby="orders-sales-missing-online-id-label orders-sales-missing-online-id-state"
+                    onClick={() => setSalesMissingOnlineIdFilter((active) => !active)}
+                    title={
+                      salesMissingOnlineIdFilter
+                        ? 'Filter on — show all sold items'
+                        : 'Filter off — show only items missing an online ID for their sold platform'
+                    }
+                  >
+                    <span className="orders-sales-missing-online-id-switch-thumb" aria-hidden="true" />
+                  </button>
+                  <span
+                    id="orders-sales-missing-online-id-state"
+                    className={`orders-sales-missing-online-id-toggle-state${
+                      salesMissingOnlineIdFilter
+                        ? ' orders-sales-missing-online-id-toggle-state--on'
+                        : ''
+                    }`}
+                    aria-hidden="true"
+                  >
+                    {salesMissingOnlineIdFilter ? 'On' : 'Off'}
+                  </span>
+                </div>
+              </div>
+              <div className="orders-sales-toolbar-right">
+                <div className="orders-vinted-ebay-check-bar orders-sales-ebay-actions">
+                  {ebaySellerConnected ? (
+                    <span
+                      className="orders-vinted-ebay-check-button orders-vinted-ebay-check-button--disabled"
+                      aria-disabled="true"
+                      title="eBay seller account already connected"
+                    >
+                      <EbayLogoIcon className="orders-unlist-ebay-logo" />
+                      <span className="orders-unlist-ebay-label">Connect eBay seller</span>
+                    </span>
+                  ) : (
+                    <a
+                      href={`${API_BASE}/api/ebay/oauth/start`}
+                      className="orders-vinted-ebay-check-button"
+                      title="Connect your eBay seller account"
+                    >
+                      <EbayLogoIcon className="orders-unlist-ebay-logo" />
+                      <span className="orders-unlist-ebay-label">Connect eBay seller</span>
+                    </a>
+                  )}
                   {ebayOAuthStatus?.connected ? (
                     <span className="orders-ebay-oauth-status orders-ebay-oauth-status--ok">
                       Linked
                       {ebayOAuthStatus.user_name ? ` as ${ebayOAuthStatus.user_name}` : ''}
                     </span>
                   ) : null}
+                  <button
+                    type="button"
+                    className="orders-vinted-ebay-check-button"
+                    onClick={handleVintedEbayCheck}
+                    disabled={vintedEbayCheckLoading || !ebaySellerConnected}
+                    title={
+                      !ebaySellerConnected
+                        ? 'Connect your eBay seller account first'
+                        : undefined
+                    }
+                    aria-label={
+                      vintedEbayCheckLoading
+                        ? 'Checking eBay listings for items sold on Vinted'
+                        : !ebaySellerConnected
+                          ? 'Unlist eBay (connect eBay seller account first)'
+                          : 'Scan eBay listings for items already sold on Vinted that may still be live'
+                    }
+                  >
+                    <EbayLogoIcon className="orders-unlist-ebay-logo" />
+                    <span className="orders-unlist-ebay-label">
+                      {vintedEbayCheckLoading ? 'Checking…' : 'Unlist eBay'}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="orders-vinted-ebay-check-button orders-missing-ebay-order-button"
+                    onClick={handleMissingEbayOrderCheck}
+                    disabled={missingEbayCheckLoading || !ebaySellerConnected}
+                    title={
+                      !ebaySellerConnected
+                        ? 'Connect your eBay seller account first'
+                        : undefined
+                    }
+                    aria-label={
+                      missingEbayCheckLoading
+                        ? 'Loading eBay sold orders from your account'
+                        : !ebaySellerConnected
+                          ? 'Missing eBay order (connect eBay seller account first)'
+                          : 'Compare eBay sold orders to Stock listing IDs'
+                    }
+                  >
+                    <EbayLogoIcon className="orders-unlist-ebay-logo" />
+                    <span className="orders-unlist-ebay-label">
+                      {missingEbayCheckLoading ? 'Checking…' : 'Missing eBay order'}
+                    </span>
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  className="orders-vinted-ebay-check-button"
-                  onClick={handleVintedEbayCheck}
-                  disabled={vintedEbayCheckLoading}
-                  aria-label={
-                    vintedEbayCheckLoading
-                      ? 'Checking eBay listings for items sold on Vinted'
-                      : 'Scan eBay listings for items already sold on Vinted that may still be live'
-                  }
-                >
-                  <EbayLogoIcon className="orders-unlist-ebay-logo" />
-                  <span className="orders-unlist-ebay-label">
-                    {vintedEbayCheckLoading ? 'Checking…' : 'Unlist eBay'}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="orders-vinted-ebay-check-button orders-missing-ebay-order-button"
-                  onClick={handleMissingEbayOrderCheck}
-                  disabled={missingEbayCheckLoading}
-                  aria-label={
-                    missingEbayCheckLoading
-                      ? 'Loading eBay sold orders from your account'
-                      : 'Compare eBay sold orders to Stock listing IDs'
-                  }
-                >
-                  <EbayLogoIcon className="orders-unlist-ebay-logo" />
-                  <span className="orders-unlist-ebay-label">
-                    {missingEbayCheckLoading ? 'Checking…' : 'Missing eBay order'}
-                  </span>
-                </button>
-              </div>
-            </div>
-            <div className="orders-sales-filters-group orders-sales-toolbar-filters">
-              <div className="orders-sales-date-filter-wrap">
-                <select
-                  id="orders-sales-date-filter"
-                  className="orders-sales-platform-select orders-sales-date-filter-select"
-                  value={salesDateRangeFilter}
-                  onChange={(e) => setSalesDateRangeFilter(e.target.value as SalesDateRangeFilter)}
-                  aria-label="Filter sold items by sale date (all time, current month, or last month)"
-                >
-                  <option value="all">All time</option>
-                  <option value="current-month">Current month</option>
-                  <option value="last-month">Last month</option>
-                </select>
-              </div>
-              <div className="orders-sales-platform-filter-wrap">
-                <select
-                  id="orders-sales-platform-filter"
-                  className="orders-sales-platform-select"
-                  value={salesPlatformFilter}
-                  onChange={(e) => setSalesPlatformFilter(e.target.value as SalesPlatformFilter)}
-                  aria-label="Filter sold items by sales channel (eBay or Vinted)"
-                >
-                  <option value="all">All platforms</option>
-                  <option value="ebay">eBay only</option>
-                  <option value="vinted">Vinted only</option>
-                </select>
-              </div>
-              <div className="orders-sales-brand-filter-wrap">
-                <select
-                  id="orders-sales-brand-filter"
-                  className="orders-sales-platform-select orders-sales-brand-filter-select"
-                  value={salesBrandFilter}
-                  onChange={(e) => setSalesBrandFilter(e.target.value)}
-                  disabled={salesBrandsLoading && salesBrands.length === 0}
-                  aria-label="Filter sold items by brand"
-                >
-                  <option value="all">All brands</option>
-                  {salesBrands.map((b) => (
-                    <option key={b.id} value={String(b.id)}>
-                      {b.brand_name || `Brand #${b.id}`}
-                    </option>
-                  ))}
-                </select>
               </div>
             </div>
           </div>
@@ -1697,14 +1896,20 @@ const Orders: React.FC = () => {
                   <p>No sold items match this brand filter.</p>
                   <p>Choose &quot;All brands&quot; or a different brand above.</p>
                 </>
-              ) : (
+              ) : soldRowsForPeriod.length === 0 ? (
                 <>
                   <p>No sold items in this period for the selected filters.</p>
                   <p>Try &quot;All time&quot; or adjust platform, brand, or month.</p>
                 </>
+              ) : (
+                <>
+                  <p>No sold items with a missing online ID for these filters.</p>
+                  <p>Turn off Missing Online ID to show all sales.</p>
+                </>
               )}
             </div>
           ) : (
+            <>
             <div className="table-wrapper orders-sales-table">
               <table className="orders-table">
                 <thead>
@@ -1718,7 +1923,7 @@ const Orders: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {soldRowsFiltered.map((row) => {
+                  {soldRowsPaged.map((row) => {
                     const ebayHref = ebayListingHref(row.ebay_id);
                     const vintedHref = vintedListingHref(row.vinted_id);
                     const ebayLabel = row.ebay_id != null ? String(row.ebay_id).trim() : '';
@@ -1811,6 +2016,39 @@ const Orders: React.FC = () => {
                 </tbody>
               </table>
             </div>
+            {soldRowsFiltered.length > SALES_PAGE_SIZE ? (
+              <nav className="orders-sales-pagination" aria-label="Sales list pagination">
+                <button
+                  type="button"
+                  className="orders-sales-pagination-button"
+                  disabled={salesPage <= 1}
+                  onClick={() => setSalesPage((p) => Math.max(1, p - 1))}
+                >
+                  Previous
+                </button>
+                <span className="orders-sales-pagination-status">
+                  Page {Math.min(salesPage, salesPageCount)} of {salesPageCount}
+                  <span className="orders-sales-pagination-range">
+                    {' '}
+                    · {(Math.min(salesPage, salesPageCount) - 1) * SALES_PAGE_SIZE + 1}–
+                    {Math.min(
+                      Math.min(salesPage, salesPageCount) * SALES_PAGE_SIZE,
+                      soldRowsFiltered.length
+                    )}{' '}
+                    of {soldRowsFiltered.length}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  className="orders-sales-pagination-button"
+                  disabled={salesPage >= salesPageCount}
+                  onClick={() => setSalesPage((p) => Math.min(salesPageCount, p + 1))}
+                >
+                  Next
+                </button>
+              </nav>
+            ) : null}
+            </>
           )}
         </div>
       )}
@@ -1823,35 +2061,74 @@ const Orders: React.FC = () => {
           className="orders-sales-summary-section"
         >
           <div className="orders-sales-summary-toolbar">
-            <label htmlFor="orders-sales-summary-week" className="orders-sales-summary-week-label">
-              Week
-            </label>
-            <select
-              id="orders-sales-summary-week"
-              className="orders-sales-platform-select orders-sales-summary-week-select"
-              value={salesSummarySelectedWeek?.value ?? salesSummaryWeekKey}
-              onChange={(e) => setSalesSummaryWeekKey(e.target.value)}
-              aria-label="Filter sales by week (last two months)"
+            <div
+              className="orders-sales-summary-period-toggle"
+              role="group"
+              aria-label="Summary period"
             >
-              {salesSummaryWeekOptions.map((w) => (
-                <option key={w.value} value={w.value}>
-                  {w.label}
-                  {w.value === weekMondayKey(new Date()) ? ' (Current)' : ''}
-                </option>
-              ))}
-            </select>
+              <button
+                type="button"
+                className={`orders-sales-summary-period-toggle-btn${
+                  salesSummaryPeriodMode === 'week'
+                    ? ' orders-sales-summary-period-toggle-btn--active'
+                    : ''
+                }`}
+                aria-pressed={salesSummaryPeriodMode === 'week'}
+                onClick={() => setSalesSummaryPeriodMode('week')}
+              >
+                Week
+              </button>
+              <button
+                type="button"
+                className={`orders-sales-summary-period-toggle-btn${
+                  salesSummaryPeriodMode === 'month'
+                    ? ' orders-sales-summary-period-toggle-btn--active'
+                    : ''
+                }`}
+                aria-pressed={salesSummaryPeriodMode === 'month'}
+                onClick={() => setSalesSummaryPeriodMode('month')}
+              >
+                Month
+              </button>
+            </div>
+            {salesSummaryPeriodMode === 'week' ? (
+              <select
+                id="orders-sales-summary-week"
+                className="orders-sales-platform-select orders-sales-summary-week-select"
+                value={salesSummarySelectedWeek?.value ?? salesSummaryWeekKey}
+                onChange={(e) => setSalesSummaryWeekKey(e.target.value)}
+                aria-label="Filter sales by week (last two months)"
+              >
+                {salesSummaryWeekOptions.map((w) => (
+                  <option key={w.value} value={w.value}>
+                    {w.label}
+                    {w.value === weekMondayKey(new Date()) ? ' (Current)' : ''}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <select
+                id="orders-sales-summary-month"
+                className="orders-sales-platform-select orders-sales-summary-week-select"
+                value={salesSummarySelectedMonth?.value ?? salesSummaryMonthKey}
+                onChange={(e) => setSalesSummaryMonthKey(e.target.value)}
+                aria-label="Filter sales by month (last twelve months)"
+              >
+                {salesSummaryMonthOptions.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                    {m.value === monthKey(new Date()) ? ' (Current)' : ''}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
-          {!soldLoading && salesSummarySelectedWeek && (
+          {!soldLoading && salesSummaryPeriod && (
             <div className="orders-sales-summary-totals" aria-live="polite">
               <span className="orders-sales-stat">
                 <strong>{formatCurrency(salesSummaryTotals.totalSales)}</strong>
                 <span className="orders-sales-stat-label"> Total Sales</span>
-                <span className="orders-sales-stat-count">
-                  {' '}
-                  ({salesSummaryTotals.saleCount}{' '}
-                  {salesSummaryTotals.saleCount === 1 ? 'sale' : 'sales'})
-                </span>
               </span>
               <span className="orders-sales-stat">
                 <strong
@@ -1868,6 +2145,17 @@ const Orders: React.FC = () => {
                 </strong>
                 <span className="orders-sales-stat-label"> Total Profit</span>
               </span>
+              <span className="orders-sales-stat">
+                <strong>{formatCurrency(salesSummaryTotals.hasPurchase ? salesSummaryTotals.totalPurchase : null)}</strong>
+                <span className="orders-sales-stat-label"> Total Expenses</span>
+              </span>
+              <span className="orders-sales-stat">
+                <strong>{salesSummaryTotals.saleCount}</strong>
+                <span className="orders-sales-stat-label">
+                  {' '}
+                  {salesSummaryTotals.saleCount === 1 ? 'Item Sold' : 'Items Sold'}
+                </span>
+              </span>
             </div>
           )}
 
@@ -1881,15 +2169,18 @@ const Orders: React.FC = () => {
             </div>
           ) : salesSummaryRows.length === 0 ? (
             <div className="orders-empty-state">
-              <p>No sales in {salesSummarySelectedWeek?.label ?? 'this period'}.</p>
-              <p>Choose another week from the filter above.</p>
+              <p>No sales in {salesSummaryPeriod?.label ?? 'this period'}.</p>
+              <p>
+                Choose another {salesSummaryPeriodMode === 'week' ? 'week' : 'month'} from the filter
+                above.
+              </p>
             </div>
           ) : (
             <div className="table-wrapper orders-sales-summary-table-wrap">
               <table className="orders-table orders-sales-summary-table">
                 <thead>
                   <tr>
-                    <th>Title</th>
+                    <th>Products Sold</th>
                     <th>Sale price</th>
                     <th>Buy price</th>
                     <th>Profit</th>

@@ -43,6 +43,8 @@ interface StockRow {
   is_inventory_write_off?: Nullable<boolean>;
   /** Large / awkward-to-ship item (highlighted on Orders → Sales). */
   is_bulky_item?: Nullable<boolean>;
+  /** eBay listing is still a draft (not live). */
+  is_ebay_draft?: Nullable<boolean>;
 }
 
 type StockCreateFormState = {
@@ -64,6 +66,7 @@ type StockCreateFormState = {
   sourced_location: string;
   inventory_write_off: boolean;
   bulky_item: boolean;
+  ebay_draft: boolean;
 };
 
 interface Brand {
@@ -143,6 +146,11 @@ function stockRowWriteOffFromRow(row: { is_inventory_write_off?: unknown }): boo
 
 function stockRowBulkyFromRow(row: { is_bulky_item?: unknown }): boolean {
   const v = row.is_bulky_item;
+  return v === true || v === 't' || v === 'true' || v === 1 || v === '1';
+}
+
+function stockRowEbayDraftFromRow(row: { is_ebay_draft?: unknown }): boolean {
+  const v = row.is_ebay_draft;
   return v === true || v === 't' || v === 'true' || v === 1 || v === '1';
 }
 
@@ -400,7 +408,8 @@ const Stock: React.FC = () => {
     category_size_id: '',
     sourced_location: 'charity_shop',
     inventory_write_off: false,
-    bulky_item: false
+    bulky_item: false,
+    ebay_draft: false
   });
   const [categorySizes, setCategorySizes] = useState<CategorySizeRow[]>([]);
   const [categorySizesLoading, setCategorySizesLoading] = useState(false);
@@ -773,6 +782,7 @@ const Stock: React.FC = () => {
       sourced_location: sourcedLocationFromRow(rowToEdit),
       inventory_write_off: stockRowWriteOffFromRow(rowToEdit),
       bulky_item: stockRowBulkyFromRow(rowToEdit),
+      ebay_draft: stockRowEbayDraftFromRow(rowToEdit),
     });
     setShowNewEntry(true);
     setSuccessMessage(null);
@@ -1807,6 +1817,7 @@ const Stock: React.FC = () => {
       sourced_location: sourcedLocationFromRow(row),
       inventory_write_off: stockRowWriteOffFromRow(row),
       bulky_item: stockRowBulkyFromRow(row),
+      ebay_draft: stockRowEbayDraftFromRow(row),
     });
     console.log('startEditingRow - row data:', row);
     console.log('startEditingRow - vinted_id:', row.vinted_id);
@@ -1861,7 +1872,8 @@ const Stock: React.FC = () => {
       category_size_id: '',
       sourced_location: 'charity_shop',
       inventory_write_off: false,
-      bulky_item: false
+      bulky_item: false,
+      ebay_draft: false
     });
   };
 
@@ -1882,7 +1894,7 @@ const Stock: React.FC = () => {
   };
 
   const handleCreateChange = (
-    key: Exclude<keyof StockCreateFormState, 'inventory_write_off' | 'bulky_item'>,
+    key: Exclude<keyof StockCreateFormState, 'inventory_write_off' | 'bulky_item' | 'ebay_draft'>,
     value: string
   ) => {
     setCreateForm((prev) => {
@@ -1982,7 +1994,8 @@ const Stock: React.FC = () => {
             : null,
         sourced_location: createForm.sourced_location || 'charity_shop',
         is_inventory_write_off: createForm.inventory_write_off,
-        is_bulky_item: createForm.bulky_item
+        is_bulky_item: createForm.bulky_item,
+        is_ebay_draft: createForm.ebay_draft
       };
 
       console.log('Stock submit - Payload:', payload);
@@ -3068,6 +3081,19 @@ const Stock: React.FC = () => {
                   onChange={(event) => handleCreateChange('ebay_id', event.target.value)}
                   placeholder="Optional"
                 />
+              </label>
+              <label className="new-entry-field stock-new-entry-id-field stock-new-entry-id-field--ebay-draft">
+                <span>eBay draft</span>
+                <div className="stock-new-entry-bulky-input-skin">
+                  <input
+                    type="checkbox"
+                    checked={createForm.ebay_draft}
+                    onChange={(event) =>
+                      setCreateForm((prev) => ({ ...prev, ebay_draft: event.target.checked }))
+                    }
+                    aria-label="eBay draft listing"
+                  />
+                </div>
               </label>
               <label className="new-entry-field stock-new-entry-id-field stock-new-entry-id-field--depop">
                 <span>Depop ID</span>
