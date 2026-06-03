@@ -14,7 +14,9 @@ import {
 import { Bar, Line } from 'react-chartjs-2';
 import { getApiBase } from '../utils/apiBase';
 import { parseDateOnlyParts } from '../utils/dateOnly';
+import { ExpensesProjectionsPanel } from './ExpensesProjectionsPanel';
 import './Reporting.css';
+import './Stock.css';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend);
 
@@ -178,9 +180,15 @@ interface ReportingCategoryRow {
   category_name: string;
 }
 
-type ItemAnalysisPreset = 'current-month' | 'last-month' | 'custom-month' | 'current-year' | 'last-3-years';
+type ReportingViewMode = 'sales-data' | 'stock-analysis' | 'cash-flow-analysis' | 'projections';
 
-type ItemAnalysisPlatformTab = 'vinted' | 'ebay';
+function parseReportingViewMode(tab: string | null): ReportingViewMode {
+  if (tab === 'stock-analysis') return 'stock-analysis';
+  if (tab === 'cash-flow-analysis') return 'cash-flow-analysis';
+  if (tab === 'projections' || tab === 'item-analysis') return 'projections';
+  return 'sales-data';
+}
+
 interface CashFlowPurchasedItem {
   id: number | null;
   itemName: string;
@@ -205,17 +213,6 @@ interface CashFlowDaySummary {
   purchasedItems: CashFlowPurchasedItem[];
 }
 
-const monthLabelsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-interface ItemAnalysisSoldRow {
-  id: number;
-  name: string;
-  purchase: number;
-  sale: number;
-  profit: number;
-  multiplier: number | null;
-}
-
 function parseStockNumber(value: number | string | null | undefined): number | null {
   if (value === null || value === undefined || value === '') return null;
   const n = typeof value === 'number' ? value : Number(value);
@@ -225,46 +222,6 @@ function parseStockNumber(value: number | string | null | undefined): number | n
 function isStockWriteOffRow(row: { is_inventory_write_off?: unknown }): boolean {
   const v = row.is_inventory_write_off;
   return v === true || v === 'true' || v === 1 || v === '1';
-}
-
-function getItemAnalysisRange(
-  preset: ItemAnalysisPreset,
-  customYear: number,
-  customMonth: number
-): { start: Date; end: Date; label: string } {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth();
-
-  const sod = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
-  const eod = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
-
-  if (preset === 'current-month') {
-    const start = sod(new Date(y, m, 1));
-    const end = eod(new Date(y, m + 1, 0));
-    return { start, end, label: `${monthLabelsShort[m]} ${y}` };
-  }
-  if (preset === 'last-month') {
-    const start = sod(new Date(y, m - 1, 1));
-    const end = eod(new Date(y, m, 0));
-    const ly = m === 0 ? y - 1 : y;
-    const lm = m === 0 ? 11 : m - 1;
-    return { start, end, label: `${monthLabelsShort[lm]} ${ly}` };
-  }
-  if (preset === 'current-year') {
-    const start = sod(new Date(y, 0, 1));
-    const end = eod(new Date(y, 11, 31));
-    return { start, end, label: `${y}` };
-  }
-  if (preset === 'last-3-years') {
-    const startYear = y - 2;
-    const start = sod(new Date(startYear, 0, 1));
-    const end = eod(new Date(y, 11, 31));
-    return { start, end, label: `${startYear}–${y}` };
-  }
-  const start = sod(new Date(customYear, customMonth - 1, 1));
-  const end = eod(new Date(customYear, customMonth, 0));
-  return { start, end, label: `${monthLabelsShort[customMonth - 1]} ${customYear}` };
 }
 
 function soldPlatformIsEbay(p: string | null | undefined): boolean {
@@ -489,57 +446,10 @@ const chartOptions: ChartOptions<'bar'> = {
   },
 };
 
-const itemAnalysisChartOptions: ChartOptions<'bar'> = {
-  responsive: true,
-  maintainAspectRatio: false,
-  indexAxis: 'y',
-  plugins: {
-    legend: { display: false },
-    tooltip: {
-      callbacks: {
-        label(context) {
-          const value = context.raw as number;
-          return `Profit: ${formatCurrency(value || 0)}`;
-        },
-      },
-    },
-  },
-  scales: {
-    x: {
-      beginAtZero: true,
-      grid: { color: 'rgba(255, 214, 91, 0.12)' },
-      ticks: {
-        color: 'rgba(255, 248, 226, 0.75)',
-        callback(value) {
-          if (typeof value === 'number') {
-            return formatCurrency(value);
-          }
-          return value;
-        },
-      },
-    },
-    y: {
-      grid: { display: false },
-      ticks: {
-        color: 'rgba(255, 248, 226, 0.82)',
-        autoSkip: false,
-        font: { size: 11 },
-      },
-    },
-  },
-};
-
 const Reporting: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const tabFromUrl = searchParams.get('tab');
-  const initialViewMode: 'sales-data' | 'stock-analysis' | 'cash-flow-analysis' | 'item-analysis' =
-    tabFromUrl === 'stock-analysis'
-      ? 'stock-analysis'
-      : tabFromUrl === 'cash-flow-analysis'
-        ? 'cash-flow-analysis'
-      : tabFromUrl === 'item-analysis'
-        ? 'item-analysis'
-        : 'sales-data';
+  const initialViewMode = parseReportingViewMode(tabFromUrl);
 
   const [availableYears, setAvailableYears] = useState<number[]>([]);
   const [selectedYear, setSelectedYear] = useState<number | 'all'>('all');
@@ -581,16 +491,7 @@ const Reporting: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   
   // Monthly view state
-  const [viewMode, setViewMode] = useState<'sales-data' | 'stock-analysis' | 'cash-flow-analysis' | 'item-analysis'>(initialViewMode);
-  const [itemAnalysisPreset, setItemAnalysisPreset] = useState<ItemAnalysisPreset>('current-month');
-  const [itemAnalysisCustomYear, setItemAnalysisCustomYear] = useState(() => new Date().getFullYear());
-  const [itemAnalysisCustomMonth, setItemAnalysisCustomMonth] = useState(() => new Date().getMonth() + 1);
-  const [itemAnalysisPlatform, setItemAnalysisPlatform] = useState<ItemAnalysisPlatformTab>(() => {
-    if (typeof window === 'undefined') return 'vinted';
-    const q = new URLSearchParams(window.location.search);
-    if (q.get('tab') !== 'item-analysis') return 'vinted';
-    return q.get('platform') === 'ebay' ? 'ebay' : 'vinted';
-  });
+  const [viewMode, setViewMode] = useState<ReportingViewMode>(initialViewMode);
   const [vintedData, setVintedData] = useState<{ purchases: number; sales: number; profit: number }>({ purchases: 0, sales: 0, profit: 0 });
   const [ebayData, setEbayData] = useState<{ purchases: number; sales: number; profit: number }>({ purchases: 0, sales: 0, profit: 0 });
   const [depopData, setDepopData] = useState<{ purchases: number; sales: number; profit: number }>({ purchases: 0, sales: 0, profit: 0 });
@@ -618,6 +519,7 @@ const Reporting: React.FC = () => {
     vintedSales: number;
     depopSales: number;
     monthProfit: number;
+    stockPurchasesInPeriod: number;
     unsoldInventoryValue: number;
   } | null>(null);
   const [monthlySummaryLoading, setMonthlySummaryLoading] = useState(false);
@@ -715,32 +617,25 @@ const Reporting: React.FC = () => {
 
   useEffect(() => {
     const t = searchParams.get('tab');
-    const nextViewMode: 'sales-data' | 'stock-analysis' | 'cash-flow-analysis' | 'item-analysis' =
-      t === 'stock-analysis'
-        ? 'stock-analysis'
-        : t === 'cash-flow-analysis'
-          ? 'cash-flow-analysis'
-          : t === 'item-analysis'
-            ? 'item-analysis'
-            : 'sales-data';
+    const nextViewMode = parseReportingViewMode(t);
     setViewMode((prev) => (prev === nextViewMode ? prev : nextViewMode));
   }, [searchParams]);
 
   useEffect(() => {
     const currentTab = searchParams.get('tab');
-    if (currentTab === viewMode) {
+    const normalizedTab = viewMode === 'projections' ? 'projections' : viewMode;
+    if (currentTab === normalizedTab) {
       return;
     }
     const nextParams = new URLSearchParams(searchParams);
-    nextParams.set('tab', viewMode);
+    if (viewMode === 'sales-data') {
+      nextParams.delete('tab');
+    } else {
+      nextParams.set('tab', normalizedTab);
+    }
+    nextParams.delete('platform');
     setSearchParams(nextParams, { replace: true });
   }, [viewMode, searchParams, setSearchParams]);
-
-  useEffect(() => {
-    if (searchParams.get('tab') !== 'item-analysis') return;
-    const p = searchParams.get('platform');
-    setItemAnalysisPlatform(p === 'ebay' ? 'ebay' : 'vinted');
-  }, [searchParams]);
 
   const loadStockRowsForSalesData = useCallback(async () => {
     try {
@@ -871,6 +766,7 @@ const Reporting: React.FC = () => {
             vintedSales: data.vinted?.sales || 0,
             depopSales: data.depop?.sales || 0,
             monthProfit: data.totalMonthProfit || 0,
+            stockPurchasesInPeriod: data.stockPurchasesInPeriod || 0,
             unsoldInventoryValue: data.unsoldInventoryValue || 0
           });
         } catch (err: any) {
@@ -880,6 +776,7 @@ const Reporting: React.FC = () => {
             vintedSales: 0,
             depopSales: 0,
             monthProfit: 0,
+            stockPurchasesInPeriod: 0,
             unsoldInventoryValue: 0
           });
         } finally {
@@ -2074,172 +1971,6 @@ const Reporting: React.FC = () => {
     };
   }, [stockRowsForSalesData, isDateInSalesRange, monthlyChartBuckets]);
 
-  const itemAnalysisRange = useMemo(
-    () => getItemAnalysisRange(itemAnalysisPreset, itemAnalysisCustomYear, itemAnalysisCustomMonth),
-    [itemAnalysisPreset, itemAnalysisCustomYear, itemAnalysisCustomMonth]
-  );
-
-  const { itemAnalysisEbayItems, itemAnalysisVintedItems } = useMemo(() => {
-    const { start, end } = itemAnalysisRange;
-    const build = (platformMatch: (row: StockRowForSalesData) => boolean): ItemAnalysisSoldRow[] => {
-      const out: ItemAnalysisSoldRow[] = [];
-      stockRowsForSalesData.forEach((row, idx) => {
-        if (isStockWriteOffRow(row)) return;
-        if (!platformMatch(row)) return;
-        if (!row.sale_date) return;
-        const sd = new Date(row.sale_date);
-        if (Number.isNaN(sd.getTime())) return;
-        if (sd < start || sd > end) return;
-        const purchase = parseStockNumber(row.purchase_price);
-        const sale = parseStockNumber(row.sale_price);
-        if (purchase === null || sale === null) return;
-        const profit = sale - purchase;
-        const multiplier = purchase > 0 ? sale / purchase : null;
-        out.push({
-          id: typeof row.id === 'number' ? row.id : idx,
-          name: (row.item_name && row.item_name.trim()) || '—',
-          purchase,
-          sale,
-          profit,
-          multiplier,
-        });
-      });
-      out.sort((a, b) => b.profit - a.profit);
-      return out;
-    };
-    return {
-      itemAnalysisEbayItems: build((row) => soldPlatformIsEbay(row.sold_platform)),
-      itemAnalysisVintedItems: build((row) => soldPlatformIsVinted(row.sold_platform)),
-    };
-  }, [stockRowsForSalesData, itemAnalysisRange]);
-
-  const ITEM_ANALYSIS_CHART_TOP = 15;
-  const ITEM_ANALYSIS_WORST_CHART_TOP = 10;
-
-  const itemAnalysisWorstEbayItems = useMemo(
-    () => [...itemAnalysisEbayItems].sort((a, b) => a.profit - b.profit),
-    [itemAnalysisEbayItems]
-  );
-
-  const itemAnalysisWorstVintedItems = useMemo(
-    () => [...itemAnalysisVintedItems].sort((a, b) => a.profit - b.profit),
-    [itemAnalysisVintedItems]
-  );
-
-  const itemAnalysisWorstEbayTop = useMemo(
-    () => itemAnalysisWorstEbayItems.slice(0, ITEM_ANALYSIS_WORST_CHART_TOP),
-    [itemAnalysisWorstEbayItems]
-  );
-
-  const itemAnalysisWorstVintedTop = useMemo(
-    () => itemAnalysisWorstVintedItems.slice(0, ITEM_ANALYSIS_WORST_CHART_TOP),
-    [itemAnalysisWorstVintedItems]
-  );
-
-  const itemAnalysisEbayChart = useMemo(() => {
-    const top = itemAnalysisEbayItems.slice(0, ITEM_ANALYSIS_CHART_TOP);
-    const labelsFull = top.map((t) => t.name);
-    const labels = labelsFull.map((n) => (n.length > 40 ? `${n.slice(0, 38)}…` : n));
-    return {
-      labelsFull,
-      chartData: {
-        labels,
-        datasets: [
-          {
-            label: 'Profit',
-            data: top.map((t) => t.profit),
-            backgroundColor: 'rgba(140, 180, 255, 0.55)',
-            borderColor: 'rgba(140, 180, 255, 0.9)',
-            borderWidth: 1,
-            borderRadius: 6,
-          },
-        ],
-      },
-    };
-  }, [itemAnalysisEbayItems]);
-
-  const itemAnalysisVintedChart = useMemo(() => {
-    const top = itemAnalysisVintedItems.slice(0, ITEM_ANALYSIS_CHART_TOP);
-    const labelsFull = top.map((t) => t.name);
-    const labels = labelsFull.map((n) => (n.length > 40 ? `${n.slice(0, 38)}…` : n));
-    return {
-      labelsFull,
-      chartData: {
-        labels,
-        datasets: [
-          {
-            label: 'Profit',
-            data: top.map((t) => t.profit),
-            backgroundColor: 'rgba(195, 255, 140, 0.55)',
-            borderColor: 'rgba(195, 255, 140, 0.9)',
-            borderWidth: 1,
-            borderRadius: 6,
-          },
-        ],
-      },
-    };
-  }, [itemAnalysisVintedItems]);
-
-  const itemAnalysisWorstEbayChart = useMemo(() => {
-    const worst = itemAnalysisWorstEbayTop;
-    const labelsFull = worst.map((t) => t.name);
-    const labels = labelsFull.map((n) => (n.length > 40 ? `${n.slice(0, 38)}…` : n));
-    return {
-      labelsFull,
-      chartData: {
-        labels,
-        datasets: [
-          {
-            label: 'Profit',
-            data: worst.map((t) => t.profit),
-            backgroundColor: 'rgba(255, 120, 100, 0.55)',
-            borderColor: 'rgba(255, 120, 100, 0.95)',
-            borderWidth: 1,
-            borderRadius: 6,
-          },
-        ],
-      },
-    };
-  }, [itemAnalysisWorstEbayTop]);
-
-  const itemAnalysisWorstVintedChart = useMemo(() => {
-    const worst = itemAnalysisWorstVintedTop;
-    const labelsFull = worst.map((t) => t.name);
-    const labels = labelsFull.map((n) => (n.length > 40 ? `${n.slice(0, 38)}…` : n));
-    return {
-      labelsFull,
-      chartData: {
-        labels,
-        datasets: [
-          {
-            label: 'Profit',
-            data: worst.map((t) => t.profit),
-            backgroundColor: 'rgba(255, 160, 90, 0.5)',
-            borderColor: 'rgba(255, 160, 90, 0.95)',
-            borderWidth: 1,
-            borderRadius: 6,
-          },
-        ],
-      },
-    };
-  }, [itemAnalysisWorstVintedTop]);
-
-  const itemAnalysisYearOptions = useMemo(() => {
-    const y = new Date().getFullYear();
-    return Array.from({ length: 16 }, (_, i) => y - i);
-  }, []);
-
-  const setItemAnalysisPlatformTab = useCallback(
-    (p: ItemAnalysisPlatformTab) => {
-      setItemAnalysisPlatform(p);
-      const next = new URLSearchParams(searchParams);
-      next.set('tab', 'item-analysis');
-      next.set('platform', p);
-      setSearchParams(next, { replace: true });
-    },
-    [searchParams, setSearchParams]
-  );
-
   const categoryNameById = useMemo(() => {
     const map = new Map<number, string>();
     reportingCategoryRows.forEach((row) => {
@@ -2412,10 +2143,10 @@ const Reporting: React.FC = () => {
           Cash Flow Analysis
         </button>
         <button
-          className={`view-toggle-button ${viewMode === 'item-analysis' ? 'active' : ''}`}
-          onClick={() => setViewMode('item-analysis')}
+          className={`view-toggle-button ${viewMode === 'projections' ? 'active' : ''}`}
+          onClick={() => setViewMode('projections')}
         >
-          Item Analysis
+          Projections
         </button>
       </div>
 
@@ -2454,9 +2185,12 @@ const Reporting: React.FC = () => {
             </select>
           </div>
 
-          <h2 className="reporting-section-heading">Current Sales</h2>
-          <div className="reporting-summary">
-            <div className="total-profit-card" style={{ paddingBottom: '12px' }}>
+          <section className="reporting-page-section" aria-labelledby="reporting-current-sales-heading">
+            <h2 id="reporting-current-sales-heading" className="reporting-section-heading">
+              Current Sales
+            </h2>
+          <div className="reporting-summary reporting-summary--sales-data">
+            <div className="total-profit-card reporting-summary-card--current-sales" style={{ paddingBottom: '12px' }}>
               <div className="total-profit-label">Current Sales</div>
               <div
                 style={{
@@ -2531,44 +2265,47 @@ const Reporting: React.FC = () => {
                 </div>
               </div>
             </div>
-            <div className="total-profit-card">
-              <div className="total-profit-label">
-                Platform Sales ({monthLabels[monthlySummaryMonth - 1]} {monthlySummaryYear})
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: 0 }}>
-                <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px' }}>
-                  <div style={{ fontSize: '0.9rem', color: 'rgba(255, 248, 226, 0.7)', letterSpacing: '0.05rem', fontWeight: 600 }}>Vinted =</div>
-                  <div className="total-profit-value positive" style={{ fontSize: '1.1rem', margin: 0 }}>
+            <div className="total-profit-card reporting-period-metric-card">
+              <div className="total-profit-label">Sales By Platform</div>
+              <div className="reporting-platform-sales-lines">
+                <div className="reporting-platform-sales-line">
+                  <span className="reporting-platform-sales-name">Vinted</span>
+                  <span className="total-profit-value positive reporting-platform-sales-amount">
                     {monthlySummaryLoading ? '...' : formatCurrency(monthlySummaryData?.vintedSales || 0)}
-                  </div>
+                  </span>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px' }}>
-                  <div style={{ fontSize: '0.9rem', color: 'rgba(255, 248, 226, 0.7)', letterSpacing: '0.05rem', fontWeight: 600 }}>eBay =</div>
-                  <div className="total-profit-value positive" style={{ fontSize: '1.1rem', margin: 0 }}>
+                <div className="reporting-platform-sales-line">
+                  <span className="reporting-platform-sales-name">eBay</span>
+                  <span className="total-profit-value positive reporting-platform-sales-amount">
                     {monthlySummaryLoading ? '...' : formatCurrency(monthlySummaryData?.ebaySales || 0)}
-                  </div>
+                  </span>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px' }}>
-                  <div style={{ fontSize: '0.9rem', color: 'rgba(255, 248, 226, 0.7)', letterSpacing: '0.05rem', fontWeight: 600 }}>Depop =</div>
-                  <div className="total-profit-value positive" style={{ fontSize: '1.1rem', margin: 0 }}>
+                <div className="reporting-platform-sales-line">
+                  <span className="reporting-platform-sales-name">Depop</span>
+                  <span className="total-profit-value positive reporting-platform-sales-amount">
                     {monthlySummaryLoading ? '...' : formatCurrency(monthlySummaryData?.depopSales || 0)}
-                  </div>
+                  </span>
                 </div>
               </div>
             </div>
-            <div className="total-profit-card">
-              <div className="total-profit-label">
-                Month Profit ({monthLabels[monthlySummaryMonth - 1]} {monthlySummaryYear})
+            <div className="total-profit-card reporting-period-metric-card">
+              <div className="total-profit-label">Stock Spent</div>
+              <div className="total-profit-value negative reporting-period-metric-value">
+                {monthlySummaryLoading ? '...' : formatCurrency(monthlySummaryData?.stockPurchasesInPeriod || 0)}
               </div>
-              <div className={`total-profit-value ${(monthlySummaryData?.monthProfit || 0) >= 0 ? 'positive' : 'negative'}`}>
+              <div className="total-profit-description">Stock purchased in selected month</div>
+            </div>
+            <div className="total-profit-card reporting-period-metric-card">
+              <div className="total-profit-label">Profit</div>
+              <div
+                className={`total-profit-value reporting-period-metric-value ${(monthlySummaryData?.monthProfit || 0) >= 0 ? 'positive' : 'negative'}`}
+              >
                 {monthlySummaryLoading ? '...' : formatCurrency(monthlySummaryData?.monthProfit || 0)}
               </div>
-              <div className="total-profit-description">Sales - Purchases for this month</div>
+              <div className="total-profit-description">Sales − purchase cost (sold items)</div>
             </div>
-            <div className="total-profit-card">
-              <div className="total-profit-label">
-                Expenses ({monthLabels[monthlySummaryMonth - 1]} {monthlySummaryYear})
-              </div>
+            <div className="total-profit-card reporting-period-metric-card">
+              <div className="total-profit-label">Expenses</div>
               {reportingExpensesError ? (
                 <div className="reporting-empty" style={{ marginTop: 8 }}>
                   {reportingExpensesError}
@@ -2579,7 +2316,7 @@ const Reporting: React.FC = () => {
                 </div>
               ) : (
                 <div
-                  className={`total-profit-value${reportingExpensesMonthTotal > 0 ? ' negative' : ''}`}
+                  className={`total-profit-value reporting-period-metric-value${reportingExpensesMonthTotal > 0 ? ' negative' : ''}`}
                 >
                   {formatCurrency(reportingExpensesMonthTotal)}
                 </div>
@@ -2735,8 +2472,12 @@ const Reporting: React.FC = () => {
               )}
             </div>
           )}
+          </section>
 
-          <h2 className="reporting-section-heading">All Time Sales</h2>
+          <section className="reporting-page-section" aria-labelledby="reporting-all-time-sales-heading">
+            <h2 id="reporting-all-time-sales-heading" className="reporting-section-heading">
+              All Time Sales
+            </h2>
           <div className="reporting-summary reporting-summary--grid-5">
             <div className="total-profit-card">
               <div className="total-profit-label">Total Company Profit (All Time)</div>
@@ -2772,7 +2513,7 @@ const Reporting: React.FC = () => {
             )}
             {yearSpecificTotals && (
               <div className="total-profit-card">
-                <div className="total-profit-label">Total Purchases (All Time)</div>
+                <div className="total-profit-label">Stock Cost</div>
                 <div className="total-profit-value negative">
                   {formatCurrency(yearSpecificTotals.totalPurchase)}
                 </div>
@@ -2918,7 +2659,12 @@ const Reporting: React.FC = () => {
               </div>
             )}
           </div>
+          </section>
 
+          <section className="reporting-page-section" aria-labelledby="reporting-graphs-heading">
+            <h2 id="reporting-graphs-heading" className="reporting-section-heading">
+              Graphs
+            </h2>
           <div className="reporting-grid">
           <section className="reporting-card">
             <div className="card-header">
@@ -3157,6 +2903,7 @@ const Reporting: React.FC = () => {
             </div>
           </section>
           </div>
+          </section>
 
           </>
         )}
@@ -3759,367 +3506,10 @@ const Reporting: React.FC = () => {
         </section>
       </div>
 
-      <div className={`view-content ${viewMode === 'item-analysis' ? 'active' : ''}`}>
-        <div className="item-analysis-toolbar">
-          <div className="item-analysis-toolbar-row">
-            <label className="item-analysis-field">
-              <span>Period</span>
-              <select
-                className="item-analysis-select"
-                value={itemAnalysisPreset}
-                onChange={(e) => setItemAnalysisPreset(e.target.value as ItemAnalysisPreset)}
-              >
-                <option value="current-month">Current month</option>
-                <option value="last-month">Last month</option>
-                <option value="custom-month">Choose month…</option>
-                <option value="current-year">Current year</option>
-                <option value="last-3-years">Last 3 years</option>
-              </select>
-            </label>
-            {itemAnalysisPreset === 'custom-month' && (
-              <>
-                <label className="item-analysis-field">
-                  <span>Year</span>
-                  <select
-                    className="item-analysis-select"
-                    value={itemAnalysisCustomYear}
-                    onChange={(e) => setItemAnalysisCustomYear(Number(e.target.value))}
-                  >
-                    {itemAnalysisYearOptions.map((yr) => (
-                      <option key={yr} value={yr}>
-                        {yr}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="item-analysis-field">
-                  <span>Month</span>
-                  <select
-                    className="item-analysis-select"
-                    value={itemAnalysisCustomMonth}
-                    onChange={(e) => setItemAnalysisCustomMonth(Number(e.target.value))}
-                  >
-                    {monthLabelsShort.map((label, i) => (
-                      <option key={label} value={i + 1}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="item-analysis-platform-tabs" role="tablist" aria-label="Item analysis platform">
-          <button
-            type="button"
-            role="tab"
-            id="item-analysis-tab-vinted"
-            aria-selected={itemAnalysisPlatform === 'vinted'}
-            aria-controls="item-analysis-panel-vinted"
-            className={`item-analysis-platform-tab${itemAnalysisPlatform === 'vinted' ? ' item-analysis-platform-tab--active' : ''}`}
-            onClick={() => setItemAnalysisPlatformTab('vinted')}
-          >
-            Vinted
-          </button>
-          <button
-            type="button"
-            role="tab"
-            id="item-analysis-tab-ebay"
-            aria-selected={itemAnalysisPlatform === 'ebay'}
-            aria-controls="item-analysis-panel-ebay"
-            className={`item-analysis-platform-tab${itemAnalysisPlatform === 'ebay' ? ' item-analysis-platform-tab--active' : ''}`}
-            onClick={() => setItemAnalysisPlatformTab('ebay')}
-          >
-            eBay
-          </button>
-        </div>
-
-        {itemAnalysisPlatform === 'ebay' && (
-          <div
-            id="item-analysis-panel-ebay"
-            role="tabpanel"
-            aria-labelledby="item-analysis-tab-ebay"
-            className="item-analysis-platform-panel"
-          >
-            <div className="item-analysis-section">
-              <h2 className="item-analysis-heading">eBay — best profit</h2>
-              {itemAnalysisEbayChart.chartData.labels.length > 0 ? (
-                <div
-                  className="chart-wrapper item-analysis-chart-wrap"
-                  style={{
-                    minHeight: Math.min(520, Math.max(200, itemAnalysisEbayChart.chartData.labels.length * 32)),
-                  }}
-                >
-                  <Bar
-                    data={itemAnalysisEbayChart.chartData}
-                    options={{
-                      ...itemAnalysisChartOptions,
-                      plugins: {
-                        ...itemAnalysisChartOptions.plugins,
-                        tooltip: {
-                          ...itemAnalysisChartOptions.plugins?.tooltip,
-                          callbacks: {
-                            ...itemAnalysisChartOptions.plugins?.tooltip?.callbacks,
-                            title(items) {
-                              const i = items[0]?.dataIndex;
-                              return i !== undefined ? itemAnalysisEbayChart.labelsFull[i] ?? '' : '';
-                            },
-                          },
-                        },
-                      },
-                    }}
-                  />
-                </div>
-              ) : (
-                <div className="reporting-empty">No eBay sales in this period.</div>
-              )}
-
-              <div className="item-analysis-table-wrap">
-                {itemAnalysisEbayItems.length > 0 ? (
-                  <table className="item-analysis-table">
-                    <thead>
-                      <tr>
-                        <th>Item</th>
-                        <th>Price paid</th>
-                        <th>Sold price</th>
-                        <th>Price ×</th>
-                        <th>Profit</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {itemAnalysisEbayItems.map((row) => (
-                        <tr key={`ebay-${row.id}-${row.name}`}>
-                          <td className="item-analysis-name">{row.name}</td>
-                          <td>{formatCurrency(row.purchase)}</td>
-                          <td>{formatCurrency(row.sale)}</td>
-                          <td>{row.multiplier !== null ? `${row.multiplier.toFixed(2)}×` : '—'}</td>
-                          <td className={row.profit >= 0 ? 'item-analysis-profit-pos' : 'item-analysis-profit-neg'}>
-                            {formatCurrency(row.profit)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : (
-                  <div className="reporting-empty item-analysis-table-empty">No rows to show.</div>
-                )}
-              </div>
-            </div>
-
-            <div className="item-analysis-section item-analysis-section--worst">
-              <h2 className="item-analysis-heading">eBay — lowest profit (10)</h2>
-              {itemAnalysisWorstEbayChart.chartData.labels.length > 0 ? (
-                <div
-                  className="chart-wrapper item-analysis-chart-wrap"
-                  style={{
-                    minHeight: Math.min(
-                      400,
-                      Math.max(200, itemAnalysisWorstEbayChart.chartData.labels.length * 32)
-                    ),
-                  }}
-                >
-                  <Bar
-                    data={itemAnalysisWorstEbayChart.chartData}
-                    options={{
-                      ...itemAnalysisChartOptions,
-                      plugins: {
-                        ...itemAnalysisChartOptions.plugins,
-                        tooltip: {
-                          ...itemAnalysisChartOptions.plugins?.tooltip,
-                          callbacks: {
-                            ...itemAnalysisChartOptions.plugins?.tooltip?.callbacks,
-                            title(items) {
-                              const i = items[0]?.dataIndex;
-                              return i !== undefined ? itemAnalysisWorstEbayChart.labelsFull[i] ?? '' : '';
-                            },
-                          },
-                        },
-                      },
-                    }}
-                  />
-                </div>
-              ) : (
-                <div className="reporting-empty">No eBay sales in this period.</div>
-              )}
-
-              <div className="item-analysis-table-wrap">
-                {itemAnalysisWorstEbayTop.length > 0 ? (
-                  <table className="item-analysis-table">
-                    <thead>
-                      <tr>
-                        <th>Item</th>
-                        <th>Price paid</th>
-                        <th>Sold price</th>
-                        <th>Price ×</th>
-                        <th>Profit</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {itemAnalysisWorstEbayTop.map((row) => (
-                        <tr key={`ebay-worst-${row.id}-${row.name}`}>
-                          <td className="item-analysis-name">{row.name}</td>
-                          <td>{formatCurrency(row.purchase)}</td>
-                          <td>{formatCurrency(row.sale)}</td>
-                          <td>{row.multiplier !== null ? `${row.multiplier.toFixed(2)}×` : '—'}</td>
-                          <td className={row.profit >= 0 ? 'item-analysis-profit-pos' : 'item-analysis-profit-neg'}>
-                            {formatCurrency(row.profit)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : (
-                  <div className="reporting-empty item-analysis-table-empty">No rows to show.</div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {itemAnalysisPlatform === 'vinted' && (
-          <div
-            id="item-analysis-panel-vinted"
-            role="tabpanel"
-            aria-labelledby="item-analysis-tab-vinted"
-            className="item-analysis-platform-panel item-analysis-platform-panel--vinted"
-          >
-            <div className="item-analysis-section item-analysis-section--vinted">
-              <h2 className="item-analysis-heading">Vinted — best profit</h2>
-              {itemAnalysisVintedChart.chartData.labels.length > 0 ? (
-                <div
-                  className="chart-wrapper item-analysis-chart-wrap"
-                  style={{
-                    minHeight: Math.min(520, Math.max(200, itemAnalysisVintedChart.chartData.labels.length * 32)),
-                  }}
-                >
-                  <Bar
-                    data={itemAnalysisVintedChart.chartData}
-                    options={{
-                      ...itemAnalysisChartOptions,
-                      plugins: {
-                        ...itemAnalysisChartOptions.plugins,
-                        tooltip: {
-                          ...itemAnalysisChartOptions.plugins?.tooltip,
-                          callbacks: {
-                            ...itemAnalysisChartOptions.plugins?.tooltip?.callbacks,
-                            title(items) {
-                              const i = items[0]?.dataIndex;
-                              return i !== undefined ? itemAnalysisVintedChart.labelsFull[i] ?? '' : '';
-                            },
-                          },
-                        },
-                      },
-                    }}
-                  />
-                </div>
-              ) : (
-                <div className="reporting-empty">No Vinted sales in this period.</div>
-              )}
-
-              <div className="item-analysis-table-wrap">
-                {itemAnalysisVintedItems.length > 0 ? (
-                  <table className="item-analysis-table">
-                    <thead>
-                      <tr>
-                        <th>Item</th>
-                        <th>Price paid</th>
-                        <th>Sold price</th>
-                        <th>Price ×</th>
-                        <th>Profit</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {itemAnalysisVintedItems.map((row) => (
-                        <tr key={`vinted-${row.id}-${row.name}`}>
-                          <td className="item-analysis-name">{row.name}</td>
-                          <td>{formatCurrency(row.purchase)}</td>
-                          <td>{formatCurrency(row.sale)}</td>
-                          <td>{row.multiplier !== null ? `${row.multiplier.toFixed(2)}×` : '—'}</td>
-                          <td className={row.profit >= 0 ? 'item-analysis-profit-pos' : 'item-analysis-profit-neg'}>
-                            {formatCurrency(row.profit)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : (
-                  <div className="reporting-empty item-analysis-table-empty">No rows to show.</div>
-                )}
-              </div>
-            </div>
-
-            <div className="item-analysis-section item-analysis-section--vinted item-analysis-section--worst">
-              <h2 className="item-analysis-heading">Vinted — lowest profit (10)</h2>
-              {itemAnalysisWorstVintedChart.chartData.labels.length > 0 ? (
-                <div
-                  className="chart-wrapper item-analysis-chart-wrap"
-                  style={{
-                    minHeight: Math.min(
-                      400,
-                      Math.max(200, itemAnalysisWorstVintedChart.chartData.labels.length * 32)
-                    ),
-                  }}
-                >
-                  <Bar
-                    data={itemAnalysisWorstVintedChart.chartData}
-                    options={{
-                      ...itemAnalysisChartOptions,
-                      plugins: {
-                        ...itemAnalysisChartOptions.plugins,
-                        tooltip: {
-                          ...itemAnalysisChartOptions.plugins?.tooltip,
-                          callbacks: {
-                            ...itemAnalysisChartOptions.plugins?.tooltip?.callbacks,
-                            title(items) {
-                              const i = items[0]?.dataIndex;
-                              return i !== undefined ? itemAnalysisWorstVintedChart.labelsFull[i] ?? '' : '';
-                            },
-                          },
-                        },
-                      },
-                    }}
-                  />
-                </div>
-              ) : (
-                <div className="reporting-empty">No Vinted sales in this period.</div>
-              )}
-
-              <div className="item-analysis-table-wrap">
-                {itemAnalysisWorstVintedTop.length > 0 ? (
-                  <table className="item-analysis-table">
-                    <thead>
-                      <tr>
-                        <th>Item</th>
-                        <th>Price paid</th>
-                        <th>Sold price</th>
-                        <th>Price ×</th>
-                        <th>Profit</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {itemAnalysisWorstVintedTop.map((row) => (
-                        <tr key={`vinted-worst-${row.id}-${row.name}`}>
-                          <td className="item-analysis-name">{row.name}</td>
-                          <td>{formatCurrency(row.purchase)}</td>
-                          <td>{formatCurrency(row.sale)}</td>
-                          <td>{row.multiplier !== null ? `${row.multiplier.toFixed(2)}×` : '—'}</td>
-                          <td className={row.profit >= 0 ? 'item-analysis-profit-pos' : 'item-analysis-profit-neg'}>
-                            {formatCurrency(row.profit)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : (
-                  <div className="reporting-empty item-analysis-table-empty">No rows to show.</div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
+      <div className={`view-content ${viewMode === 'projections' ? 'active' : ''}`}>
+        <ExpensesProjectionsPanel labelledBy="reporting-tab-projections" />
       </div>
+
     </div>
   );
 };

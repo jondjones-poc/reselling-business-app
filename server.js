@@ -9948,6 +9948,18 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
     );
     const unsoldPurchases = Number(unsoldPurchasesResult.rows[0]?.total_purchases || 0);
 
+    const stockPurchasesInPeriodResult = await pool.query(
+      `
+        SELECT SUM(COALESCE(purchase_price, 0))::numeric AS total_purchases
+        FROM stock
+        WHERE purchase_date IS NOT NULL
+          AND EXTRACT(YEAR FROM purchase_date)::int = $1
+          AND EXTRACT(MONTH FROM purchase_date)::int = $2
+      `,
+      [requestedYear, requestedMonth]
+    );
+    const stockPurchasesInPeriod = Number(stockPurchasesInPeriodResult.rows[0]?.total_purchases || 0);
+
     const unsoldInPeriodResult = await pool.query(
       `
         SELECT
@@ -10050,6 +10062,7 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
         profit: depopProfit
       },
       unsoldPurchases,
+      stockPurchasesInPeriod,
       unsoldPurchasedInPeriod: {
         items: unsoldPurchasedInPeriodItems,
         count: unsoldPurchasedInPeriodItems.length,

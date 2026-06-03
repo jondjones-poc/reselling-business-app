@@ -4164,14 +4164,14 @@ button.image-upload-label {
   padding: 10px 12px;
   box-sizing: border-box;
   border-radius: 12px;
-  border: 1px solid var(--neon-border);
+  border: 1px solid rgba(255, 214, 91, 0.22);
   background: linear-gradient(
     165deg,
-    rgba(255, 214, 91, 0.09) 0%,
-    rgba(22, 19, 16, 0.9) 45%,
-    rgba(10, 9, 7, 0.97) 100%
+    rgba(255, 214, 91, 0.05) 0%,
+    rgba(22, 19, 16, 0.92) 45%,
+    rgba(10, 9, 7, 0.98) 100%
   );
-  color: var(--text-strong);
+  color: rgba(255, 248, 226, 0.62);
   font: inherit;
   font-size: 0.86rem;
   font-weight: 600;
@@ -4181,11 +4181,16 @@ button.image-upload-label {
     border-color 0.2s ease,
     background 0.2s ease,
     box-shadow 0.2s ease,
-    color 0.2s ease;
+    color 0.2s ease,
+    transform 0.15s ease,
+    opacity 0.2s ease;
+  opacity: 0.72;
 }
 
 .research-menswear-department-box:hover {
+  opacity: 0.92;
   border-color: var(--neon-border-strong);
+  color: var(--text-strong);
   background: linear-gradient(
     165deg,
     rgba(255, 214, 91, 0.13) 0%,
@@ -4201,17 +4206,20 @@ button.image-upload-label {
 }
 
 .research-menswear-department-box--active {
-  border-color: var(--neon-border-strong);
+  opacity: 1;
+  border-width: 2px;
+  border-color: var(--neon-primary-strong, #ffd65b);
   background: linear-gradient(
     165deg,
-    rgba(255, 214, 91, 0.18) 0%,
-    rgba(30, 26, 20, 0.94) 42%,
-    rgba(14, 12, 10, 0.99) 100%
+    rgba(255, 214, 91, 0.28) 0%,
+    rgba(36, 31, 22, 0.96) 42%,
+    rgba(14, 12, 10, 1) 100%
   );
   color: var(--text-strong);
+  font-weight: 700;
   box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.22) inset,
-    0 0 26px rgba(255, 214, 91, 0.14);
+    0 0 0 1px rgba(255, 214, 91, 0.3) inset,
+    0 0 22px rgba(255, 214, 91, 0.22);
 }
 
 .research-menswear-department-box-name {

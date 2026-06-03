@@ -212,18 +212,176 @@
   outline: none;
 }
 
-.reporting-section-heading {
-  margin: 28px 0 16px 0;
+.reporting-page-section {
   width: 100%;
-  font-size: 1.35rem;
-  font-weight: 700;
-  letter-spacing: 0.06rem;
-  color: var(--neon-primary-strong);
-  text-align: center;
+  margin: 0 0 36px 0;
+  padding: 22px 20px 26px;
+  box-sizing: border-box;
+  background: rgba(5, 4, 3, 0.72);
+  border: 1px solid rgba(255, 214, 91, 0.26);
+  border-radius: 20px;
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 214, 91, 0.08);
 }
 
-.reporting-section-heading:first-of-type {
-  margin-top: 8px;
+.reporting-page-section:first-of-type {
+  margin-top: 4px;
+}
+
+.reporting-page-section + .reporting-page-section {
+  margin-top: 4px;
+}
+
+.reporting-section-heading {
+  margin: 0 0 22px 0;
+  padding: 0 0 14px 0;
+  width: 100%;
+  font-size: 1.55rem;
+  font-weight: 800;
+  letter-spacing: 0.1rem;
+  text-transform: uppercase;
+  color: var(--neon-primary-strong);
+  text-align: center;
+  border-bottom: 2px solid rgba(255, 214, 91, 0.42);
+  text-shadow: 0 0 18px rgba(255, 214, 91, 0.25);
+}
+
+.reporting-page-section .reporting-section-heading {
+  margin-top: 0;
+}
+
+@media (max-width: 768px) {
+  .reporting-page-section {
+    padding: 18px 14px 22px;
+    border-radius: 16px;
+    margin-bottom: 28px;
+  }
+
+  .reporting-section-heading {
+    font-size: 1.25rem;
+    letter-spacing: 0.07rem;
+    padding-bottom: 12px;
+    margin-bottom: 18px;
+  }
+}
+
+/* Sales-data summary: Current Sales + period metric cards */
+.reporting-summary--sales-data {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.reporting-summary--sales-data .total-profit-card {
+  width: 100%;
+  flex: initial;
+  min-width: 0;
+}
+
+@media (min-width: 768px) {
+  .reporting-summary--sales-data {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+  }
+
+  .reporting-summary--sales-data .reporting-summary-card--current-sales {
+    grid-column: 1 / -1;
+  }
+
+  .reporting-period-metric-card {
+    padding: 18px 14px;
+    gap: 8px;
+  }
+
+  .reporting-period-metric-card .total-profit-label {
+    font-size: 0.72rem;
+    letter-spacing: 0.06rem;
+    line-height: 1.25;
+  }
+
+  .reporting-period-metric-card .total-profit-description {
+    font-size: 0.68rem;
+    letter-spacing: 0.03rem;
+    line-height: 1.3;
+  }
+
+  .reporting-period-metric-value {
+    font-size: clamp(1.15rem, 2.4vw, 1.65rem) !important;
+    margin: 4px 0;
+  }
+
+  .reporting-platform-sales-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    flex: 1;
+    justify-content: center;
+    min-height: 0;
+  }
+
+  .reporting-platform-sales-line {
+    display: flex;
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .reporting-platform-sales-name {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.04rem;
+    color: rgba(255, 248, 226, 0.7);
+    flex-shrink: 0;
+  }
+
+  .reporting-platform-sales-amount {
+    font-size: clamp(0.85rem, 1.8vw, 1rem) !important;
+    margin: 0 !important;
+    text-align: right;
+  }
+}
+
+@media (min-width: 1100px) {
+  .reporting-summary--sales-data {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 16px;
+  }
+
+  .reporting-summary--sales-data .reporting-summary-card--current-sales {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 767px) {
+  .reporting-platform-sales-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    align-items: center;
+    width: 100%;
+  }
+
+  .reporting-platform-sales-line {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .reporting-platform-sales-name {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: rgba(255, 248, 226, 0.7);
+  }
+
+  .reporting-platform-sales-amount {
+    font-size: 1.1rem !important;
+    margin: 0 !important;
+  }
 }
 
 .reporting-summary--grid-5 {

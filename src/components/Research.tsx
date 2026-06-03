@@ -8038,7 +8038,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           className={`research-tab${researchTab === 'brand' ? ' active' : ''}`}
           onClick={() => setResearchTab('brand')}
         >
-          Brand research
+          Sales by Brand
         </button>
         <button
           type="button"
@@ -8082,7 +8082,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           className={`research-tab${researchTab === 'sourced' ? ' active' : ''}`}
           onClick={() => setResearchTab('sourced')}
         >
-          Sourced
+          Sales by Channel
         </button>
       </nav>
       )}
@@ -8253,7 +8253,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
             !brandsApiError &&
             brandsWithWebsites.length === 0 && (
               <div className="brand-tag-examples-muted" style={{ marginBottom: 12 }}>
-                Brand Research needs the API — see the notice at the top of this page.
+                Sales by Brand needs the API — see the notice at the top of this page.
               </div>
             )}
           {brandsLoaded &&
