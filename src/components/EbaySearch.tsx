@@ -152,7 +152,6 @@ const EbaySearch: React.FC = () => {
     setSelectedColor('');
     setSelectedPattern('');
     setSelectedBrand('');
-    setIncludeMens(true);
     setScannedData(null);
     setShowScanner(false);
   };
