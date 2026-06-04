@@ -7,8 +7,8 @@ const crypto = require('crypto');
 const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
 
 const DEFAULT_INTEGRATION_KEY = 'default';
-const DEFAULT_SCOPES =
-  'https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly https://api.ebay.com/oauth/api_scope/sell.analytics.readonly';
+const FULFILLMENT_SCOPE = 'https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly';
+const ANALYTICS_SCOPE = 'https://api.ebay.com/oauth/api_scope/sell.analytics.readonly';
 const TOKEN_URL = 'https://api.ebay.com/identity/v1/oauth2/token';
 const AUTHORIZE_BASE = 'https://auth.ebay.com/oauth2/authorize';
 
@@ -31,7 +31,17 @@ function getEbayClientCreds() {
 }
 
 function getScopeString() {
-  return (process.env.EBAY_OAUTH_SCOPES && String(process.env.EBAY_OAUTH_SCOPES).trim()) || DEFAULT_SCOPES;
+  const explicit = process.env.EBAY_OAUTH_SCOPES && String(process.env.EBAY_OAUTH_SCOPES).trim();
+  if (explicit) return explicit;
+  const includeAnalytics =
+    process.env.EBAY_OAUTH_INCLUDE_ANALYTICS === '1' ||
+    process.env.EBAY_OAUTH_INCLUDE_ANALYTICS === 'true';
+  return includeAnalytics ? `${FULFILLMENT_SCOPE} ${ANALYTICS_SCOPE}` : FULFILLMENT_SCOPE;
+}
+
+function scopeIncludesAnalytics(scope) {
+  if (!scope) return false;
+  return String(scope).includes('sell.analytics');
 }
 
 /**
@@ -75,40 +85,104 @@ function getOAuthStateSecretKey() {
   return crypto.createHash('sha256').update(`ebay-oauth-state|${creds.clientId}|${creds.clientSecret}`).digest();
 }
 
-function createOAuthState() {
+function createOAuthState(options = {}) {
   const exp = Date.now() + STATE_TTL_MS;
   const nonce = crypto.randomBytes(18).toString('base64url');
-  const payload = Buffer.from(JSON.stringify({ exp, nonce }), 'utf8').toString('base64url');
+  const payloadObj = { exp, nonce };
+  if (options.returnTo && typeof options.returnTo === 'string') {
+    payloadObj.returnTo = options.returnTo.slice(0, 500);
+  }
+  const payload = Buffer.from(JSON.stringify(payloadObj), 'utf8').toString('base64url');
   const key = getOAuthStateSecretKey();
   const sig = crypto.createHmac('sha256', key).update(payload, 'utf8').digest('base64url');
   return `${payload}.${sig}`;
 }
 
+function getAllowedOAuthReturnOrigins() {
+  const origins = new Set([
+    'http://localhost:3000',
+    'http://localhost:3001',
+    `http://localhost:${process.env.PORT || 5003}`
+  ]);
+  const addOrigin = (value) => {
+    if (!value || typeof value !== 'string') return;
+    try {
+      origins.add(new URL(value.trim()).origin);
+    } catch {
+      /* ignore invalid URL */
+    }
+  };
+  addOrigin(process.env.FRONTEND_DEV_ORIGIN);
+  addOrigin(process.env.EBAY_OAUTH_SUCCESS_REDIRECT_URL);
+  addOrigin(process.env.EBAY_OAUTH_ERROR_REDIRECT_URL);
+  const extra = process.env.EBAY_OAUTH_ALLOWED_RETURN_ORIGINS || '';
+  for (const part of extra.split(',')) {
+    const trimmed = part.trim().replace(/\/$/, '');
+    if (trimmed) origins.add(trimmed);
+  }
+  return origins;
+}
+
+/** Prevent open redirects; allow localhost and configured app origins. */
+function sanitizeOAuthReturnTo(returnTo) {
+  if (!returnTo || typeof returnTo !== 'string') return null;
+  const trimmed = returnTo.trim();
+  if (!trimmed || trimmed.length > 500) return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    const origin = parsed.origin;
+    const isLocalhost =
+      /^https?:\/\/localhost(:\d+)?$/i.test(origin) ||
+      /^https?:\/\/127\.0\.0\.1(:\d+)?$/i.test(origin);
+    if (!isLocalhost && !getAllowedOAuthReturnOrigins().has(origin)) return null;
+    return `${origin}${parsed.pathname}${parsed.search}`;
+  } catch {
+    return null;
+  }
+}
+
+function buildOAuthReturnUrls(returnTo) {
+  const safe = sanitizeOAuthReturnTo(returnTo);
+  if (safe) {
+    const successUrl = new URL(safe);
+    successUrl.searchParams.set('ebay_oauth', 'success');
+    successUrl.searchParams.delete('ebay_oauth_msg');
+    const errorUrl = new URL(safe);
+    errorUrl.searchParams.set('ebay_oauth', 'error');
+    errorUrl.searchParams.delete('ebay_oauth_msg');
+    return { success: successUrl.toString(), errorBase: errorUrl.toString() };
+  }
+  return null;
+}
+
 function consumeOAuthState(state) {
-  if (!state || typeof state !== 'string') return false;
+  if (!state || typeof state !== 'string') return null;
   const dot = state.lastIndexOf('.');
-  if (dot <= 0) return false;
+  if (dot <= 0) return null;
   const payload = state.slice(0, dot);
   const sig = state.slice(dot + 1);
-  if (!payload || !sig) return false;
+  if (!payload || !sig) return null;
   let key;
   try {
     key = getOAuthStateSecretKey();
   } catch {
-    return false;
+    return null;
   }
   const expected = crypto.createHmac('sha256', key).update(payload, 'utf8').digest('base64url');
   const sigBuf = Buffer.from(sig, 'utf8');
   const expBuf = Buffer.from(expected, 'utf8');
-  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) return false;
+  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) return null;
   let data;
   try {
     data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
   } catch {
-    return false;
+    return null;
   }
-  if (!data || typeof data.exp !== 'number' || Date.now() > data.exp) return false;
-  return true;
+  if (!data || typeof data.exp !== 'number' || Date.now() > data.exp) return null;
+  return {
+    returnTo: typeof data.returnTo === 'string' ? data.returnTo : undefined
+  };
 }
 
 function invalidateAccessTokenCache() {
@@ -274,11 +348,16 @@ async function getFulfillmentUserAccessToken(pool) {
 
 module.exports = {
   DEFAULT_INTEGRATION_KEY,
+  FULFILLMENT_SCOPE,
+  ANALYTICS_SCOPE,
   getEbayClientCreds,
   getEbayOAuthRuName,
   getScopeString,
+  scopeIncludesAnalytics,
   createOAuthState,
   consumeOAuthState,
+  sanitizeOAuthReturnTo,
+  buildOAuthReturnUrls,
   buildAuthorizeUrl,
   exchangeAuthorizationCode,
   exchangeRefreshToken,

@@ -134,6 +134,29 @@ const loadSettings = () => {
   }
 };
 
+function supabaseProjectRefFromUrl(supabaseUrl) {
+  if (!supabaseUrl || typeof supabaseUrl !== 'string') return null;
+  try {
+    const hostname = new URL(supabaseUrl.trim()).hostname;
+    const ref = hostname.split('.')[0];
+    return ref || null;
+  } catch {
+    return null;
+  }
+}
+
+function buildSupabaseConnectionStringFromEnv() {
+  const supabasePassword = process.env.SUPABASE_DB_PASSWORD;
+  if (!supabasePassword) return null;
+
+  const explicitHost = process.env.SUPABASE_DB_HOST?.trim();
+  const projectRef = supabaseProjectRefFromUrl(process.env.SUPABASE_URL);
+  const dbHost = explicitHost || (projectRef ? `db.${projectRef}.supabase.co` : null);
+  if (!dbHost) return null;
+
+  return `postgresql://postgres:${encodeURIComponent(supabasePassword)}@${dbHost}:5432/postgres`;
+}
+
 const getDatabasePool = () => {
   if (dbPool) {
     return dbPool;
@@ -142,62 +165,40 @@ const getDatabasePool = () => {
   let connectionString = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL;
 
   if (!connectionString) {
-    const supabasePassword = process.env.SUPABASE_DB_PASSWORD;
-    if (!supabasePassword) {
-      console.warn('Supabase password not configured. Set SUPABASE_DB_PASSWORD.');
+    connectionString = buildSupabaseConnectionStringFromEnv();
+    if (!connectionString) {
+      console.warn(
+        'Supabase DB not configured. Set SUPABASE_DB_URL, DATABASE_URL, or SUPABASE_DB_PASSWORD + SUPABASE_URL.'
+      );
       return null;
     }
-
-    connectionString = `postgresql://postgres:${encodeURIComponent(
-      supabasePassword
-    )}@db.kahnqiidabxomhvmfmgp.supabase.co:5432/postgres`;
-  }
-
-  if (!connectionString) {
-    console.warn('Supabase connection string not configured. Set SUPABASE_DB_URL.');
-    return null;
   }
 
   let originalHostname = null;
-  let resolvedHostAddress = null;
-
   try {
-    const dbUrl = new URL(connectionString);
-    originalHostname = dbUrl.hostname;
-
-    if (typeof dns.lookupSync === 'function') {
-      const lookupResult = dns.lookupSync(originalHostname, { family: 4 });
-      resolvedHostAddress =
-        typeof lookupResult === 'string' ? lookupResult : lookupResult.address;
-    }
-  } catch (error) {
-    console.warn('Unable to pre-resolve IPv4 address for database host:', error.message);
+    originalHostname = new URL(connectionString).hostname;
+  } catch {
+    /* ignore invalid connection string here; pg will error on connect */
   }
 
+  const forceIpv4 = process.env.SUPABASE_DB_FORCE_IPV4 === '1';
   const poolConfig = {
     connectionString,
     ssl: {
       rejectUnauthorized: false,
       ...(originalHostname ? { servername: originalHostname } : {})
-    },
-    lookup: (hostname, options, callback) => {
-      const lookupOptions = {
-        family: 4,
-        hints: dns.ADDRCONFIG
-      };
-
-      if (options) {
-        Object.assign(lookupOptions, options);
-        lookupOptions.hints = (options.hints ?? 0) | dns.ADDRCONFIG;
-        lookupOptions.family = 4;
-      }
-
-      return dns.lookup(hostname, lookupOptions, callback);
     }
   };
 
-  if (resolvedHostAddress) {
-    poolConfig.host = resolvedHostAddress;
+  if (forceIpv4) {
+    poolConfig.lookup = (hostname, options, callback) => {
+      const lookupOptions = {
+        ...(options || {}),
+        family: 4,
+        hints: ((options && options.hints) || 0) | dns.ADDRCONFIG
+      };
+      return dns.lookup(hostname, lookupOptions, callback);
+    };
   }
 
   dbPool = new Pool(poolConfig);
@@ -304,21 +305,9 @@ app.get('/api/test', (req, res) => {
 });
 
 /**
- * Minimal DB round-trip to wake free-tier Supabase when idle.
- * If DB_KEEPALIVE_SECRET is set on the server, callers must send the same value as
- * `Authorization: Bearer <secret>` or `?secret=<secret>` (header preferred).
+ * Minimal DB round-trip to wake free-tier Supabase when idle (browser-safe, no secret).
  */
 app.get('/api/db-ping', async (req, res) => {
-  const keepSecret = process.env.DB_KEEPALIVE_SECRET;
-  if (keepSecret) {
-    const auth = String(req.get('authorization') || '').trim();
-    const m = /^Bearer\s+(.+)$/i.exec(auth);
-    const bearer = m ? m[1].trim() : '';
-    const qSecret = String(req.query.secret ?? '').trim();
-    if (bearer !== keepSecret && qSecret !== keepSecret) {
-      return res.status(401).json({ ok: false, error: 'Unauthorized' });
-    }
-  }
   try {
     const pool = getDatabasePool();
     if (!pool) {
@@ -332,11 +321,44 @@ app.get('/api/db-ping', async (req, res) => {
   }
 });
 
+/**
+ * Authenticated keepalive for cron (Cloudflare Worker). Requires DB_KEEPALIVE_SECRET.
+ */
+app.get('/api/db-keepalive', async (req, res) => {
+  const keepSecret = process.env.DB_KEEPALIVE_SECRET;
+  if (!keepSecret) {
+    return res.status(503).json({ ok: false, error: 'DB_KEEPALIVE_SECRET not configured' });
+  }
+  const auth = String(req.get('authorization') || '').trim();
+  const m = /^Bearer\s+(.+)$/i.exec(auth);
+  const bearer = m ? m[1].trim() : '';
+  const qSecret = String(req.query.secret ?? '').trim();
+  if (bearer !== keepSecret && qSecret !== keepSecret) {
+    return res.status(401).json({ ok: false, error: 'Unauthorized' });
+  }
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ ok: false, error: 'Database not configured' });
+    }
+    await pool.query('SELECT 1');
+    res.json({ ok: true, t: new Date().toISOString() });
+  } catch (error) {
+    console.error('db-keepalive failed:', error);
+    res.status(500).json({ ok: false, error: error?.message || 'keepalive failed' });
+  }
+});
+
 /** Redirect browser to eBay to sign in and grant sell.fulfillment (Authorization Code). */
 app.get('/api/ebay/oauth/start', (req, res) => {
   try {
-    const state = ebaySellerOAuth.createOAuthState();
+    const returnTo =
+      req.query.return_to != null ? String(req.query.return_to) : '';
+    const state = ebaySellerOAuth.createOAuthState({ returnTo });
     const url = ebaySellerOAuth.buildAuthorizeUrl(state);
+    console.log(
+      `[eBay OAuth] start return_to=${returnTo ? ebaySellerOAuth.sanitizeOAuthReturnTo(returnTo) || returnTo.slice(0, 80) : '(default)'}`
+    );
     res.redirect(302, url);
   } catch (error) {
     console.error('eBay OAuth start error:', error);
@@ -344,21 +366,44 @@ app.get('/api/ebay/oauth/start', (req, res) => {
   }
 });
 
+function getDefaultOAuthFrontendRedirects() {
+  const frontendDevOrigin = (process.env.FRONTEND_DEV_ORIGIN || 'http://localhost:3000').replace(
+    /\/$/,
+    ''
+  );
+  return {
+    success:
+      process.env.EBAY_OAUTH_SUCCESS_REDIRECT_URL?.trim() ||
+      `${frontendDevOrigin}/orders?tab=sales&ebay_oauth=success`,
+    errorBase:
+      process.env.EBAY_OAUTH_ERROR_REDIRECT_URL?.trim() ||
+      `${frontendDevOrigin}/orders?tab=sales&ebay_oauth=error`
+  };
+}
+
+function resolveOAuthFrontendRedirects(stateValue) {
+  const stateData = ebaySellerOAuth.consumeOAuthState(stateValue);
+  if (stateData?.returnTo) {
+    const fromState = ebaySellerOAuth.buildOAuthReturnUrls(stateData.returnTo);
+    if (fromState) return { redirects: fromState, stateData };
+  }
+  return { redirects: getDefaultOAuthFrontendRedirects(), stateData };
+}
+
 /**
  * eBay redirects here after consent. Exchanges `code` for refresh token and stores it in `ebay_oauth_token`.
  * RuName’s Auth Accepted URL must hit this route. OAuth requests use EBAY_OAUTH_RU_NAME (RuName string), not a raw URL.
  */
 app.get('/api/ebay/oauth/callback', async (req, res) => {
-  const frontendSuccess =
-    process.env.EBAY_OAUTH_SUCCESS_REDIRECT_URL?.trim() ||
-    'http://localhost:3000/orders?tab=sales&ebay_oauth=success';
-  const frontendErrorBase =
-    process.env.EBAY_OAUTH_ERROR_REDIRECT_URL?.trim() ||
-    'http://localhost:3000/orders?tab=sales&ebay_oauth=error';
-
   const code = req.query.code != null ? String(req.query.code) : '';
   const state = req.query.state != null ? String(req.query.state) : '';
   const oauthErr = req.query.error != null ? String(req.query.error) : '';
+  const { redirects, stateData } = resolveOAuthFrontendRedirects(state);
+  const frontendSuccess = redirects.success;
+  const frontendErrorBase = redirects.errorBase;
+  console.log(
+    `[eBay OAuth] callback state_ok=${Boolean(stateData)} success_redirect=${frontendSuccess.slice(0, 120)}`
+  );
 
   if (oauthErr) {
     const desc =
@@ -366,7 +411,7 @@ app.get('/api/ebay/oauth/callback', async (req, res) => {
     return res.redirect(302, `${frontendErrorBase}&ebay_oauth_msg=${encodeURIComponent(desc)}`);
   }
 
-  if (!code || !state || !ebaySellerOAuth.consumeOAuthState(state)) {
+  if (!code || !state || !stateData) {
     return res.redirect(
       302,
       `${frontendErrorBase}&ebay_oauth_msg=${encodeURIComponent('invalid_or_expired_state')}`
@@ -374,14 +419,35 @@ app.get('/api/ebay/oauth/callback', async (req, res) => {
   }
 
   try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      throw new Error('Database not configured');
+    }
+
+    const integrationKey = (
+      process.env.EBAY_OAUTH_INTEGRATION_KEY || ebaySellerOAuth.DEFAULT_INTEGRATION_KEY
+    ).trim();
+
     const tokens = await ebaySellerOAuth.exchangeAuthorizationCode(code);
-    const refresh = tokens.refresh_token;
+    let refresh = tokens.refresh_token != null ? String(tokens.refresh_token).trim() : '';
+    if (!refresh) {
+      const existing = await pool.query(
+        `SELECT refresh_token FROM ebay_oauth_token WHERE integration_key = $1`,
+        [integrationKey]
+      );
+      refresh = existing.rows?.[0]?.refresh_token
+        ? String(existing.rows[0].refresh_token).trim()
+        : '';
+    }
     if (!refresh) {
       throw new Error(
-        'eBay did not return refresh_token. Confirm OAuth scopes include sell.fulfillment and try again.'
+        'eBay did not return refresh_token. Try Connect eBay seller again, or clear the old link in eBay account settings and reconnect.'
       );
     }
-    const scope = ebaySellerOAuth.getScopeString();
+
+    const scopeGranted =
+      (tokens.scope && String(tokens.scope).trim()) || ebaySellerOAuth.getScopeString();
+
     let userName = 'seller';
     let ebayUserId = null;
     try {
@@ -394,22 +460,25 @@ app.get('/api/ebay/oauth/callback', async (req, res) => {
       console.warn('eBay Identity user fetch skipped:', idErr?.message || idErr);
     }
 
-    const pool = getDatabasePool();
-    if (!pool) {
-      throw new Error('Database not configured');
-    }
-
-    const integrationKey = (
-      process.env.EBAY_OAUTH_INTEGRATION_KEY || ebaySellerOAuth.DEFAULT_INTEGRATION_KEY
-    ).trim();
     await ebaySellerOAuth.upsertRefreshToken(pool, {
       userName,
-      refreshToken: String(refresh),
-      scope,
+      refreshToken: refresh,
+      scope: scopeGranted,
       ebayUserId
     });
+
+    const verify = await pool.query(
+      `SELECT refresh_token FROM ebay_oauth_token WHERE integration_key = $1`,
+      [integrationKey]
+    );
+    if (!verify.rows?.[0]?.refresh_token) {
+      throw new Error('Token save verification failed — check database connection and try again.');
+    }
+
     ebaySellerOAuth.invalidateAccessTokenCache();
-    console.log(`[eBay OAuth] refresh token stored (integration_key=${integrationKey})`);
+    console.log(
+      `[eBay OAuth] refresh token stored (integration_key=${integrationKey}, scope=${scopeGranted})`
+    );
     res.redirect(302, frontendSuccess);
   } catch (err) {
     console.error('eBay OAuth callback error:', err);
@@ -426,19 +495,22 @@ app.get('/api/ebay/oauth/status', async (req, res) => {
     }
     const key = (process.env.EBAY_OAUTH_INTEGRATION_KEY || ebaySellerOAuth.DEFAULT_INTEGRATION_KEY).trim();
     const r = await pool.query(
-      `SELECT user_name, ebay_user_id, updated_at, integration_key FROM ebay_oauth_token WHERE integration_key = $1`,
+      `SELECT user_name, ebay_user_id, updated_at, integration_key, scope FROM ebay_oauth_token WHERE integration_key = $1`,
       [key]
     );
     const row = r.rows?.[0];
     if (!row) {
       return res.json({ connected: false, reason: 'no_row', integration_key: key });
     }
+    const scope = row.scope != null ? String(row.scope) : '';
     return res.json({
       connected: true,
       user_name: row.user_name,
       ebay_user_id: row.ebay_user_id,
       updated_at: row.updated_at,
-      integration_key: key
+      integration_key: key,
+      scope,
+      has_analytics_scope: ebaySellerOAuth.scopeIncludesAnalytics(scope)
     });
   } catch (e) {
     console.error('/api/ebay/oauth/status failed:', e);
@@ -523,6 +595,146 @@ async function fetchEbayListingViewsForLegacyIds(accessToken, legacyIds, startYm
   return merged;
 }
 
+function extractBrowseItemImageUrl(item) {
+  if (!item || typeof item !== 'object') return null;
+  if (item.image && typeof item.image.imageUrl === 'string' && item.image.imageUrl.trim()) {
+    return item.image.imageUrl.trim().replace(/^http:\/\//i, 'https://');
+  }
+  if (Array.isArray(item.additionalImages)) {
+    for (const img of item.additionalImages) {
+      if (img && typeof img.imageUrl === 'string' && img.imageUrl.trim()) {
+        return img.imageUrl.trim().replace(/^http:\/\//i, 'https://');
+      }
+    }
+  }
+  if (Array.isArray(item.thumbnailImages)) {
+    for (const img of item.thumbnailImages) {
+      if (img && typeof img.imageUrl === 'string' && img.imageUrl.trim()) {
+        return img.imageUrl.trim().replace(/^http:\/\//i, 'https://');
+      }
+    }
+  }
+  return null;
+}
+
+function browseApiRequestHeaders(browseToken) {
+  return {
+    Authorization: `Bearer ${browseToken}`,
+    Accept: 'application/json',
+    'X-EBAY-C-MARKETPLACE-ID': 'EBAY_GB'
+  };
+}
+
+/** Primary listing details from Buy Browse — COMPACT omits images; use legacy id lookup or full item. */
+async function fetchBrowseListingItem(browseToken, ebayIdRaw) {
+  const legacy = extractEbayLegacyItemId(ebayIdRaw);
+  if (!legacy) return null;
+
+  const legacyUrl = `https://api.ebay.com/buy/browse/v1/item/get_item_by_legacy_id?${new URLSearchParams({
+    legacy_item_id: legacy
+  }).toString()}`;
+  let response = await fetch(legacyUrl, {
+    method: 'GET',
+    headers: browseApiRequestHeaders(browseToken)
+  });
+  if (response.ok) {
+    return response.json();
+  }
+
+  const restId = `v1|${legacy}|0`;
+  const itemUrl = `https://api.ebay.com/buy/browse/v1/item/${encodeURIComponent(restId)}`;
+  response = await fetch(itemUrl, {
+    method: 'GET',
+    headers: browseApiRequestHeaders(browseToken)
+  });
+  if (!response.ok) return null;
+  return response.json();
+}
+
+function formatBrowseListingPrice(item, projectedSalePrice) {
+  if (item?.price && item.price.value != null && String(item.price.value).trim()) {
+    const cur = (item.price.currency && String(item.price.currency)) || 'GBP';
+    const value = Number(item.price.value);
+    if (cur === 'GBP' && Number.isFinite(value)) {
+      return new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(value);
+    }
+    return `${item.price.value} ${cur}`;
+  }
+  if (projectedSalePrice != null && String(projectedSalePrice).trim() !== '') {
+    const value = Number(projectedSalePrice);
+    if (Number.isFinite(value)) {
+      return new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(value);
+    }
+  }
+  return null;
+}
+
+function formatBrowseListingDate(item) {
+  const raw = item?.itemCreationDate;
+  if (raw == null || String(raw).trim() === '') return null;
+  const d = new Date(String(raw));
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
+function mapBrowseListingDetails(item, stockRow) {
+  const listingTitle =
+    (item && typeof item.title === 'string' && item.title.trim()) ||
+    stockRow.itemName?.trim() ||
+    null;
+  return {
+    imageUrl: item ? extractBrowseItemImageUrl(item) : null,
+    listingTitle,
+    priceLabel: formatBrowseListingPrice(item, stockRow.projectedSalePrice),
+    listingDate: item ? formatBrowseListingDate(item) : null,
+    categoryName: stockRow.categoryName?.trim() || 'Uncategorized'
+  };
+}
+
+async function enrichListingRowsWithBrowseDetails(_pool, rows) {
+  if (!rows.length) return rows;
+
+  const appId = process.env.REACT_APP_EBAY_APP_ID || process.env.EBAY_APP;
+  const certId = process.env.REACT_APP_EBAY_CERT_ID;
+  if (!appId || !certId) {
+    return rows.map((r) => ({
+      ...r,
+      imageUrl: null,
+      listingTitle: r.itemName?.trim() || null,
+      priceLabel: formatBrowseListingPrice(null, r.projectedSalePrice),
+      listingDate: null
+    }));
+  }
+
+  let browseToken;
+  try {
+    browseToken = await getAccessToken(appId, certId);
+  } catch (e) {
+    console.warn('listing-views eBay browse token failed:', e?.message || e);
+    return rows.map((r) => ({
+      ...r,
+      imageUrl: null,
+      listingTitle: r.itemName?.trim() || null,
+      priceLabel: formatBrowseListingPrice(null, r.projectedSalePrice),
+      listingDate: null
+    }));
+  }
+
+  const enriched = await Promise.all(
+    rows.map(async (row) => {
+      try {
+        const item = await fetchBrowseListingItem(browseToken, row.ebayId);
+        return { ...row, ...mapBrowseListingDetails(item, row) };
+      } catch (e) {
+        console.warn(`listing-views browse details failed stockId=${row.stockId}:`, e?.message || e);
+        return { ...row, ...mapBrowseListingDetails(null, row) };
+      }
+    })
+  );
+
+  return enriched;
+}
+
 /**
  * Active eBay listings in stock → best / worst views in the last N days (Sell Analytics API).
  * GET /api/ebay/listing-views?days=30&limit=20
@@ -555,9 +767,32 @@ app.get('/api/ebay/listing-views', async (req, res) => {
         error: 'eBay seller not connected',
         details: msg,
         code,
-        reconnectUrl: '/orders?tab=ebay'
+        reconnectUrl: '/orders?tab=sales'
       });
     }
+
+    const oauthKey = (
+      process.env.EBAY_OAUTH_INTEGRATION_KEY || ebaySellerOAuth.DEFAULT_INTEGRATION_KEY
+    ).trim();
+    const scopeRow = await pool.query(
+      `SELECT scope FROM ebay_oauth_token WHERE integration_key = $1`,
+      [oauthKey]
+    );
+    const storedScope = scopeRow.rows?.[0]?.scope != null ? String(scopeRow.rows[0].scope) : '';
+    if (!ebaySellerOAuth.scopeIncludesAnalytics(storedScope)) {
+      return res.status(403).json({
+        error: 'eBay token missing Analytics access',
+        details:
+          'Set EBAY_OAUTH_INCLUDE_ANALYTICS=1 on the API server, enable Sell Analytics in the eBay Developer Portal, restart the API, then reconnect eBay seller.',
+        reconnectUrl: '/orders?tab=sales'
+      });
+    }
+
+    const rawCategoryLimit = req.query.categoryLimit != null ? Number(req.query.categoryLimit) : 8;
+    const categorySliceLimit =
+      Number.isFinite(rawCategoryLimit) && rawCategoryLimit >= 3 && rawCategoryLimit <= 16
+        ? Math.floor(rawCategoryLimit)
+        : 8;
 
     const stockResult = await pool.query(
       `
@@ -565,9 +800,12 @@ app.get('/api/ebay/listing-views', async (req, res) => {
           s.id,
           s.item_name,
           s.ebay_id,
-          b.brand_name
+          s.projected_sale_price,
+          b.brand_name,
+          COALESCE(cat.category_name, 'Uncategorized') AS category_name
         FROM stock s
         LEFT JOIN brand b ON b.id = s.brand_id
+        LEFT JOIN category cat ON cat.id = s.category_id
         WHERE s.sale_date IS NULL
           AND s.ebay_id IS NOT NULL
           AND TRIM(COALESCE(s.ebay_id::text, '')) <> ''
@@ -590,9 +828,33 @@ app.get('/api/ebay/listing-views', async (req, res) => {
         itemName: row.item_name != null ? String(row.item_name) : '',
         ebayId: legacy,
         ebayUrl: `https://www.ebay.co.uk/itm/${legacy}`,
-        brandName: row.brand_name != null ? String(row.brand_name) : null
+        brandName: row.brand_name != null ? String(row.brand_name) : null,
+        categoryName: row.category_name != null ? String(row.category_name) : 'Uncategorized',
+        projectedSalePrice: row.projected_sale_price
       });
     }
+
+    const buildCategoryViewSlices = (rows, sliceLimit) => {
+      const byCategory = new Map();
+      for (const row of rows) {
+        const name = row.categoryName?.trim() || 'Uncategorized';
+        const prev = byCategory.get(name) || { categoryName: name, views: 0, listingCount: 0 };
+        prev.views += row.views;
+        prev.listingCount += 1;
+        byCategory.set(name, prev);
+      }
+      const all = [...byCategory.values()];
+      const sortedDesc = [...all].sort(
+        (a, b) => b.views - a.views || b.listingCount - a.listingCount || a.categoryName.localeCompare(b.categoryName)
+      );
+      const sortedAsc = [...all].sort(
+        (a, b) => a.views - b.views || a.listingCount - b.listingCount || a.categoryName.localeCompare(b.categoryName)
+      );
+      return {
+        bestCategories: sortedDesc.slice(0, sliceLimit),
+        worstCategories: sortedAsc.slice(0, sliceLimit)
+      };
+    };
 
     if (legacyIds.length === 0) {
       return res.json({
@@ -603,6 +865,8 @@ app.get('/api/ebay/listing-views', async (req, res) => {
         listingsWithViewData: 0,
         best: [],
         worst: [],
+        bestCategories: [],
+        worstCategories: [],
         emptyMessage: 'No active eBay listings in stock (need a published eBay ID, not a draft).'
       });
     }
@@ -639,6 +903,13 @@ app.get('/api/ebay/listing-views', async (req, res) => {
     const sortedAsc = [...withViews].sort((a, b) => a.views - b.views || a.stockId - b.stockId);
 
     const listingsWithViewData = withViews.filter((r) => r.views > 0).length;
+    const { bestCategories, worstCategories } = buildCategoryViewSlices(withViews, categorySliceLimit);
+    const bestSlice = sortedDesc.slice(0, rowLimit);
+    const worstSlice = sortedAsc.slice(0, rowLimit);
+    const [best, worst] = await Promise.all([
+      enrichListingRowsWithBrowseDetails(pool, bestSlice),
+      enrichListingRowsWithBrowseDetails(pool, worstSlice)
+    ]);
 
     res.json({
       periodDays,
@@ -646,8 +917,10 @@ app.get('/api/ebay/listing-views', async (req, res) => {
       periodEnd: endDate.toISOString().slice(0, 10),
       totalListings: withViews.length,
       listingsWithViewData,
-      best: sortedDesc.slice(0, rowLimit),
-      worst: sortedAsc.slice(0, rowLimit)
+      best,
+      worst,
+      bestCategories,
+      worstCategories
     });
   } catch (error) {
     console.error('listing-views failed:', error);

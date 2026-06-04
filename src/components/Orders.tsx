@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { pingDatabase } from '../utils/dbPing';
-import { getApiBase } from '../utils/apiBase';
+import { getApiBase, ebayOAuthStartUrl } from '../utils/apiBase';
 import { StockRowInfoOverlay, computeStockInfoPanelMetrics } from './StockRowInfoOverlay';
 import './Orders.css';
 
@@ -702,6 +702,25 @@ const Orders: React.FC = () => {
     }
     void refreshEbayOAuthStatus();
   }, [ordersTab, searchParams, refreshEbayOAuthStatus]);
+
+  useEffect(() => {
+    if (ordersTab !== 'sales') return;
+    if (searchParams.get('ebay_oauth') !== 'success') return;
+    if (ebayOAuthStatus?.connected) return;
+    if (ebayOAuthStatus?.reason && ebayOAuthStatus.reason !== 'no_row') return;
+
+    let attempts = 0;
+    const timer = window.setInterval(() => {
+      attempts += 1;
+      if (attempts > 6) {
+        window.clearInterval(timer);
+        return;
+      }
+      void refreshEbayOAuthStatus();
+    }, 1500);
+
+    return () => window.clearInterval(timer);
+  }, [ordersTab, searchParams, ebayOAuthStatus?.connected, ebayOAuthStatus?.reason, refreshEbayOAuthStatus]);
 
   useEffect(() => {
     if (ordersTab !== 'sales') return;
@@ -1655,7 +1674,7 @@ const Orders: React.FC = () => {
                     </span>
                   ) : (
                     <a
-                      href={`${API_BASE}/api/ebay/oauth/start`}
+                      href={ebayOAuthStartUrl('/orders?tab=sales')}
                       className="orders-vinted-ebay-check-button"
                       title="Connect your eBay seller account"
                     >
@@ -1736,10 +1755,10 @@ const Orders: React.FC = () => {
                     {ebayOAuthStatus?.reason === 'status_fetch_failed'
                       ? 'Cannot reach the API from this site (check Netlify: redeploy after adding public/_redirects proxy, or set REACT_APP_API_BASE to your Render URL).'
                       : ebayOAuthStatus?.reason === 'no_row'
-                        ? 'The API reached the database but there is no saved eBay token (this often means an old ?ebay_oauth=success bookmark, or the callback never finished). Check Render logs for “[eBay OAuth] refresh token stored”, redeploy the latest API, remove ebay_oauth from the URL, then use Connect eBay seller again.'
+                        ? 'eBay sign-in finished but no token was saved on the API. Remove ?ebay_oauth= from the URL and connect again. If you develop on localhost but REACT_APP_API_BASE points at Render, deploy the latest API to Render first, then check Render logs for “[eBay OAuth] refresh token stored” or “callback error”. If the URL has ebay_oauth=error, read ebay_oauth_msg for the real failure.'
                         : ebayOAuthStatus?.reason === 'query_error' && ebayOAuthStatus?.error
                           ? `Could not read token from database: ${ebayOAuthStatus.error}`
-                          : 'eBay redirect succeeded but this app sees no stored token. Confirm Render database env matches Supabase, redeploy the API, clear ?ebay_oauth= from the URL, then use Connect eBay seller again.'}
+                          : 'eBay redirect succeeded but this app sees no stored token. Confirm the API database env matches Supabase, clear ?ebay_oauth= from the URL, then use Connect eBay seller again.'}
                   </div>
                 ))}
               {searchParams.get('ebay_oauth') === 'error' && searchParams.get('ebay_oauth_msg') && (

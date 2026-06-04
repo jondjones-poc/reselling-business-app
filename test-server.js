@@ -114,9 +114,26 @@ const getDatabasePool = () => {
       return null;
     }
 
+    const projectRef = (() => {
+      const url = process.env.SUPABASE_URL;
+      if (!url) return null;
+      try {
+        return new URL(url.trim()).hostname.split('.')[0] || null;
+      } catch {
+        return null;
+      }
+    })();
+    const dbHost =
+      process.env.SUPABASE_DB_HOST?.trim() ||
+      (projectRef ? `db.${projectRef}.supabase.co` : null);
+    if (!dbHost) {
+      console.warn('Set SUPABASE_URL or SUPABASE_DB_HOST with SUPABASE_DB_PASSWORD.');
+      return null;
+    }
+
     connectionString = `postgresql://postgres:${encodeURIComponent(
       supabasePassword
-    )}@db.kahnqiidabxomhvmfmgp.supabase.co:5432/postgres`;
+    )}@${dbHost}:5432/postgres`;
   }
 
   if (!connectionString) {

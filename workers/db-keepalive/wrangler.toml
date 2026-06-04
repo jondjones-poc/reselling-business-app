@@ -13,4 +13,4 @@ crons = ["0 8 * * 1", "0 8 * * 4"]
 
 # Public URL only (no secrets). Example:
 # [vars]
-# KEEPALIVE_URL = "https://your-api.example.com/api/db-ping"
+# KEEPALIVE_URL = "https://your-api.example.com/api/db-keepalive"

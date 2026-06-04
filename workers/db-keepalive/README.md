@@ -11,9 +11,9 @@ This worker **calls that URL on a schedule** so something hits the DB even when 
 **Usually no.** Netlify is typically only hosting the **React static build**. The keepalive flow is:
 
 1. **Render** (your Node Web Service) — set **`DB_KEEPALIVE_SECRET`** in the Render dashboard → *Environment* for that service, then redeploy if required.
-2. **Cloudflare Worker** — set **`KEEPALIVE_URL`** (your Render URL + `/api/db-ping`) and **`DB_KEEPALIVE_SECRET`** via `wrangler secret put` (Worker env, not Netlify).
+2. **Cloudflare Worker** — set **`KEEPALIVE_URL`** (your Render URL + `/api/db-keepalive`) and **`DB_KEEPALIVE_SECRET`** via `wrangler secret put` (Worker env, not Netlify).
 
-`KEEPALIVE_URL` should look like: `https://your-service-name.onrender.com/api/db-ping` (use your real Render hostname from the service *Settings*).
+`KEEPALIVE_URL` should look like: `https://your-service-name.onrender.com/api/db-keepalive` (use your real Render hostname from the service *Settings*). **`GET /api/db-ping`** stays public for the browser; only **`/api/db-keepalive`** requires the secret.
 
 Only add vars to **Netlify** if you actually **call** `/api/db-ping` from a Netlify Function (unusual). Do **not** put `DB_KEEPALIVE_SECRET` in `REACT_APP_*` — that would expose it in the browser bundle.
 
@@ -29,13 +29,13 @@ Only add vars to **Netlify** if you actually **call** `/api/db-ping` from a Netl
 
 **Recommendation:** Use this worker if your API is **not** on Netlify, or you want keepalive **decoupled** from frontend deploys. Use **Netlify scheduled functions** only if you already use Netlify and prefer everything in one repo pipeline.
 
-**Even simpler (no Worker):** [GitHub Actions `on: schedule`](https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#schedule) with `curl` to `/api/db-ping` — zero extra vendor, but you must store the secret in GitHub Actions secrets.
+**Even simpler (no Worker):** [GitHub Actions `on: schedule`](https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#schedule) with `curl` to `/api/db-keepalive` — zero extra vendor, but you must store the secret in GitHub Actions secrets.
 
 ## Server setup (Render + `server.js`)
 
 1. In the **Render** dashboard: open your **Web Service** → **Environment** → add **`DB_KEEPALIVE_SECRET`** (long random string). Save; trigger a redeploy if Render does not pick up env changes automatically.
-2. Confirm the URL works: `https://<your-service>.onrender.com/api/db-ping`.
-3. When **`DB_KEEPALIVE_SECRET`** is set, the route requires **`Authorization: Bearer <same secret>`** (query `?secret=` is also accepted but avoid logging).
+2. Confirm the URL works: `curl -H "Authorization: Bearer YOUR_SECRET" https://<your-service>.onrender.com/api/db-keepalive`.
+3. When **`DB_KEEPALIVE_SECRET`** is set, **`/api/db-keepalive`** requires **`Authorization: Bearer <same secret>`** (query `?secret=` is also accepted but avoid logging). **`/api/db-ping`** does not require auth.
 
 ## Deploy this worker
 
@@ -61,7 +61,7 @@ Set secrets (values hidden in Cloudflare dashboard):
 
 ```bash
 npx wrangler@3 secret put KEEPALIVE_URL
-# paste: https://<your-service>.onrender.com/api/db-ping
+# paste: https://<your-service>.onrender.com/api/db-keepalive
 
 npx wrangler@3 secret put DB_KEEPALIVE_SECRET
 # paste: same string as DB_KEEPALIVE_SECRET on your API server
@@ -76,7 +76,7 @@ In the **Cloudflare dashboard**: Workers & Pages → your worker → **Triggers*
 From the CLI you can also run a one-off fetch after deploy:
 
 ```bash
-curl -sS -H "Authorization: Bearer YOUR_DB_KEEPALIVE_SECRET" "https://<your-service>.onrender.com/api/db-ping"
+curl -sS -H "Authorization: Bearer YOUR_DB_KEEPALIVE_SECRET" "https://<your-service>.onrender.com/api/db-keepalive"
 ```
 
 That hits your **API** directly (same as the worker).
