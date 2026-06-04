@@ -7,7 +7,8 @@ const crypto = require('crypto');
 const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
 
 const DEFAULT_INTEGRATION_KEY = 'default';
-const DEFAULT_SCOPES = 'https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly';
+const DEFAULT_SCOPES =
+  'https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly https://api.ebay.com/oauth/api_scope/sell.analytics.readonly';
 const TOKEN_URL = 'https://api.ebay.com/identity/v1/oauth2/token';
 const AUTHORIZE_BASE = 'https://auth.ebay.com/oauth2/authorize';
 

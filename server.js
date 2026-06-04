@@ -450,6 +450,214 @@ app.get('/api/ebay/oauth/status', async (req, res) => {
   }
 });
 
+function formatEbayAnalyticsDateYmd(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}${m}${day}`;
+}
+
+/**
+ * Sell Analytics traffic_report — listing views for legacy item ids (batch ≤100 per call).
+ */
+async function fetchEbayListingViewsBatch(accessToken, legacyIds, startYmd, endYmd) {
+  if (!Array.isArray(legacyIds) || legacyIds.length === 0) {
+    return new Map();
+  }
+  const params = new URLSearchParams();
+  params.set('dimension', 'LISTING');
+  params.set('metric', 'LISTING_VIEWS_TOTAL');
+  params.append('filter', 'marketplace_ids:{EBAY_GB}');
+  params.append('filter', `date_range:[${startYmd}..${endYmd}]`);
+  params.append('filter', `listing_ids:{${legacyIds.join('|')}}`);
+
+  const url = `https://api.ebay.com/sell/analytics/v1/traffic_report?${params.toString()}`;
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json'
+    }
+  });
+
+  const text = await response.text();
+  if (!response.ok) {
+    const err = new Error(`eBay Analytics ${response.status}: ${text.slice(0, 600)}`);
+    err.httpStatus = response.status;
+    throw err;
+  }
+
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error('eBay Analytics returned invalid JSON');
+  }
+
+  const viewsByListingId = new Map();
+  const records = Array.isArray(data.records) ? data.records : [];
+  for (const record of records) {
+    const listingId = record?.dimensionValues?.[0]?.value;
+    const rawViews = record?.metricValues?.[0]?.value;
+    if (listingId == null || listingId === '') continue;
+    const views = typeof rawViews === 'number' ? rawViews : Number(rawViews);
+    viewsByListingId.set(String(listingId), Number.isFinite(views) ? views : 0);
+  }
+  return viewsByListingId;
+}
+
+async function fetchEbayListingViewsForLegacyIds(accessToken, legacyIds, startYmd, endYmd) {
+  const merged = new Map();
+  const batchSize = 100;
+  for (let i = 0; i < legacyIds.length; i += batchSize) {
+    const batch = legacyIds.slice(i, i + batchSize);
+    const batchMap = await fetchEbayListingViewsBatch(accessToken, batch, startYmd, endYmd);
+    for (const [id, views] of batchMap.entries()) {
+      merged.set(id, views);
+    }
+    if (i + batchSize < legacyIds.length) {
+      await new Promise((r) => setTimeout(r, 120));
+    }
+  }
+  return merged;
+}
+
+/**
+ * Active eBay listings in stock → best / worst views in the last N days (Sell Analytics API).
+ * GET /api/ebay/listing-views?days=30&limit=20
+ */
+app.get('/api/ebay/listing-views', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const rawDays = req.query.days != null ? Number(req.query.days) : 30;
+    const periodDays = Number.isFinite(rawDays) && rawDays >= 1 && rawDays <= 90 ? Math.floor(rawDays) : 30;
+    const rawLimit = req.query.limit != null ? Number(req.query.limit) : 20;
+    const rowLimit = Number.isFinite(rawLimit) && rawLimit >= 1 && rawLimit <= 100 ? Math.floor(rawLimit) : 20;
+
+    const endDate = new Date();
+    const startDate = new Date(endDate);
+    startDate.setDate(startDate.getDate() - periodDays);
+    const startYmd = formatEbayAnalyticsDateYmd(startDate);
+    const endYmd = formatEbayAnalyticsDateYmd(endDate);
+
+    let accessToken;
+    try {
+      accessToken = await ebaySellerOAuth.getFulfillmentUserAccessToken(pool);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const code = e && typeof e === 'object' && 'code' in e ? e.code : null;
+      return res.status(503).json({
+        error: 'eBay seller not connected',
+        details: msg,
+        code,
+        reconnectUrl: '/orders?tab=ebay'
+      });
+    }
+
+    const stockResult = await pool.query(
+      `
+        SELECT
+          s.id,
+          s.item_name,
+          s.ebay_id,
+          b.brand_name
+        FROM stock s
+        LEFT JOIN brand b ON b.id = s.brand_id
+        WHERE s.sale_date IS NULL
+          AND s.ebay_id IS NOT NULL
+          AND TRIM(COALESCE(s.ebay_id::text, '')) <> ''
+          AND COALESCE(s.is_ebay_draft, false) = false
+          AND COALESCE(s.is_inventory_write_off, false) = false
+        ORDER BY s.id ASC
+      `
+    );
+
+    const stockRows = [];
+    const legacyIds = [];
+    const seenLegacy = new Set();
+    for (const row of stockResult.rows || []) {
+      const legacy = extractEbayLegacyItemId(row.ebay_id);
+      if (!legacy || seenLegacy.has(legacy)) continue;
+      seenLegacy.add(legacy);
+      legacyIds.push(legacy);
+      stockRows.push({
+        stockId: row.id,
+        itemName: row.item_name != null ? String(row.item_name) : '',
+        ebayId: legacy,
+        ebayUrl: `https://www.ebay.co.uk/itm/${legacy}`,
+        brandName: row.brand_name != null ? String(row.brand_name) : null
+      });
+    }
+
+    if (legacyIds.length === 0) {
+      return res.json({
+        periodDays,
+        periodStart: startDate.toISOString().slice(0, 10),
+        periodEnd: endDate.toISOString().slice(0, 10),
+        totalListings: 0,
+        listingsWithViewData: 0,
+        best: [],
+        worst: [],
+        emptyMessage: 'No active eBay listings in stock (need a published eBay ID, not a draft).'
+      });
+    }
+
+    let viewsByListingId;
+    try {
+      viewsByListingId = await fetchEbayListingViewsForLegacyIds(
+        accessToken,
+        legacyIds,
+        startYmd,
+        endYmd
+      );
+    } catch (e) {
+      const httpStatus = e && typeof e === 'object' && 'httpStatus' in e ? e.httpStatus : null;
+      const details = e instanceof Error ? e.message : String(e);
+      const needsAnalyticsScope =
+        httpStatus === 403 &&
+        /scope|access|analytics|permission/i.test(details);
+      return res.status(httpStatus === 403 ? 403 : 502).json({
+        error: needsAnalyticsScope
+          ? 'eBay token missing Analytics access — reconnect seller on Orders'
+          : 'Failed to load listing views from eBay',
+        details,
+        reconnectUrl: '/orders?tab=ebay'
+      });
+    }
+
+    const withViews = stockRows.map((row) => ({
+      ...row,
+      views: viewsByListingId.get(row.ebayId) ?? 0
+    }));
+
+    const sortedDesc = [...withViews].sort((a, b) => b.views - a.views || a.stockId - b.stockId);
+    const sortedAsc = [...withViews].sort((a, b) => a.views - b.views || a.stockId - b.stockId);
+
+    const listingsWithViewData = withViews.filter((r) => r.views > 0).length;
+
+    res.json({
+      periodDays,
+      periodStart: startDate.toISOString().slice(0, 10),
+      periodEnd: endDate.toISOString().slice(0, 10),
+      totalListings: withViews.length,
+      listingsWithViewData,
+      best: sortedDesc.slice(0, rowLimit),
+      worst: sortedAsc.slice(0, rowLimit)
+    });
+  } catch (error) {
+    console.error('listing-views failed:', error);
+    res.status(500).json({
+      error: 'Failed to load listing views',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
 const runBrandTagPostMulter = (req, res, next) => {
   brandTagImageUpload.single('image')(req, res, (err) => {
     if (err) {

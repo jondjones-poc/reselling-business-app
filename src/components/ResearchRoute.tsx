@@ -28,6 +28,7 @@ const ResearchRoute: React.FC = () => {
     'clothing-types',
     'seasonal',
     'sourced',
+    'item-views',
   ]);
   if (tab && analyticsTabs.has(tab)) {
     return <Navigate to={`/analytics?${searchParams.toString()}`} replace />;

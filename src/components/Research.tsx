@@ -13,6 +13,7 @@ import { Bar, Pie } from 'react-chartjs-2';
 import ReactMarkdown from 'react-markdown';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { getApiBase } from '../utils/apiBase';
+import ResearchItemViews from './ResearchItemViews';
 import './BrandResearch.css';
 
 ChartJS.register(ArcElement, BarElement, CategoryScale, LinearScale, Tooltip, Legend);
@@ -35,6 +36,19 @@ function formatSoldMultipleDisplay(n: number): string {
     return `${Math.round(rounded)}×`;
   }
   return `${rounded.toFixed(1)}×`;
+}
+
+function menswearCategoriesDetailHref(
+  menswearCategoryId: number,
+  departmentId?: number | null
+): string {
+  const qs = new URLSearchParams();
+  qs.set('tab', 'menswear-categories');
+  if (departmentId != null && departmentId >= 1) {
+    qs.set('departmentId', String(departmentId));
+  }
+  qs.set('menswearCategoryId', String(menswearCategoryId));
+  return `/analytics?${qs.toString()}`;
 }
 
 /** Absolute app path so links work even if `location.pathname` is wrong in dev/proxy setups. */
@@ -1689,6 +1703,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     | 'clothing-types'
     | 'seasonal'
     | 'sourced'
+    | 'item-views'
   >(() => {
     if (forcedView === 'offline' || forcedView === 'ai') {
       return forcedView;
@@ -1700,7 +1715,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       t === 'menswear-categories' ||
       t === 'clothing-types' ||
       t === 'seasonal' ||
-      t === 'sourced'
+      t === 'sourced' ||
+      t === 'item-views'
     )
       return t;
     return 'brand';
@@ -1715,9 +1731,15 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     return Number.isFinite(n) && n >= 1 ? n : null;
   }, [researchTab, searchParams]);
 
-  /** Sales by category + Sales by season: `?departmentId=` scopes data by business department. */
+  /** Sales by category, Sales by type + Sales by season: `?departmentId=` scopes data by business department. */
   const researchScopedDepartmentIdFromUrl = useMemo(() => {
-    if (researchTab !== 'clothing-types' && researchTab !== 'seasonal') return null;
+    if (
+      researchTab !== 'clothing-types' &&
+      researchTab !== 'seasonal' &&
+      researchTab !== 'menswear-categories'
+    ) {
+      return null;
+    }
     const raw = searchParams.get('departmentId')?.trim();
     if (!raw) return null;
     const n = parseInt(raw, 10);
@@ -1766,6 +1788,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         | 'clothing-types'
         | 'seasonal'
         | 'sourced'
+        | 'item-views'
     ) => {
       if (tab === 'brand') {
         brandTabInputUserEditRef.current = false;
@@ -1789,7 +1812,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
             next.delete('mcPanel');
           } else {
             next.set('tab', tab);
-            if (tab !== 'clothing-types' && tab !== 'seasonal') {
+            if (tab !== 'clothing-types' && tab !== 'seasonal' && tab !== 'menswear-categories') {
               next.delete('departmentId');
             }
           }
@@ -1801,7 +1824,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     [setSearchParams]
   );
 
-  /** Menswear tab list: clears category/brand drill-down. */
+  /** Sales by category tab: reset drill-down; department defaults to Menswear via URL sync. */
   const goToMenswearCategoriesTab = useCallback(() => {
     setSearchParams(
       (prev) => {
@@ -1810,6 +1833,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         next.delete('menswearCategoryId');
         next.delete('menswearBrandId');
         next.delete('brand');
+        next.delete('departmentId');
+        next.delete('mcPanel');
         return next;
       },
       { replace: false }
@@ -2103,7 +2128,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
   const [researchDepartmentsLoading, setResearchDepartmentsLoading] = useState(false);
   const [researchDepartmentsError, setResearchDepartmentsError] = useState<string | null>(null);
 
-  /** Valid department for Sales by category tab: URL if known, else Menswear by name, else first department. */
+  /** Valid department for Sales by type tab: URL if known, else Menswear by name, else first department. */
   const resolvedClothingTypesDepartmentId = useMemo(() => {
     if (researchTab !== 'clothing-types') return null;
     if (researchDepartments.length === 0) return null;
@@ -2118,7 +2143,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
   }, [researchTab, researchDepartments, researchScopedDepartmentIdFromUrl]);
 
   /**
-   * Sales by category list: department id for `/api/categories` + stock-category aggregate APIs.
+   * Sales by type list: department id for `/api/categories` + stock-category aggregate APIs.
    * While /api/departments is loading, use `?departmentId=` from the URL so requests are not skipped.
    */
   const clothingTypesListDepartmentIdForApi = useMemo(() => {
@@ -2149,24 +2174,51 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     return urlId;
   }, [researchTab, researchDepartments, researchScopedDepartmentIdFromUrl]);
 
+  /** Valid department for Sales by category tab: URL if known, else Menswear by name, else first department. */
+  const resolvedMenswearCategoriesDepartmentId = useMemo(() => {
+    if (researchTab !== 'menswear-categories') return null;
+    if (researchDepartments.length === 0) return null;
+    const urlId = researchScopedDepartmentIdFromUrl;
+    if (urlId != null && researchDepartments.some((d) => d.id === urlId)) {
+      return urlId;
+    }
+    const mw = researchDepartments.find(
+      (d) => String(d.department_name ?? '').trim().toLowerCase() === 'menswear'
+    );
+    return mw?.id ?? researchDepartments[0]?.id ?? null;
+  }, [researchTab, researchDepartments, researchScopedDepartmentIdFromUrl]);
+
+  /**
+   * Sales by category list: department id for menswear-category aggregate APIs.
+   * While /api/departments is loading, use `?departmentId=` from the URL so requests are not skipped.
+   */
+  const menswearCategoriesListDepartmentIdForApi = useMemo(() => {
+    if (researchTab !== 'menswear-categories') return null;
+    const urlId = researchScopedDepartmentIdFromUrl;
+    if (researchDepartments.length > 0) {
+      if (urlId != null && researchDepartments.some((d) => d.id === urlId)) return urlId;
+      const mw = researchDepartments.find(
+        (d) => String(d.department_name ?? '').trim().toLowerCase() === 'menswear'
+      );
+      return mw?.id ?? researchDepartments[0]?.id ?? null;
+    }
+    if (urlId != null && urlId >= 1) return urlId;
+    return null;
+  }, [researchTab, researchDepartments, researchScopedDepartmentIdFromUrl]);
+
   const openMenswearCategoryInUrl = useCallback(
     (categoryId: number) => {
-      const qs = new URLSearchParams();
-      qs.set('tab', 'menswear-categories');
-      qs.set('menswearCategoryId', String(categoryId));
-      window.location.assign(`/analytics?${qs.toString()}`);
+      window.location.assign(
+        menswearCategoriesDetailHref(categoryId, menswearCategoriesListDepartmentIdForApi)
+      );
     },
-    []
+    [menswearCategoriesListDepartmentIdForApi]
   );
 
   const menswearCategoryHref = useCallback(
-    (categoryId: number) => {
-      const qs = new URLSearchParams();
-      qs.set('tab', 'menswear-categories');
-      qs.set('menswearCategoryId', String(categoryId));
-      return `/analytics?${qs.toString()}`;
-    },
-    []
+    (categoryId: number) =>
+      menswearCategoriesDetailHref(categoryId, menswearCategoriesListDepartmentIdForApi),
+    [menswearCategoriesListDepartmentIdForApi]
   );
 
   const openClothingTypeInUrl = useCallback(
@@ -3044,7 +3096,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
   }, [menswearBrandSortMenuOpen]);
 
   useEffect(() => {
-    if (researchTab !== 'clothing-types' && researchTab !== 'seasonal' && researchTab !== 'brand') {
+    if (researchTab !== 'clothing-types' && researchTab !== 'seasonal' && researchTab !== 'brand' && researchTab !== 'menswear-categories') {
       setResearchDepartments([]);
       setResearchDepartmentsError(null);
       setResearchDepartmentsLoading(false);
@@ -3089,7 +3141,13 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
   }, [researchTab]);
 
   useEffect(() => {
-    if (researchTab !== 'clothing-types' && researchTab !== 'seasonal') return;
+    if (
+      researchTab !== 'clothing-types' &&
+      researchTab !== 'seasonal' &&
+      researchTab !== 'menswear-categories'
+    ) {
+      return;
+    }
     if (researchDepartmentsLoading) return;
     if (researchDepartments.length === 0) return;
     const raw = searchParams.get('departmentId')?.trim();
@@ -3103,6 +3161,18 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       setSearchParams((prev) => {
         const next = new URLSearchParams(prev);
         next.delete('departmentId');
+        return next;
+      }, { replace: true });
+      return;
+    }
+
+    if (researchTab === 'menswear-categories') {
+      if (valid) return;
+      const resolved = resolvedMenswearCategoriesDepartmentId;
+      if (resolved == null) return;
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.set('departmentId', String(resolved));
         return next;
       }, { replace: true });
       return;
@@ -3123,6 +3193,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     searchParams,
     setSearchParams,
     resolvedClothingTypesDepartmentId,
+    resolvedMenswearCategoriesDepartmentId,
   ]);
 
   useEffect(() => {
@@ -3134,6 +3205,9 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       brandForCategoryLabel != null && brandForCategoryLabel.menswear_category_id != null;
 
     if (researchTab !== 'menswear-categories' && !needCategoriesOnBrandTab) return;
+    if (researchTab === 'menswear-categories' && menswearCategoriesListDepartmentIdForApi == null) {
+      return;
+    }
     const ac = new AbortController();
     let cancelled = false;
     const load = async () => {
@@ -3142,10 +3216,9 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       try {
         let requestUrl = apiUrl('/api/menswear-categories');
         if (researchTab === 'menswear-categories') {
-          const listOnly = menswearCategoryIdFromUrl == null;
-          if (listOnly) {
-            requestUrl = apiUrl('/api/menswear-categories');
-          }
+          const params = new URLSearchParams();
+          params.set('department_id', String(menswearCategoriesListDepartmentIdForApi));
+          requestUrl = apiUrl(`/api/menswear-categories?${params}`);
         }
         const res = await fetch(requestUrl, { signal: ac.signal });
         const data = await readJsonResponse<{ rows?: MenswearCategoryRow[] }>(res, 'menswear-categories');
@@ -3185,6 +3258,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     brandTagBrandId,
     brandsWithWebsites,
     menswearCategoryIdFromUrl,
+    menswearCategoriesListDepartmentIdForApi,
   ]);
 
   useEffect(() => {
@@ -3230,6 +3304,9 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       setMenswearBrandSalesRows([]);
       return;
     }
+    if (menswearCategoryIdFromUrl == null && menswearCategoriesListDepartmentIdForApi == null) {
+      return;
+    }
     const ac = new AbortController();
     let cancelled = false;
     const load = async () => {
@@ -3238,6 +3315,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       try {
         const params = new URLSearchParams({ period: menswearSalesPeriod });
         if (menswearCategoryIdFromUrl == null) {
+          params.set('department_id', String(menswearCategoriesListDepartmentIdForApi));
           setMenswearBrandSalesRows([]);
           const res = await fetch(apiUrl(`/api/menswear-categories/sales-by-category?${params}`), {
             signal: ac.signal,
@@ -3296,6 +3374,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     menswearSalesPeriod,
     menswearCategoryIdFromUrl,
     menswearCategoryBrandsRefreshTick,
+    menswearCategoriesListDepartmentIdForApi,
   ]);
 
   useEffect(() => {
@@ -3305,15 +3384,23 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       setMenswearCategoryInventoryLoading(false);
       return;
     }
+    if (menswearCategoriesListDepartmentIdForApi == null) {
+      return;
+    }
     const ac = new AbortController();
     let cancelled = false;
     const load = async () => {
       setMenswearCategoryInventoryLoading(true);
       setMenswearCategoryInventoryError(null);
       try {
-        const res = await fetch(apiUrl('/api/menswear-categories/inventory-by-category'), {
+        const params = new URLSearchParams();
+        params.set('department_id', String(menswearCategoriesListDepartmentIdForApi));
+        const res = await fetch(
+          apiUrl(`/api/menswear-categories/inventory-by-category?${params}`),
+          {
           signal: ac.signal,
-        });
+        }
+        );
         const data = await readJsonResponse<{ rows?: MenswearCategoryInventoryRow[] }>(
           res,
           'menswear-inventory-by-category'
@@ -3340,7 +3427,12 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       cancelled = true;
       ac.abort();
     };
-  }, [researchTab, menswearCategoryIdFromUrl, menswearCategoryBrandsRefreshTick]);
+  }, [
+    researchTab,
+    menswearCategoryIdFromUrl,
+    menswearCategoryBrandsRefreshTick,
+    menswearCategoriesListDepartmentIdForApi,
+  ]);
 
   useEffect(() => {
     if (researchTab !== 'clothing-types') return;
@@ -8049,7 +8141,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           className={`research-tab${researchTab === 'menswear-categories' ? ' active' : ''}`}
           onClick={goToMenswearCategoriesTab}
         >
-          Menswear Categories
+          Sales by category
         </button>
         <button
           type="button"
@@ -8060,7 +8152,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           className={`research-tab${researchTab === 'clothing-types' ? ' active' : ''}`}
           onClick={goToClothingTypesTab}
         >
-          Sales by category
+          Sales by type
         </button>
         <button
           type="button"
@@ -8084,11 +8176,23 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         >
           Sales by Channel
         </button>
+        <button
+          type="button"
+          role="tab"
+          id="research-tab-item-views"
+          aria-selected={researchTab === 'item-views'}
+          aria-controls="research-panel-item-views"
+          className={`research-tab${researchTab === 'item-views' ? ' active' : ''}`}
+          onClick={() => setResearchTab('item-views')}
+        >
+          Item Views
+        </button>
       </nav>
       )}
       {(researchTab === 'clothing-types' ||
         researchTab === 'seasonal' ||
-        researchTab === 'brand') &&
+        researchTab === 'brand' ||
+        researchTab === 'menswear-categories') &&
         researchDepartmentsError && (
         <div className="research-menswear-departments-error" role="alert">
           {researchDepartmentsError}
@@ -8096,14 +8200,16 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       )}
       {(researchTab === 'clothing-types' ||
         researchTab === 'seasonal' ||
-        researchTab === 'brand') &&
+        researchTab === 'brand' ||
+        researchTab === 'menswear-categories') &&
         researchDepartmentsLoading && (
         <div
           className={
             'research-menswear-departments research-menswear-departments--loading' +
             (researchTab === 'seasonal' ||
             researchTab === 'clothing-types' ||
-            researchTab === 'brand'
+            researchTab === 'brand' ||
+            researchTab === 'menswear-categories'
               ? ' research-menswear-departments--centered'
               : '')
           }
@@ -8113,7 +8219,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       )}
       {(researchTab === 'clothing-types' ||
         researchTab === 'seasonal' ||
-        researchTab === 'brand') &&
+        researchTab === 'brand' ||
+        researchTab === 'menswear-categories') &&
         !researchDepartmentsLoading &&
         !researchDepartmentsError &&
         researchDepartments.length > 0 && (
@@ -8122,7 +8229,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
               'research-menswear-departments' +
               (researchTab === 'seasonal' ||
               researchTab === 'clothing-types' ||
-              researchTab === 'brand'
+              researchTab === 'brand' ||
+              researchTab === 'menswear-categories'
                 ? ' research-menswear-departments--centered'
                 : '')
             }
@@ -8179,6 +8287,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                 const activeDeptId =
                   researchTab === 'clothing-types'
                     ? clothingTypesListDepartmentIdForApi
+                    : researchTab === 'menswear-categories'
+                      ? menswearCategoriesListDepartmentIdForApi
                     : researchTab === 'seasonal'
                       ? seasonalDepartmentIdForApi
                       : null;
@@ -8211,6 +8321,11 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                           if (researchTab === 'clothing-types') {
                             next.delete('clothingTypeId');
                             next.delete('clothingTypeBrandId');
+                          }
+                          if (researchTab === 'menswear-categories') {
+                            next.delete('menswearCategoryId');
+                            next.delete('menswearBrandId');
+                            next.delete('mcPanel');
                           }
                           return next;
                         }, { replace: true });
@@ -9858,7 +9973,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                   <div className="clothing-types-three-pies-row">
                     <section
                       className="menswear-categories-sales-pie clothing-types-pie-column"
-                      aria-label="Menswear Categories sales by revenue"
+                      aria-label="Sales by category sales by revenue"
                     >
                       <div className="menswear-categories-sales-pie-header clothing-types-pie-column-header">
                         <h3 className="menswear-categories-sales-pie-title">Sales by Category (£)</h3>
@@ -11731,7 +11846,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
               <>
                 <nav
                   className="clothing-types-browse"
-                  aria-label="Sales by category — open category details"
+                  aria-label="Sales by type — open category details"
                 >
                   <ul className="clothing-types-browse-list">
                     {clothingTypesListRows.length === 0 && !clothingTypesHasUncategorized ? (
@@ -11842,10 +11957,10 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                   <div className="clothing-types-three-pies-row">
                   <section
                     className="menswear-categories-sales-pie clothing-types-pie-column"
-                    aria-label="Sales by category — revenue"
+                    aria-label="Sales by type — revenue"
                   >
                     <div className="menswear-categories-sales-pie-header clothing-types-pie-column-header">
-                      <h3 className="menswear-categories-sales-pie-title">Sales by category (£)</h3>
+                      <h3 className="menswear-categories-sales-pie-title">Sales by type (£)</h3>
                     </div>
                     {clothingTypesSalesError && (
                       <div className="menswear-categories-error" role="alert">
@@ -12960,6 +13075,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           </div>
         </div>
       )}
+
+      {researchTab === 'item-views' && <ResearchItemViews />}
 
       {researchTab === 'seasonal' && (
         <div
