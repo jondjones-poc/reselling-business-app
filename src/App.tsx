@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink, Route, Routes, Navigate, useLocation, type NavLinkProps } from 'react-router-dom';
 import ScoutingRoute from './components/ScoutingRoute';
 import Research from './components/Research';
@@ -24,8 +24,17 @@ const navItems = [
   { to: '/sniping', label: 'Sniping' },
 ] as const;
 
+const mobileDrawerItems = navItems.filter((item) => item.to !== '/');
+
+function navLinkClassName(isActive: boolean, extra = '') {
+  return `nav-button${isActive ? ' active' : ''}${extra ? ` ${extra}` : ''}`;
+}
+
 /** Preserves ?tab= when opening Orders from another page (uses sessionStorage set on the Orders screen). */
-function OrdersNavLink({ className }: Pick<NavLinkProps, 'className'>) {
+function OrdersNavLink({
+  className,
+  onNavigate,
+}: Pick<NavLinkProps, 'className'> & { onNavigate?: () => void }) {
   const location = useLocation();
   let tab: 'sales' | 'to-pack' | 'sales-summary' = 'to-pack';
   if (location.pathname === '/orders') {
@@ -41,14 +50,40 @@ function OrdersNavLink({ className }: Pick<NavLinkProps, 'className'>) {
     }
   }
   return (
-    <NavLink to={`/orders?tab=${tab}`} className={className}>
+    <NavLink to={`/orders?tab=${tab}`} className={className} onClick={onNavigate}>
       Orders
+    </NavLink>
+  );
+}
+
+function AppNavLink({
+  item,
+  className,
+  onNavigate,
+}: {
+  item: (typeof navItems)[number];
+  className: NavLinkProps['className'];
+  onNavigate?: () => void;
+}) {
+  if (item.to === '/orders') {
+    return <OrdersNavLink className={className} onNavigate={onNavigate} />;
+  }
+
+  return (
+    <NavLink
+      to={item.to}
+      end={'end' in item ? item.end : false}
+      className={className}
+      onClick={onNavigate}
+    >
+      {item.label}
     </NavLink>
   );
 }
 
 function App() {
   const location = useLocation();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
     if (location.pathname === '/') {
@@ -56,53 +91,113 @@ function App() {
     }
   }, [location.pathname]);
 
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return undefined;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMobileNavOpen(false);
+      }
+    };
+
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = '';
+      document.documentElement.style.overflow = '';
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [mobileNavOpen]);
+
+  const closeMobileNav = () => setMobileNavOpen(false);
+
   return (
     <AuthGate>
     <div className="App">
         <nav className="navigation" aria-label="Main">
           <div className="nav-container">
-            <div id="primary-nav-menu" className="nav-menu">
-              {navItems.map((item) =>
-                item.to === '/orders' ? (
-                  <OrdersNavLink
-                    key={item.to}
-                    className={({ isActive }) => `nav-button${isActive ? ' active' : ''}`}
-                  />
-                ) : (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    end={'end' in item ? item.end : false}
-                    className={({ isActive }) =>
-                      `nav-button${isActive ? ' active' : ''}`
-                    }
-                  >
-                    {item.label}
-                  </NavLink>
-                )
-              )}
-              {/* Stock Management menu item for mobile only */}
+            <div id="primary-nav-menu" className="nav-menu nav-menu--desktop">
+              {navItems.map((item) => (
+                <AppNavLink
+                  key={item.to}
+                  item={item}
+                  className={({ isActive }) => navLinkClassName(isActive)}
+                />
+              ))}
               <NavLink
                 to="/config"
                 className={({ isActive }) =>
-                  `nav-button${isActive ? ' active' : ''} nav-button-mobile-only`
+                  `nav-settings-icon${isActive ? ' active' : ''}`
                 }
-              >
-                Stock Management
-              </NavLink>
-              {/* Stock Management icon for desktop only */}
-              <NavLink
-                to="/config"
-                className={({ isActive }) =>
-                  `nav-settings-icon${isActive ? ' active' : ''} nav-settings-icon-desktop`
-                }
-                title="Stock Management"
+                title="Settings"
+                aria-label="Settings"
               >
                 ⚙️
               </NavLink>
             </div>
+
+            <div className="nav-mobile-bar">
+              <NavLink
+                to="/"
+                end
+                className={({ isActive }) => navLinkClassName(isActive, 'nav-mobile-home')}
+              >
+                Scouting
+              </NavLink>
+              <button
+                type="button"
+                className={`nav-burger${mobileNavOpen ? ' nav-burger--open' : ''}`}
+                aria-label={mobileNavOpen ? 'Close menu' : 'Open menu'}
+                aria-expanded={mobileNavOpen}
+                aria-controls="mobile-nav-drawer"
+                onClick={() => setMobileNavOpen((open) => !open)}
+              >
+                <span className="nav-burger-line" aria-hidden />
+                <span className="nav-burger-line" aria-hidden />
+                <span className="nav-burger-line" aria-hidden />
+              </button>
+            </div>
+          </div>
+
+          <div
+            id="mobile-nav-drawer"
+            className={`nav-drawer${mobileNavOpen ? ' nav-drawer--open' : ''}`}
+            aria-hidden={!mobileNavOpen}
+          >
+            <div className="nav-drawer-body">
+              {mobileDrawerItems.map((item) => (
+                <AppNavLink
+                  key={item.to}
+                  item={item}
+                  className={({ isActive }) => navLinkClassName(isActive, 'nav-drawer-link')}
+                  onNavigate={closeMobileNav}
+                />
+              ))}
+            </div>
+            <div className="nav-drawer-footer">
+              <NavLink
+                to="/config"
+                className={({ isActive }) =>
+                  navLinkClassName(isActive, 'nav-drawer-link nav-drawer-link--settings')
+                }
+                onClick={closeMobileNav}
+              >
+                Settings
+              </NavLink>
+            </div>
           </div>
         </nav>
+
+        <div
+          className={`nav-drawer-backdrop${mobileNavOpen ? ' nav-drawer-backdrop--open' : ''}`}
+          aria-hidden={!mobileNavOpen}
+          onClick={closeMobileNav}
+        />
 
         <Routes>
           <Route path="/" element={<ScoutingRoute />} />

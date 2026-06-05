@@ -1,9 +1,33 @@
-import React, { useEffect, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
+import {
+  clearAuthSession,
+  readAuthSession,
+  saveAuthSession,
+} from '../utils/authSession';
 import './AuthGate.css';
 
-const AUTH_STORAGE_KEY = 'reseller-auth-token';
-const AUTH_TOKEN_VALUE = 'granted';
 const AUTH_PASSWORD = 'jondjones';
+
+interface AuthContextValue {
+  logout: () => void;
+}
+
+const AuthContext = createContext<AuthContextValue | null>(null);
+
+export function useAuth(): AuthContextValue {
+  const value = useContext(AuthContext);
+  if (!value) {
+    throw new Error('useAuth must be used within AuthGate');
+  }
+  return value;
+}
 
 interface AuthGateProps {
   children: React.ReactNode;
@@ -16,17 +40,18 @@ const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
   const [checkedStorage, setCheckedStorage] = useState(false);
 
   useEffect(() => {
-    try {
-      const storedToken = window.localStorage.getItem(AUTH_STORAGE_KEY);
-      if (storedToken === AUTH_TOKEN_VALUE) {
-        setIsAuthenticated(true);
-      }
-    } catch (storageError) {
-      console.warn('Unable to read authentication state:', storageError);
-    } finally {
-      setCheckedStorage(true);
-    }
+    setIsAuthenticated(readAuthSession());
+    setCheckedStorage(true);
   }, []);
+
+  const logout = useCallback(() => {
+    clearAuthSession();
+    setIsAuthenticated(false);
+    setPassword('');
+    setError(null);
+  }, []);
+
+  const authContextValue = useMemo(() => ({ logout }), [logout]);
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -42,12 +67,7 @@ const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
       return;
     }
 
-    try {
-      window.localStorage.setItem(AUTH_STORAGE_KEY, AUTH_TOKEN_VALUE);
-    } catch (storageError) {
-      console.warn('Unable to persist authentication state:', storageError);
-    }
-
+    saveAuthSession();
     setIsAuthenticated(true);
     setPassword('');
     setError(null);
@@ -85,7 +105,7 @@ const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
     );
   }
 
-  return <>{children}</>;
+  return <AuthContext.Provider value={authContextValue}>{children}</AuthContext.Provider>;
 };
 
 export default AuthGate;

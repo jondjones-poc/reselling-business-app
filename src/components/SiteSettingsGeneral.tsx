@@ -4,9 +4,11 @@ import {
   type ColorSchemeId,
   useTheme,
 } from '../context/ThemeContext';
+import { useAuth } from './AuthGate';
 import './SiteSettingsGeneral.css';
 
 export const SiteSettingsGeneral: React.FC = () => {
+  const { logout } = useAuth();
   const { colorScheme, setColorScheme, themeLoading, themeSaving, themeError } = useTheme();
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
@@ -75,6 +77,16 @@ export const SiteSettingsGeneral: React.FC = () => {
 
       {themeSaving ? <p className="site-settings-general-status">Saving…</p> : null}
       {themeLoading ? <p className="site-settings-general-status">Loading saved theme…</p> : null}
+
+      <div className="site-settings-general-session">
+        <h3 className="site-settings-general-title">Session</h3>
+        <p className="site-settings-general-hint">
+          Sign out of the app on this device. You will need to enter the access password again.
+        </p>
+        <button type="button" className="site-settings-logout-button" onClick={logout}>
+          Log out
+        </button>
+      </div>
     </div>
   );
 };

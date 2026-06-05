@@ -531,6 +531,11 @@
 
   .research-tabs {
     max-width: 100%;
+    margin-bottom: 18px;
+  }
+
+  .research-page-container > .research-tabs {
+    margin: 0 auto 18px auto;
   }
 
   .research-tab {
@@ -554,6 +559,17 @@
   box-sizing: border-box;
   overflow-x: auto;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.research-page-container > .research-tabs {
+  margin-bottom: 24px;
+}
+
+/* Research hub embeds offline/AI panels without duplicating page offset */
+.research-page-container .research-page-container {
+  margin-top: 0;
+  padding: 0;
+  min-height: 0;
 }
 
 .research-tab-panel {
@@ -1842,11 +1858,29 @@ button.image-upload-label {
 
 @media (max-width: 768px) {
   .research-tabs {
-    margin: 100px 0 0 0;
+    margin: 0 auto 18px auto;
     width: 100%;
     max-width: 100%;
     overflow-x: hidden;
     box-sizing: border-box;
+  }
+
+  .research-page-container > .research-tabs {
+    margin: 0 auto 18px auto;
+  }
+
+  .research-page-container > .research-ebay-feed,
+  .research-page-container > .research-tag-str {
+    margin-top: 0;
+  }
+
+  .research-page-container .research-page-container {
+    margin-top: 0;
+    padding: 0;
+  }
+
+  .research-page-container .research-tool-container {
+    margin-top: 0;
   }
 
   .research-tab {
