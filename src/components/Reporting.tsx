@@ -182,11 +182,28 @@ interface ReportingCategoryRow {
 
 type ReportingViewMode = 'sales-data' | 'stock-analysis' | 'cash-flow-analysis' | 'projections';
 
+type SalesDataSubTab = 'current-sales' | 'all-time-sales' | 'graphs';
+
+type SalesFilterMode = 'month' | 'period';
+
+type SalesDateFilterValue =
+  | 'all-time'
+  | 'last-30-days'
+  | 'last-3-months'
+  | 'current-year'
+  | 'previous-year';
+
 function parseReportingViewMode(tab: string | null): ReportingViewMode {
   if (tab === 'stock-analysis') return 'stock-analysis';
   if (tab === 'cash-flow-analysis') return 'cash-flow-analysis';
   if (tab === 'projections' || tab === 'item-analysis') return 'projections';
   return 'sales-data';
+}
+
+function parseSalesDataSubTab(value: string | null): SalesDataSubTab {
+  if (value === 'all-time-sales') return 'all-time-sales';
+  if (value === 'graphs') return 'graphs';
+  return 'current-sales';
 }
 
 interface CashFlowPurchasedItem {
@@ -492,6 +509,9 @@ const Reporting: React.FC = () => {
   
   // Monthly view state
   const [viewMode, setViewMode] = useState<ReportingViewMode>(initialViewMode);
+  const [salesSubTab, setSalesSubTabState] = useState<SalesDataSubTab>(() =>
+    parseSalesDataSubTab(searchParams.get('salesSubTab'))
+  );
   const [vintedData, setVintedData] = useState<{ purchases: number; sales: number; profit: number }>({ purchases: 0, sales: 0, profit: 0 });
   const [ebayData, setEbayData] = useState<{ purchases: number; sales: number; profit: number }>({ purchases: 0, sales: 0, profit: 0 });
   const [depopData, setDepopData] = useState<{ purchases: number; sales: number; profit: number }>({ purchases: 0, sales: 0, profit: 0 });
@@ -532,7 +552,8 @@ const Reporting: React.FC = () => {
   const [trailingInventory, setTrailingInventory] = useState<TrailingInventoryPoint[]>([]);
   const [trailingInventoryLoading, setTrailingInventoryLoading] = useState(false);
   const [stockRowsForSalesData, setStockRowsForSalesData] = useState<StockRowForSalesData[]>([]);
-  const [salesDateFilter, setSalesDateFilter] = useState<'all-time' | 'last-30-days' | 'last-3-months' | 'current-year' | 'previous-year'>('all-time');
+  const [salesFilterMode, setSalesFilterMode] = useState<SalesFilterMode>('month');
+  const [salesDateFilter, setSalesDateFilter] = useState<SalesDateFilterValue>('all-time');
   const [cashFlowPinnedDay, setCashFlowPinnedDay] = useState<number | null>(null);
   const now = useMemo(() => new Date(), []);
   const [cashFlowMonthCursor, setCashFlowMonthCursor] = useState<Date>(
@@ -619,6 +640,8 @@ const Reporting: React.FC = () => {
     const t = searchParams.get('tab');
     const nextViewMode = parseReportingViewMode(t);
     setViewMode((prev) => (prev === nextViewMode ? prev : nextViewMode));
+    const nextSalesSubTab = parseSalesDataSubTab(searchParams.get('salesSubTab'));
+    setSalesSubTabState((prev) => (prev === nextSalesSubTab ? prev : nextSalesSubTab));
   }, [searchParams]);
 
   useEffect(() => {
@@ -637,6 +660,20 @@ const Reporting: React.FC = () => {
     setSearchParams(nextParams, { replace: true });
   }, [viewMode, searchParams, setSearchParams]);
 
+  const setSalesSubTab = useCallback(
+    (next: SalesDataSubTab) => {
+      setSalesSubTabState(next);
+      const nextParams = new URLSearchParams(searchParams);
+      if (next === 'current-sales') {
+        nextParams.delete('salesSubTab');
+      } else {
+        nextParams.set('salesSubTab', next);
+      }
+      setSearchParams(nextParams, { replace: true });
+    },
+    [searchParams, setSearchParams]
+  );
+
   const loadStockRowsForSalesData = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE}/api/stock`);
@@ -653,7 +690,38 @@ const Reporting: React.FC = () => {
 
   useEffect(() => {
     void loadStockRowsForSalesData();
-  }, [loadStockRowsForSalesData]);
+  }, [
+    loadStockRowsForSalesData,
+    viewMode,
+    salesFilterMode,
+    monthlySummaryYear,
+    monthlySummaryMonth,
+    salesDateFilter,
+  ]);
+
+  const resetSalesMonthFilter = useCallback(() => {
+    setMonthlySummaryYear(now.getFullYear());
+    setMonthlySummaryMonth(now.getMonth() + 1);
+  }, [now]);
+
+  const resetSalesPeriodFilter = useCallback(() => {
+    setSalesDateFilter('all-time');
+  }, []);
+
+  const handleSalesFilterModeChange = useCallback(
+    (next: SalesFilterMode) => {
+      if (next === salesFilterMode) {
+        return;
+      }
+      setSalesFilterMode(next);
+      if (next === 'month') {
+        resetSalesMonthFilter();
+      } else {
+        resetSalesPeriodFilter();
+      }
+    },
+    [salesFilterMode, resetSalesMonthFilter, resetSalesPeriodFilter]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -717,7 +785,9 @@ const Reporting: React.FC = () => {
 
   // Fetch monthly platform data when in monthly view
   useEffect(() => {
-    if (viewMode === 'sales-data') {
+    if (viewMode !== 'sales-data' || salesFilterMode !== 'month') {
+      return;
+    }
       const fetchMonthlyData = async () => {
         try {
           setMonthlyLoading(true);
@@ -746,12 +816,13 @@ const Reporting: React.FC = () => {
         }
       };
       fetchMonthlyData();
-    }
-  }, [viewMode, monthlySummaryYear, monthlySummaryMonth]);
+  }, [viewMode, salesFilterMode, monthlySummaryYear, monthlySummaryMonth]);
 
   // Fetch monthly summary data for the new row in Global view
   useEffect(() => {
-    if (viewMode === 'sales-data') {
+    if (viewMode !== 'sales-data' || salesFilterMode !== 'month') {
+      return;
+    }
       const fetchMonthlySummary = async () => {
         try {
           setMonthlySummaryLoading(true);
@@ -784,8 +855,7 @@ const Reporting: React.FC = () => {
         }
       };
       fetchMonthlySummary();
-    }
-  }, [viewMode, monthlySummaryYear, monthlySummaryMonth]);
+  }, [viewMode, salesFilterMode, monthlySummaryYear, monthlySummaryMonth]);
 
   // Fetch trailing inventory data
   useEffect(() => {
@@ -875,15 +945,6 @@ const Reporting: React.FC = () => {
   }, [monthlyProfit, yearSpecificTotals]);
 
   const inventoryWriteOffPurchaseCost = inventoryWriteOffTotals.purchaseCost;
-
-  /** Stock net (excl. write-off rows in API totals) minus expenses minus write-off purchase cost. */
-  const allTimeCompanyProfit = useMemo(() => {
-    const writeOff = inventoryWriteOffPurchaseCost;
-    if (reportingExpensesError) {
-      return totalProfit - writeOff;
-    }
-    return totalProfit - reportingExpensesAllTimeTotal - writeOff;
-  }, [totalProfit, reportingExpensesAllTimeTotal, reportingExpensesError, inventoryWriteOffPurchaseCost]);
 
   const salesByCategoryData = useMemo(() => {
     if (salesByCategory.length === 0) {
@@ -1484,6 +1545,12 @@ const Reporting: React.FC = () => {
         return false;
       }
 
+      if (salesFilterMode === 'month') {
+        return (
+          date.getFullYear() === monthlySummaryYear && date.getMonth() + 1 === monthlySummaryMonth
+        );
+      }
+
       if (salesDateFilter === 'all-time') {
         return true;
       }
@@ -1512,9 +1579,183 @@ const Reporting: React.FC = () => {
 
       return true;
     };
-  }, [salesDateFilter, now, previousDataYear]);
+  }, [salesFilterMode, monthlySummaryYear, monthlySummaryMonth, salesDateFilter, now, previousDataYear]);
 
-  const chartYearForBuckets = viewMode === 'sales-data' ? 'all' : selectedYear;
+  const salesSummaryPeriodLabel = useMemo(() => {
+    if (salesFilterMode === 'month') {
+      return `${monthLabels[monthlySummaryMonth - 1]} ${monthlySummaryYear}`;
+    }
+    if (salesDateFilter === 'last-30-days') return 'Last 30 days';
+    if (salesDateFilter === 'last-3-months') return 'Last 3 months';
+    if (salesDateFilter === 'current-year') return `Current year (${now.getFullYear()})`;
+    if (salesDateFilter === 'previous-year') {
+      return previousDataYear != null ? `Previous year (${previousDataYear})` : 'Previous year';
+    }
+    return 'All time';
+  }, [salesFilterMode, salesDateFilter, monthlySummaryYear, monthlySummaryMonth, now, previousDataYear]);
+
+  const salesSummaryDisplay = useMemo(() => {
+    const isFiltered =
+      salesFilterMode === 'month' ||
+      (salesFilterMode === 'period' && salesDateFilter !== 'all-time');
+
+    if (!isFiltered) {
+      const writeOff = inventoryWriteOffPurchaseCost;
+      const companyProfit = reportingExpensesError
+        ? totalProfit - writeOff
+        : totalProfit - reportingExpensesAllTimeTotal - writeOff;
+      return {
+        isFiltered: false,
+        periodLabel: 'All time',
+        companyProfit,
+        totalSales: yearSpecificTotals?.totalSales ?? 0,
+        totalPurchase: yearSpecificTotals?.totalPurchase ?? 0,
+        expensesTotal: reportingExpensesAllTimeTotal,
+        writeOffLineCount: inventoryWriteOffTotals.lineCount,
+        writeOffPurchaseCost: writeOff,
+        costOfSoldItems: yearSpecificTotals?.costOfSoldItems,
+        totalProfitFromSoldItems: yearSpecificTotals?.totalProfitFromSoldItems,
+        unsoldInventoryValue: unsoldInventoryValue?.value ?? null,
+        soldCount: yearItemsStats?.sold ?? null,
+        activeListingsCount: activeListingsCount?.count ?? null,
+        averageProfitMultiple: allTimeAverageProfitMultiple,
+        averageDaysToSell: averageDaysToSell?.days ?? null,
+        averageProfitPerItem: averageProfitPerItem,
+        averageSellingPrice: averageSellingPrice,
+        roi: roi,
+      };
+    }
+
+    let totalSales = 0;
+    let totalPurchase = 0;
+    let totalProfitFromSoldItems = 0;
+    let costOfSoldItems = 0;
+    let soldCount = 0;
+    let profitMultipleSum = 0;
+    let profitMultipleCount = 0;
+    let daysToSellSum = 0;
+    let daysToSellCount = 0;
+    let writeOffLineCount = 0;
+    let writeOffPurchaseCost = 0;
+
+    for (const row of stockRowsForSalesData) {
+      if (isStockWriteOffRow(row)) {
+        if (isDateInSalesRange(row.purchase_date)) {
+          writeOffLineCount += 1;
+          writeOffPurchaseCost += parseStockNumber(row.purchase_price) ?? 0;
+        }
+        continue;
+      }
+
+      if (isDateInSalesRange(row.purchase_date)) {
+        totalPurchase += parseStockNumber(row.purchase_price) ?? 0;
+      }
+
+      if (isDateInSalesRange(row.sale_date)) {
+        const sale = parseStockNumber(row.sale_price) ?? 0;
+        const buy = parseStockNumber(row.purchase_price) ?? 0;
+        totalSales += sale;
+        costOfSoldItems += buy;
+        totalProfitFromSoldItems += sale - buy;
+        soldCount += 1;
+        if (buy > 0) {
+          profitMultipleSum += sale / buy;
+          profitMultipleCount += 1;
+        }
+        if (row.purchase_date) {
+          const purchaseDate = new Date(row.purchase_date);
+          const saleDate = new Date(row.sale_date as string);
+          if (!Number.isNaN(purchaseDate.getTime()) && !Number.isNaN(saleDate.getTime())) {
+            const days = (saleDate.getTime() - purchaseDate.getTime()) / (1000 * 60 * 60 * 24);
+            if (days >= 0) {
+              daysToSellSum += days;
+              daysToSellCount += 1;
+            }
+          }
+        }
+      }
+    }
+
+    const profit = totalSales - totalPurchase;
+    const expensesTotal = reportingExpensesAll.reduce((sum, r) => {
+      if (!isDateInSalesRange(r.purchase_date ?? null)) return sum;
+      const c = typeof r.cost === 'number' ? r.cost : parseFloat(String(r.cost ?? 0));
+      return sum + (Number.isFinite(c) ? c : 0);
+    }, 0);
+    const companyProfit = reportingExpensesError
+      ? profit - writeOffPurchaseCost
+      : profit - expensesTotal - writeOffPurchaseCost;
+
+    return {
+      isFiltered: true,
+      periodLabel: salesSummaryPeriodLabel,
+      companyProfit,
+      totalSales,
+      totalPurchase,
+      expensesTotal,
+      writeOffLineCount,
+      writeOffPurchaseCost,
+      costOfSoldItems,
+      totalProfitFromSoldItems,
+      unsoldInventoryValue: null,
+      soldCount,
+      activeListingsCount: null,
+      averageProfitMultiple: profitMultipleCount > 0 ? profitMultipleSum / profitMultipleCount : null,
+      averageDaysToSell: daysToSellCount > 0 ? daysToSellSum / daysToSellCount : null,
+      averageProfitPerItem:
+        soldCount > 0
+          ? {
+              average: totalProfitFromSoldItems / soldCount,
+              netProfit: totalProfitFromSoldItems,
+              soldCount,
+            }
+          : null,
+      averageSellingPrice:
+        soldCount > 0
+          ? {
+              average: totalSales / soldCount,
+              totalSales,
+              soldCount,
+            }
+          : null,
+      roi:
+        totalPurchase > 0
+          ? {
+              profit: totalProfitFromSoldItems,
+              totalSpend: totalPurchase,
+              percentage: (totalProfitFromSoldItems / totalPurchase) * 100,
+            }
+          : null,
+    };
+  }, [
+    salesFilterMode,
+    salesDateFilter,
+    salesSummaryPeriodLabel,
+    stockRowsForSalesData,
+    isDateInSalesRange,
+    reportingExpensesAll,
+    reportingExpensesError,
+    reportingExpensesAllTimeTotal,
+    totalProfit,
+    inventoryWriteOffPurchaseCost,
+    inventoryWriteOffTotals.lineCount,
+    yearSpecificTotals,
+    unsoldInventoryValue,
+    yearItemsStats,
+    activeListingsCount,
+    allTimeAverageProfitMultiple,
+    averageDaysToSell,
+    averageProfitPerItem,
+    averageSellingPrice,
+    roi,
+  ]);
+
+  const chartYearForBuckets =
+    viewMode === 'sales-data'
+      ? salesFilterMode === 'month'
+        ? monthlySummaryYear
+        : 'all'
+      : selectedYear;
 
   const monthlyChartBuckets = useMemo(() => {
     if (chartYearForBuckets === 'all') {
@@ -2131,6 +2372,12 @@ const Reporting: React.FC = () => {
           Sales Data
         </button>
         <button
+          className={`view-toggle-button ${viewMode === 'projections' ? 'active' : ''}`}
+          onClick={() => setViewMode('projections')}
+        >
+          Projections
+        </button>
+        <button
           className={`view-toggle-button ${viewMode === 'stock-analysis' ? 'active' : ''}`}
           onClick={() => setViewMode('stock-analysis')}
         >
@@ -2142,12 +2389,6 @@ const Reporting: React.FC = () => {
         >
           Cash Flow Analysis
         </button>
-        <button
-          className={`view-toggle-button ${viewMode === 'projections' ? 'active' : ''}`}
-          onClick={() => setViewMode('projections')}
-        >
-          Projections
-        </button>
       </div>
 
       {/* Sales Data View */}
@@ -2155,40 +2396,114 @@ const Reporting: React.FC = () => {
         {!loading && !error && (
           <>
           <div className="reporting-sales-filter-bar">
-            <span className="reporting-sales-filter-label">Year &amp; month</span>
-            <select
-              value={monthlySummaryYear}
-              onChange={(e) => setMonthlySummaryYear(Number(e.target.value))}
-              aria-label="Year for current sales and monthly summaries"
-              className="reporting-sales-filter-select"
+            <div
+              className="reporting-sales-filter-mode-toggle"
+              role="group"
+              aria-label="Filter by month or period"
             >
-              {(availableYears.length > 0
-                ? availableYears
-                : Array.from({ length: 12 }, (_, i) => now.getFullYear() - i)
-              ).map((year) => (
-                <option key={year} value={year}>
-                  {year}
-                </option>
-              ))}
-            </select>
-            <select
-              value={monthlySummaryMonth}
-              onChange={(e) => setMonthlySummaryMonth(Number(e.target.value))}
-              aria-label="Month for current sales"
-              className="reporting-sales-filter-select"
-            >
-              {monthLabels.map((label, index) => (
-                <option key={index + 1} value={index + 1}>
-                  {label}
-                </option>
-              ))}
-            </select>
+              <button
+                type="button"
+                className={`reporting-sales-filter-mode-btn${
+                  salesFilterMode === 'month' ? ' reporting-sales-filter-mode-btn--active' : ''
+                }`}
+                aria-pressed={salesFilterMode === 'month'}
+                onClick={() => handleSalesFilterModeChange('month')}
+              >
+                Month
+              </button>
+              <button
+                type="button"
+                className={`reporting-sales-filter-mode-btn${
+                  salesFilterMode === 'period' ? ' reporting-sales-filter-mode-btn--active' : ''
+                }`}
+                aria-pressed={salesFilterMode === 'period'}
+                onClick={() => handleSalesFilterModeChange('period')}
+              >
+                Period
+              </button>
+            </div>
+            {salesFilterMode === 'month' ? (
+              <>
+                <select
+                  value={monthlySummaryYear}
+                  onChange={(e) => setMonthlySummaryYear(Number(e.target.value))}
+                  aria-label="Year for current sales and monthly summaries"
+                  className="reporting-sales-filter-select"
+                >
+                  {(availableYears.length > 0
+                    ? availableYears
+                    : Array.from({ length: 12 }, (_, i) => now.getFullYear() - i)
+                  ).map((year) => (
+                    <option key={year} value={year}>
+                      {year}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={monthlySummaryMonth}
+                  onChange={(e) => setMonthlySummaryMonth(Number(e.target.value))}
+                  aria-label="Month for current sales"
+                  className="reporting-sales-filter-select"
+                >
+                  {monthLabels.map((label, index) => (
+                    <option key={index + 1} value={index + 1}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </>
+            ) : (
+              <select
+                className="reporting-sales-filter-select"
+                value={salesDateFilter}
+                onChange={(event) =>
+                  setSalesDateFilter(event.target.value as SalesDateFilterValue)
+                }
+                aria-label="Date range for sales graphs"
+              >
+                <option value="all-time">All Time</option>
+                <option value="last-30-days">Last 30 Days</option>
+                <option value="last-3-months">Last 3 Months</option>
+                <option value="current-year">Current Year ({now.getFullYear()})</option>
+                {previousDataYear !== null && (
+                  <option value="previous-year">Previous Year ({previousDataYear})</option>
+                )}
+              </select>
+            )}
           </div>
 
-          <section className="reporting-page-section" aria-labelledby="reporting-current-sales-heading">
-            <h2 id="reporting-current-sales-heading" className="reporting-section-heading">
+          <div className="reporting-sales-subnav" role="tablist" aria-label="Sales data sections">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={salesSubTab === 'current-sales'}
+              className={`reporting-sales-subnav-btn${salesSubTab === 'current-sales' ? ' reporting-sales-subnav-btn--active' : ''}`}
+              onClick={() => setSalesSubTab('current-sales')}
+            >
               Current Sales
-            </h2>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={salesSubTab === 'all-time-sales'}
+              className={`reporting-sales-subnav-btn${salesSubTab === 'all-time-sales' ? ' reporting-sales-subnav-btn--active' : ''}`}
+              onClick={() => setSalesSubTab('all-time-sales')}
+            >
+              Total Sales
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={salesSubTab === 'graphs'}
+              className={`reporting-sales-subnav-btn${salesSubTab === 'graphs' ? ' reporting-sales-subnav-btn--active' : ''}`}
+              onClick={() => setSalesSubTab('graphs')}
+            >
+              Graphs
+            </button>
+          </div>
+
+          {salesSubTab === 'current-sales' ? (
+          <section className="reporting-page-section" aria-label="Current sales">
           <div className="reporting-summary reporting-summary--sales-data">
             <div className="total-profit-card reporting-summary-card--current-sales" style={{ paddingBottom: '12px' }}>
               <div className="total-profit-label">Current Sales</div>
@@ -2473,14 +2788,16 @@ const Reporting: React.FC = () => {
             </div>
           )}
           </section>
+          ) : null}
 
-          <section className="reporting-page-section" aria-labelledby="reporting-all-time-sales-heading">
-            <h2 id="reporting-all-time-sales-heading" className="reporting-section-heading">
-              All Time Sales
-            </h2>
+          {salesSubTab === 'all-time-sales' ? (
+          <section className="reporting-page-section" aria-label="Sales summary">
           <div className="reporting-summary reporting-summary--grid-5">
             <div className="total-profit-card">
-              <div className="total-profit-label">Total Company Profit (All Time)</div>
+              <div className="total-profit-label">
+                Total Company Profit
+                {salesSummaryDisplay.isFiltered ? ` (${salesSummaryDisplay.periodLabel})` : ' (All Time)'}
+              </div>
               {reportingExpensesLoading ? (
                 <div className="total-profit-value" style={{ fontSize: '1.1rem', color: 'rgba(255,248,226,0.75)' }}>
                   …
@@ -2488,10 +2805,10 @@ const Reporting: React.FC = () => {
               ) : (
                 <div
                   className={`total-profit-value ${
-                    (reportingExpensesError ? totalProfit : allTimeCompanyProfit) >= 0 ? 'positive' : 'negative'
+                    salesSummaryDisplay.companyProfit >= 0 ? 'positive' : 'negative'
                   }`}
                 >
-                  {formatCurrency(reportingExpensesError ? totalProfit : allTimeCompanyProfit)}
+                  {formatCurrency(salesSummaryDisplay.companyProfit)}
                 </div>
               )}
               <div className="total-profit-description">
@@ -2499,29 +2816,44 @@ const Reporting: React.FC = () => {
                   ? 'Operating stock net − expenses − write-offs (loading expenses…)'
                   : reportingExpensesError
                     ? 'Operating stock net − write-offs (expenses not loaded)'
-                    : 'Operating stock net (excl. write-off rows) − expenses − inventory write-off cost'}
+                    : salesSummaryDisplay.isFiltered
+                      ? `Stock net in ${salesSummaryDisplay.periodLabel.toLowerCase()} − expenses − write-offs`
+                      : 'Operating stock net (excl. write-off rows) − expenses − inventory write-off cost'}
               </div>
             </div>
-            {yearSpecificTotals && (
-              <div className="total-profit-card">
-                <div className="total-profit-label">Total Sales (All Time)</div>
-                <div className="total-profit-value positive">
-                  {formatCurrency(yearSpecificTotals.totalSales)}
-                </div>
-                <div className="total-profit-description">All recorded sales</div>
-              </div>
-            )}
-            {yearSpecificTotals && (
-              <div className="total-profit-card">
-                <div className="total-profit-label">Stock Cost</div>
-                <div className="total-profit-value negative">
-                  {formatCurrency(yearSpecificTotals.totalPurchase)}
-                </div>
-                <div className="total-profit-description">All items purchased (stock)</div>
-              </div>
-            )}
             <div className="total-profit-card">
-              <div className="total-profit-label">Total Expenses (All Time)</div>
+              <div className="total-profit-label">
+                Total Sales
+                {salesSummaryDisplay.isFiltered ? ` (${salesSummaryDisplay.periodLabel})` : ' (All Time)'}
+              </div>
+              <div className="total-profit-value positive">
+                {formatCurrency(salesSummaryDisplay.totalSales)}
+              </div>
+              <div className="total-profit-description">
+                {salesSummaryDisplay.isFiltered
+                  ? `Sales in ${salesSummaryDisplay.periodLabel.toLowerCase()}`
+                  : 'All recorded sales'}
+              </div>
+            </div>
+            <div className="total-profit-card">
+              <div className="total-profit-label">
+                Stock Cost
+                {salesSummaryDisplay.isFiltered ? ` (${salesSummaryDisplay.periodLabel})` : ' (All Time)'}
+              </div>
+              <div className="total-profit-value negative">
+                {formatCurrency(salesSummaryDisplay.totalPurchase)}
+              </div>
+              <div className="total-profit-description">
+                {salesSummaryDisplay.isFiltered
+                  ? `Stock purchased in ${salesSummaryDisplay.periodLabel.toLowerCase()}`
+                  : 'All items purchased (stock)'}
+              </div>
+            </div>
+            <div className="total-profit-card">
+              <div className="total-profit-label">
+                Total Expenses
+                {salesSummaryDisplay.isFiltered ? ` (${salesSummaryDisplay.periodLabel})` : ' (All Time)'}
+              </div>
               {reportingExpensesError ? (
                 <div className="total-profit-value negative" style={{ fontSize: '1rem' }}>
                   —
@@ -2531,93 +2863,121 @@ const Reporting: React.FC = () => {
                   …
                 </div>
               ) : (
-                <div className={`total-profit-value${reportingExpensesAllTimeTotal > 0 ? ' negative' : ''}`}>
-                  {formatCurrency(reportingExpensesAllTimeTotal)}
+                <div className={`total-profit-value${salesSummaryDisplay.expensesTotal > 0 ? ' negative' : ''}`}>
+                  {formatCurrency(salesSummaryDisplay.expensesTotal)}
                 </div>
               )}
               <div className="total-profit-description">
                 {reportingExpensesError
                   ? reportingExpensesError
-                  : 'Sum of all rows in the expenses table'}
+                  : salesSummaryDisplay.isFiltered
+                    ? `Expenses in ${salesSummaryDisplay.periodLabel.toLowerCase()}`
+                    : 'Sum of all rows in the expenses table'}
               </div>
             </div>
             <div className="total-profit-card">
-              <div className="total-profit-label">Inventory write-off</div>
-              <div className={`total-profit-value${inventoryWriteOffTotals.purchaseCost > 0 ? ' negative' : ''}`}>
-                {formatCurrency(-inventoryWriteOffTotals.purchaseCost)}
+              <div className="total-profit-label">
+                Inventory write-off
+                {salesSummaryDisplay.isFiltered ? ` (${salesSummaryDisplay.periodLabel})` : ''}
+              </div>
+              <div className={`total-profit-value${salesSummaryDisplay.writeOffPurchaseCost > 0 ? ' negative' : ''}`}>
+                {formatCurrency(-salesSummaryDisplay.writeOffPurchaseCost)}
               </div>
               <div className="total-profit-description">
-                {inventoryWriteOffTotals.lineCount.toLocaleString()} line
-                {inventoryWriteOffTotals.lineCount === 1 ? '' : 's'} marked inventory write-off (purchase cost)
+                {salesSummaryDisplay.writeOffLineCount.toLocaleString()} line
+                {salesSummaryDisplay.writeOffLineCount === 1 ? '' : 's'} marked inventory write-off (purchase cost)
               </div>
             </div>
           </div>
 
           <div className="reporting-summary reporting-summary--grid-4">
-            {yearSpecificTotals?.costOfSoldItems !== undefined && (
+            {salesSummaryDisplay.costOfSoldItems !== undefined && (
               <div className="total-profit-card">
-                <div className="total-profit-label">Cost of Sold Items (All Time)</div>
+                <div className="total-profit-label">
+                  Cost of Sold Items
+                  {salesSummaryDisplay.isFiltered ? ` (${salesSummaryDisplay.periodLabel})` : ' (All Time)'}
+                </div>
                 <div className="total-profit-value negative">
-                  {formatCurrency(yearSpecificTotals.costOfSoldItems)}
+                  {formatCurrency(salesSummaryDisplay.costOfSoldItems)}
                 </div>
                 <div className="total-profit-description">Purchase cost of sold items</div>
               </div>
             )}
-            {unsoldInventoryValue && (
+            {salesSummaryDisplay.unsoldInventoryValue != null && (
               <div className="total-profit-card">
                 <div className="total-profit-label">Unsold Inventory Value</div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: 0 }}>
                   <div className="total-profit-value negative">
-                    {formatCurrency(-unsoldInventoryValue.value)}
+                    {formatCurrency(-salesSummaryDisplay.unsoldInventoryValue)}
                   </div>
                 </div>
                 <div className="total-profit-description">Current unsold stock at cost</div>
               </div>
             )}
-            {yearSpecificTotals?.totalProfitFromSoldItems !== undefined && (
+            {salesSummaryDisplay.totalProfitFromSoldItems !== undefined && (
               <div className="total-profit-card">
-                <div className="total-profit-label">Total Profit from Sold Items (All Time)</div>
-                <div className={`total-profit-value ${yearSpecificTotals.totalProfitFromSoldItems >= 0 ? 'positive' : 'negative'}`}>
-                  {formatCurrency(yearSpecificTotals.totalProfitFromSoldItems)}
+                <div className="total-profit-label">
+                  Total Profit from Sold Items
+                  {salesSummaryDisplay.isFiltered ? ` (${salesSummaryDisplay.periodLabel})` : ' (All Time)'}
+                </div>
+                <div className={`total-profit-value ${(salesSummaryDisplay.totalProfitFromSoldItems ?? 0) >= 0 ? 'positive' : 'negative'}`}>
+                  {formatCurrency(salesSummaryDisplay.totalProfitFromSoldItems ?? 0)}
                 </div>
                 <div className="total-profit-description">Sale − purchase on sold lines</div>
               </div>
             )}
-            {yearItemsStats && activeListingsCount && (
+            {salesSummaryDisplay.soldCount != null && salesSummaryDisplay.activeListingsCount != null ? (
               <div className="total-profit-card">
                 <div className="total-profit-label">Items Sold / Not Sold</div>
                 <div className="total-profit-value positive">
-                  {yearItemsStats.sold.toLocaleString()} / {activeListingsCount.count.toLocaleString()}
+                  {salesSummaryDisplay.soldCount.toLocaleString()} / {salesSummaryDisplay.activeListingsCount.toLocaleString()}
                 </div>
                 <div className="total-profit-description">All-time sold / current not sold</div>
               </div>
-            )}
+            ) : salesSummaryDisplay.soldCount != null ? (
+              <div className="total-profit-card">
+                <div className="total-profit-label">
+                  Items Sold
+                  {salesSummaryDisplay.isFiltered ? ` (${salesSummaryDisplay.periodLabel})` : ''}
+                </div>
+                <div className="total-profit-value positive">
+                  {salesSummaryDisplay.soldCount.toLocaleString()}
+                </div>
+                <div className="total-profit-description">Sold in selected period</div>
+              </div>
+            ) : null}
           </div>
 
           <div className="reporting-summary reporting-summary--grid-4 reporting-summary--grid-3">
-            {allTimeAverageProfitMultiple !== null && (
+            {salesSummaryDisplay.averageProfitMultiple != null && (
               <div className="total-profit-card">
-                <div className="total-profit-label">Average Profit Multiple (All Time)</div>
-                <div className="total-profit-value positive">
-                  {allTimeAverageProfitMultiple.toFixed(2)}x
+                <div className="total-profit-label">
+                  Average Profit Multiple
+                  {salesSummaryDisplay.isFiltered ? ` (${salesSummaryDisplay.periodLabel})` : ' (All Time)'}
                 </div>
-                <div className="total-profit-description">Average return multiple across all sales</div>
+                <div className="total-profit-value positive">
+                  {salesSummaryDisplay.averageProfitMultiple.toFixed(2)}x
+                </div>
+                <div className="total-profit-description">Average return multiple across sales</div>
               </div>
             )}
-            {averageDaysToSell && (
+            {salesSummaryDisplay.averageDaysToSell != null && (
               <div className="total-profit-card">
-                <div className="total-profit-label">Average Days to Sell</div>
-                <div className="total-profit-value positive">
-                  {averageDaysToSell.days.toFixed(1)} days
+                <div className="total-profit-label">
+                  Average Days to Sell
+                  {salesSummaryDisplay.isFiltered ? ` (${salesSummaryDisplay.periodLabel})` : ''}
                 </div>
-                <div className="total-profit-description">Listing date to sale date</div>
+                <div className="total-profit-value positive">
+                  {salesSummaryDisplay.averageDaysToSell.toFixed(1)} days
+                </div>
+                <div className="total-profit-description">Purchase date to sale date</div>
               </div>
             )}
-            {activeListingsCount && (
+            {salesSummaryDisplay.activeListingsCount != null && (
               <div className="total-profit-card">
                 <div className="total-profit-label">Active Listings Count</div>
                 <div className="total-profit-value positive">
-                  {activeListingsCount.count.toLocaleString()}
+                  {salesSummaryDisplay.activeListingsCount.toLocaleString()}
                 </div>
                 <div className="total-profit-description">Live items</div>
               </div>
@@ -2625,46 +2985,56 @@ const Reporting: React.FC = () => {
           </div>
 
           <div className="reporting-summary reporting-summary--grid-4 reporting-summary--grid-3">
-            {averageProfitPerItem && (
+            {salesSummaryDisplay.averageProfitPerItem && (
               <div className="total-profit-card">
-                <div className="total-profit-label">Average Profit per Item</div>
-                <div className={`total-profit-value ${averageProfitPerItem.average >= 0 ? 'positive' : 'negative'}`}>
-                  {formatCurrency(averageProfitPerItem.average)}
+                <div className="total-profit-label">
+                  Average Profit per Item
+                  {salesSummaryDisplay.isFiltered ? ` (${salesSummaryDisplay.periodLabel})` : ''}
+                </div>
+                <div className={`total-profit-value ${salesSummaryDisplay.averageProfitPerItem.average >= 0 ? 'positive' : 'negative'}`}>
+                  {formatCurrency(salesSummaryDisplay.averageProfitPerItem.average)}
                 </div>
                 <div className="total-profit-description">
-                  {formatCurrency(averageProfitPerItem.netProfit)} ÷ {averageProfitPerItem.soldCount.toLocaleString()} items
+                  {formatCurrency(salesSummaryDisplay.averageProfitPerItem.netProfit)} ÷{' '}
+                  {salesSummaryDisplay.averageProfitPerItem.soldCount.toLocaleString()} items
                 </div>
               </div>
             )}
-            {averageSellingPrice && (
+            {salesSummaryDisplay.averageSellingPrice && (
               <div className="total-profit-card">
-                <div className="total-profit-label">Average Selling Price</div>
+                <div className="total-profit-label">
+                  Average Selling Price
+                  {salesSummaryDisplay.isFiltered ? ` (${salesSummaryDisplay.periodLabel})` : ''}
+                </div>
                 <div className="total-profit-value positive">
-                  {formatCurrency(averageSellingPrice.average)}
+                  {formatCurrency(salesSummaryDisplay.averageSellingPrice.average)}
                 </div>
                 <div className="total-profit-description">
-                  {formatCurrency(averageSellingPrice.totalSales)} ÷ {averageSellingPrice.soldCount.toLocaleString()} items
+                  {formatCurrency(salesSummaryDisplay.averageSellingPrice.totalSales)} ÷{' '}
+                  {salesSummaryDisplay.averageSellingPrice.soldCount.toLocaleString()} items
                 </div>
               </div>
             )}
-            {roi && (
+            {salesSummaryDisplay.roi && (
               <div className="total-profit-card">
-                <div className="total-profit-label">Return on Investment (ROI)</div>
-                <div className={`total-profit-value ${roi.percentage >= 0 ? 'positive' : 'negative'}`}>
-                  {roi.percentage.toFixed(1)}%
+                <div className="total-profit-label">
+                  Return on Investment (ROI)
+                  {salesSummaryDisplay.isFiltered ? ` (${salesSummaryDisplay.periodLabel})` : ''}
+                </div>
+                <div className={`total-profit-value ${salesSummaryDisplay.roi.percentage >= 0 ? 'positive' : 'negative'}`}>
+                  {salesSummaryDisplay.roi.percentage.toFixed(1)}%
                 </div>
                 <div className="total-profit-description">
-                  {formatCurrency(roi.profit)} ÷ {formatCurrency(roi.totalSpend)} × 100
+                  {formatCurrency(salesSummaryDisplay.roi.profit)} ÷ {formatCurrency(salesSummaryDisplay.roi.totalSpend)} × 100
                 </div>
               </div>
             )}
           </div>
           </section>
+          ) : null}
 
-          <section className="reporting-page-section" aria-labelledby="reporting-graphs-heading">
-            <h2 id="reporting-graphs-heading" className="reporting-section-heading">
-              Graphs
-            </h2>
+          {salesSubTab === 'graphs' ? (
+          <section className="reporting-page-section" aria-label="Graphs">
           <div className="reporting-grid">
           <section className="reporting-card">
             <div className="card-header">
@@ -2904,6 +3274,7 @@ const Reporting: React.FC = () => {
           </section>
           </div>
           </section>
+          ) : null}
 
           </>
         )}
@@ -2916,7 +3287,7 @@ const Reporting: React.FC = () => {
             <select
               className="stock-analysis-filter-select"
               value={salesDateFilter}
-              onChange={(event) => setSalesDateFilter(event.target.value as 'all-time' | 'last-30-days' | 'last-3-months' | 'current-year' | 'previous-year')}
+              onChange={(event) => setSalesDateFilter(event.target.value as SalesDateFilterValue)}
             >
               <option value="all-time">All Time</option>
               <option value="last-30-days">Last 30 Days</option>

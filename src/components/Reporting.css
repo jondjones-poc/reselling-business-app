@@ -212,6 +212,79 @@
   outline: none;
 }
 
+.reporting-sales-filter-mode-toggle {
+  display: inline-flex;
+  align-items: stretch;
+  padding: 3px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 214, 91, 0.32);
+  background: rgba(255, 214, 91, 0.06);
+  gap: 2px;
+}
+
+.reporting-sales-filter-mode-btn {
+  padding: 7px 18px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 248, 226, 0.62);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.06rem;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.reporting-sales-filter-mode-btn:hover {
+  color: rgba(255, 248, 226, 0.88);
+  background: rgba(255, 214, 91, 0.08);
+}
+
+.reporting-sales-filter-mode-btn--active {
+  background: rgba(255, 214, 91, 0.22);
+  color: var(--neon-primary-strong);
+  box-shadow: 0 1px 8px rgba(255, 214, 91, 0.18);
+}
+
+.reporting-sales-subnav {
+  display: flex;
+  width: 100%;
+  gap: 8px;
+  margin: 0 0 20px;
+  padding: 5px;
+  background: rgba(5, 4, 3, 0.55);
+  border: 1px solid rgba(255, 214, 91, 0.22);
+  border-radius: 14px;
+  box-sizing: border-box;
+}
+
+.reporting-sales-subnav-btn {
+  flex: 1;
+  padding: 11px 16px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: rgba(255, 248, 226, 0.62);
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: 0.05rem;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.reporting-sales-subnav-btn:hover {
+  background: rgba(255, 214, 91, 0.08);
+  color: rgba(255, 248, 226, 0.85);
+}
+
+.reporting-sales-subnav-btn--active {
+  background: rgba(255, 214, 91, 0.18);
+  color: var(--neon-primary-strong);
+  box-shadow: 0 2px 10px rgba(255, 214, 91, 0.15);
+}
+
 .reporting-page-section {
   width: 100%;
   margin: 0 0 36px 0;
