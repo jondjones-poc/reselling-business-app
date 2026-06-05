@@ -10,7 +10,6 @@ import {
 } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
 import { getApiBase } from '../utils/apiBase';
-import { useTheme } from '../context/ThemeContext';
 import { themeAccentRgba, themePositiveRgba, themeTextRgba } from '../utils/themeColors';
 import './Stock.css';
 
@@ -180,7 +179,6 @@ export interface ExpensesProjectionsPanelProps {
 export const ExpensesProjectionsPanel: React.FC<ExpensesProjectionsPanelProps> = ({
   labelledBy = 'expenses-tab-projections',
 }) => {
-  const { colorScheme } = useTheme();
   const API_BASE_LOCAL = getApiBase();
   const cy = new Date().getFullYear();
   const [year, setYear] = useState(cy);
@@ -240,9 +238,9 @@ export const ExpensesProjectionsPanel: React.FC<ExpensesProjectionsPanelProps> =
       labels: data.months.map((m) => m.label),
       datasets: hasProjected ? [profitDataset, projectedDataset] : [profitDataset],
     };
-  }, [data, hasProjected, colorScheme]);
+  }, [data, hasProjected]);
 
-  const chartOptions = useMemo(() => buildProjectionsChartOptions(hasProjected), [hasProjected, colorScheme]);
+  const chartOptions = useMemo(() => buildProjectionsChartOptions(hasProjected), [hasProjected]);
 
   const listingGoalParsed = parseFloat(listingGoalPerDay.trim());
   const listingGoalValid = Number.isFinite(listingGoalParsed) && listingGoalParsed >= 0;

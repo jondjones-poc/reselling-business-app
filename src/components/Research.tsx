@@ -13,7 +13,6 @@ import { Bar, Pie } from 'react-chartjs-2';
 import ReactMarkdown from 'react-markdown';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { getApiBase } from '../utils/apiBase';
-import { useTheme } from '../context/ThemeContext';
 import { themeAccentRgba, themeTextRgba } from '../utils/themeColors';
 import ResearchItemViews from './ResearchItemViews';
 import './BrandResearch.css';
@@ -1693,7 +1692,6 @@ export type ResearchProps = {
 };
 
 const Research: React.FC<ResearchProps> = ({ forcedView }) => {
-  const { colorScheme } = useTheme();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const brandQueryParam = searchParams.get('brand');
@@ -5090,8 +5088,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         },
       },
     };
-  }, [clothingTypesInvestRiskModel, openClothingTypeFromPieBucket,
-    colorScheme]);
+  }, [clothingTypesInvestRiskModel, openClothingTypeFromPieBucket]);
 
   const menswearBrandInventoryPieModel = useMemo(() => {
     if (menswearCategoryIdFromUrl == null) {
@@ -5231,8 +5228,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
   }, [menswearSalesPieModel.sliceBrandIds,
     menswearSalesPieModel.sliceCategoryIds,
     openBrandResearchInUrl,
-    openMenswearCategoryInUrl,,
-    colorScheme]);
+    openMenswearCategoryInUrl]);
 
   const menswearInventoryPieChartOptions = useMemo((): ChartOptions<'pie'> => {
     const sliceIds = menswearInventoryPieModel.sliceCategoryIds;
@@ -5275,8 +5271,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         },
       },
     };
-  }, [menswearInventoryPieModel.sliceCategoryIds, openMenswearCategoryInUrl,
-    colorScheme]);
+  }, [menswearInventoryPieModel.sliceCategoryIds, openMenswearCategoryInUrl]);
 
   const menswearCategoryItemsSoldPieChartOptions = useMemo((): ChartOptions<'pie'> => {
     const sliceIds = menswearCategoryItemsSoldPieModel.sliceCategoryIds;
@@ -5319,8 +5314,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         },
       },
     };
-  }, [menswearCategoryItemsSoldPieModel.sliceCategoryIds, openMenswearCategoryInUrl,
-    colorScheme]);
+  }, [menswearCategoryItemsSoldPieModel.sliceCategoryIds, openMenswearCategoryInUrl]);
 
   const clothingTypesSalesPieChartOptions = useMemo((): ChartOptions<'pie'> => {
     const sliceIds = clothingTypesSalesPieModel.sliceBucketIds;
@@ -5361,8 +5355,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         },
       },
     };
-  }, [clothingTypesSalesPieModel.sliceBucketIds, openClothingTypeFromPieBucket,
-    colorScheme]);
+  }, [clothingTypesSalesPieModel.sliceBucketIds, openClothingTypeFromPieBucket]);
 
   const clothingTypesItemsSoldPieChartOptions = useMemo((): ChartOptions<'pie'> => {
     const sliceIds = clothingTypesItemsSoldPieModel.sliceBucketIds;
@@ -5404,8 +5397,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         },
       },
     };
-  }, [clothingTypesItemsSoldPieModel.sliceBucketIds, openClothingTypeFromPieBucket,
-    colorScheme]);
+  }, [clothingTypesItemsSoldPieModel.sliceBucketIds, openClothingTypeFromPieBucket]);
 
   const clothingTypesInventoryPieChartOptions = useMemo((): ChartOptions<'pie'> => {
     const sliceIds = clothingTypesInventoryPieModel.sliceBucketIds;
@@ -5460,8 +5452,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         },
       },
     };
-  }, [clothingTypesInventoryPieModel, openClothingTypeFromPieBucket,
-    colorScheme]);
+  }, [clothingTypesInventoryPieModel, openClothingTypeFromPieBucket]);
 
   const menswearBrandInventoryPieChartOptions = useMemo((): ChartOptions<'pie'> => {
     const sliceIds = menswearBrandInventoryPieModel.sliceBrandIds;
@@ -5504,8 +5495,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         },
       },
     };
-  }, [menswearBrandInventoryPieModel.sliceBrandIds, openBrandResearchInUrl,
-    colorScheme]);
+  }, [menswearBrandInventoryPieModel.sliceBrandIds, openBrandResearchInUrl]);
 
   const menswearBrandItemsSoldPieChartOptions = useMemo((): ChartOptions<'pie'> => {
     const sliceIds = menswearBrandItemsSoldPieModel.sliceBrandIds;
@@ -5548,8 +5538,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         },
       },
     };
-  }, [menswearBrandItemsSoldPieModel.sliceBrandIds, openBrandResearchInUrl,
-    colorScheme]);
+  }, [menswearBrandItemsSoldPieModel.sliceBrandIds, openBrandResearchInUrl]);
 
   const menswearAddBrandCandidates = useMemo(() => {
     const q = menswearAddBrandSearch.trim().toLowerCase();
@@ -6504,7 +6493,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         },
       },
     }),
-    [colorScheme]
+    []
   );
 
   const categorySoldUnsoldStackData = useMemo(() => {
@@ -6595,7 +6584,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         },
       },
     }),
-    [brandStockSummary?.categorySoldUnsold, colorScheme]
+    [brandStockSummary?.categorySoldUnsold]
   );
 
   const handleSaveBrandInfo = async () => {
@@ -6721,7 +6710,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     setBrandTagCaption('');
     setBrandTagNewImageKind('tag');
     setBrandTagAddPanelOpen(false);
-  }, [colorScheme]);
+  }, []);
 
   const handleToggleBrandTagImagePanel = useCallback(() => {
     if (brandTagAddPanelOpen && brandTagAddSubMode === 'image') {
@@ -7348,7 +7337,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         },
       },
     }),
-    [menswearBrandStockCategoryStackChart, colorScheme]
+    [menswearBrandStockCategoryStackChart]
   );
 
   const menswearBrandStockSizeStackBarOptions = useMemo<ChartOptions<'bar'>>(
@@ -7429,7 +7418,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         },
       },
     }),
-    [colorScheme]
+    []
   );
 
   const runMenswearAvoidStockAskAi = useCallback(async () => {

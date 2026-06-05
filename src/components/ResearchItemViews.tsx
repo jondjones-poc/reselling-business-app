@@ -9,7 +9,6 @@ import {
 } from 'chart.js';
 import { Pie } from 'react-chartjs-2';
 import { apiUrl, ebayOAuthStartUrl } from '../utils/apiBase';
-import { useTheme } from '../context/ThemeContext';
 import { themeTextRgba } from '../utils/themeColors';
 import './BrandResearch.css';
 import './Orders.css';
@@ -187,7 +186,6 @@ function formatListingDate(value: string | null | undefined): string {
 }
 
 const ResearchItemViews: React.FC = () => {
-  const { colorScheme } = useTheme();
   const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -245,22 +243,22 @@ const ResearchItemViews: React.FC = () => {
 
   const bestCategoryPie = useMemo(
     () => buildCategoryPieModel(data?.bestCategories ?? [], BEST_CATEGORY_PALETTE, themeTextRgba(0.22)),
-    [data?.bestCategories, colorScheme]
+    [data?.bestCategories]
   );
 
   const worstCategoryPie = useMemo(
     () => buildCategoryPieModel(data?.worstCategories ?? [], WORST_CATEGORY_PALETTE, themeTextRgba(0.22)),
-    [data?.worstCategories, colorScheme]
+    [data?.worstCategories]
   );
 
   const bestCategoryPieOptions = useMemo(
     () => buildCategoryPieOptions(bestCategoryPie?.rows ?? []),
-    [bestCategoryPie?.rows, colorScheme]
+    [bestCategoryPie?.rows]
   );
 
   const worstCategoryPieOptions = useMemo(
     () => buildCategoryPieOptions(worstCategoryPie?.rows ?? []),
-    [worstCategoryPie?.rows, colorScheme]
+    [worstCategoryPie?.rows]
   );
 
   const activeFeedRows = listingFeedMode === 'best' ? data?.best ?? [] : data?.worst ?? [];

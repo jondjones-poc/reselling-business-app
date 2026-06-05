@@ -10,7 +10,6 @@ import {
 } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
 import { apiUrl } from '../utils/apiBase';
-import { useTheme } from '../context/ThemeContext';
 import { themeAccentRgba, themeTextRgba } from '../utils/themeColors';
 import './ResearchTagSellThrough.css';
 
@@ -58,7 +57,6 @@ function sellThroughTone(ratio: number | null | undefined): string {
 }
 
 function useTagStrChartOptions(): ChartOptions<'bar'> {
-  const { colorScheme } = useTheme();
   return useMemo(
     (): ChartOptions<'bar'> => ({
       responsive: true,
@@ -92,7 +90,7 @@ function useTagStrChartOptions(): ChartOptions<'bar'> {
         },
       },
     }),
-    [colorScheme]
+    []
   );
 }
 

@@ -13,7 +13,6 @@ import {
 } from 'chart.js';
 import { Bar, Line } from 'react-chartjs-2';
 import { getApiBase } from '../utils/apiBase';
-import { useTheme } from '../context/ThemeContext';
 import { themeAccentRgba, themeNegativeRgba, themePositiveRgba, themeTextRgba } from '../utils/themeColors';
 import { parseDateOnlyParts } from '../utils/dateOnly';
 import { ExpensesProjectionsPanel } from './ExpensesProjectionsPanel';
@@ -470,8 +469,7 @@ function buildChartBarOptions(): ChartOptions<'bar'> {
 
 const Reporting: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
-  const { colorScheme } = useTheme();
-  const chartOptions = useMemo(() => buildChartBarOptions(), [colorScheme]);
+  const chartOptions = useMemo(() => buildChartBarOptions(), []);
   const tabFromUrl = searchParams.get('tab');
   const initialViewMode = parseReportingViewMode(tabFromUrl);
 
@@ -2018,7 +2016,7 @@ const Reporting: React.FC = () => {
         },
       },
     }),
-    []
+    [chartOptions]
   );
 
   const salesMonthlyExpensesData = useMemo(() => {
