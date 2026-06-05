@@ -7,13 +7,6 @@
   align-items: center;
 }
 
-.sourcing-container h2 {
-  color: var(--neon-primary-strong);
-  margin-bottom: 24px;
-  font-size: 1.8rem;
-  letter-spacing: 0.05rem;
-}
-
 .sourcing-search-section {
   margin-top: 24px;
   width: 100%;
@@ -37,22 +30,24 @@
   width: 100%;
   padding: 14px 18px;
   border-radius: 16px;
-  border: 1px solid rgba(255, 214, 91, 0.28);
-  background: rgba(255, 214, 91, 0.08);
+  border: 1px solid var(--theme-summary-select-border, rgba(var(--theme-accent-rgb), 0.28));
+  background: var(--theme-summary-select-bg, rgba(var(--theme-accent-rgb), 0.08));
   color: var(--text-strong);
   font-size: 1rem;
   outline: none;
   transition: all 0.2s ease;
   box-sizing: border-box;
+  box-shadow: var(--theme-summary-select-inset, none);
 }
 
 .sourcing-search-input:focus {
-  border-color: rgba(255, 214, 91, 0.5);
-  background: rgba(255, 214, 91, 0.12);
+  border-color: var(--neon-border-strong, rgba(var(--theme-accent-rgb), 0.5));
+  background: var(--theme-summary-select-focus-bg, rgba(var(--theme-accent-rgb), 0.12));
+  box-shadow: var(--neon-shadow, none);
 }
 
 .sourcing-search-input::placeholder {
-  color: rgba(255, 248, 226, 0.5);
+  color: rgba(var(--theme-text-rgb), 0.5);
 }
 
 .sourcing-suggestions {
@@ -61,10 +56,10 @@
   left: 0;
   right: 0;
   margin-top: 4px;
-  background: rgba(20, 20, 20, 0.95);
-  border: 1px solid rgba(255, 214, 91, 0.3);
+  background: var(--theme-typeahead-bg, rgba(20, 20, 20, 0.95));
+  border: 1px solid var(--theme-typeahead-border, rgba(var(--theme-accent-rgb), 0.3));
   border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--theme-typeahead-shadow, 0 4px 12px rgba(0, 0, 0, 0.3));
   z-index: 1000;
   max-height: 300px;
   overflow-y: auto;
@@ -76,7 +71,7 @@
   color: var(--text-strong);
   cursor: pointer;
   transition: all 0.15s ease;
-  border-bottom: 1px solid rgba(255, 214, 91, 0.1);
+  border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.1);
 }
 
 .sourcing-suggestion-item:last-child {
@@ -85,66 +80,56 @@
 
 .sourcing-suggestion-item:hover,
 .sourcing-suggestion-selected {
-  background: rgba(255, 214, 91, 0.15);
+  background: var(--theme-typeahead-option-hover, rgba(var(--theme-accent-rgb), 0.15));
   color: var(--neon-primary-strong);
 }
 
-.sourcing-category-select {
-  padding: 14px 18px;
-  border-radius: 16px;
-  border: 1px solid rgba(255, 214, 91, 0.28);
-  background: rgba(255, 214, 91, 0.08);
-  color: var(--text-strong);
-  font-size: 1rem;
-  outline: none;
-  cursor: pointer;
-  transition: all 0.2s ease;
+.sourcing-category-dropdown {
+  flex: 0 1 auto;
   min-width: 180px;
-}
-
-.sourcing-category-select:focus {
-  border-color: rgba(255, 214, 91, 0.5);
-  background: rgba(255, 214, 91, 0.12);
 }
 
 .sourcing-price-input {
   padding: 14px 18px;
   border-radius: 16px;
-  border: 1px solid rgba(255, 214, 91, 0.28);
-  background: rgba(255, 214, 91, 0.08);
+  border: 1px solid var(--theme-summary-select-border, rgba(var(--theme-accent-rgb), 0.28));
+  background: var(--theme-summary-select-bg, rgba(var(--theme-accent-rgb), 0.08));
   color: var(--text-strong);
   font-size: 1rem;
   outline: none;
   transition: all 0.2s ease;
   min-width: 120px;
   width: 120px;
+  box-shadow: var(--theme-summary-select-inset, none);
 }
 
 .sourcing-price-input:focus {
-  border-color: rgba(255, 214, 91, 0.5);
-  background: rgba(255, 214, 91, 0.12);
+  border-color: var(--neon-border-strong, rgba(var(--theme-accent-rgb), 0.5));
+  background: var(--theme-summary-select-focus-bg, rgba(var(--theme-accent-rgb), 0.12));
+  box-shadow: var(--neon-shadow, none);
 }
 
 .sourcing-price-input::placeholder {
-  color: rgba(255, 248, 226, 0.5);
+  color: rgba(var(--theme-text-rgb), 0.5);
 }
 
 .sourcing-search-button {
   padding: 14px 32px;
   border-radius: 16px;
-  border: 1px solid rgba(255, 214, 91, 0.3);
-  background: rgba(255, 214, 91, 0.15);
-  color: var(--neon-primary-strong);
+  border: 1px solid var(--theme-action-btn-border, rgba(var(--theme-accent-rgb), 0.3));
+  background: var(--theme-action-btn-bg, rgba(var(--theme-accent-rgb), 0.15));
+  color: var(--theme-action-btn-color, var(--neon-primary-strong));
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
   letter-spacing: 0.05rem;
+  box-shadow: var(--theme-summary-select-inset, none);
 }
 
 .sourcing-search-button:hover:not(:disabled) {
-  background: rgba(255, 214, 91, 0.25);
-  border-color: rgba(255, 214, 91, 0.4);
+  background: var(--theme-action-btn-hover-bg, rgba(var(--theme-accent-rgb), 0.25));
+  border-color: var(--theme-action-btn-hover-border, rgba(var(--theme-accent-rgb), 0.4));
 }
 
 .sourcing-search-button:disabled {
@@ -155,7 +140,7 @@
 .sourcing-brands-section {
   margin-top: 32px;
   padding-top: 32px;
-  border-top: 1px solid rgba(255, 214, 91, 0.2);
+  border-top: 1px solid rgba(var(--theme-accent-rgb), 0.2);
 }
 
 .sourcing-brands-label {
@@ -176,8 +161,8 @@
 .sourcing-brand-button {
   padding: 10px 20px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 214, 91, 0.3);
-  background: rgba(255, 214, 91, 0.1);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.3);
+  background: rgba(var(--theme-accent-rgb), 0.1);
   color: var(--neon-primary-strong);
   font-size: 0.9rem;
   font-weight: 500;
@@ -187,8 +172,8 @@
 }
 
 .sourcing-brand-button:hover {
-  background: rgba(255, 214, 91, 0.2);
-  border-color: rgba(255, 214, 91, 0.5);
+  background: rgba(var(--theme-accent-rgb), 0.2);
+  border-color: rgba(var(--theme-accent-rgb), 0.5);
   transform: translateY(-1px);
 }
 
@@ -208,7 +193,7 @@
   }
 
   .sourcing-search-input,
-  .sourcing-category-select,
+  .sourcing-category-dropdown,
   .sourcing-price-input,
   .sourcing-search-button {
     width: 100%;
@@ -216,12 +201,7 @@
     max-width: 100%;
     box-sizing: border-box;
   }
-  
-  .sourcing-category-select {
-    width: 100%;
-    min-width: 0;
-  }
-  
+
   .sourcing-price-input {
     width: 100% !important;
     min-width: 0 !important;
@@ -237,3 +217,15 @@
   }
 }
 
+[data-theme='minimal'] .sourcing-search-input:focus,
+[data-theme='minimal'] .sourcing-category-select:focus,
+[data-theme='minimal'] .sourcing-price-input:focus,
+[data-theme='minimal'] .sourcing-category-dropdown .stock-form-dropdown-trigger:focus-visible {
+  box-shadow: var(--theme-inset-shadow);
+  border-color: rgba(var(--theme-accent-rgb), 0.45);
+}
+
+[data-theme='minimal'] .sourcing-suggestion-item:hover,
+[data-theme='minimal'] .sourcing-suggestion-selected {
+  color: var(--theme-text);
+}

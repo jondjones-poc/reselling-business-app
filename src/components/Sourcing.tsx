@@ -1,8 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { getApiBase } from '../utils/apiBase';
+import { StockFormDropdown } from './StockFormDropdown';
 import './Sourcing.css';
+import './Stock.css';
 
 const API_BASE = getApiBase();
+
+const SOURCING_CATEGORY_OPTIONS = [
+  { value: 'trousers', label: 'Trousers' },
+  { value: 'top', label: 'Top' },
+];
 
 // Fallback brands list (extracted from Research component's fallback data)
 const fallbackBrands = [
@@ -192,7 +199,6 @@ const Sourcing: React.FC = () => {
 
   return (
     <div className="sourcing-container">
-      <h2>Sniping</h2>
       <div className="sourcing-search-section">
         <div className="sourcing-input-group">
           <div className="sourcing-autocomplete-wrapper">
@@ -224,15 +230,15 @@ const Sourcing: React.FC = () => {
               </div>
             )}
           </div>
-          <select
-            className="sourcing-category-select"
+          <StockFormDropdown
             value={category}
-            onChange={(e) => setCategory(e.target.value)}
-          >
-            <option value="">Select category...</option>
-            <option value="trousers">Trousers</option>
-            <option value="top">Top</option>
-          </select>
+            options={SOURCING_CATEGORY_OPTIONS}
+            onChange={setCategory}
+            placeholder="Select category..."
+            includeEmptyOption={true}
+            ariaLabel="Vinted category filter"
+            className="sourcing-category-dropdown"
+          />
           <input
             type="number"
             className="sourcing-price-input"

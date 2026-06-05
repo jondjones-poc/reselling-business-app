@@ -10,6 +10,8 @@ import {
 } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
 import { apiUrl } from '../utils/apiBase';
+import { useTheme } from '../context/ThemeContext';
+import { themeAccentRgba, themeTextRgba } from '../utils/themeColors';
 import './ResearchTagSellThrough.css';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
@@ -55,40 +57,44 @@ function sellThroughTone(ratio: number | null | undefined): string {
   return ' research-tag-str-pct--high';
 }
 
-const BAR_CHART_OPTIONS: ChartOptions<'bar'> = {
-  responsive: true,
-  maintainAspectRatio: false,
-  plugins: {
-    legend: {
-      display: false,
-    },
-    tooltip: {
-      callbacks: {
-        label: (ctx) => {
-          const n = typeof ctx.raw === 'number' ? ctx.raw : Number(ctx.raw);
-          return n.toLocaleString('en-GB');
+function useTagStrChartOptions(): ChartOptions<'bar'> {
+  const { colorScheme } = useTheme();
+  return useMemo(
+    (): ChartOptions<'bar'> => ({
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const n = typeof ctx.raw === 'number' ? ctx.raw : Number(ctx.raw);
+              return n.toLocaleString('en-GB');
+            },
+          },
         },
       },
-    },
-  },
-  scales: {
-    x: {
-      ticks: {
-        color: 'rgba(255, 248, 226, 0.88)',
-        font: { size: 12, weight: 'bold' },
+      scales: {
+        x: {
+          ticks: {
+            color: themeTextRgba(0.88),
+            font: { size: 12, weight: 'bold' },
+          },
+          grid: { display: false },
+        },
+        y: {
+          beginAtZero: true,
+          ticks: {
+            color: themeTextRgba(0.75),
+            precision: 0,
+          },
+          grid: { color: themeAccentRgba(0.1) },
+        },
       },
-      grid: { display: false },
-    },
-    y: {
-      beginAtZero: true,
-      ticks: {
-        color: 'rgba(255, 248, 226, 0.75)',
-        precision: 0,
-      },
-      grid: { color: 'rgba(255, 214, 91, 0.1)' },
-    },
-  },
-};
+    }),
+    [colorScheme]
+  );
+}
 
 type TagStrChartCardProps = {
   row: TagStatsRow;
@@ -97,6 +103,7 @@ type TagStrChartCardProps = {
 };
 
 const TagStrChartCard: React.FC<TagStrChartCardProps> = ({ row, soldDays, toneIndex }) => {
+  const chartOptions = useTagStrChartOptions();
   const chartData = useMemo(
     () => ({
       labels: ['Active', `Sold (${soldDays}d)`],
@@ -138,7 +145,7 @@ const TagStrChartCard: React.FC<TagStrChartCardProps> = ({ row, soldDays, toneIn
         </p>
       ) : (
         <div className="research-tag-str-chart-wrap">
-          <Bar data={chartData} options={BAR_CHART_OPTIONS} />
+          <Bar data={chartData} options={chartOptions} />
         </div>
       )}
     </article>

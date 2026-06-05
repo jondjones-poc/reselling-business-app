@@ -9,6 +9,8 @@ import {
 } from 'chart.js';
 import { Pie } from 'react-chartjs-2';
 import { apiUrl, ebayOAuthStartUrl } from '../utils/apiBase';
+import { useTheme } from '../context/ThemeContext';
+import { themeTextRgba } from '../utils/themeColors';
 import './BrandResearch.css';
 import './Orders.css';
 import './ResearchItemViews.css';
@@ -126,7 +128,11 @@ async function readJsonResponse<T>(res: Response): Promise<T> {
   }
 }
 
-function buildCategoryPieModel(rows: CategoryViewRow[], palette: string[]): CategoryPieModel | null {
+function buildCategoryPieModel(
+  rows: CategoryViewRow[],
+  palette: string[],
+  sliceBorderColor: string
+): CategoryPieModel | null {
   const filtered = rows.filter((r) => r.listingCount > 0);
   if (filtered.length === 0) return null;
   return {
@@ -137,7 +143,7 @@ function buildCategoryPieModel(rows: CategoryViewRow[], palette: string[]): Cate
         {
           data: filtered.map((r) => r.views),
           backgroundColor: filtered.map((_, i) => palette[i % palette.length]),
-          borderColor: 'rgba(14, 18, 26, 0.9)',
+          borderColor: sliceBorderColor,
           borderWidth: 1.5,
         },
       ],
@@ -153,7 +159,7 @@ function buildCategoryPieOptions(rows: CategoryViewRow[]): ChartOptions<'pie'> {
       legend: {
         position: 'bottom',
         labels: {
-          color: 'rgba(255, 248, 226, 0.85)',
+          color: themeTextRgba(0.85),
           boxWidth: 12,
           boxHeight: 12,
         },
@@ -181,6 +187,7 @@ function formatListingDate(value: string | null | undefined): string {
 }
 
 const ResearchItemViews: React.FC = () => {
+  const { colorScheme } = useTheme();
   const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -237,23 +244,23 @@ const ResearchItemViews: React.FC = () => {
   }, [searchParams, setSearchParams, load]);
 
   const bestCategoryPie = useMemo(
-    () => buildCategoryPieModel(data?.bestCategories ?? [], BEST_CATEGORY_PALETTE),
-    [data?.bestCategories]
+    () => buildCategoryPieModel(data?.bestCategories ?? [], BEST_CATEGORY_PALETTE, themeTextRgba(0.22)),
+    [data?.bestCategories, colorScheme]
   );
 
   const worstCategoryPie = useMemo(
-    () => buildCategoryPieModel(data?.worstCategories ?? [], WORST_CATEGORY_PALETTE),
-    [data?.worstCategories]
+    () => buildCategoryPieModel(data?.worstCategories ?? [], WORST_CATEGORY_PALETTE, themeTextRgba(0.22)),
+    [data?.worstCategories, colorScheme]
   );
 
   const bestCategoryPieOptions = useMemo(
     () => buildCategoryPieOptions(bestCategoryPie?.rows ?? []),
-    [bestCategoryPie?.rows]
+    [bestCategoryPie?.rows, colorScheme]
   );
 
   const worstCategoryPieOptions = useMemo(
     () => buildCategoryPieOptions(worstCategoryPie?.rows ?? []),
-    [worstCategoryPie?.rows]
+    [worstCategoryPie?.rows, colorScheme]
   );
 
   const activeFeedRows = listingFeedMode === 'best' ? data?.best ?? [] : data?.worst ?? [];

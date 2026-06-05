@@ -54,26 +54,36 @@
   padding: 16px 24px;
   border-radius: 999px;
   font-size: 16px;
-  background: rgba(255, 214, 91, 0.08);
+  background: var(--theme-fill);
   color: var(--text-strong);
   border: 1px solid var(--neon-border);
   outline: none;
   transition: all 0.3s ease;
-  box-shadow: inset 0 0 18px rgba(255, 214, 91, 0.16);
+  box-shadow: var(--theme-inset-shadow);
   box-sizing: border-box;
 }
 
 .brand-search-input:focus,
 .category-filter:focus,
 .settings-brand-filter:focus {
-  background: rgba(255, 214, 91, 0.2);
+  background: var(--theme-fill-focus);
   border-color: var(--neon-border-strong);
   box-shadow: var(--neon-shadow);
   transform: translateY(-1px);
 }
 
+[data-theme='minimal'] .brand-search-input:focus,
+[data-theme='minimal'] .category-filter:focus,
+[data-theme='minimal'] .settings-brand-filter:focus,
+[data-theme='minimal'] .brand-tag-examples-select:focus,
+[data-theme='minimal'] .brand-tag-examples-caption-input:focus {
+  box-shadow: var(--theme-inset-shadow);
+  border-color: rgba(var(--theme-accent-rgb), 0.45);
+  transform: none;
+}
+
 .brand-search-input::placeholder {
-  color: rgba(255, 248, 226, 0.55);
+  color: rgba(var(--theme-text-rgb), 0.55);
 }
 
 .category-filter option,
@@ -87,14 +97,14 @@
   top: 100%;
   left: 0;
   right: 0;
-  background: rgba(5, 4, 3, 0.96);
+  background: var(--theme-typeahead-bg, rgba(var(--theme-bg-rgb), 0.96));
   border-radius: 18px;
-  box-shadow: var(--neon-shadow);
+  box-shadow: var(--theme-typeahead-shadow, var(--neon-shadow));
   z-index: 1000;
   max-height: 320px;
   overflow-y: auto;
   margin-top: 8px;
-  border: 1px solid var(--neon-border);
+  border: 1px solid var(--theme-typeahead-border, var(--neon-border));
 }
 
 .search-result {
@@ -103,7 +113,7 @@
   padding: 14px 22px;
   cursor: pointer;
   transition: all 0.2s ease;
-  border-bottom: 1px solid rgba(255, 214, 91, 0.15);
+  border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.15);
 }
 
 .search-result:last-child {
@@ -111,7 +121,7 @@
 }
 
 .search-result:hover {
-  background: rgba(255, 214, 91, 0.15);
+  background: var(--theme-typeahead-option-hover, rgba(var(--theme-accent-rgb), 0.15));
   transform: translateX(4px);
 }
 
@@ -166,11 +176,11 @@
 .no-results {
   text-align: center;
   padding: 42px 20px;
-  background: rgba(5, 4, 3, 0.92);
+  background: rgba(var(--theme-bg-rgb), 0.92);
   border-radius: 18px;
   margin: 26px 0;
   border: 1px solid var(--neon-border);
-  box-shadow: inset 0 0 18px rgba(255, 214, 91, 0.12);
+  box-shadow: inset 0 0 18px rgba(var(--theme-accent-rgb), 0.12);
 }
 
 .no-results p {
@@ -179,7 +189,7 @@
 }
 
 .search-summary {
-  background: rgba(5, 4, 3, 0.92);
+  background: rgba(var(--theme-bg-rgb), 0.92);
   border-radius: 20px;
   padding: 24px;
   border: 1px solid var(--neon-border);
@@ -203,15 +213,15 @@
   display: flex;
   align-items: center;
   padding: 16px;
-  background: rgba(255, 214, 91, 0.08);
+  background: rgba(var(--theme-accent-rgb), 0.08);
   border-radius: 14px;
   transition: all 0.3s ease;
   border: 1px solid var(--neon-border);
-  box-shadow: inset 0 0 16px rgba(255, 214, 91, 0.14);
+  box-shadow: inset 0 0 16px rgba(var(--theme-accent-rgb), 0.14);
 }
 
 .result-item:hover {
-  background: rgba(255, 214, 91, 0.18);
+  background: rgba(var(--theme-accent-rgb), 0.18);
   transform: translateY(-1px);
 }
 
@@ -261,7 +271,7 @@
   bottom: 0;
   z-index: 9999;
   overflow-y: auto;
-  background: rgba(5, 4, 3, 0.98);
+  background: rgba(var(--theme-bg-rgb), 0.98);
   border: none;
   border-radius: 0;
   box-shadow: none;
@@ -288,8 +298,8 @@
   padding: 12px 18px;
   cursor: pointer;
   transition: all 0.2s ease;
-  border-bottom: 1px solid rgba(255, 214, 91, 0.15);
-  background: rgba(5, 4, 3, 0.96);
+  border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.15);
+  background: rgba(var(--theme-bg-rgb), 0.96);
 }
 
 .brand-result-item:last-child {
@@ -297,7 +307,7 @@
 }
 
 .brand-result-item:hover {
-  background: rgba(255, 214, 91, 0.15);
+  background: rgba(var(--theme-accent-rgb), 0.15);
 }
 
 .brand-result-item.good {
@@ -309,7 +319,7 @@
 }
 
 .brand-result-item.warning {
-  border-left: 4px solid #ffd65b;
+  border-left: 4px solid var(--theme-accent);
 }
 
 .result-brand-header {
@@ -336,7 +346,7 @@
 
 .copy-brand-button:hover {
   opacity: 1;
-  background: rgba(255, 214, 91, 0.15);
+  background: rgba(var(--theme-accent-rgb), 0.15);
   transform: scale(1.1);
 }
 
@@ -346,7 +356,7 @@
 
 .result-note {
   font-size: 0.85rem;
-  color: rgba(255, 248, 226, 0.75);
+  color: rgba(var(--theme-text-rgb), 0.75);
   line-height: 1.4;
   margin-top: 4px;
 }
@@ -365,9 +375,9 @@
   justify-content: space-between;
   align-items: center;
   padding: 10px 16px;
-  background: rgba(255, 214, 91, 0.08);
+  background: rgba(var(--theme-accent-rgb), 0.08);
   border-radius: 10px;
-  border: 1px solid rgba(255, 214, 91, 0.2);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.2);
   width: 85%;
   max-width: 500px;
   min-width: 280px;
@@ -375,7 +385,7 @@
 
 .category-item {
   font-size: 0.95rem;
-  color: rgba(255, 248, 226, 0.9);
+  color: rgba(var(--theme-text-rgb), 0.9);
   font-weight: 600;
   letter-spacing: 0.03rem;
 }
@@ -399,21 +409,21 @@
 }
 
 .good-tag {
-  background: rgba(96, 255, 159, 0.2);
-  color: #60ff9f;
-  border: 1px solid rgba(96, 255, 159, 0.4);
+  background: var(--theme-tag-good-bg);
+  color: var(--theme-tag-good-text);
+  border: 1px solid var(--theme-tag-good-border);
 }
 
 .avoid-tag {
-  background: rgba(255, 125, 125, 0.2);
-  color: #ff7d7d;
-  border: 1px solid rgba(255, 125, 125, 0.4);
+  background: var(--theme-tag-avoid-bg);
+  color: var(--theme-tag-avoid-text);
+  border: 1px solid var(--theme-tag-avoid-border);
 }
 
 .warning-tag {
-  background: rgba(255, 214, 91, 0.2);
-  color: #ffd65b;
-  border: 1px solid rgba(255, 214, 91, 0.4);
+  background: rgba(var(--theme-accent-rgb), 0.2);
+  color: var(--theme-accent);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.4);
 }
 
 .search-section h2 {
@@ -565,9 +575,9 @@
   margin: 0 0 20px 0;
   padding: 14px 18px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 214, 91, 0.35);
-  background: rgba(255, 214, 91, 0.08);
-  color: rgba(255, 248, 226, 0.9);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.35);
+  background: rgba(var(--theme-accent-rgb), 0.08);
+  color: rgba(var(--theme-text-rgb), 0.9);
   font-size: 0.9rem;
   line-height: 1.5;
 }
@@ -597,19 +607,17 @@
   gap: 16px;
   padding: 16px 14px 18px;
   border-radius: 14px;
-  border: 1px solid rgba(255, 214, 91, 0.22);
-  background: rgba(0, 0, 0, 0.2);
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.22);
+  background: var(--theme-season-col-bg);
+  box-shadow: var(--theme-season-col-shadow);
   box-sizing: border-box;
   min-width: 0;
 }
 
 .research-seasonal-col--current {
-  border-color: rgba(140, 255, 195, 0.45);
-  background: rgba(140, 255, 195, 0.06);
-  box-shadow:
-    inset 0 0 0 1px rgba(0, 0, 0, 0.15),
-    0 0 0 1px rgba(140, 255, 195, 0.12);
+  border-color: var(--theme-season-col-border-current);
+  background: var(--theme-season-col-bg-current);
+  box-shadow: var(--theme-season-col-shadow-current);
 }
 
 /* Reserve the same vertical space in every column so the rule above “Top categories” lines up. */
@@ -664,13 +672,13 @@
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #0d1f14;
-  background: linear-gradient(135deg, #8cffc3, #5ed99a);
+  color: var(--theme-season-badge-text);
+  background: var(--theme-season-badge-bg);
 }
 
 .research-seasonal-col-head {
   padding-bottom: 4px;
-  border-bottom: 1px solid rgba(255, 214, 91, 0.15);
+  border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.15);
 }
 
 .research-seasonal-col-title {
@@ -684,7 +692,7 @@
 .research-seasonal-col-range {
   margin: 0 0 12px 0;
   font-size: 0.78rem;
-  color: rgba(255, 248, 226, 0.55);
+  color: rgba(var(--theme-text-rgb), 0.55);
   line-height: 1.35;
 }
 
@@ -702,16 +710,16 @@
   border-radius: 8px;
   font-size: 0.75rem;
   font-weight: 600;
-  color: rgba(255, 248, 226, 0.75);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(var(--theme-text-rgb), 0.75);
+  background: var(--theme-season-pill-bg);
+  border: 1px solid var(--theme-season-pill-border);
 }
 
 .research-seasonal-month-pill--current {
-  color: #0d1f14;
-  background: rgba(255, 214, 91, 0.95);
-  border-color: rgba(255, 214, 91, 0.95);
-  box-shadow: 0 0 0 2px rgba(255, 214, 91, 0.25);
+  color: var(--theme-season-pill-current-text);
+  background: rgba(var(--theme-accent-rgb), 0.95);
+  border-color: rgba(var(--theme-accent-rgb), 0.95);
+  box-shadow: 0 0 0 2px rgba(var(--theme-accent-rgb), 0.25);
 }
 
 .research-seasonal-block-title {
@@ -720,7 +728,7 @@
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: rgba(255, 248, 226, 0.55);
+  color: rgba(var(--theme-text-rgb), 0.55);
 }
 
 .research-seasonal-list {
@@ -729,7 +737,7 @@
   list-style: decimal;
   font-size: 0.88rem;
   line-height: 1.45;
-  color: rgba(255, 248, 226, 0.88);
+  color: rgba(var(--theme-text-rgb), 0.88);
 }
 
 .research-seasonal-list-item {
@@ -749,19 +757,19 @@
 .research-seasonal-list-count {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
-  color: #8cffc3;
+  color: var(--color-positive-text);
   flex-shrink: 0;
 }
 
 .research-seasonal-list-count--worst {
-  color: #ff9a9a;
+  color: var(--color-negative-text);
 }
 
 .research-seasonal-empty {
   margin: 0;
   font-size: 0.85rem;
   line-height: 1.45;
-  color: rgba(255, 248, 226, 0.5);
+  color: rgba(var(--theme-text-rgb), 0.5);
   font-style: italic;
 }
 
@@ -769,7 +777,7 @@
   margin: auto 0 0 0;
   padding-top: 8px;
   font-size: 0.72rem;
-  color: rgba(255, 248, 226, 0.45);
+  color: rgba(var(--theme-text-rgb), 0.45);
 }
 
 /* Research → Sourced tab */
@@ -800,9 +808,9 @@
   gap: 16px;
   padding: 16px 14px 18px;
   border-radius: 14px;
-  border: 1px solid rgba(255, 214, 91, 0.22);
-  background: rgba(0, 0, 0, 0.2);
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.22);
+  background: var(--theme-season-col-bg);
+  box-shadow: var(--theme-season-col-shadow);
   box-sizing: border-box;
   min-width: 0;
 }
@@ -810,7 +818,7 @@
 .research-sourced-col-head {
   flex-shrink: 0;
   padding-bottom: 8px;
-  border-bottom: 1px solid rgba(255, 214, 91, 0.15);
+  border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.15);
   /* Icon + title + 2×2 metrics — keeps “Top 5 categories” row aligned across columns */
   min-height: 12.5rem;
 }
@@ -871,7 +879,7 @@
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(255, 248, 226, 0.5);
+  color: rgba(var(--theme-text-rgb), 0.5);
 }
 
 .research-sourced-metric dd {
@@ -879,14 +887,14 @@
   font-size: 0.95rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  color: rgba(255, 248, 226, 0.92);
+  color: rgba(var(--theme-text-rgb), 0.92);
 }
 
 .research-sourced-worst-hint {
   margin: -4px 0 10px 0;
   font-size: 0.75rem;
   line-height: 1.4;
-  color: rgba(255, 248, 226, 0.45);
+  color: rgba(var(--theme-text-rgb), 0.45);
   font-style: italic;
 }
 
@@ -896,7 +904,7 @@
   list-style: decimal;
   font-size: 0.82rem;
   line-height: 1.45;
-  color: rgba(255, 248, 226, 0.88);
+  color: rgba(var(--theme-text-rgb), 0.88);
 }
 
 .research-sourced-worst-item {
@@ -914,7 +922,7 @@
 
 .research-sourced-worst-meta {
   font-size: 0.78rem;
-  color: rgba(255, 248, 226, 0.55);
+  color: rgba(var(--theme-text-rgb), 0.55);
   word-break: break-word;
 }
 
@@ -924,7 +932,7 @@
   max-width: 720px;
   margin: 40px auto 0;
   padding-top: 28px;
-  border-top: 1px solid rgba(255, 214, 91, 0.2);
+  border-top: 1px solid rgba(var(--theme-accent-rgb), 0.2);
   text-align: center;
 }
 
@@ -980,8 +988,8 @@
   min-height: 200px;
   padding: 10px;
   border-radius: 14px;
-  border: 1px solid rgba(255, 214, 91, 0.22);
-  background: rgba(255, 214, 91, 0.05);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.22);
+  background: rgba(var(--theme-accent-rgb), 0.05);
   text-decoration: none;
   color: inherit;
   box-sizing: border-box;
@@ -992,9 +1000,9 @@
 }
 
 .brand-research-ebay-sold-card-link:hover {
-  border-color: rgba(255, 214, 91, 0.45);
-  background: rgba(255, 214, 91, 0.1);
-  box-shadow: var(--neon-shadow, 0 0 14px rgba(255, 214, 91, 0.12));
+  border-color: rgba(var(--theme-accent-rgb), 0.45);
+  background: rgba(var(--theme-accent-rgb), 0.1);
+  box-shadow: var(--neon-shadow, 0 0 14px rgba(var(--theme-accent-rgb), 0.12));
 }
 
 .brand-research-ebay-sold-card-img {
@@ -1017,7 +1025,7 @@
 .brand-research-ebay-sold-card-title {
   font-size: 0.78rem;
   line-height: 1.35;
-  color: rgba(255, 248, 226, 0.88);
+  color: rgba(var(--theme-text-rgb), 0.88);
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
@@ -1037,7 +1045,7 @@
   font-weight: 400;
   line-height: 1.35;
   letter-spacing: 0.01em;
-  color: rgba(255, 248, 226, 0.38);
+  color: rgba(var(--theme-text-rgb), 0.38);
   background: none;
   border: none;
   border-radius: 0;
@@ -1046,7 +1054,7 @@
 .brand-research-ebay-sold-card-price {
   font-size: 0.9rem;
   font-weight: 700;
-  color: var(--neon-primary-strong, #ffd65b);
+  color: var(--neon-primary-strong, var(--theme-accent));
   font-variant-numeric: tabular-nums;
   margin-top: auto;
 }
@@ -1060,9 +1068,9 @@
 .brand-research-ebay-sold-refresh {
   padding: 10px 20px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 214, 91, 0.35);
-  background: rgba(255, 214, 91, 0.12);
-  color: rgba(255, 248, 226, 0.92);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.35);
+  background: rgba(var(--theme-accent-rgb), 0.12);
+  color: rgba(var(--theme-text-rgb), 0.92);
   font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
@@ -1072,8 +1080,8 @@
 }
 
 .brand-research-ebay-sold-refresh:hover:not(:disabled) {
-  border-color: rgba(255, 214, 91, 0.55);
-  background: rgba(255, 214, 91, 0.2);
+  border-color: rgba(var(--theme-accent-rgb), 0.55);
+  background: rgba(var(--theme-accent-rgb), 0.2);
 }
 
 .brand-research-ebay-sold-refresh:disabled {
@@ -1087,7 +1095,7 @@
   max-width: 720px;
   margin: 40px auto 0;
   padding-top: 28px;
-  border-top: 1px solid rgba(255, 214, 91, 0.2);
+  border-top: 1px solid rgba(var(--theme-accent-rgb), 0.2);
   text-align: center;
 }
 
@@ -1112,7 +1120,7 @@
   border-radius: 999px;
   border: 1px solid rgba(140, 255, 195, 0.45);
   background: rgba(140, 255, 195, 0.14);
-  color: #8cffc3;
+  color: var(--color-positive-text);
   font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
@@ -1147,7 +1155,7 @@
   border-radius: 8px;
   border: 1px solid rgba(255, 120, 120, 0.35);
   background: rgba(255, 100, 100, 0.1);
-  color: #ffb0b0;
+  color: var(--color-error-text);
   cursor: pointer;
   transition: all 0.2s ease;
 }
@@ -1169,7 +1177,7 @@
   margin: 40px auto 0;
   padding-top: 28px;
   padding-bottom: 8px;
-  border-top: 1px solid rgba(255, 214, 91, 0.2);
+  border-top: 1px solid rgba(var(--theme-accent-rgb), 0.2);
   text-align: left;
 }
 
@@ -1204,7 +1212,7 @@
   border-radius: 999px;
   border: 1px solid rgba(140, 255, 195, 0.45);
   background: rgba(140, 255, 195, 0.12);
-  color: #8cffc3;
+  color: var(--color-positive-text);
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
@@ -1225,8 +1233,8 @@
   margin-bottom: 20px;
   padding: 16px;
   border-radius: 14px;
-  border: 1px solid rgba(255, 214, 91, 0.22);
-  background: rgba(255, 214, 91, 0.06);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.22);
+  background: rgba(var(--theme-accent-rgb), 0.06);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1243,14 +1251,14 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05rem;
-  color: rgba(255, 248, 226, 0.55);
+  color: rgba(var(--theme-text-rgb), 0.55);
 }
 
 .brand-research-reference-links-field input {
   padding: 10px 12px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 214, 91, 0.28);
-  background: rgba(5, 4, 3, 0.85);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.28);
+  background: rgba(var(--theme-bg-rgb), 0.85);
   color: var(--text-strong);
   font-size: 0.92rem;
   font-family: inherit;
@@ -1267,8 +1275,8 @@
   align-self: flex-start;
   padding: 8px 18px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 214, 91, 0.4);
-  background: rgba(255, 214, 91, 0.16);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.4);
+  background: rgba(var(--theme-accent-rgb), 0.16);
   color: var(--neon-primary-strong);
   font-weight: 600;
   font-size: 0.88rem;
@@ -1277,7 +1285,7 @@
 }
 
 .brand-research-reference-links-save:hover:not(:disabled) {
-  background: rgba(255, 214, 91, 0.26);
+  background: rgba(var(--theme-accent-rgb), 0.26);
 }
 
 .brand-research-reference-links-save:disabled {
@@ -1293,7 +1301,7 @@
   flex-direction: column;
   gap: 0;
   border-radius: 12px;
-  border: 1px solid rgba(255, 214, 91, 0.15);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.15);
   overflow: hidden;
 }
 
@@ -1303,7 +1311,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 12px 14px;
-  border-bottom: 1px solid rgba(255, 214, 91, 0.1);
+  border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.1);
   background: rgba(0, 0, 0, 0.12);
 }
 
@@ -1322,12 +1330,12 @@
 
 .brand-research-reference-links-anchor:hover {
   text-decoration: underline;
-  color: #8cffc3;
+  color: var(--color-positive-text);
 }
 
 .brand-research-reference-links-date {
   font-size: 0.78rem;
-  color: rgba(255, 248, 226, 0.45);
+  color: rgba(var(--theme-text-rgb), 0.45);
   white-space: nowrap;
   flex-shrink: 0;
   padding-top: 2px;
@@ -1339,7 +1347,7 @@
   background: transparent;
   border: none;
   border-bottom: 3px solid transparent;
-  color: rgba(255, 248, 226, 0.6);
+  color: rgba(var(--theme-text-rgb), 0.6);
   font-size: 0.74rem;
   font-weight: 600;
   letter-spacing: 0.03rem;
@@ -1356,14 +1364,14 @@
 }
 
 .research-tab:hover {
-  color: rgba(255, 248, 226, 0.9);
-  background: rgba(255, 214, 91, 0.05);
+  color: rgba(var(--theme-text-rgb), 0.9);
+  background: rgba(var(--theme-accent-rgb), 0.05);
 }
 
 .research-tab.active {
   color: var(--neon-primary-strong);
   border-bottom-color: var(--neon-primary-strong);
-  background: rgba(255, 214, 91, 0.1);
+  background: rgba(var(--theme-accent-rgb), 0.1);
 }
 
 /* Research hub (/research): tabs are <a> NavLinks — same look as Analytics <button.research-tab> */
@@ -1439,12 +1447,12 @@ a.research-tab {
   padding: 22px 32px;
   border-radius: 999px;
   font-size: 18px;
-  background: rgba(255, 214, 91, 0.08);
+  background: rgba(var(--theme-accent-rgb), 0.08);
   color: var(--text-strong);
   border: 1px solid var(--neon-border);
   outline: none;
   transition: all 0.3s ease;
-  box-shadow: inset 0 0 18px rgba(255, 214, 91, 0.16);
+  box-shadow: inset 0 0 18px rgba(var(--theme-accent-rgb), 0.16);
   font-family: inherit;
   resize: vertical;
   min-height: auto;
@@ -1455,14 +1463,14 @@ a.research-tab {
 }
 
 .research-text-input:focus {
-  background: rgba(255, 214, 91, 0.2);
+  background: rgba(var(--theme-accent-rgb), 0.2);
   border-color: var(--neon-border-strong);
   box-shadow: var(--neon-shadow);
   transform: translateY(-1px);
 }
 
 .research-text-input::placeholder {
-  color: rgba(255, 248, 226, 0.55);
+  color: rgba(var(--theme-text-rgb), 0.55);
 }
 
 .research-image-upload {
@@ -1482,7 +1490,7 @@ a.research-tab {
   border-radius: 999px;
   border: 1px solid rgba(140, 255, 195, 0.32);
   background: rgba(140, 255, 195, 0.18);
-  color: #8cffc3;
+  color: var(--color-positive-text);
   font-weight: 600;
   letter-spacing: 0.08rem;
   text-transform: uppercase;
@@ -1495,15 +1503,15 @@ a.research-tab {
 }
 
 .image-upload-label.camera-label {
-  border-color: rgba(255, 214, 91, 0.32);
-  background: rgba(255, 214, 91, 0.18);
+  border-color: rgba(var(--theme-accent-rgb), 0.32);
+  background: rgba(var(--theme-accent-rgb), 0.18);
   color: var(--neon-primary-strong);
 }
 
 .image-upload-label.file-label {
   border-color: rgba(140, 255, 195, 0.32);
   background: rgba(140, 255, 195, 0.18);
-  color: #8cffc3;
+  color: var(--color-positive-text);
 }
 
 .image-upload-label:disabled,
@@ -1520,7 +1528,7 @@ button.image-upload-label {
 
 .images-count-indicator {
   text-align: center;
-  color: rgba(255, 248, 226, 0.7);
+  color: rgba(var(--theme-text-rgb), 0.7);
   font-size: 0.85rem;
   padding: 8px;
 }
@@ -1565,7 +1573,7 @@ button.image-upload-label {
   border-radius: 999px;
   border: 1px solid rgba(255, 120, 120, 0.32);
   background: rgba(255, 120, 120, 0.18);
-  color: #ff9a9a;
+  color: var(--color-negative-text);
   font-weight: 600;
   cursor: pointer;
   transition: all 0.3s ease;
@@ -1588,7 +1596,7 @@ button.image-upload-label {
   border-radius: 999px;
   border: 1px solid rgba(140, 255, 195, 0.32);
   background: rgba(140, 255, 195, 0.18);
-  color: #8cffc3;
+  color: var(--color-positive-text);
   font-weight: 600;
   letter-spacing: 0.08rem;
   text-transform: uppercase;
@@ -1622,8 +1630,8 @@ button.image-upload-label {
 .research-clear-button {
   padding: 18px 44px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 214, 91, 0.32);
-  background: rgba(255, 214, 91, 0.18);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.32);
+  background: rgba(var(--theme-accent-rgb), 0.18);
   color: var(--neon-primary-strong);
   font-weight: 600;
   letter-spacing: 0.08rem;
@@ -1637,7 +1645,7 @@ button.image-upload-label {
 }
 
 .research-clear-button:hover {
-  background: rgba(255, 214, 91, 0.32);
+  background: rgba(var(--theme-accent-rgb), 0.32);
   transform: translateY(-1px);
   box-shadow: var(--neon-shadow);
 }
@@ -1661,7 +1669,7 @@ button.image-upload-label {
   border-radius: 18px;
   background: rgba(255, 120, 120, 0.15);
   border: 1px solid rgba(255, 120, 120, 0.3);
-  color: #ff9a9a;
+  color: var(--color-negative-text);
   text-align: center;
 }
 
@@ -1669,7 +1677,7 @@ button.image-upload-label {
   margin-top: 24px;
   padding: 0;
   border-radius: 18px;
-  background: rgba(5, 4, 3, 0.6);
+  background: rgba(var(--theme-bg-rgb), 0.6);
   border: 1px solid var(--neon-border);
   overflow: hidden;
 }
@@ -1679,7 +1687,7 @@ button.image-upload-label {
   align-items: center;
   gap: 12px;
   padding: 20px 24px;
-  background: rgba(255, 214, 91, 0.08);
+  background: rgba(var(--theme-accent-rgb), 0.08);
   border-bottom: 1px solid var(--neon-border);
 }
 
@@ -1687,14 +1695,14 @@ button.image-upload-label {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: linear-gradient(135deg, rgba(140, 255, 195, 0.3), rgba(255, 214, 91, 0.3));
+  background: linear-gradient(135deg, rgba(140, 255, 195, 0.3), rgba(var(--theme-accent-rgb), 0.3));
   border: 1px solid rgba(140, 255, 195, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 700;
   font-size: 0.9rem;
-  color: #8cffc3;
+  color: var(--color-positive-text);
   flex-shrink: 0;
 }
 
@@ -1709,14 +1717,14 @@ button.image-upload-label {
 
 .research-result-content {
   padding: 24px;
-  color: rgba(255, 248, 226, 0.9);
+  color: rgba(var(--theme-text-rgb), 0.9);
   line-height: 1.8;
   text-align: left;
 }
 
 .research-result-content p {
   margin: 12px 0;
-  color: rgba(255, 248, 226, 0.9);
+  color: rgba(var(--theme-text-rgb), 0.9);
 }
 
 .research-result-content h1,
@@ -1732,7 +1740,7 @@ button.image-upload-label {
 
 .research-result-content h1 {
   font-size: 1.8rem;
-  border-bottom: 1px solid rgba(255, 214, 91, 0.2);
+  border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.2);
   padding-bottom: 8px;
 }
 
@@ -1755,7 +1763,7 @@ button.image-upload-label {
 .research-result-content ol {
   margin: 12px 0;
   padding-left: 24px;
-  color: rgba(255, 248, 226, 0.9);
+  color: rgba(var(--theme-text-rgb), 0.9);
   text-align: left;
 }
 
@@ -1778,24 +1786,24 @@ button.image-upload-label {
 }
 
 .research-result-content em {
-  color: rgba(255, 248, 226, 0.8);
+  color: rgba(var(--theme-text-rgb), 0.8);
   font-style: italic;
 }
 
 .research-result-content code {
-  background: rgba(255, 214, 91, 0.15);
+  background: rgba(var(--theme-accent-rgb), 0.15);
   padding: 2px 6px;
   border-radius: 4px;
   font-family: 'Courier New', monospace;
   font-size: 0.9em;
-  color: #8cffc3;
+  color: var(--color-positive-text);
 }
 
 .research-result-content pre {
-  background: rgba(5, 4, 3, 0.8);
+  background: rgba(var(--theme-bg-rgb), 0.8);
   padding: 16px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 214, 91, 0.2);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.2);
   overflow-x: auto;
   margin: 16px 0;
 }
@@ -1803,32 +1811,32 @@ button.image-upload-label {
 .research-result-content pre code {
   background: transparent;
   padding: 0;
-  color: rgba(255, 248, 226, 0.9);
+  color: rgba(var(--theme-text-rgb), 0.9);
 }
 
 .research-result-content blockquote {
   border-left: 3px solid rgba(140, 255, 195, 0.4);
   padding-left: 16px;
   margin: 16px 0;
-  color: rgba(255, 248, 226, 0.8);
+  color: rgba(var(--theme-text-rgb), 0.8);
   font-style: italic;
   text-align: left;
 }
 
 .research-result-content a {
-  color: #8cffc3;
+  color: var(--color-positive-text);
   text-decoration: underline;
   text-decoration-color: rgba(140, 255, 195, 0.4);
 }
 
 .research-result-content a:hover {
-  color: #8cffc3;
+  color: var(--color-positive-text);
   text-decoration-color: rgba(140, 255, 195, 0.8);
 }
 
 .research-result-content hr {
   border: none;
-  border-top: 1px solid rgba(255, 214, 91, 0.2);
+  border-top: 1px solid rgba(var(--theme-accent-rgb), 0.2);
   margin: 24px 0;
 }
 
@@ -2015,7 +2023,7 @@ button.image-upload-label {
 }
 
 .brand-lookup-field-label {
-  color: rgba(255, 248, 226, 0.75);
+  color: rgba(var(--theme-text-rgb), 0.75);
   font-size: 0.8rem;
   letter-spacing: 0.06rem;
   text-transform: uppercase;
@@ -2027,8 +2035,8 @@ button.image-upload-label {
   width: 100%;
   padding: 14px 18px;
   border-radius: 16px;
-  border: 1px solid rgba(255, 214, 91, 0.28);
-  background: rgba(255, 214, 91, 0.08);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.28);
+  background: rgba(var(--theme-accent-rgb), 0.08);
   color: var(--text-strong);
   font-size: 0.95rem;
   outline: none;
@@ -2037,13 +2045,13 @@ button.image-upload-label {
 }
 
 .brand-lookup-text-input::placeholder {
-  color: rgba(255, 248, 226, 0.45);
+  color: rgba(var(--theme-text-rgb), 0.45);
 }
 
 .brand-lookup-text-input:focus {
   border-color: var(--neon-border-strong);
   box-shadow: var(--neon-shadow);
-  background-color: rgba(255, 214, 91, 0.16);
+  background-color: rgba(var(--theme-accent-rgb), 0.16);
 }
 
 .brand-lookup-text-input:disabled {
@@ -2054,7 +2062,7 @@ button.image-upload-label {
 .brand-lookup-no-matches {
   margin: 0;
   font-size: 0.9rem;
-  color: rgba(255, 248, 226, 0.55);
+  color: rgba(var(--theme-text-rgb), 0.55);
   text-align: left;
 }
 
@@ -2068,8 +2076,8 @@ button.image-upload-label {
   width: 100%;
   padding: 14px 18px;
   border-radius: 16px;
-  border: 1px solid rgba(255, 214, 91, 0.28);
-  background: rgba(255, 214, 91, 0.08);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.28);
+  background: rgba(var(--theme-accent-rgb), 0.08);
   color: var(--text-strong);
   font-size: 0.95rem;
   outline: none;
@@ -2087,11 +2095,11 @@ button.image-upload-label {
 .brand-lookup-select:focus {
   border-color: var(--neon-border-strong);
   box-shadow: var(--neon-shadow);
-  background-color: rgba(255, 214, 91, 0.16);
+  background-color: rgba(var(--theme-accent-rgb), 0.16);
 }
 
 .brand-lookup-select option {
-  background-color: rgba(5, 4, 3, 0.98);
+  background-color: rgba(var(--theme-bg-rgb), 0.98);
   color: var(--text-strong);
   padding: 8px 12px;
 }
@@ -2103,12 +2111,12 @@ button.image-upload-label {
 .brand-lookup-result .brand-result-item {
   cursor: default;
   border-radius: 12px;
-  background: rgba(255, 214, 91, 0.05);
-  border: 1px solid rgba(255, 214, 91, 0.2);
+  background: rgba(var(--theme-accent-rgb), 0.05);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.2);
 }
 
 .brand-lookup-result .brand-result-item:hover {
-  background: rgba(255, 214, 91, 0.08);
+  background: rgba(var(--theme-accent-rgb), 0.08);
 }
 
 .brand-visit-website-framed {
@@ -2124,7 +2132,7 @@ button.image-upload-label {
   border: 0;
   margin: 0;
   height: 0;
-  border-top: 1px solid rgba(255, 214, 91, 0.32);
+  border-top: 1px solid rgba(var(--theme-accent-rgb), 0.32);
   width: 100%;
   flex-shrink: 0;
   align-self: stretch;
@@ -2180,7 +2188,7 @@ button.image-upload-label {
 .brand-tag-examples-code {
   font-family: ui-monospace, monospace;
   font-size: 0.88em;
-  color: rgba(255, 248, 226, 0.85);
+  color: rgba(var(--theme-text-rgb), 0.85);
 }
 
 .brand-tag-examples-form {
@@ -2347,7 +2355,7 @@ button.image-upload-label {
   padding: 0;
   border-radius: 12px;
   border: 1px solid var(--neon-border);
-  background: rgba(255, 214, 91, 0.12);
+  background: rgba(var(--theme-accent-rgb), 0.12);
   color: var(--neon-primary-strong);
   cursor: pointer;
   transition:
@@ -2356,7 +2364,7 @@ button.image-upload-label {
 }
 
 .brand-research-new-brand-icon-btn:hover:not(:disabled) {
-  background: rgba(255, 214, 91, 0.22);
+  background: rgba(var(--theme-accent-rgb), 0.22);
   box-shadow: var(--neon-shadow);
 }
 
@@ -2370,7 +2378,7 @@ button.image-upload-label {
   margin-top: 12px;
   padding: 14px 16px;
   border-radius: 14px;
-  border: 1px solid rgba(255, 214, 91, 0.25);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.25);
   background: rgba(0, 0, 0, 0.25);
   box-sizing: border-box;
   text-align: left;
@@ -2417,17 +2425,17 @@ button.image-upload-label {
   max-height: min(560px, 78vh);
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  background: rgba(5, 4, 3, 0.97);
-  border: 1px solid var(--neon-border);
+  background: var(--theme-typeahead-bg, rgba(var(--theme-bg-rgb), 0.97));
+  border: 1px solid var(--theme-typeahead-border, var(--neon-border));
   border-radius: 12px;
-  box-shadow: var(--neon-shadow);
+  box-shadow: var(--theme-typeahead-shadow, var(--neon-shadow));
 }
 
 .brand-research-typeahead-option {
   padding: 10px 16px;
   cursor: pointer;
   color: var(--text-strong);
-  border-bottom: 1px solid rgba(255, 214, 91, 0.12);
+  border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.12);
 }
 
 .brand-research-typeahead-option:last-child {
@@ -2436,7 +2444,7 @@ button.image-upload-label {
 
 .brand-research-typeahead-option:hover,
 .brand-research-typeahead-option[aria-selected='true'] {
-  background: rgba(255, 214, 91, 0.14);
+  background: var(--theme-typeahead-option-hover, rgba(var(--theme-accent-rgb), 0.14));
 }
 
 .brand-research-typeahead-empty {
@@ -2479,7 +2487,7 @@ button.image-upload-label {
 }
 
 .brand-tag-examples-label {
-  color: rgba(255, 248, 226, 0.75);
+  color: rgba(var(--theme-text-rgb), 0.75);
   font-size: 0.8rem;
   letter-spacing: 0.06rem;
   text-transform: uppercase;
@@ -2523,8 +2531,8 @@ button.image-upload-label {
 .brand-tag-examples-add-info-btn {
   padding: 10px 18px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 214, 91, 0.5);
-  background: rgba(255, 214, 91, 0.14);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.5);
+  background: rgba(var(--theme-accent-rgb), 0.14);
   color: #ffe7a8;
   font-size: 0.85rem;
   font-weight: 600;
@@ -2533,8 +2541,8 @@ button.image-upload-label {
 }
 
 .brand-tag-examples-add-info-btn:hover {
-  background: rgba(255, 214, 91, 0.26);
-  border-color: rgba(255, 214, 91, 0.75);
+  background: rgba(var(--theme-accent-rgb), 0.26);
+  border-color: rgba(var(--theme-accent-rgb), 0.75);
 }
 
 .brand-tag-examples-add-panel {
@@ -2542,7 +2550,7 @@ button.image-upload-label {
   box-sizing: border-box;
   padding: 16px 18px;
   border-radius: 16px;
-  border: 1px solid rgba(255, 214, 91, 0.22);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.22);
   background: rgba(0, 0, 0, 0.22);
   display: flex;
   flex-direction: column;
@@ -2554,16 +2562,16 @@ button.image-upload-label {
   margin-top: 4px;
   padding: 8px 16px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 248, 226, 0.25);
+  border: 1px solid rgba(var(--theme-text-rgb), 0.25);
   background: transparent;
-  color: rgba(255, 248, 226, 0.75);
+  color: rgba(var(--theme-text-rgb), 0.75);
   font-size: 0.8rem;
   cursor: pointer;
   transition: background 0.2s ease;
 }
 
 .brand-tag-examples-add-panel-close:hover {
-  background: rgba(255, 248, 226, 0.08);
+  background: rgba(var(--theme-text-rgb), 0.08);
 }
 
 .brand-tag-examples-add-pick {
@@ -2571,7 +2579,7 @@ button.image-upload-label {
   max-width: 100%;
   padding: 16px 18px;
   border-radius: 16px;
-  border: 1px solid rgba(255, 214, 91, 0.22);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.22);
   background: rgba(0, 0, 0, 0.22);
   box-sizing: border-box;
   text-align: center;
@@ -2581,7 +2589,7 @@ button.image-upload-label {
 .brand-tag-examples-add-pick-label {
   margin: 0 0 14px 0;
   font-size: 0.95rem;
-  color: rgba(255, 248, 226, 0.75);
+  color: rgba(var(--theme-text-rgb), 0.75);
 }
 
 .brand-tag-examples-add-pick-row {
@@ -2597,11 +2605,11 @@ button.image-upload-label {
   min-width: min(100%, 160px);
   padding: 12px 22px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 214, 91, 0.55);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.55);
   background: linear-gradient(
     165deg,
-    rgba(255, 214, 91, 0.22) 0%,
-    rgba(255, 214, 91, 0.08) 100%
+    rgba(var(--theme-accent-rgb), 0.22) 0%,
+    rgba(var(--theme-accent-rgb), 0.08) 100%
   );
   color: #ffecc8;
   font-size: 0.9rem;
@@ -2613,18 +2621,18 @@ button.image-upload-label {
     border-color 0.2s ease,
     box-shadow 0.2s ease,
     color 0.2s ease;
-  box-shadow: 0 0 0 1px rgba(255, 214, 91, 0.06);
+  box-shadow: 0 0 0 1px rgba(var(--theme-accent-rgb), 0.06);
 }
 
 .brand-tag-examples-add-pick-choice:hover {
   background: linear-gradient(
     165deg,
-    rgba(255, 214, 91, 0.34) 0%,
-    rgba(255, 214, 91, 0.16) 100%
+    rgba(var(--theme-accent-rgb), 0.34) 0%,
+    rgba(var(--theme-accent-rgb), 0.16) 100%
   );
-  border-color: rgba(255, 214, 91, 0.85);
+  border-color: rgba(var(--theme-accent-rgb), 0.85);
   color: #fff6e0;
-  box-shadow: var(--neon-shadow, 0 0 18px rgba(255, 214, 91, 0.2));
+  box-shadow: var(--neon-shadow, 0 0 18px rgba(var(--theme-accent-rgb), 0.2));
 }
 
 .brand-tag-examples-add-pick-choice:active {
@@ -2656,9 +2664,9 @@ button.image-upload-label {
   height: 38px;
   padding: 0;
   border-radius: 50%;
-  border: 1px solid rgba(255, 248, 226, 0.28);
+  border: 1px solid rgba(var(--theme-text-rgb), 0.28);
   background: rgba(0, 0, 0, 0.15);
-  color: rgba(255, 248, 226, 0.88);
+  color: rgba(var(--theme-text-rgb), 0.88);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -2672,10 +2680,10 @@ button.image-upload-label {
 }
 
 .brand-tag-examples-add-panel-close-btn:hover:not(:disabled) {
-  background: rgba(255, 248, 226, 0.1);
-  border-color: rgba(255, 214, 91, 0.5);
+  background: rgba(var(--theme-text-rgb), 0.1);
+  border-color: rgba(var(--theme-accent-rgb), 0.5);
   color: #fff8e8;
-  box-shadow: 0 0 0 1px rgba(255, 214, 91, 0.12);
+  box-shadow: 0 0 0 1px rgba(var(--theme-accent-rgb), 0.12);
 }
 
 .brand-tag-examples-add-panel-close-btn:disabled {
@@ -2708,18 +2716,20 @@ button.image-upload-label {
   width: 100%;
   padding: 14px 18px;
   border-radius: 16px;
-  border: 1px solid rgba(255, 214, 91, 0.28);
-  background: rgba(255, 214, 91, 0.08);
+  border: 1px solid var(--theme-summary-select-border, rgba(var(--theme-accent-rgb), 0.28));
+  background: var(--theme-summary-select-bg, rgba(var(--theme-accent-rgb), 0.08));
   color: var(--text-strong);
   font-size: 0.95rem;
   outline: none;
   box-sizing: border-box;
+  box-shadow: var(--theme-summary-select-inset, none);
 }
 
 .brand-tag-examples-select:focus,
 .brand-tag-examples-caption-input:focus {
   border-color: var(--neon-border-strong);
   box-shadow: var(--neon-shadow);
+  background: var(--theme-summary-select-focus-bg, rgba(var(--theme-accent-rgb), 0.12));
 }
 
 .brand-tag-examples-upload-row {
@@ -2741,7 +2751,7 @@ button.image-upload-label {
   padding: 14px 28px;
   border-radius: 999px;
   border: 1px solid var(--neon-border);
-  background: rgba(255, 214, 91, 0.16);
+  background: rgba(var(--theme-accent-rgb), 0.16);
   color: var(--neon-primary-strong);
   font-size: 0.9rem;
   font-weight: 600;
@@ -2752,7 +2762,7 @@ button.image-upload-label {
 }
 
 .brand-tag-examples-upload-button:hover {
-  background: rgba(255, 214, 91, 0.28);
+  background: rgba(var(--theme-accent-rgb), 0.28);
   box-shadow: var(--neon-shadow);
 }
 
@@ -2762,14 +2772,14 @@ button.image-upload-label {
   border-radius: 16px;
   background: rgba(255, 120, 120, 0.12);
   border: 1px solid rgba(255, 120, 120, 0.45);
-  color: #ffb0b0;
+  color: var(--color-error-text);
   text-align: center;
   font-size: 0.9rem;
 }
 
 .brand-tag-examples-muted {
   text-align: center;
-  color: rgba(255, 248, 226, 0.5);
+  color: rgba(var(--theme-text-rgb), 0.5);
   font-size: 0.95rem;
   margin-top: 16px;
 }
@@ -2807,7 +2817,7 @@ button.image-upload-label {
   text-align: center;
   font-size: 0.95rem;
   line-height: 1.55;
-  color: rgba(255, 248, 226, 0.78);
+  color: rgba(var(--theme-text-rgb), 0.78);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -2867,7 +2877,7 @@ button.image-upload-label {
 }
 
 .brand-website-link.brand-tag-examples-website-browse-link--compact-half:hover {
-  color: #8cffc3;
+  color: var(--color-positive-text);
 }
 
 @media (max-width: 560px) {
@@ -2918,9 +2928,9 @@ button.image-upload-label {
   margin: 0;
   padding: 12px 14px;
   border-radius: 14px;
-  border: 1px solid rgba(255, 214, 91, 0.22);
-  background: rgba(255, 214, 91, 0.06);
-  color: rgba(255, 248, 226, 0.92);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.22);
+  background: rgba(var(--theme-accent-rgb), 0.06);
+  color: rgba(var(--theme-text-rgb), 0.92);
   font-size: 0.95rem;
   line-height: 1.5;
   white-space: pre-wrap;
@@ -2933,7 +2943,7 @@ button.image-upload-label {
   max-width: 720px;
   margin: 40px auto 0;
   padding-top: 28px;
-  border-top: 1px solid rgba(255, 214, 91, 0.2);
+  border-top: 1px solid rgba(var(--theme-accent-rgb), 0.2);
   text-align: center;
 }
 
@@ -2967,28 +2977,28 @@ button.image-upload-label {
   height: 44px;
   padding: 0;
   border-radius: 50%;
-  border: 1px solid rgba(255, 214, 91, 0.45);
-  background: rgba(255, 214, 91, 0.1);
-  color: var(--neon-primary-strong, #ffd65b);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.45);
+  background: rgba(var(--theme-accent-rgb), 0.1);
+  color: var(--neon-primary-strong, var(--theme-accent));
   cursor: pointer;
   transition:
     background 0.2s ease,
     border-color 0.2s ease,
     box-shadow 0.2s ease,
     color 0.2s ease;
-  box-shadow: inset 0 0 12px rgba(255, 214, 91, 0.08);
+  box-shadow: inset 0 0 12px rgba(var(--theme-accent-rgb), 0.08);
 }
 
 .brand-research-sales-period-trigger:hover {
-  background: rgba(255, 214, 91, 0.18);
-  border-color: rgba(255, 214, 91, 0.65);
+  background: rgba(var(--theme-accent-rgb), 0.18);
+  border-color: rgba(var(--theme-accent-rgb), 0.65);
   color: #fff3c4;
 }
 
 .brand-research-sales-period-trigger--open {
-  background: rgba(255, 214, 91, 0.22);
-  border-color: rgba(255, 214, 91, 0.75);
-  box-shadow: 0 0 0 1px rgba(255, 214, 91, 0.25);
+  background: rgba(var(--theme-accent-rgb), 0.22);
+  border-color: rgba(var(--theme-accent-rgb), 0.75);
+  box-shadow: 0 0 0 1px rgba(var(--theme-accent-rgb), 0.25);
 }
 
 .brand-research-sales-period-trigger-icon {
@@ -3006,7 +3016,7 @@ button.image-upload-label {
   list-style: none;
   min-width: 200px;
   border-radius: 14px;
-  border: 1px solid rgba(255, 214, 91, 0.28);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.28);
   background: rgba(22, 18, 14, 0.98);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
 }
@@ -3022,7 +3032,7 @@ button.image-upload-label {
   padding: 11px 18px;
   border: none;
   background: transparent;
-  color: rgba(255, 248, 226, 0.88);
+  color: rgba(var(--theme-text-rgb), 0.88);
   font-size: 0.88rem;
   text-align: left;
   cursor: pointer;
@@ -3031,14 +3041,14 @@ button.image-upload-label {
 
 .brand-research-sales-period-option:hover,
 .brand-research-sales-period-option:focus-visible {
-  background: rgba(255, 214, 91, 0.12);
+  background: rgba(var(--theme-accent-rgb), 0.12);
   outline: none;
 }
 
 .brand-research-sales-period-option--active {
-  color: var(--neon-primary-strong, #ffd65b);
+  color: var(--neon-primary-strong, var(--theme-accent));
   font-weight: 600;
-  background: rgba(255, 214, 91, 0.08);
+  background: rgba(var(--theme-accent-rgb), 0.08);
 }
 
 .brand-research-sales-heading,
@@ -3047,7 +3057,7 @@ button.image-upload-label {
   font-size: 1.28rem;
   font-weight: 700;
   letter-spacing: 0.04rem;
-  color: rgba(255, 248, 226, 0.92);
+  color: rgba(var(--theme-text-rgb), 0.92);
 }
 
 .brand-research-sales-loading {
@@ -3061,7 +3071,7 @@ button.image-upload-label {
 
 .brand-research-sales-empty {
   margin: 8px 0 0 0;
-  color: rgba(255, 248, 226, 0.65);
+  color: rgba(var(--theme-text-rgb), 0.65);
   font-size: 0.95rem;
   line-height: 1.5;
 }
@@ -3069,7 +3079,7 @@ button.image-upload-label {
 .brand-research-sales-empty--subtle {
   margin-top: 20px;
   font-size: 0.9rem;
-  color: rgba(255, 248, 226, 0.5);
+  color: rgba(var(--theme-text-rgb), 0.5);
 }
 
 .brand-research-sales-chart-block {
@@ -3084,17 +3094,17 @@ button.image-upload-label {
 .brand-research-sales-sell-through {
   margin: 0 0 16px 0;
   font-size: 0.95rem;
-  color: rgba(255, 248, 226, 0.85);
+  color: rgba(var(--theme-text-rgb), 0.85);
   line-height: 1.45;
 }
 
 .brand-research-sales-sell-through strong {
-  color: var(--neon-primary-strong, #ffd65b);
+  color: var(--neon-primary-strong, var(--theme-accent));
   font-weight: 700;
 }
 
 .brand-research-sales-sell-through-detail {
-  color: rgba(255, 248, 226, 0.5);
+  color: rgba(var(--theme-text-rgb), 0.5);
   font-size: 0.88rem;
 }
 
@@ -3112,7 +3122,7 @@ button.image-upload-label {
   max-width: 720px;
   margin: 28px auto 0;
   padding: 20px 0 8px;
-  border-top: 1px solid rgba(255, 214, 91, 0.15);
+  border-top: 1px solid rgba(var(--theme-accent-rgb), 0.15);
   text-align: left;
 }
 
@@ -3120,7 +3130,7 @@ button.image-upload-label {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-top: 12px;
   padding-top: 18px;
-  border-top: 1px solid rgba(255, 214, 91, 0.1);
+  border-top: 1px solid rgba(var(--theme-accent-rgb), 0.1);
 }
 
 .brand-research-brand-sales-metrics {
@@ -3145,7 +3155,7 @@ button.image-upload-label {
   margin-top: 0;
   margin-bottom: 0;
   padding: 20px 0 8px;
-  border-top: 1px solid rgba(255, 214, 91, 0.15);
+  border-top: 1px solid rgba(var(--theme-accent-rgb), 0.15);
 }
 
 .brand-research-brand-totals--sales-metrics-nine .brand-research-brand-totals-col:nth-child(-n + 5) {
@@ -3162,7 +3172,7 @@ button.image-upload-label {
   padding: 0;
   height: 0;
   border: none;
-  border-top: 1px solid rgba(255, 214, 91, 0.1);
+  border-top: 1px solid rgba(var(--theme-accent-rgb), 0.1);
 }
 
 @media (max-width: 900px) {
@@ -3191,7 +3201,7 @@ button.image-upload-label {
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: rgba(255, 248, 226, 0.5);
+  color: rgba(var(--theme-text-rgb), 0.5);
   margin-bottom: 6px;
 }
 
@@ -3199,7 +3209,7 @@ button.image-upload-label {
   display: block;
   font-size: 1.32rem;
   font-weight: 700;
-  color: rgba(255, 248, 226, 0.92);
+  color: rgba(var(--theme-text-rgb), 0.92);
   font-variant-numeric: tabular-nums;
   line-height: 1.25;
 }
@@ -3209,7 +3219,7 @@ button.image-upload-label {
   margin-top: 6px;
   font-size: 0.72rem;
   line-height: 1.35;
-  color: rgba(255, 248, 226, 0.4);
+  color: rgba(var(--theme-text-rgb), 0.4);
 }
 
 /* Category sell-frequency heat chart (horizontal bars, colour = volume) */
@@ -3217,7 +3227,7 @@ button.image-upload-label {
   margin: 28px auto 0;
   max-width: 720px;
   padding-top: 20px;
-  border-top: 1px solid rgba(255, 214, 91, 0.12);
+  border-top: 1px solid rgba(var(--theme-accent-rgb), 0.12);
   text-align: left;
 }
 
@@ -3227,7 +3237,7 @@ button.image-upload-label {
   font-weight: 700;
   line-height: 1.35;
   letter-spacing: 0.03rem;
-  color: rgba(255, 248, 226, 0.9);
+  color: rgba(var(--theme-text-rgb), 0.9);
   text-align: center;
 }
 
@@ -3241,7 +3251,7 @@ button.image-upload-label {
 .brand-research-category-stack-block {
   margin-top: 28px;
   padding-top: 20px;
-  border-top: 1px solid rgba(255, 214, 91, 0.12);
+  border-top: 1px solid rgba(var(--theme-accent-rgb), 0.12);
   text-align: left;
   max-width: 720px;
   margin-left: auto;
@@ -3253,7 +3263,7 @@ button.image-upload-label {
   font-size: 1.05rem;
   font-weight: 700;
   letter-spacing: 0.03rem;
-  color: rgba(255, 248, 226, 0.9);
+  color: rgba(var(--theme-text-rgb), 0.9);
   text-align: center;
 }
 
@@ -3265,17 +3275,17 @@ button.image-upload-label {
 }
 
 .brand-research-brand-totals-value--profit {
-  color: #8cffc3;
+  color: var(--color-positive-text);
   text-shadow: 0 0 10px rgba(140, 255, 195, 0.35);
 }
 
 .brand-research-brand-totals-value--loss {
-  color: #ff9a9a;
+  color: var(--color-negative-text);
   text-shadow: 0 0 10px rgba(255, 154, 154, 0.35);
 }
 
 .brand-research-brand-totals-value--even {
-  color: rgba(255, 248, 226, 0.72);
+  color: rgba(var(--theme-text-rgb), 0.72);
 }
 
 @media (max-width: 640px) {
@@ -3348,8 +3358,8 @@ button.image-upload-label {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   border-radius: 14px;
-  border: 1px solid rgba(255, 214, 91, 0.22);
-  background: rgba(255, 214, 91, 0.04);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.22);
+  background: rgba(var(--theme-accent-rgb), 0.04);
 }
 
 .brand-research-sales-table {
@@ -3357,7 +3367,7 @@ button.image-upload-label {
   min-width: 520px;
   border-collapse: collapse;
   font-size: 0.88rem;
-  color: rgba(255, 248, 226, 0.9);
+  color: rgba(var(--theme-text-rgb), 0.9);
 }
 
 .brand-research-sales-table thead th {
@@ -3367,14 +3377,14 @@ button.image-upload-label {
   font-size: 0.72rem;
   letter-spacing: 0.06rem;
   text-transform: uppercase;
-  color: rgba(255, 214, 91, 0.85);
-  border-bottom: 1px solid rgba(255, 214, 91, 0.25);
+  color: rgba(var(--theme-accent-rgb), 0.85);
+  border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.25);
   background: rgba(0, 0, 0, 0.2);
 }
 
 .brand-research-sales-table tbody td {
   padding: 10px 12px;
-  border-bottom: 1px solid rgba(255, 214, 91, 0.12);
+  border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.12);
   vertical-align: top;
   text-align: center;
 }
@@ -3429,7 +3439,7 @@ button.image-upload-label {
   font-size: 1.15rem;
   font-weight: 700;
   letter-spacing: 0.04rem;
-  color: rgba(255, 248, 226, 0.92);
+  color: rgba(var(--theme-text-rgb), 0.92);
   text-align: center;
   grid-column: 2;
   justify-self: center;
@@ -3447,7 +3457,7 @@ button.image-upload-label {
   /* Matches prior stacked block: title line + 10px gap + filter row (8 + 44px btn + 14) */
   min-height: 98px;
   padding: 8px 0 14px;
-  border-bottom: 1px solid rgba(255, 214, 91, 0.12);
+  border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.12);
 }
 
 .brand-tag-quality-filter {
@@ -3464,22 +3474,22 @@ button.image-upload-label {
   height: 44px;
   padding: 0;
   border-radius: 50%;
-  border: 1px solid rgba(255, 214, 91, 0.45);
-  background: rgba(255, 214, 91, 0.12);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.45);
+  background: rgba(var(--theme-accent-rgb), 0.12);
   color: #ffe7a8;
   cursor: pointer;
   transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .brand-tag-quality-filter-btn:hover {
-  background: rgba(255, 214, 91, 0.22);
-  border-color: rgba(255, 214, 91, 0.65);
+  background: rgba(var(--theme-accent-rgb), 0.22);
+  border-color: rgba(var(--theme-accent-rgb), 0.65);
 }
 
 .brand-tag-quality-filter-btn[aria-expanded='true'] {
-  background: rgba(255, 214, 91, 0.28);
-  border-color: rgba(255, 214, 91, 0.75);
-  box-shadow: 0 0 0 1px rgba(255, 214, 91, 0.25);
+  background: rgba(var(--theme-accent-rgb), 0.28);
+  border-color: rgba(var(--theme-accent-rgb), 0.75);
+  box-shadow: 0 0 0 1px rgba(var(--theme-accent-rgb), 0.25);
 }
 
 .brand-tag-quality-filter-svg {
@@ -3497,7 +3507,7 @@ button.image-upload-label {
   list-style: none;
   min-width: 228px;
   border-radius: 14px;
-  border: 1px solid rgba(255, 214, 91, 0.28);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.28);
   background: rgba(22, 18, 14, 0.98);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
 }
@@ -3513,7 +3523,7 @@ button.image-upload-label {
   padding: 11px 18px;
   border: none;
   background: transparent;
-  color: rgba(255, 248, 226, 0.88);
+  color: rgba(var(--theme-text-rgb), 0.88);
   font-size: 0.88rem;
   line-height: 1.35;
   text-align: left;
@@ -3523,12 +3533,12 @@ button.image-upload-label {
 
 .brand-tag-quality-filter-option:hover,
 .brand-tag-quality-filter-option:focus-visible {
-  background: rgba(255, 214, 91, 0.14);
+  background: rgba(var(--theme-accent-rgb), 0.14);
   outline: none;
 }
 
 .brand-tag-quality-filter-option--active {
-  color: var(--neon-primary-strong, #ffd65b);
+  color: var(--neon-primary-strong, var(--theme-accent));
   font-weight: 600;
 }
 
@@ -3585,8 +3595,8 @@ button.image-upload-label {
 .brand-tag-examples-card {
   padding: 14px;
   border-radius: 16px;
-  border: 1px solid rgba(255, 214, 91, 0.2);
-  background: rgba(255, 214, 91, 0.04);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.2);
+  background: rgba(var(--theme-accent-rgb), 0.04);
 }
 
 /* Whole-card tint: green / yellow / red by quality (non-fake tags only) */
@@ -3636,7 +3646,7 @@ button.image-upload-label {
 .brand-tag-examples-caption-placeholder {
   margin: 0;
   font-size: 0.85rem;
-  color: rgba(255, 248, 226, 0.4);
+  color: rgba(var(--theme-text-rgb), 0.4);
   font-style: italic;
   line-height: 1.4;
   text-align: left;
@@ -3657,8 +3667,8 @@ button.image-upload-label {
 .brand-tag-examples-edit-btn {
   padding: 8px 16px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 214, 91, 0.45);
-  background: rgba(255, 214, 91, 0.12);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.45);
+  background: rgba(var(--theme-accent-rgb), 0.12);
   color: #ffe7a8;
   font-size: 0.8rem;
   cursor: pointer;
@@ -3666,8 +3676,8 @@ button.image-upload-label {
 }
 
 .brand-tag-examples-edit-btn:hover {
-  background: rgba(255, 214, 91, 0.22);
-  border-color: rgba(255, 214, 91, 0.65);
+  background: rgba(var(--theme-accent-rgb), 0.22);
+  border-color: rgba(var(--theme-accent-rgb), 0.65);
 }
 
 .brand-tag-examples-edit-panel {
@@ -3708,7 +3718,7 @@ button.image-upload-label {
   font-size: 0.78rem;
   text-transform: uppercase;
   letter-spacing: 0.06rem;
-  color: rgba(255, 248, 226, 0.55);
+  color: rgba(var(--theme-text-rgb), 0.55);
 }
 
 .brand-tag-examples-edit-textarea {
@@ -3716,9 +3726,9 @@ button.image-upload-label {
   box-sizing: border-box;
   padding: 10px 12px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 214, 91, 0.25);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.25);
   background: rgba(0, 0, 0, 0.35);
-  color: #fff8e2;
+  color: var(--theme-text);
   font-size: 0.9rem;
   line-height: 1.4;
   resize: vertical;
@@ -3732,8 +3742,8 @@ button.image-upload-label {
 
 .brand-tag-examples-edit-textarea:focus {
   outline: none;
-  border-color: rgba(255, 214, 91, 0.55);
-  box-shadow: 0 0 0 2px rgba(255, 214, 91, 0.12);
+  border-color: rgba(var(--theme-accent-rgb), 0.55);
+  box-shadow: 0 0 0 2px rgba(var(--theme-accent-rgb), 0.12);
 }
 
 .brand-tag-examples-edit-textarea:disabled {
@@ -3786,16 +3796,16 @@ button.image-upload-label {
 .brand-tag-examples-cancel {
   padding: 8px 16px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 248, 226, 0.25);
+  border: 1px solid rgba(var(--theme-text-rgb), 0.25);
   background: transparent;
-  color: rgba(255, 248, 226, 0.75);
+  color: rgba(var(--theme-text-rgb), 0.75);
   font-size: 0.8rem;
   cursor: pointer;
   transition: background 0.2s ease;
 }
 
 .brand-tag-examples-cancel:hover:not(:disabled) {
-  background: rgba(255, 248, 226, 0.08);
+  background: rgba(var(--theme-text-rgb), 0.08);
 }
 
 .brand-tag-examples-cancel:disabled {
@@ -3807,7 +3817,7 @@ button.image-upload-label {
   display: block;
   border-radius: 12px;
   overflow: hidden;
-  border: 1px solid rgba(255, 214, 91, 0.15);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.15);
 }
 
 .brand-tag-examples-thumb {
@@ -3826,14 +3836,14 @@ button.image-upload-label {
   text-align: center;
   padding: 12px;
   font-size: 0.75rem;
-  color: rgba(255, 248, 226, 0.55);
+  color: rgba(var(--theme-text-rgb), 0.55);
   border-radius: 12px;
-  border: 1px dashed rgba(255, 214, 91, 0.25);
+  border: 1px dashed rgba(var(--theme-accent-rgb), 0.25);
 }
 
 .brand-tag-examples-caption {
   font-size: 0.88rem;
-  color: rgba(255, 248, 226, 0.82);
+  color: rgba(var(--theme-text-rgb), 0.82);
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
@@ -3845,7 +3855,7 @@ button.image-upload-label {
   border-radius: 999px;
   border: 1px solid rgba(255, 120, 120, 0.45);
   background: rgba(255, 120, 120, 0.12);
-  color: #ffb0b0;
+  color: var(--color-error-text);
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.05rem;
@@ -3998,7 +4008,7 @@ button.image-upload-label {
 }
 
 .brand-website-label {
-  color: rgba(255, 248, 226, 0.7);
+  color: rgba(var(--theme-text-rgb), 0.7);
   font-size: 0.85rem;
   letter-spacing: 0.05rem;
   text-transform: uppercase;
@@ -4008,8 +4018,8 @@ button.image-upload-label {
   width: 100%;
   padding: 14px 18px;
   border-radius: 16px;
-  border: 1px solid rgba(255, 214, 91, 0.28);
-  background: rgba(255, 214, 91, 0.08);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.28);
+  background: rgba(var(--theme-accent-rgb), 0.08);
   color: var(--text-strong);
   font-size: 0.95rem;
   outline: none;
@@ -4027,11 +4037,11 @@ button.image-upload-label {
 .brand-website-select:focus {
   border-color: var(--neon-border-strong);
   box-shadow: var(--neon-shadow);
-  background-color: rgba(255, 214, 91, 0.16);
+  background-color: rgba(var(--theme-accent-rgb), 0.16);
 }
 
 .brand-website-select option {
-  background-color: rgba(5, 4, 3, 0.98);
+  background-color: rgba(var(--theme-bg-rgb), 0.98);
   color: var(--text-strong);
   padding: 8px 12px;
 }
@@ -4041,9 +4051,9 @@ button.image-upload-label {
   justify-content: center;
   align-items: center;
   padding: 16px;
-  background: rgba(255, 214, 91, 0.08);
+  background: rgba(var(--theme-accent-rgb), 0.08);
   border-radius: 16px;
-  border: 1px solid rgba(255, 214, 91, 0.28);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.28);
 }
 
 .brand-website-link {
@@ -4056,7 +4066,7 @@ button.image-upload-label {
 }
 
 .brand-website-link:hover {
-  color: #8cffc3;
+  color: var(--color-positive-text);
   text-decoration: underline;
 }
 
@@ -4097,7 +4107,7 @@ button.image-upload-label {
   box-sizing: border-box;
   margin: 0 0 10px;
   padding: 0 0 14px;
-  border-bottom: 1px solid rgba(255, 214, 91, 0.22);
+  border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.22);
 }
 
 .research-menswear-departments--loading {
@@ -4106,7 +4116,7 @@ button.image-upload-label {
   box-sizing: border-box;
   padding: 10px 0 16px;
   font-size: 0.85rem;
-  color: rgba(255, 248, 226, 0.55);
+  color: rgba(var(--theme-text-rgb), 0.55);
   text-align: center;
 }
 
@@ -4164,14 +4174,9 @@ button.image-upload-label {
   padding: 10px 12px;
   box-sizing: border-box;
   border-radius: 12px;
-  border: 1px solid rgba(255, 214, 91, 0.22);
-  background: linear-gradient(
-    165deg,
-    rgba(255, 214, 91, 0.05) 0%,
-    rgba(22, 19, 16, 0.92) 45%,
-    rgba(10, 9, 7, 0.98) 100%
-  );
-  color: rgba(255, 248, 226, 0.62);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.22);
+  background: var(--theme-dept-box-bg);
+  color: rgba(var(--theme-text-rgb), 0.62);
   font: inherit;
   font-size: 0.86rem;
   font-weight: 600;
@@ -4191,13 +4196,8 @@ button.image-upload-label {
   opacity: 0.92;
   border-color: var(--neon-border-strong);
   color: var(--text-strong);
-  background: linear-gradient(
-    165deg,
-    rgba(255, 214, 91, 0.13) 0%,
-    rgba(26, 23, 18, 0.93) 48%,
-    rgba(12, 10, 8, 0.99) 100%
-  );
-  box-shadow: 0 0 22px rgba(255, 214, 91, 0.12);
+  background: var(--theme-dept-box-bg-hover);
+  box-shadow: 0 0 22px rgba(var(--theme-accent-rgb), 0.12);
 }
 
 .research-menswear-department-box:focus-visible {
@@ -4208,18 +4208,13 @@ button.image-upload-label {
 .research-menswear-department-box--active {
   opacity: 1;
   border-width: 2px;
-  border-color: var(--neon-primary-strong, #ffd65b);
-  background: linear-gradient(
-    165deg,
-    rgba(255, 214, 91, 0.28) 0%,
-    rgba(36, 31, 22, 0.96) 42%,
-    rgba(14, 12, 10, 1) 100%
-  );
+  border-color: var(--neon-primary-strong, var(--theme-accent));
+  background: var(--theme-dept-box-bg-active);
   color: var(--text-strong);
   font-weight: 700;
   box-shadow:
-    0 0 0 1px rgba(255, 214, 91, 0.3) inset,
-    0 0 22px rgba(255, 214, 91, 0.22);
+    0 0 0 1px rgba(var(--theme-accent-rgb), 0.3) inset,
+    0 0 22px rgba(var(--theme-accent-rgb), 0.22);
 }
 
 .research-menswear-department-box-name {
@@ -4247,7 +4242,7 @@ button.image-upload-label {
   box-sizing: border-box;
   padding: 0 0 20px;
   margin: 0 0 12px;
-  border-bottom: 1px solid rgba(255, 214, 91, 0.28);
+  border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.28);
   text-align: left;
   pointer-events: auto;
 }
@@ -4280,8 +4275,8 @@ button.image-upload-label {
   min-height: 44px;
   padding: 10px 12px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 214, 91, 0.28);
-  background: rgba(255, 214, 91, 0.08);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.28);
+  background: rgba(var(--theme-accent-rgb), 0.08);
   color: var(--neon-primary-strong);
   font: inherit;
   font-size: 0.88rem;
@@ -4297,9 +4292,9 @@ button.image-upload-label {
 }
 
 .clothing-types-browse-link:hover {
-  border-color: rgba(255, 214, 91, 0.5);
-  background: rgba(255, 214, 91, 0.14);
-  box-shadow: 0 0 14px rgba(255, 214, 91, 0.12);
+  border-color: rgba(var(--theme-accent-rgb), 0.5);
+  background: rgba(var(--theme-accent-rgb), 0.14);
+  box-shadow: 0 0 14px rgba(var(--theme-accent-rgb), 0.12);
 }
 
 .clothing-types-browse-link:focus-visible {
@@ -4311,7 +4306,7 @@ button.image-upload-label {
   font-size: 0.68rem;
   font-weight: 500;
   line-height: 1.3;
-  color: rgba(255, 248, 226, 0.48);
+  color: rgba(var(--theme-text-rgb), 0.48);
 }
 
 /* Menswear categories list: same browse pattern as sales by category, tighter grid and type */
@@ -4354,7 +4349,7 @@ button.image-upload-label {
 .menswear-categories-overview-below {
   margin-top: 22px;
   padding-top: 20px;
-  border-top: 1px solid rgba(255, 214, 91, 0.18);
+  border-top: 1px solid rgba(var(--theme-accent-rgb), 0.18);
   text-align: left;
 }
 
@@ -4363,13 +4358,13 @@ button.image-upload-label {
   justify-content: center;
   margin-top: 18px;
   padding-top: 14px;
-  border-top: 1px solid rgba(255, 214, 91, 0.14);
+  border-top: 1px solid rgba(var(--theme-accent-rgb), 0.14);
 }
 
 .menswear-categories-list-strain-loading {
   margin: 22px 0 0 0;
   padding-top: 18px;
-  border-top: 1px solid rgba(255, 214, 91, 0.18);
+  border-top: 1px solid rgba(var(--theme-accent-rgb), 0.18);
   text-align: center;
 }
 
@@ -4378,7 +4373,7 @@ button.image-upload-label {
   box-sizing: border-box;
   margin: 22px 0 0 0;
   padding: 20px 0 0;
-  border-top: 1px solid rgba(255, 214, 91, 0.2);
+  border-top: 1px solid rgba(var(--theme-accent-rgb), 0.2);
   text-align: left;
 }
 
@@ -4419,9 +4414,9 @@ button.image-upload-label {
   height: 28px;
   padding: 0;
   border-radius: 999px;
-  border: 1px solid rgba(255, 214, 91, 0.35);
-  background: rgba(255, 214, 91, 0.1);
-  color: rgba(255, 248, 226, 0.85);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.35);
+  background: rgba(var(--theme-accent-rgb), 0.1);
+  color: rgba(var(--theme-text-rgb), 0.85);
   cursor: help;
   transition:
     border-color 0.15s ease,
@@ -4430,13 +4425,13 @@ button.image-upload-label {
 
 .menswear-strain-info-btn:hover,
 .menswear-strain-info-btn:focus-visible {
-  border-color: rgba(255, 214, 91, 0.55);
-  background: rgba(255, 214, 91, 0.16);
+  border-color: rgba(var(--theme-accent-rgb), 0.55);
+  background: rgba(var(--theme-accent-rgb), 0.16);
   outline: none;
 }
 
 .menswear-strain-info-btn:focus-visible {
-  box-shadow: 0 0 0 2px rgba(255, 214, 91, 0.35);
+  box-shadow: 0 0 0 2px rgba(var(--theme-accent-rgb), 0.35);
 }
 
 .menswear-strain-info-tooltip {
@@ -4447,9 +4442,9 @@ button.image-upload-label {
   width: min(18.5rem, calc(100vw - 2rem));
   padding: 10px 12px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 214, 91, 0.35);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.35);
   background: rgba(14, 18, 26, 0.97);
-  color: rgba(255, 248, 226, 0.9);
+  color: rgba(var(--theme-text-rgb), 0.9);
   font-size: 0.78rem;
   font-weight: 500;
   line-height: 1.45;
@@ -4510,12 +4505,12 @@ button.image-upload-label {
 }
 
 .menswear-strain-th-sort:focus-visible {
-  box-shadow: 0 0 0 2px rgba(255, 214, 91, 0.35);
+  box-shadow: 0 0 0 2px rgba(var(--theme-accent-rgb), 0.35);
   border-radius: 4px;
 }
 
 .menswear-strain-th-sort--active {
-  color: rgba(255, 248, 226, 0.95);
+  color: rgba(var(--theme-text-rgb), 0.95);
 }
 
 .menswear-strain-th-sort-icon {
@@ -4583,8 +4578,8 @@ button.image-upload-label {
   margin: 0 0 14px 0;
   padding: 14px 12px 16px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 214, 91, 0.18);
-  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.18);
+  background: var(--theme-buy-strip-bg);
   gap: 0;
   min-height: 5.5rem;
 }
@@ -4612,7 +4607,7 @@ button.image-upload-label {
 }
 
 .clothing-types-buy-avoid-col--avoid {
-  border-left: 1px solid rgba(255, 214, 91, 0.14);
+  border-left: 1px solid rgba(var(--theme-accent-rgb), 0.14);
 }
 
 .clothing-types-buy-avoid-label {
@@ -4638,20 +4633,20 @@ button.image-upload-label {
 
 .clothing-types-buy-avoid-col--buy,
 .clothing-types-buy-avoid-col--buy .clothing-types-buy-avoid-names {
-  color: rgba(140, 255, 195, 0.95);
+  color: var(--theme-buy-text);
 }
 
 .clothing-types-buy-avoid-col--buy .clothing-types-buy-avoid-label {
-  color: rgba(120, 235, 175, 0.88);
+  color: var(--theme-buy-label);
 }
 
 .clothing-types-buy-avoid-col--avoid,
 .clothing-types-buy-avoid-col--avoid .clothing-types-buy-avoid-names {
-  color: rgba(255, 160, 160, 0.98);
+  color: var(--theme-avoid-text);
 }
 
 .clothing-types-buy-avoid-col--avoid .clothing-types-buy-avoid-label {
-  color: rgba(255, 130, 130, 0.92);
+  color: var(--theme-avoid-label);
 }
 
 .clothing-types-buy-avoid-names {
@@ -4767,7 +4762,7 @@ button.image-upload-label {
   }
 
   .clothing-types-three-pies-row > *:not(:first-child) {
-    border-top: 1px solid rgba(255, 214, 91, 0.18);
+    border-top: 1px solid rgba(var(--theme-accent-rgb), 0.18);
     padding-top: 18px;
     margin-top: 2px;
   }
@@ -4785,7 +4780,7 @@ button.image-upload-label {
   box-sizing: border-box;
   margin-top: 28px;
   padding-top: 22px;
-  border-top: 1px solid rgba(255, 214, 91, 0.18);
+  border-top: 1px solid rgba(var(--theme-accent-rgb), 0.18);
   text-align: left;
 }
 
@@ -4794,7 +4789,7 @@ button.image-upload-label {
   font-size: 1.45rem;
   font-weight: 600;
   letter-spacing: 0.03rem;
-  color: rgba(255, 248, 226, 0.95);
+  color: rgba(var(--theme-text-rgb), 0.95);
   text-align: center;
   width: 100%;
 }
@@ -4823,13 +4818,13 @@ button.image-upload-label {
 }
 
 .clothing-types-invest-risk-type-link {
-  color: rgba(255, 214, 91, 0.95);
+  color: rgba(var(--theme-accent-rgb), 0.95);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
 .clothing-types-invest-risk-type-link:hover {
-  color: rgba(255, 248, 226, 1);
+  color: rgba(var(--theme-text-rgb), 1);
 }
 
 .clothing-type-detail-metrics {
@@ -4877,7 +4872,7 @@ button.image-upload-label {
   font-size: 1.2rem;
   font-weight: 700;
   letter-spacing: 0.04em;
-  color: rgba(255, 248, 226, 0.9);
+  color: rgba(var(--theme-text-rgb), 0.9);
   text-align: center;
   text-transform: none;
 }
@@ -4888,7 +4883,7 @@ button.image-upload-label {
   max-width: 100%;
   box-sizing: border-box;
   border: none;
-  border-top: 1px solid rgba(255, 214, 91, 0.24);
+  border-top: 1px solid rgba(var(--theme-accent-rgb), 0.24);
   margin: 0 12px 20px 12px;
   padding: 0;
   height: 0;
@@ -4899,7 +4894,7 @@ button.image-upload-label {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   border-radius: 12px;
-  border: 1px solid rgba(255, 214, 91, 0.15);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.15);
 }
 
 .clothing-type-detail-brand-filter-link {
@@ -4915,7 +4910,7 @@ button.image-upload-label {
 .clothing-type-in-stock-filter-badge {
   font-size: 0.92rem;
   font-weight: 600;
-  color: rgba(255, 214, 91, 0.88);
+  color: rgba(var(--theme-accent-rgb), 0.88);
 }
 
 .clothing-type-in-stock-filter-clear {
@@ -4927,13 +4922,13 @@ button.image-upload-label {
   font: inherit;
   font-size: 1.1rem;
   line-height: 1;
-  color: rgba(255, 214, 91, 0.75);
+  color: rgba(var(--theme-accent-rgb), 0.75);
   cursor: pointer;
   vertical-align: middle;
 }
 
 .clothing-type-in-stock-filter-clear:hover {
-  color: rgba(255, 248, 226, 0.95);
+  color: rgba(var(--theme-text-rgb), 0.95);
 }
 
 .menswear-categories-buy-more-stock-row-link--active td {
@@ -4946,7 +4941,7 @@ button.image-upload-label {
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: rgba(255, 248, 226, 0.88);
+  color: rgba(var(--theme-text-rgb), 0.88);
   text-align: center;
   padding: 0 12px;
 }
@@ -4984,7 +4979,7 @@ a.menswear-categories-brand-link {
   min-width: 0;
   box-sizing: border-box;
   padding: 4px 8px 4px 24px;
-  border-left: 1px solid rgba(255, 214, 91, 0.28);
+  border-left: 1px solid rgba(var(--theme-accent-rgb), 0.28);
   overflow: hidden;
   position: relative;
   z-index: 0;
@@ -4999,7 +4994,7 @@ a.menswear-categories-brand-link {
   margin: 0 0 16px 0;
   padding: 0;
   border-radius: 12px;
-  border: 1px solid rgba(255, 214, 91, 0.28);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.28);
   background: rgba(14, 18, 26, 0.55);
   overflow: hidden;
   box-sizing: border-box;
@@ -5011,7 +5006,7 @@ a.menswear-categories-brand-link {
   padding: 10px 12px;
   border: none;
   background: transparent;
-  color: rgba(255, 248, 226, 0.62);
+  color: rgba(var(--theme-text-rgb), 0.62);
   font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -5024,13 +5019,13 @@ a.menswear-categories-brand-link {
 }
 
 .menswear-categories-subpanel-tab:hover {
-  color: rgba(255, 248, 226, 0.92);
-  background: rgba(255, 214, 91, 0.06);
+  color: rgba(var(--theme-text-rgb), 0.92);
+  background: rgba(var(--theme-accent-rgb), 0.06);
 }
 
 .menswear-categories-subpanel-tab--active {
   color: var(--neon-primary-strong);
-  background: rgba(255, 214, 91, 0.12);
+  background: rgba(var(--theme-accent-rgb), 0.12);
   box-shadow: inset 0 -2px 0 var(--neon-primary-strong);
 }
 
@@ -5052,7 +5047,7 @@ a.menswear-categories-brand-link {
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: rgba(255, 248, 226, 0.88);
+  color: rgba(var(--theme-text-rgb), 0.88);
   margin: 0 0 10px 0;
 }
 
@@ -5100,11 +5095,11 @@ a.menswear-categories-brand-link {
 .menswear-categories-overview-table td {
   padding: 8px 10px;
   text-align: left;
-  border-bottom: 1px solid rgba(255, 214, 91, 0.12);
+  border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.12);
 }
 
 .menswear-categories-overview-table th {
-  color: rgba(255, 248, 226, 0.55);
+  color: rgba(var(--theme-text-rgb), 0.55);
   font-weight: 600;
   text-transform: uppercase;
   font-size: 0.68rem;
@@ -5112,7 +5107,7 @@ a.menswear-categories-brand-link {
 }
 
 .menswear-categories-overview-table td {
-  color: rgba(255, 248, 226, 0.92);
+  color: rgba(var(--theme-text-rgb), 0.92);
 }
 
 .menswear-categories-overview-num {
@@ -5144,7 +5139,7 @@ a.menswear-categories-brand-link {
   margin: 12px 0 0 0;
   font-size: 0.74rem;
   line-height: 1.45;
-  color: rgba(255, 248, 226, 0.45);
+  color: rgba(var(--theme-text-rgb), 0.45);
 }
 
 .menswear-categories-split-right .menswear-categories-sales-pie {
@@ -5212,7 +5207,7 @@ a.menswear-categories-brand-link {
     overflow: visible;
     border-left: none;
     padding: 20px 8px 4px;
-    border-top: 1px solid rgba(255, 214, 91, 0.28);
+    border-top: 1px solid rgba(var(--theme-accent-rgb), 0.28);
   }
 
   .menswear-categories-split-right .menswear-categories-sales-pie {
@@ -5285,7 +5280,7 @@ a.menswear-categories-brand-link {
   min-width: min(260px, 100%);
   box-sizing: border-box;
   padding: 4px 20px 4px 8px;
-  border-right: 1px solid rgba(255, 214, 91, 0.28);
+  border-right: 1px solid rgba(var(--theme-accent-rgb), 0.28);
   position: relative;
   z-index: 2;
   isolation: isolate;
@@ -5400,7 +5395,7 @@ a.menswear-categories-brand-link {
     min-width: 0;
     padding: 4px 8px;
     border-right: none;
-    border-bottom: 1px solid rgba(255, 214, 91, 0.28);
+    border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.28);
     padding-bottom: 18px;
     margin-bottom: 8px;
   }
@@ -5428,7 +5423,7 @@ a.menswear-categories-brand-link {
   right: 0;
   z-index: 850;
   box-sizing: border-box;
-  background: rgba(5, 4, 3, 0.94);
+  background: rgba(var(--theme-bg-rgb), 0.94);
   backdrop-filter: blur(12px);
   border-top: 1px solid var(--neon-border);
   box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.5);
@@ -5480,7 +5475,7 @@ a.menswear-categories-brand-link {
   padding: 10px 16px;
   border-radius: 999px;
   border: 1px solid var(--neon-border);
-  background: rgba(255, 214, 91, 0.12);
+  background: rgba(var(--theme-accent-rgb), 0.12);
   color: var(--text-strong);
   font-size: 0.78rem;
   font-weight: 600;
@@ -5493,7 +5488,7 @@ a.menswear-categories-brand-link {
 }
 
 .menswear-categories-read-aloud-btn:hover {
-  background: rgba(255, 214, 91, 0.22);
+  background: rgba(var(--theme-accent-rgb), 0.22);
   box-shadow: var(--neon-shadow);
 }
 
@@ -5583,7 +5578,7 @@ a.menswear-categories-brand-link {
 .menswear-categories-avoid-stock {
   margin-top: 22px;
   padding-top: 18px;
-  border-top: 1px solid rgba(255, 214, 91, 0.14);
+  border-top: 1px solid rgba(var(--theme-accent-rgb), 0.14);
   width: 100%;
   max-width: min(100%, 520px);
   box-sizing: border-box;
@@ -5629,13 +5624,13 @@ a.menswear-categories-brand-link {
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.04rem;
-  color: rgba(255, 248, 226, 0.75);
+  color: rgba(var(--theme-text-rgb), 0.75);
   white-space: nowrap;
 }
 
 .menswear-categories-avoid-stock-table tbody td {
   padding: 9px 12px;
-  border-bottom: 1px solid rgba(255, 214, 91, 0.08);
+  border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.08);
   vertical-align: middle;
   text-align: center;
 }
@@ -5668,14 +5663,14 @@ a.menswear-categories-brand-link {
 }
 
 .menswear-categories-avoid-stock-row-link:focus-visible {
-  outline: 2px solid rgba(255, 214, 91, 0.65);
+  outline: 2px solid rgba(var(--theme-accent-rgb), 0.65);
   outline-offset: -2px;
 }
 
 .menswear-categories-buy-more-stock {
   margin-top: 22px;
   padding-top: 18px;
-  border-top: 1px solid rgba(255, 214, 91, 0.14);
+  border-top: 1px solid rgba(var(--theme-accent-rgb), 0.14);
   width: 100%;
   max-width: min(100%, 520px);
   box-sizing: border-box;
@@ -5714,13 +5709,13 @@ a.menswear-categories-brand-link {
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.04rem;
-  color: rgba(255, 248, 226, 0.75);
+  color: rgba(var(--theme-text-rgb), 0.75);
   white-space: nowrap;
 }
 
 .menswear-categories-buy-more-stock-table tbody td {
   padding: 9px 12px;
-  border-bottom: 1px solid rgba(255, 214, 91, 0.08);
+  border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.08);
   vertical-align: middle;
   text-align: center;
 }
@@ -5756,7 +5751,7 @@ a.menswear-categories-brand-link {
   font-size: 0.78rem;
   letter-spacing: 0.06rem;
   text-transform: uppercase;
-  color: rgba(255, 248, 226, 0.65);
+  color: rgba(var(--theme-text-rgb), 0.65);
 }
 
 .menswear-categories-detail-split-chart--avoid-drilldown {
@@ -5783,7 +5778,7 @@ a.menswear-categories-brand-link {
   font-size: 0.82rem;
   padding: 6px 12px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 214, 91, 0.35);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.35);
   background: rgba(0, 0, 0, 0.25);
   color: var(--text-strong);
   cursor: pointer;
@@ -5793,8 +5788,8 @@ a.menswear-categories-brand-link {
 }
 
 .menswear-categories-avoid-drilldown-back:hover {
-  border-color: rgba(255, 214, 91, 0.55);
-  background: rgba(255, 214, 91, 0.08);
+  border-color: rgba(var(--theme-accent-rgb), 0.55);
+  background: rgba(var(--theme-accent-rgb), 0.08);
 }
 
 .menswear-categories-avoid-drilldown-title {
@@ -5813,7 +5808,7 @@ a.menswear-categories-brand-link {
 .menswear-categories-avoid-drilldown-table-wrap {
   overflow-x: auto;
   border-radius: 12px;
-  border: 1px solid rgba(255, 214, 91, 0.18);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.18);
   background: rgba(0, 0, 0, 0.18);
   max-height: min(62vh, 520px);
   overflow-y: auto;
@@ -5833,18 +5828,18 @@ a.menswear-categories-brand-link {
   text-align: center;
   padding: 10px 10px;
   background: rgba(40, 36, 28, 0.96);
-  border-bottom: 1px solid rgba(255, 214, 91, 0.2);
+  border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.2);
   font-weight: 700;
   font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.04rem;
-  color: rgba(255, 248, 226, 0.78);
+  color: rgba(var(--theme-text-rgb), 0.78);
   white-space: nowrap;
 }
 
 .menswear-categories-avoid-drilldown-table tbody td {
   padding: 8px 10px;
-  border-bottom: 1px solid rgba(255, 214, 91, 0.07);
+  border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.07);
   vertical-align: middle;
   text-align: center;
 }
@@ -5906,8 +5901,8 @@ a.menswear-categories-brand-link {
   text-align: left;
   padding: 16px 18px;
   border-radius: 14px;
-  border: 1px solid rgba(255, 214, 91, 0.22);
-  background: rgba(255, 214, 91, 0.06);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.22);
+  background: rgba(var(--theme-accent-rgb), 0.06);
   color: inherit;
   font: inherit;
   text-decoration: none;
@@ -5923,9 +5918,9 @@ a.menswear-categories-brand-link {
 }
 
 .menswear-categories-card:hover {
-  border-color: rgba(255, 214, 91, 0.45);
-  background: rgba(255, 214, 91, 0.1);
-  box-shadow: var(--neon-shadow, 0 0 14px rgba(255, 214, 91, 0.12));
+  border-color: rgba(var(--theme-accent-rgb), 0.45);
+  background: rgba(var(--theme-accent-rgb), 0.1);
+  box-shadow: var(--neon-shadow, 0 0 14px rgba(var(--theme-accent-rgb), 0.12));
 }
 
 a.menswear-categories-card:focus-visible {
@@ -5980,8 +5975,8 @@ a.menswear-categories-card:focus-visible {
   margin: 20px 0 16px 0;
   padding: 12px 14px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 214, 91, 0.2);
-  background: rgba(255, 214, 91, 0.05);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.2);
+  background: rgba(var(--theme-accent-rgb), 0.05);
 }
 
 .menswear-categories-sort-bar--icons {
@@ -6000,8 +5995,8 @@ a.menswear-categories-card:focus-visible {
 .menswear-categories-brands-edit-toggle {
   padding: 6px 14px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 214, 91, 0.35);
-  background: rgba(255, 214, 91, 0.08);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.35);
+  background: rgba(var(--theme-accent-rgb), 0.08);
   color: var(--text-strong);
   font-size: 0.88rem;
   font-weight: 600;
@@ -6012,8 +6007,8 @@ a.menswear-categories-card:focus-visible {
 }
 
 .menswear-categories-brands-edit-toggle:hover {
-  background: rgba(255, 214, 91, 0.14);
-  border-color: rgba(255, 214, 91, 0.5);
+  background: rgba(var(--theme-accent-rgb), 0.14);
+  border-color: rgba(var(--theme-accent-rgb), 0.5);
 }
 
 .menswear-categories-brands-edit-toggle--active {
@@ -6046,8 +6041,8 @@ a.menswear-categories-card:focus-visible {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(255, 214, 91, 0.35);
-  background: rgba(255, 214, 91, 0.08);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.35);
+  background: rgba(var(--theme-accent-rgb), 0.08);
   color: var(--text-strong);
   cursor: pointer;
   flex-shrink: 0;
@@ -6058,8 +6053,8 @@ a.menswear-categories-card:focus-visible {
 }
 
 .menswear-categories-icon-circle-btn:hover {
-  background: rgba(255, 214, 91, 0.16);
-  border-color: rgba(255, 214, 91, 0.55);
+  background: rgba(var(--theme-accent-rgb), 0.16);
+  border-color: rgba(var(--theme-accent-rgb), 0.55);
 }
 
 .menswear-categories-icon-circle-btn--active {
@@ -6098,7 +6093,7 @@ a.menswear-categories-card:focus-visible {
   list-style: none;
   min-width: 188px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 214, 91, 0.28);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.28);
   background: rgba(12, 10, 8, 0.97);
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
   z-index: 40;
@@ -6126,7 +6121,7 @@ a.menswear-categories-card:focus-visible {
 }
 
 .menswear-categories-sort-menu-option:hover {
-  background: rgba(255, 214, 91, 0.1);
+  background: rgba(var(--theme-accent-rgb), 0.1);
 }
 
 .menswear-categories-sort-menu-option--active {
@@ -6138,7 +6133,7 @@ a.menswear-categories-card:focus-visible {
   margin: 0 0 20px 0;
   padding: 16px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 214, 91, 0.22);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.22);
   background: rgba(0, 0, 0, 0.25);
   box-sizing: border-box;
 }
@@ -6148,8 +6143,8 @@ a.menswear-categories-card:focus-visible {
   padding: 12px 16px;
   margin-bottom: 12px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 214, 91, 0.28);
-  background: rgba(255, 214, 91, 0.08);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.28);
+  background: rgba(var(--theme-accent-rgb), 0.08);
   color: var(--text-strong);
   font-size: 0.95rem;
   outline: none;
@@ -6168,7 +6163,7 @@ a.menswear-categories-card:focus-visible {
   max-height: 280px;
   overflow-y: auto;
   border-radius: 10px;
-  border: 1px solid rgba(255, 214, 91, 0.12);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.12);
 }
 
 .menswear-categories-add-row {
@@ -6179,8 +6174,8 @@ a.menswear-categories-card:focus-visible {
   gap: 10px;
   padding: 10px 14px;
   border: none;
-  border-bottom: 1px solid rgba(255, 214, 91, 0.08);
-  background: rgba(255, 214, 91, 0.04);
+  border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.08);
+  background: rgba(var(--theme-accent-rgb), 0.04);
   color: var(--text-strong);
   font-size: 0.92rem;
   text-align: left;
@@ -6194,7 +6189,7 @@ a.menswear-categories-card:focus-visible {
 }
 
 .menswear-categories-add-row:hover:not(:disabled) {
-  background: rgba(255, 214, 91, 0.12);
+  background: rgba(var(--theme-accent-rgb), 0.12);
 }
 
 .menswear-categories-add-row:disabled {
@@ -6215,7 +6210,7 @@ a.menswear-categories-card:focus-visible {
 .menswear-categories-add-cancel {
   padding: 8px 14px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 214, 91, 0.35);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.35);
   background: transparent;
   color: var(--text-muted);
   font-size: 0.85rem;
@@ -6224,7 +6219,7 @@ a.menswear-categories-card:focus-visible {
 
 .menswear-categories-add-cancel:hover:not(:disabled) {
   color: var(--text-strong);
-  border-color: rgba(255, 214, 91, 0.5);
+  border-color: rgba(var(--theme-accent-rgb), 0.5);
 }
 
 .menswear-categories-error--inline {
@@ -6236,7 +6231,7 @@ a.menswear-categories-card:focus-visible {
 .menswear-categories-sort-btn {
   padding: 8px 14px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 214, 91, 0.35);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.35);
   background: transparent;
   color: var(--text-strong);
   font-size: 0.88rem;
@@ -6245,14 +6240,14 @@ a.menswear-categories-card:focus-visible {
 }
 
 .menswear-categories-sort-btn:hover {
-  border-color: rgba(255, 214, 91, 0.55);
-  background: rgba(255, 214, 91, 0.08);
+  border-color: rgba(var(--theme-accent-rgb), 0.55);
+  background: rgba(var(--theme-accent-rgb), 0.08);
 }
 
 .menswear-categories-sort-btn--active {
   border-color: var(--neon-border-strong);
-  background: rgba(255, 214, 91, 0.14);
-  box-shadow: inset 0 0 12px rgba(255, 214, 91, 0.12);
+  background: rgba(var(--theme-accent-rgb), 0.14);
+  box-shadow: inset 0 0 12px rgba(var(--theme-accent-rgb), 0.12);
 }
 
 .menswear-categories-brands {
@@ -6260,7 +6255,7 @@ a.menswear-categories-card:focus-visible {
   margin: 0;
   padding: 0;
   border-radius: 12px;
-  border: 1px solid rgba(255, 214, 91, 0.18);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.18);
   overflow: hidden;
 }
 
@@ -6277,7 +6272,7 @@ a.menswear-categories-card:focus-visible {
   justify-content: space-between;
   gap: 12px;
   padding: 12px 16px;
-  border-bottom: 1px solid rgba(255, 214, 91, 0.1);
+  border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.1);
   background: rgba(0, 0, 0, 0.15);
 }
 
@@ -6362,7 +6357,7 @@ a.menswear-categories-card:focus-visible {
 
 .menswear-categories-brand-link:hover {
   text-decoration: underline;
-  color: #8cffc3;
+  color: var(--color-positive-text);
 }
 
 button.menswear-categories-brand-link {
@@ -6375,7 +6370,7 @@ button.menswear-categories-brand-link {
 }
 
 .menswear-categories-brand-link--active {
-  color: #8cffc3;
+  color: var(--color-positive-text);
   font-weight: 600;
   text-decoration: underline;
   text-underline-offset: 3px;
@@ -6453,7 +6448,7 @@ button.menswear-categories-brand-link {
   font-weight: 700;
   letter-spacing: 0.03em;
   line-height: 1.25;
-  color: rgba(255, 248, 226, 0.92);
+  color: rgba(var(--theme-text-rgb), 0.92);
   max-width: min(100%, 36rem);
 }
 
@@ -6513,7 +6508,7 @@ button.menswear-categories-brand-link {
   max-width: 100%;
   padding: 8px 12px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 214, 91, 0.22);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.22);
   background: rgba(0, 0, 0, 0.35);
   color: var(--text-primary, #e8ecf4);
   font-size: 0.9rem;
@@ -6539,7 +6534,7 @@ button.menswear-categories-brand-link {
 .menswear-categories-brand-stock-lines-table-wrap {
   overflow-x: auto;
   border-radius: 12px;
-  border: 1px solid rgba(255, 214, 91, 0.14);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.14);
 }
 
 .menswear-categories-brand-stock-category-chart-block {
@@ -6553,7 +6548,7 @@ button.menswear-categories-brand-link {
   padding-top: 0;
   padding-bottom: 20px;
   border-top: none;
-  border-bottom: 1px solid rgba(255, 214, 91, 0.12);
+  border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.12);
   text-align: left;
 }
 
@@ -6562,7 +6557,7 @@ button.menswear-categories-brand-link {
   font-size: 1.05rem;
   font-weight: 700;
   letter-spacing: 0.03em;
-  color: rgba(255, 248, 226, 0.9);
+  color: rgba(var(--theme-text-rgb), 0.9);
   text-align: center;
 }
 
@@ -6584,14 +6579,14 @@ button.menswear-categories-brand-link {
   margin: 0;
   font-size: 0.95rem;
   font-weight: 600;
-  color: rgba(255, 248, 226, 0.88);
+  color: rgba(var(--theme-text-rgb), 0.88);
   text-align: center;
   flex: 1 1 200px;
 }
 
 .menswear-categories-brand-stock-chart-drill-sub {
   font-weight: 500;
-  color: rgba(255, 248, 226, 0.55);
+  color: rgba(var(--theme-text-rgb), 0.55);
 }
 
 /* Brand stock: tag thumbnails + sold / unsold bar rows (under Inventory and Sold) */
@@ -6604,7 +6599,7 @@ button.menswear-categories-brand-link {
   margin-right: auto;
   box-sizing: border-box;
   padding-bottom: 20px;
-  border-bottom: 1px solid rgba(255, 214, 91, 0.12);
+  border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.12);
   text-align: left;
 }
 
@@ -6613,7 +6608,7 @@ button.menswear-categories-brand-link {
   font-size: 1.05rem;
   font-weight: 700;
   letter-spacing: 0.03em;
-  color: rgba(255, 248, 226, 0.9);
+  color: rgba(var(--theme-text-rgb), 0.9);
   text-align: center;
 }
 
@@ -6633,8 +6628,8 @@ button.menswear-categories-brand-link {
   box-sizing: border-box;
   padding: 12px 14px;
   border-radius: 14px;
-  border: 1px solid rgba(255, 214, 91, 0.14);
-  background: rgba(255, 214, 91, 0.04);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.14);
+  background: rgba(var(--theme-accent-rgb), 0.04);
 }
 
 .menswear-categories-brand-tag-chart-panel-title {
@@ -6643,7 +6638,7 @@ button.menswear-categories-brand-link {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(255, 248, 226, 0.82);
+  color: rgba(var(--theme-text-rgb), 0.82);
   text-align: center;
 }
 
@@ -6669,7 +6664,7 @@ button.menswear-categories-brand-link {
   font-variant-numeric: tabular-nums;
   font-weight: 700;
   font-size: 0.95rem;
-  color: rgba(255, 248, 226, 0.92);
+  color: rgba(var(--theme-text-rgb), 0.92);
 }
 
 .menswear-categories-brand-tag-bar-track {
@@ -6718,7 +6713,7 @@ button.menswear-categories-brand-link {
   height: 42px;
   border-radius: 8px;
   object-fit: cover;
-  border: 1px solid rgba(255, 214, 91, 0.22);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.22);
   background: rgba(0, 0, 0, 0.25);
   flex-shrink: 0;
 }
@@ -6728,7 +6723,7 @@ button.menswear-categories-brand-link {
   align-items: center;
   justify-content: center;
   background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 248, 226, 0.28);
+  color: rgba(var(--theme-text-rgb), 0.28);
   font-size: 0.65rem;
   font-weight: 700;
 }
@@ -6763,7 +6758,7 @@ button.menswear-categories-brand-link {
 
 .menswear-categories-brand-stock-lines-research-link-below:hover {
   text-decoration: underline;
-  color: #8cffc3;
+  color: var(--color-positive-text);
 }
 
 .menswear-categories-brand-stock-lines-status-col {
@@ -6777,7 +6772,7 @@ button.menswear-categories-brand-link {
 }
 
 .menswear-categories-brand-stock-lines-status-col--sold {
-  color: #8cffc3;
+  color: var(--color-positive-text);
   font-weight: 600;
   text-shadow: 0 0 8px rgba(140, 255, 195, 0.25);
 }
@@ -6792,7 +6787,7 @@ button.menswear-categories-brand-link {
 .menswear-categories-sales-pie {
   margin-top: 28px;
   padding-top: 18px;
-  border-top: 1px solid rgba(255, 214, 91, 0.14);
+  border-top: 1px solid rgba(var(--theme-accent-rgb), 0.14);
 }
 
 .menswear-categories-sales-pie-header {
@@ -6820,7 +6815,7 @@ button.menswear-categories-brand-link {
 .menswear-categories-sales-pie-filter-btn {
   padding: 6px 10px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 214, 91, 0.35);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.35);
   background: transparent;
   color: var(--text-muted);
   font-size: 0.73rem;
@@ -6831,8 +6826,8 @@ button.menswear-categories-brand-link {
 }
 
 .menswear-categories-sales-pie-filter-btn:hover {
-  border-color: rgba(255, 214, 91, 0.55);
-  background: rgba(255, 214, 91, 0.08);
+  border-color: rgba(var(--theme-accent-rgb), 0.55);
+  background: rgba(var(--theme-accent-rgb), 0.08);
   color: var(--text-strong);
 }
 
@@ -6852,7 +6847,7 @@ button.menswear-categories-brand-link {
 .menswear-categories-inventory-block {
   margin-top: 22px;
   padding-top: 18px;
-  border-top: 1px solid rgba(255, 214, 91, 0.14);
+  border-top: 1px solid rgba(var(--theme-accent-rgb), 0.14);
   width: 100%;
   max-width: min(100%, 440px);
   box-sizing: border-box;
@@ -6890,7 +6885,7 @@ button.menswear-categories-brand-link {
 
 .menswear-categories-inventory-ask-ai-rule {
   border: none;
-  border-top: 1px solid rgba(255, 214, 91, 0.24);
+  border-top: 1px solid rgba(var(--theme-accent-rgb), 0.24);
   margin: 22px 0 16px;
   width: 100%;
 }

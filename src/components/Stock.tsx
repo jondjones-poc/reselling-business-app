@@ -1632,7 +1632,7 @@ const Stock: React.FC = () => {
         return Number.isNaN(numeric) ? Number.NEGATIVE_INFINITY : numeric;
       }
 
-      if (key === 'purchase_price' || key === 'sale_price' || key === 'net_profit') {
+      if (key === 'purchase_price' || key === 'sale_price') {
         const numeric = Number(value);
         return Number.isNaN(numeric) ? Number.NEGATIVE_INFINITY : numeric;
       }
@@ -1740,38 +1740,6 @@ const Stock: React.FC = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  };
-
-  const computeDifference = (
-    purchase: Nullable<string | number>,
-    sale: Nullable<string | number>
-  ) => {
-    const normalize = (value: Nullable<string | number>) => {
-      if (value === null || value === undefined) {
-        return Number.NaN;
-      }
-
-      if (typeof value === 'number') {
-        return Number.isNaN(value) ? Number.NaN : value;
-      }
-
-      const trimmed = value.trim();
-      if (!trimmed) {
-        return Number.NaN;
-      }
-
-      const numeric = Number(trimmed);
-      return Number.isNaN(numeric) ? Number.NaN : numeric;
-    };
-
-    const purchaseValue = normalize(purchase);
-    const saleValue = normalize(sale);
-
-    if (Number.isNaN(purchaseValue) || Number.isNaN(saleValue)) {
-      return null;
-    }
-
-    return saleValue - purchaseValue;
   };
 
   const startEditingRow = (row: StockRow) => {
@@ -2090,10 +2058,6 @@ const Stock: React.FC = () => {
     }
 
     const value = row[key];
-
-    if (key === 'net_profit') {
-      return formatCurrency(value as Nullable<string | number>);
-    }
 
     if (formatter) {
       return formatter(value as Nullable<string | number>);
@@ -4040,39 +4004,17 @@ const Stock: React.FC = () => {
                   Sold <span className="sort-indicator">{resolveSortIndicator('sale_date')}</span>
                 </button>
               </th>
-              <th>
-                <button
-                  type="button"
-                  className={`sortable-header${sortConfig?.key === 'net_profit' ? ` sorted-${sortConfig.direction}` : ''}`}
-                  onClick={() => handleSort('net_profit')}
-                >
-                  Net Profit <span className="sort-indicator">{resolveSortIndicator('net_profit')}</span>
-                </button>
-              </th>
             </tr>
           </thead>
           <tbody>
             {!loading && sortedRows.length === 0 && (
               <tr>
-                <td colSpan={8} className="empty-state">
+                <td colSpan={7} className="empty-state">
                   No stock records found.
                 </td>
               </tr>
             )}
             {sortedRows.map((row) => {
-              const storedProfit =
-                row.net_profit !== null && row.net_profit !== undefined
-                  ? Number(row.net_profit)
-                  : computeDifference(row.purchase_price, row.sale_price);
-              const profitValue = storedProfit;
-              const profitClass =
-                profitValue !== null
-                  ? profitValue >= 0
-                    ? 'profit-chip positive'
-                    : 'profit-chip negative'
-                  : 'profit-chip neutral';
-              const profitDisplay = profitValue !== null ? formatCurrency(profitValue) : '—';
-
               return (
                 <tr key={row.id}>
                   <td>{row.id}</td>
@@ -4132,9 +4074,6 @@ const Stock: React.FC = () => {
                           : formatCurrency(row.sale_price)}
                       </span>
                     </div>
-                  </td>
-                  <td>
-                    <span className={profitClass}>{profitDisplay}</span>
                   </td>
                 </tr>
               );

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { getApiBase } from '../utils/apiBase';
 import './Config.css';
 import './Stock.css';
+import { SiteSettingsGeneral } from './SiteSettingsGeneral';
 
 const API_BASE = getApiBase();
 
@@ -140,7 +141,8 @@ type ConfigMenu =
   | 'clothing-type-categories'
   | 'clothing-categories'
   | 'sizes'
-  | 'brands';
+  | 'brands'
+  | 'site-general';
 
 /** Normalise for duplicate detection: trim + lowercase; empty → null (ignored). */
 function stockDuplicateNameKey(item_name: Nullable<string>): string | null {
@@ -2359,6 +2361,24 @@ const Config: React.FC = () => {
                 Brands
               </button>
             </div>
+            <div
+              className="config-sidebar-group"
+              role="group"
+              aria-labelledby="config-sidebar-site-settings-label"
+            >
+              <div id="config-sidebar-site-settings-label" className="config-sidebar-group-heading">
+                Site Settings
+              </div>
+              <button
+                type="button"
+                className={`config-menu-item config-menu-item--in-group ${
+                  activeMenu === 'site-general' ? 'active' : ''
+                }`}
+                onClick={() => setActiveMenu('site-general')}
+              >
+                General
+              </button>
+            </div>
           </nav>
         </div>
 
@@ -4330,6 +4350,12 @@ const Config: React.FC = () => {
                   )}
                 </>
               ) : null}
+            </div>
+          )}
+
+          {activeMenu === 'site-general' && (
+            <div className="config-section">
+              <SiteSettingsGeneral />
             </div>
           )}
         </div>

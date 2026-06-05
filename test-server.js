@@ -180,6 +180,22 @@ app.get('/api/settings', (req, res) => {
   res.json(loadSettings());
 });
 
+const VALID_COLOR_SCHEMES = new Set(['neon', 'vinted', 'minimal']);
+let siteSettingsStore = { colorScheme: 'neon' };
+
+app.get('/api/settings/site', (req, res) => {
+  res.json(siteSettingsStore);
+});
+
+app.put('/api/settings/site', (req, res) => {
+  const { colorScheme } = req.body ?? {};
+  if (!VALID_COLOR_SCHEMES.has(colorScheme)) {
+    return res.status(400).json({ error: 'Invalid colorScheme', hint: 'Use neon, vinted, or minimal' });
+  }
+  siteSettingsStore = { colorScheme };
+  res.json(siteSettingsStore);
+});
+
 const getAccessToken = async (appId, certId) => {
   const oauthUrl = 'https://api.ebay.com/identity/v1/oauth2/token';
   const clientCredentials = Buffer.from(`${appId}:${certId}`).toString('base64');

@@ -645,8 +645,6 @@ const Expenses: React.FC = () => {
       {error && <div className="stock-error">{error}</div>}
       {successMessage && <div className="stock-success">{successMessage}</div>}
 
-      <h1 className="accounting-page-title">Accounting</h1>
-
       {showNewEntry && (
         <div className="new-entry-card">
           <div className="new-entry-grid">

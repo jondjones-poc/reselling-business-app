@@ -10,6 +10,8 @@ import {
 } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
 import { getApiBase } from '../utils/apiBase';
+import { useTheme } from '../context/ThemeContext';
+import { themeAccentRgba, themePositiveRgba, themeTextRgba } from '../utils/themeColors';
 import './Stock.css';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
@@ -79,7 +81,7 @@ function buildProjectionsChartOptions(showRightAxis: boolean): ChartOptions<'bar
         display: true,
         position: 'top',
         labels: {
-          color: 'rgba(255, 248, 226, 0.85)',
+          color: themeTextRgba(0.85),
           boxWidth: 14,
           padding: 16,
         },
@@ -99,15 +101,15 @@ function buildProjectionsChartOptions(showRightAxis: boolean): ChartOptions<'bar
     },
     scales: {
       x: {
-        grid: { color: 'rgba(255, 214, 91, 0.08)' },
-        ticks: { color: 'rgba(255, 248, 226, 0.8)' },
+        grid: { color: themeAccentRgba(0.08) },
+        ticks: { color: themeTextRgba(0.8) },
       },
       y: {
         position: 'left',
         beginAtZero: true,
-        grid: { color: 'rgba(255, 214, 91, 0.12)' },
+        grid: { color: themeAccentRgba(0.12) },
         ticks: {
-          color: 'rgba(255, 248, 226, 0.75)',
+          color: themeTextRgba(0.75),
           callback(value) {
             if (typeof value === 'number') {
               return formatCurrency(value);
@@ -118,7 +120,7 @@ function buildProjectionsChartOptions(showRightAxis: boolean): ChartOptions<'bar
         title: {
           display: true,
           text: 'Net profit (sold lines)',
-          color: 'rgba(255, 248, 226, 0.55)',
+          color: themeTextRgba(0.55),
           font: { size: 11 },
         },
       },
@@ -128,7 +130,7 @@ function buildProjectionsChartOptions(showRightAxis: boolean): ChartOptions<'bar
             beginAtZero: true,
             grid: { drawOnChartArea: false },
             ticks: {
-              color: 'rgba(180, 220, 255, 0.75)',
+              color: themeTextRgba(0.75),
               callback(value) {
                 if (typeof value === 'number') {
                   return formatCurrency(value);
@@ -139,7 +141,7 @@ function buildProjectionsChartOptions(showRightAxis: boolean): ChartOptions<'bar
             title: {
               display: true,
               text: 'Projected monthly sales',
-              color: 'rgba(180, 220, 255, 0.6)',
+              color: themeTextRgba(0.55),
               font: { size: 11 },
             },
           }
@@ -178,6 +180,7 @@ export interface ExpensesProjectionsPanelProps {
 export const ExpensesProjectionsPanel: React.FC<ExpensesProjectionsPanelProps> = ({
   labelledBy = 'expenses-tab-projections',
 }) => {
+  const { colorScheme } = useTheme();
   const API_BASE_LOCAL = getApiBase();
   const cy = new Date().getFullYear();
   const [year, setYear] = useState(cy);
@@ -220,16 +223,16 @@ export const ExpensesProjectionsPanel: React.FC<ExpensesProjectionsPanelProps> =
     const profitDataset = {
       label: 'Profit (actual)',
       data: data.months.map((m) => (m.profitActual != null ? m.profitActual : null)),
-      backgroundColor: 'rgba(140, 255, 195, 0.55)',
-      borderColor: 'rgba(140, 255, 195, 0.9)',
+      backgroundColor: themePositiveRgba(0.55),
+      borderColor: themePositiveRgba(0.9),
       borderWidth: 1,
       yAxisID: 'y' as const,
     };
     const projectedDataset = {
       label: 'Projected sales (monthly run rate)',
       data: data.months.map((m) => (m.salesProjected != null ? m.salesProjected : null)),
-      backgroundColor: 'rgba(120, 180, 255, 0.42)',
-      borderColor: 'rgba(120, 180, 255, 0.85)',
+      backgroundColor: themeAccentRgba(0.42),
+      borderColor: themeAccentRgba(0.85),
       borderWidth: 1,
       yAxisID: 'y1' as const,
     };
@@ -237,9 +240,9 @@ export const ExpensesProjectionsPanel: React.FC<ExpensesProjectionsPanelProps> =
       labels: data.months.map((m) => m.label),
       datasets: hasProjected ? [profitDataset, projectedDataset] : [profitDataset],
     };
-  }, [data, hasProjected]);
+  }, [data, hasProjected, colorScheme]);
 
-  const chartOptions = useMemo(() => buildProjectionsChartOptions(hasProjected), [hasProjected]);
+  const chartOptions = useMemo(() => buildProjectionsChartOptions(hasProjected), [hasProjected, colorScheme]);
 
   const listingGoalParsed = parseFloat(listingGoalPerDay.trim());
   const listingGoalValid = Number.isFinite(listingGoalParsed) && listingGoalParsed >= 0;
@@ -376,7 +379,7 @@ export const ExpensesProjectionsPanel: React.FC<ExpensesProjectionsPanelProps> =
 
       {projError && <div className="stock-error">{projError}</div>}
 
-      {loading && !data && <p style={{ color: 'rgba(255, 248, 226, 0.7)' }}>Loading projections…</p>}
+      {loading && !data && <p className="expenses-projections-loading">Loading projections…</p>}
 
       {data && chartData && (
         <>

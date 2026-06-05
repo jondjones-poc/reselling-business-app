@@ -13,8 +13,11 @@ import {
 } from 'chart.js';
 import { Bar, Line } from 'react-chartjs-2';
 import { getApiBase } from '../utils/apiBase';
+import { useTheme } from '../context/ThemeContext';
+import { themeAccentRgba, themeNegativeRgba, themePositiveRgba, themeTextRgba } from '../utils/themeColors';
 import { parseDateOnlyParts } from '../utils/dateOnly';
 import { ExpensesProjectionsPanel } from './ExpensesProjectionsPanel';
+import { StockFormDropdown } from './StockFormDropdown';
 import './Reporting.css';
 import './Stock.css';
 
@@ -428,7 +431,8 @@ function expenseInCalendarMonth(purchaseDate: string | null, year: number, month
   return d.getFullYear() === year && d.getMonth() + 1 === month;
 }
 
-const chartOptions: ChartOptions<'bar'> = {
+function buildChartBarOptions(): ChartOptions<'bar'> {
+  return {
   responsive: true,
   maintainAspectRatio: false,
   plugins: {
@@ -444,14 +448,14 @@ const chartOptions: ChartOptions<'bar'> = {
   },
   scales: {
     x: {
-      grid: { color: 'rgba(255, 214, 91, 0.08)' },
-      ticks: { color: 'rgba(255, 248, 226, 0.8)' },
+      grid: { color: themeAccentRgba(0.08) },
+      ticks: { color: themeTextRgba(0.8) },
     },
     y: {
       beginAtZero: true,
-      grid: { color: 'rgba(255, 214, 91, 0.12)' },
+      grid: { color: themeAccentRgba(0.12) },
       ticks: {
-        color: 'rgba(255, 248, 226, 0.75)',
+        color: themeTextRgba(0.75),
         callback(value) {
           if (typeof value === 'number') {
             return formatCurrency(value);
@@ -461,10 +465,13 @@ const chartOptions: ChartOptions<'bar'> = {
       },
     },
   },
-};
+  };
+}
 
 const Reporting: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { colorScheme } = useTheme();
+  const chartOptions = useMemo(() => buildChartBarOptions(), [colorScheme]);
   const tabFromUrl = searchParams.get('tab');
   const initialViewMode = parseReportingViewMode(tabFromUrl);
 
@@ -955,9 +962,9 @@ const Reporting: React.FC = () => {
     const values = salesByCategory.map((item) => item.totalSales);
 
     const colorPalette = [
-      { bg: 'rgba(255, 214, 91, 0.6)', border: 'rgba(255, 214, 91, 0.9)' },
-      { bg: 'rgba(140, 255, 195, 0.6)', border: 'rgba(140, 255, 195, 0.9)' },
-      { bg: 'rgba(255, 120, 120, 0.6)', border: 'rgba(255, 120, 120, 0.9)' },
+      { bg: themeAccentRgba(0.6), border: themeAccentRgba(0.9) },
+      { bg: themePositiveRgba(0.6), border: themePositiveRgba(0.9) },
+      { bg: themeNegativeRgba(0.6), border: themeNegativeRgba(0.9) },
       { bg: 'rgba(140, 195, 255, 0.6)', border: 'rgba(140, 195, 255, 0.9)' },
       { bg: 'rgba(255, 195, 140, 0.6)', border: 'rgba(255, 195, 140, 0.9)' },
       { bg: 'rgba(195, 140, 255, 0.6)', border: 'rgba(195, 140, 255, 0.9)' },
@@ -994,9 +1001,9 @@ const Reporting: React.FC = () => {
     const values = salesByBrand.map((item) => item.totalSales);
 
     const colorPalette = [
-      { bg: 'rgba(255, 214, 91, 0.6)', border: 'rgba(255, 214, 91, 0.9)' },
-      { bg: 'rgba(140, 255, 195, 0.6)', border: 'rgba(140, 255, 195, 0.9)' },
-      { bg: 'rgba(255, 120, 120, 0.6)', border: 'rgba(255, 120, 120, 0.9)' },
+      { bg: themeAccentRgba(0.6), border: themeAccentRgba(0.9) },
+      { bg: themePositiveRgba(0.6), border: themePositiveRgba(0.9) },
+      { bg: themeNegativeRgba(0.6), border: themeNegativeRgba(0.9) },
       { bg: 'rgba(140, 195, 255, 0.6)', border: 'rgba(140, 195, 255, 0.9)' },
       { bg: 'rgba(255, 195, 140, 0.6)', border: 'rgba(255, 195, 140, 0.9)' },
       { bg: 'rgba(195, 140, 255, 0.6)', border: 'rgba(195, 140, 255, 0.9)' },
@@ -1037,9 +1044,9 @@ const Reporting: React.FC = () => {
     const labels = items.map((item) => item.brand);
     const values = items.map((item) => item.totalSales);
     const colorPalette = [
-      { bg: 'rgba(255, 214, 91, 0.6)', border: 'rgba(255, 214, 91, 0.9)' },
-      { bg: 'rgba(140, 255, 195, 0.6)', border: 'rgba(140, 255, 195, 0.9)' },
-      { bg: 'rgba(255, 120, 120, 0.6)', border: 'rgba(255, 120, 120, 0.9)' },
+      { bg: themeAccentRgba(0.6), border: themeAccentRgba(0.9) },
+      { bg: themePositiveRgba(0.6), border: themePositiveRgba(0.9) },
+      { bg: themeNegativeRgba(0.6), border: themeNegativeRgba(0.9) },
       { bg: 'rgba(140, 195, 255, 0.6)', border: 'rgba(140, 195, 255, 0.9)' },
       { bg: 'rgba(255, 195, 140, 0.6)', border: 'rgba(255, 195, 140, 0.9)' }
     ];
@@ -1076,9 +1083,9 @@ const Reporting: React.FC = () => {
     const values = worstSellingBrands.map((item) => item.itemCount);
 
     const colorPalette = [
-      { bg: 'rgba(255, 214, 91, 0.6)', border: 'rgba(255, 214, 91, 0.9)' },
-      { bg: 'rgba(140, 255, 195, 0.6)', border: 'rgba(140, 255, 195, 0.9)' },
-      { bg: 'rgba(255, 120, 120, 0.6)', border: 'rgba(255, 120, 120, 0.9)' },
+      { bg: themeAccentRgba(0.6), border: themeAccentRgba(0.9) },
+      { bg: themePositiveRgba(0.6), border: themePositiveRgba(0.9) },
+      { bg: themeNegativeRgba(0.6), border: themeNegativeRgba(0.9) },
       { bg: 'rgba(140, 195, 255, 0.6)', border: 'rgba(140, 195, 255, 0.9)' },
       { bg: 'rgba(255, 195, 140, 0.6)', border: 'rgba(255, 195, 140, 0.9)' },
       { bg: 'rgba(195, 140, 255, 0.6)', border: 'rgba(195, 140, 255, 0.9)' },
@@ -1120,8 +1127,8 @@ const Reporting: React.FC = () => {
     const values = bestSellThroughBrands.map((item) => item.sellThroughRate);
 
     const colorPalette = [
-      { bg: 'rgba(140, 255, 195, 0.6)', border: 'rgba(140, 255, 195, 0.9)' },
-      { bg: 'rgba(255, 214, 91, 0.6)', border: 'rgba(255, 214, 91, 0.9)' },
+      { bg: themePositiveRgba(0.6), border: themePositiveRgba(0.9) },
+      { bg: themeAccentRgba(0.6), border: themeAccentRgba(0.9) },
       { bg: 'rgba(140, 195, 255, 0.6)', border: 'rgba(140, 195, 255, 0.9)' },
       { bg: 'rgba(195, 255, 140, 0.6)', border: 'rgba(195, 255, 140, 0.9)' },
       { bg: 'rgba(255, 195, 140, 0.6)', border: 'rgba(255, 195, 140, 0.9)' }
@@ -1154,7 +1161,7 @@ const Reporting: React.FC = () => {
     const values = worstSellThroughBrands.map((item) => item.sellThroughRate);
 
     const colorPalette = [
-      { bg: 'rgba(255, 120, 120, 0.6)', border: 'rgba(255, 120, 120, 0.9)' },
+      { bg: themeNegativeRgba(0.6), border: themeNegativeRgba(0.9) },
       { bg: 'rgba(255, 180, 120, 0.6)', border: 'rgba(255, 180, 120, 0.9)' },
       { bg: 'rgba(195, 140, 255, 0.6)', border: 'rgba(195, 140, 255, 0.9)' },
       { bg: 'rgba(255, 140, 195, 0.6)', border: 'rgba(255, 140, 195, 0.9)' },
@@ -1189,9 +1196,9 @@ const Reporting: React.FC = () => {
     const values = unsoldStockByCategory.map((item) => item.totalValue);
 
     const colorPalette = [
-      { bg: 'rgba(255, 214, 91, 0.6)', border: 'rgba(255, 214, 91, 0.9)' },
-      { bg: 'rgba(140, 255, 195, 0.6)', border: 'rgba(140, 255, 195, 0.9)' },
-      { bg: 'rgba(255, 120, 120, 0.6)', border: 'rgba(255, 120, 120, 0.9)' },
+      { bg: themeAccentRgba(0.6), border: themeAccentRgba(0.9) },
+      { bg: themePositiveRgba(0.6), border: themePositiveRgba(0.9) },
+      { bg: themeNegativeRgba(0.6), border: themeNegativeRgba(0.9) },
       { bg: 'rgba(140, 195, 255, 0.6)', border: 'rgba(140, 195, 255, 0.9)' },
       { bg: 'rgba(255, 195, 140, 0.6)', border: 'rgba(255, 195, 140, 0.9)' },
       { bg: 'rgba(195, 140, 255, 0.6)', border: 'rgba(195, 140, 255, 0.9)' },
@@ -1319,7 +1326,7 @@ const Reporting: React.FC = () => {
           label: 'In stock',
           data: rows.map((r) => r.inStock),
           backgroundColor: 'rgba(255, 165, 120, 0.72)',
-          borderColor: 'rgba(255, 214, 91, 0.45)',
+          borderColor: themeAccentRgba(0.45),
           borderWidth: 1,
           stack: 'cat',
         },
@@ -1327,7 +1334,7 @@ const Reporting: React.FC = () => {
           label: 'Sold',
           data: rows.map((r) => r.sold),
           backgroundColor: 'rgba(130, 210, 155, 0.78)',
-          borderColor: 'rgba(255, 214, 91, 0.45)',
+          borderColor: themeAccentRgba(0.45),
           borderWidth: 1,
           stack: 'cat',
         },
@@ -1355,7 +1362,7 @@ const Reporting: React.FC = () => {
           display: true,
           position: 'bottom',
           labels: {
-            color: 'rgba(255, 248, 226, 0.85)',
+            color: themeTextRgba(0.85),
             boxWidth: 12,
             boxHeight: 12,
             padding: 16,
@@ -1417,19 +1424,19 @@ const Reporting: React.FC = () => {
           title: {
             display: true,
             text: 'Number of items',
-            color: 'rgba(255, 248, 226, 0.65)',
+            color: themeTextRgba(0.65),
             font: { size: 12 },
           },
           ticks: {
-            color: 'rgba(255, 248, 226, 0.8)',
+            color: themeTextRgba(0.8),
             precision: 0,
           },
-          grid: { color: 'rgba(255, 214, 91, 0.1)' },
+          grid: { color: themeAccentRgba(0.1) },
         },
         y: {
           stacked: true,
           ticks: {
-            color: 'rgba(255, 248, 226, 0.88)',
+            color: themeTextRgba(0.88),
             font: { size: 11 },
           },
           grid: { display: false },
@@ -1474,14 +1481,14 @@ const Reporting: React.FC = () => {
     },
     scales: {
       x: {
-        grid: { color: 'rgba(255, 214, 91, 0.08)' },
-        ticks: { color: 'rgba(255, 248, 226, 0.8)' },
+        grid: { color: themeAccentRgba(0.08) },
+        ticks: { color: themeTextRgba(0.8) },
       },
       y: {
         beginAtZero: true,
-        grid: { color: 'rgba(255, 214, 91, 0.12)' },
+        grid: { color: themeAccentRgba(0.12) },
         ticks: {
-          color: 'rgba(255, 248, 226, 0.75)',
+          color: themeTextRgba(0.75),
           callback(value) {
             if (typeof value === 'number') {
               return formatCurrency(value);
@@ -1508,12 +1515,12 @@ const Reporting: React.FC = () => {
         {
           label: 'Inventory Value',
           data: values,
-          borderColor: 'rgba(255, 214, 91, 0.9)',
-          backgroundColor: 'rgba(255, 214, 91, 0.1)',
+          borderColor: themeAccentRgba(0.9),
+          backgroundColor: themeAccentRgba(0.1),
           borderWidth: 2,
           pointRadius: 4,
-          pointBackgroundColor: 'rgba(255, 214, 91, 0.9)',
-          pointBorderColor: 'rgba(255, 214, 91, 1)',
+          pointBackgroundColor: themeAccentRgba(0.9),
+          pointBorderColor: themeAccentRgba(1),
           pointHoverRadius: 6,
           tension: 0.4,
           fill: true,
@@ -1593,6 +1600,25 @@ const Reporting: React.FC = () => {
     }
     return 'All time';
   }, [salesFilterMode, salesDateFilter, monthlySummaryYear, monthlySummaryMonth, now, previousDataYear]);
+
+  const salesDateFilterOptions = useMemo(
+    () => {
+      const options = [
+        { value: 'all-time', label: 'All Time' },
+        { value: 'last-30-days', label: 'Last 30 Days' },
+        { value: 'last-3-months', label: 'Last 3 Months' },
+        { value: 'current-year', label: `Current Year (${now.getFullYear()})` },
+      ];
+      if (previousDataYear !== null) {
+        options.push({
+          value: 'previous-year',
+          label: `Previous Year (${previousDataYear})`,
+        });
+      }
+      return options;
+    },
+    [now, previousDataYear]
+  );
 
   const salesSummaryDisplay = useMemo(() => {
     const isFiltered =
@@ -1834,10 +1860,10 @@ const Reporting: React.FC = () => {
           label: 'Profit',
           data: values,
           backgroundColor: values.map((value) =>
-            value >= 0 ? 'rgba(255, 214, 91, 0.6)' : 'rgba(255, 120, 120, 0.6)'
+            value >= 0 ? themeAccentRgba(0.6) : themeNegativeRgba(0.6)
           ),
           borderColor: values.map((value) =>
-            value >= 0 ? 'rgba(255, 214, 91, 0.9)' : 'rgba(255, 120, 120, 0.85)'
+            value >= 0 ? themeAccentRgba(0.9) : themeNegativeRgba(0.85)
           ),
           borderWidth: 1,
           borderRadius: 6
@@ -1872,10 +1898,10 @@ const Reporting: React.FC = () => {
             label: 'Monthly Sales',
             data: valuesS,
             backgroundColor: valuesS.map((value) =>
-              value >= 0 ? 'rgba(140, 255, 195, 0.5)' : 'rgba(255, 120, 120, 0.45)'
+              value >= 0 ? themePositiveRgba(0.5) : themeNegativeRgba(0.45)
             ),
             borderColor: valuesS.map((value) =>
-              value >= 0 ? 'rgba(140, 255, 195, 0.85)' : 'rgba(255, 120, 120, 0.8)'
+              value >= 0 ? themePositiveRgba(0.85) : themeNegativeRgba(0.8)
             ),
             borderWidth: 1,
             borderRadius: 6
@@ -1951,7 +1977,7 @@ const Reporting: React.FC = () => {
           display: true,
           position: 'top',
           labels: {
-            color: 'rgba(255, 248, 226, 0.88)',
+            color: themeTextRgba(0.88),
             boxWidth: 12,
             boxHeight: 12,
             padding: 14,
@@ -1977,7 +2003,7 @@ const Reporting: React.FC = () => {
           title: {
             display: true,
             text: 'Sale month',
-            color: 'rgba(255, 248, 226, 0.55)',
+            color: themeTextRgba(0.55),
             font: { size: 12 },
           },
         },
@@ -1986,7 +2012,7 @@ const Reporting: React.FC = () => {
           title: {
             display: true,
             text: 'Sales (£)',
-            color: 'rgba(255, 248, 226, 0.55)',
+            color: themeTextRgba(0.55),
             font: { size: 12 },
           },
         },
@@ -2019,8 +2045,8 @@ const Reporting: React.FC = () => {
         {
           label: 'Monthly Expenses',
           data: valuesS,
-          backgroundColor: 'rgba(255, 120, 120, 0.45)',
-          borderColor: 'rgba(255, 120, 120, 0.8)',
+          backgroundColor: themeNegativeRgba(0.45),
+          borderColor: themeNegativeRgba(0.8),
           borderWidth: 1,
           borderRadius: 6
         }
@@ -2056,8 +2082,8 @@ const Reporting: React.FC = () => {
         {
           label: 'Average Selling Price',
           data: valuesS,
-          backgroundColor: 'rgba(140, 255, 195, 0.45)',
-          borderColor: 'rgba(140, 255, 195, 0.8)',
+          backgroundColor: themePositiveRgba(0.45),
+          borderColor: themePositiveRgba(0.8),
           borderWidth: 1,
           borderRadius: 6
         }
@@ -2095,11 +2121,11 @@ const Reporting: React.FC = () => {
           data: values.slice(t),
           backgroundColor: (context: any) => {
             const value = context.parsed.y;
-            return value >= 0 ? 'rgba(140, 255, 195, 0.45)' : 'rgba(255, 120, 120, 0.45)';
+            return value >= 0 ? themePositiveRgba(0.45) : themeNegativeRgba(0.45);
           },
           borderColor: (context: any) => {
             const value = context.parsed.y;
-            return value >= 0 ? 'rgba(140, 255, 195, 0.8)' : 'rgba(255, 120, 120, 0.8)';
+            return value >= 0 ? themePositiveRgba(0.8) : themeNegativeRgba(0.8);
           },
           borderWidth: 1,
           borderRadius: 6
@@ -2137,8 +2163,8 @@ const Reporting: React.FC = () => {
         {
           label: 'Average Profit Multiple',
           data: valuesS,
-          backgroundColor: 'rgba(255, 214, 91, 0.45)',
-          borderColor: 'rgba(255, 214, 91, 0.8)',
+          backgroundColor: themeAccentRgba(0.45),
+          borderColor: themeAccentRgba(0.8),
           borderWidth: 1,
           borderRadius: 6
         }
@@ -2546,13 +2572,13 @@ const Reporting: React.FC = () => {
                       fontSize: '0.75rem',
                       fontWeight: 700,
                       letterSpacing: '0.04rem',
-                      color: 'rgba(255, 248, 226, 0.88)',
+                      color: themeTextRgba(0.88),
                       fontVariantNumeric: 'tabular-nums',
                       margin: 0,
                     }}
                   >
                     {currentWeekSoldCount.toLocaleString()}
-                    <span style={{ fontWeight: 600, color: 'rgba(255, 248, 226, 0.55)', margin: '0 0.25rem' }}>
+                    <span style={{ fontWeight: 600, color: themeTextRgba(0.55), margin: '0 0.25rem' }}>
                       {' '}
                       / Sold ·{' '}
                     </span>
@@ -2565,13 +2591,13 @@ const Reporting: React.FC = () => {
                       fontSize: '0.75rem',
                       fontWeight: 700,
                       letterSpacing: '0.04rem',
-                      color: 'rgba(255, 248, 226, 0.88)',
+                      color: themeTextRgba(0.88),
                       fontVariantNumeric: 'tabular-nums',
                       margin: 0,
                     }}
                   >
                     {currentMonthSoldCount.toLocaleString()}
-                    <span style={{ fontWeight: 600, color: 'rgba(255, 248, 226, 0.55)', margin: '0 0.25rem' }}>
+                    <span style={{ fontWeight: 600, color: themeTextRgba(0.55), margin: '0 0.25rem' }}>
                       {' '}
                       / Sold ·{' '}
                     </span>
@@ -3284,19 +3310,15 @@ const Reporting: React.FC = () => {
       <div className={`view-content ${viewMode === 'stock-analysis' ? 'active' : ''}`}>
         <div className="stock-analysis-filter-row">
           <div className="stock-analysis-filter-card">
-            <select
-              className="stock-analysis-filter-select"
+            <StockFormDropdown
               value={salesDateFilter}
-              onChange={(event) => setSalesDateFilter(event.target.value as SalesDateFilterValue)}
-            >
-              <option value="all-time">All Time</option>
-              <option value="last-30-days">Last 30 Days</option>
-              <option value="last-3-months">Last 3 Months</option>
-              <option value="current-year">Current Year ({now.getFullYear()})</option>
-              {previousDataYear !== null && (
-                <option value="previous-year">Previous Year ({previousDataYear})</option>
-              )}
-            </select>
+              options={salesDateFilterOptions}
+              onChange={(value) => setSalesDateFilter(value as SalesDateFilterValue)}
+              placeholder="All Time"
+              includeEmptyOption={false}
+              ariaLabel="Date range for stock analysis"
+              className="stock-analysis-filter-dropdown"
+            />
           </div>
         </div>
         <div className="reporting-grid">

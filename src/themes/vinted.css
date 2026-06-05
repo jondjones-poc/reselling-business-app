@@ -1,0 +1,148 @@
+/**
+ * Vinted — light theme based on Vinted brand teal (#09B1BA) on white.
+ */
+[data-theme='vinted'] {
+  --theme-bg: #ffffff;
+  --theme-bg-rgb: 255, 255, 255;
+  --theme-accent-rgb: 9, 177, 186;
+  --theme-text-rgb: 26, 26, 26;
+  --theme-accent: #09b1ba;
+  --theme-accent-strong: #007782;
+  --theme-text: #1a1a1a;
+  --theme-text-muted: rgba(var(--theme-text-rgb), 0.72);
+  --theme-body-gradient: linear-gradient(180deg, #e8f7f8 0%, #ffffff 45%);
+  --theme-nav-bg: rgba(var(--theme-bg-rgb), 0.96);
+  --theme-shadow: 0 4px 18px rgba(var(--theme-accent-rgb), 0.2);
+  --theme-select-option-bg: #ffffff;
+  --theme-on-accent: #ffffff;
+  --theme-panel-shadow: 0 8px 28px rgba(0, 0, 0, 0.08);
+  --color-positive-rgb: 0, 150, 136;
+  --color-negative-rgb: 214, 69, 69;
+  --color-negative-text: #d64545;
+  --color-positive-text: #009688;
+  --color-error-bg-rgb: 214, 69, 69;
+  --color-error-text: #c0392b;
+
+  --theme-fill-subtle: rgba(var(--theme-accent-rgb), 0.04);
+  --theme-fill: #ffffff;
+  --theme-fill-strong: rgba(var(--theme-accent-rgb), 0.06);
+  --theme-fill-hover: rgba(var(--theme-accent-rgb), 0.08);
+  --theme-fill-focus: rgba(var(--theme-accent-rgb), 0.12);
+  --theme-fill-active: rgba(var(--theme-accent-rgb), 0.16);
+  --theme-inset-shadow: inset 0 0 0 1px rgba(var(--theme-accent-rgb), 0.16);
+
+  --theme-form-bg: #ffffff;
+  --theme-form-input-bg: #ffffff;
+  --theme-form-input-focus-bg: rgba(var(--theme-accent-rgb), 0.06);
+  --theme-form-border: rgba(var(--theme-accent-rgb), 0.28);
+  --theme-form-inset-bg: rgba(var(--theme-accent-rgb), 0.04);
+  --theme-form-inset-border: rgba(var(--theme-accent-rgb), 0.12);
+  --theme-form-muted-bg: rgba(var(--theme-bg-rgb), 0.6);
+  --theme-table-header-bg: rgba(var(--theme-accent-rgb), 0.14);
+  --theme-table-row-hover: rgba(var(--theme-accent-rgb), 0.12);
+  --theme-table-wrapper-border: rgba(var(--theme-accent-rgb), 0.28);
+  --theme-table-wrapper-inset: inset 0 0 18px rgba(var(--theme-accent-rgb), 0.1);
+  --theme-data-card-bg: rgba(var(--theme-accent-rgb), 0.06);
+  --theme-data-card-border: rgba(var(--theme-accent-rgb), 0.28);
+  --theme-data-card-inset: inset 0 0 18px rgba(var(--theme-accent-rgb), 0.12);
+  --theme-list-control-bg: rgba(var(--theme-accent-rgb), 0.08);
+  --theme-list-control-focus-bg: rgba(var(--theme-accent-rgb), 0.12);
+  --theme-list-control-inset: inset 0 0 0 1px rgba(var(--theme-accent-rgb), 0.16);
+  --theme-list-control-border: rgba(var(--theme-accent-rgb), 0.32);
+
+  --theme-font-weight-base: 500;
+  --theme-font-weight-strong: 600;
+  --theme-dept-box-bg: linear-gradient(
+    165deg,
+    rgba(var(--theme-accent-rgb), 0.12) 0%,
+    rgba(var(--theme-bg-rgb), 1) 52%,
+    rgba(var(--theme-accent-rgb), 0.08) 100%
+  );
+  --theme-dept-box-bg-hover: linear-gradient(
+    165deg,
+    rgba(var(--theme-accent-rgb), 0.2) 0%,
+    #ffffff 50%,
+    rgba(var(--theme-accent-rgb), 0.12) 100%
+  );
+  --theme-dept-box-bg-active: linear-gradient(
+    165deg,
+    rgba(var(--theme-accent-rgb), 0.28) 0%,
+    #ffffff 42%,
+    rgba(var(--theme-accent-rgb), 0.16) 100%
+  );
+  --theme-buy-strip-bg: rgba(var(--theme-accent-rgb), 0.22);
+  --theme-buy-text: var(--color-positive-text);
+  --theme-buy-label: rgba(var(--color-positive-rgb), 0.88);
+  --theme-avoid-text: var(--color-negative-text);
+  --theme-avoid-label: rgba(var(--color-negative-rgb), 0.92);
+  --theme-tag-good-bg: rgba(var(--color-positive-rgb), 0.12);
+  --theme-tag-good-text: var(--color-positive-text);
+  --theme-tag-good-border: rgba(var(--color-positive-rgb), 0.35);
+  --theme-tag-avoid-bg: rgba(var(--color-negative-rgb), 0.12);
+  --theme-tag-avoid-text: var(--color-negative-text);
+  --theme-tag-avoid-border: rgba(var(--color-negative-rgb), 0.35);
+  --theme-tag-mid-text: #b8860b;
+  --theme-tag-mid-bg: rgba(184, 134, 11, 0.12);
+  --theme-tag-mid-border: rgba(184, 134, 11, 0.35);
+
+  --theme-season-col-bg: var(--theme-dept-box-bg);
+  --theme-season-col-shadow: inset 0 0 0 1px rgba(var(--theme-accent-rgb), 0.12);
+  --theme-season-col-bg-current: linear-gradient(
+    165deg,
+    rgba(var(--color-positive-rgb), 0.14) 0%,
+    rgba(var(--theme-bg-rgb), 1) 52%,
+    rgba(var(--color-positive-rgb), 0.08) 100%
+  );
+  --theme-season-col-border-current: rgba(var(--color-positive-rgb), 0.42);
+  --theme-season-col-shadow-current:
+    inset 0 0 0 1px rgba(var(--theme-accent-rgb), 0.1),
+    0 0 0 1px rgba(var(--color-positive-rgb), 0.14);
+  --theme-season-pill-bg: rgba(var(--theme-accent-rgb), 0.08);
+  --theme-season-pill-border: rgba(var(--theme-accent-rgb), 0.2);
+  --theme-season-pill-current-text: var(--theme-on-accent);
+  --theme-season-badge-text: var(--theme-on-accent);
+  --theme-season-badge-bg: linear-gradient(
+    135deg,
+    var(--theme-accent),
+    rgba(var(--color-positive-rgb), 0.85)
+  );
+
+  --theme-notice-bg: linear-gradient(
+    165deg,
+    rgba(var(--color-error-bg-rgb), 0.12) 0%,
+    rgba(var(--theme-bg-rgb), 1) 55%,
+    rgba(var(--color-error-bg-rgb), 0.08) 100%
+  );
+  --theme-notice-border: rgba(var(--color-error-bg-rgb), 0.32);
+  --theme-notice-text: var(--color-error-text);
+  --theme-notice-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --theme-notice-code-bg: rgba(var(--theme-accent-rgb), 0.08);
+  --theme-flash-bg: rgba(var(--color-positive-rgb), 0.12);
+  --theme-flash-border: rgba(var(--color-positive-rgb), 0.28);
+  --theme-flash-text: var(--color-positive-text);
+  --theme-card-hover-shadow: 0 10px 24px rgba(var(--theme-accent-rgb), 0.15);
+  --theme-modal-backdrop: rgba(0, 0, 0, 0.45);
+  --theme-modal-shadow: 0 18px 40px rgba(0, 0, 0, 0.12);
+
+  --theme-search-block-bg: linear-gradient(
+    165deg,
+    rgba(var(--theme-accent-rgb), 0.12) 0%,
+    rgba(var(--theme-bg-rgb), 1) 52%,
+    rgba(var(--theme-accent-rgb), 0.08) 100%
+  );
+  --theme-search-block-shadow: inset 0 0 0 1px rgba(var(--theme-accent-rgb), 0.12);
+  --theme-search-query-input-bg: rgba(var(--theme-bg-rgb), 1);
+  --theme-search-query-input-shadow: inset 0 0 0 1px rgba(var(--theme-accent-rgb), 0.16);
+  --theme-search-query-input-focus-bg: rgba(var(--theme-accent-rgb), 0.06);
+
+  --neon-bg: var(--theme-bg);
+  --neon-surface: rgba(var(--theme-accent-rgb), 0.06);
+  --neon-surface-strong: rgba(var(--theme-accent-rgb), 0.1);
+  --neon-border: rgba(var(--theme-accent-rgb), 0.28);
+  --neon-border-strong: rgba(var(--theme-accent-rgb), 0.45);
+  --neon-primary: var(--theme-accent);
+  --neon-primary-strong: var(--theme-accent-strong);
+  --neon-shadow: var(--theme-shadow);
+  --text-strong: var(--theme-text);
+  --text-muted: var(--theme-text-muted);
+}

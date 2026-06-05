@@ -1369,6 +1369,75 @@ app.get('/api/settings', async (req, res) => {
   }
 });
 
+const VALID_COLOR_SCHEMES = new Set(['neon', 'vinted', 'minimal']);
+const SITE_SETTINGS_KEY = 'siteSettings';
+
+async function loadSiteSettingsFromDb(pool) {
+  const fallback = { colorScheme: 'neon' };
+  if (!pool) return fallback;
+  try {
+    const result = await pool.query(`SELECT value FROM app_settings WHERE key = $1`, [SITE_SETTINGS_KEY]);
+    if (!result.rows.length) return fallback;
+    const parsed = JSON.parse(result.rows[0].value);
+    if (parsed && VALID_COLOR_SCHEMES.has(parsed.colorScheme)) {
+      return { colorScheme: parsed.colorScheme };
+    }
+  } catch (err) {
+    console.warn('loadSiteSettingsFromDb failed:', err?.message || err);
+  }
+  return fallback;
+}
+
+app.get('/api/settings/site', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    const settings = await loadSiteSettingsFromDb(pool);
+    res.json(settings);
+  } catch (error) {
+    console.error('Error loading site settings:', error);
+    res.json({ colorScheme: 'neon' });
+  }
+});
+
+app.put('/api/settings/site', async (req, res) => {
+  try {
+    const { colorScheme } = req.body ?? {};
+    if (!VALID_COLOR_SCHEMES.has(colorScheme)) {
+      return res.status(400).json({
+        error: 'Invalid colorScheme',
+        hint: 'Use neon, vinted, or minimal',
+      });
+    }
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    await pool.query(
+      `CREATE TABLE IF NOT EXISTS app_settings (
+        key VARCHAR(255) PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )`
+    );
+
+    const payload = JSON.stringify({ colorScheme });
+    await pool.query(
+      `INSERT INTO app_settings (key, value)
+       VALUES ($1, $2)
+       ON CONFLICT (key)
+       DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP`,
+      [SITE_SETTINGS_KEY, payload]
+    );
+
+    res.json({ colorScheme });
+  } catch (error) {
+    console.error('Error saving site settings:', error);
+    res.status(500).json({ error: 'Failed to save site settings', details: error.message });
+  }
+});
+
 app.put('/api/settings/categories', async (req, res) => {
   try {
     const { categories } = req.body;

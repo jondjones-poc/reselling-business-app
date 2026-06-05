@@ -1,0 +1,136 @@
+/**
+ * Neon — default dark gold theme (original app look).
+ */
+[data-theme='neon'] {
+  --theme-bg: #050403;
+  --theme-bg-rgb: 5, 4, 3;
+  --theme-accent-rgb: 255, 214, 91;
+  --theme-text-rgb: 255, 248, 226;
+  --theme-accent: #ffd65b;
+  --theme-accent-strong: #ffe48c;
+  --theme-text: #fff8e2;
+  --theme-text-muted: rgba(var(--theme-text-rgb), 0.8);
+  --theme-body-gradient: radial-gradient(circle at top, rgba(var(--theme-accent-rgb), 0.1), transparent 55%);
+  --theme-nav-bg: rgba(var(--theme-bg-rgb), 0.92);
+  --theme-shadow: 0 0 22px rgba(var(--theme-accent-rgb), 0.45);
+  --theme-select-option-bg: #0b0906;
+  --theme-on-accent: #1e1a12;
+  --theme-panel-shadow: 0 22px 48px rgba(0, 0, 0, 0.6), var(--theme-shadow);
+  --color-positive-rgb: 140, 255, 195;
+  --color-negative-rgb: 255, 154, 154;
+  --color-negative-text: #ff9a9a;
+  --color-positive-text: #8cffc3;
+  --color-error-bg-rgb: 255, 120, 120;
+  --color-error-text: #ffb0b0;
+
+  --theme-fill-subtle: rgba(var(--theme-accent-rgb), 0.06);
+  --theme-fill: rgba(var(--theme-accent-rgb), 0.08);
+  --theme-fill-strong: rgba(var(--theme-accent-rgb), 0.12);
+  --theme-fill-hover: rgba(var(--theme-accent-rgb), 0.18);
+  --theme-fill-focus: rgba(var(--theme-accent-rgb), 0.24);
+  --theme-fill-active: rgba(var(--theme-accent-rgb), 0.28);
+  --theme-inset-shadow: inset 0 0 18px rgba(var(--theme-accent-rgb), 0.16);
+
+  --theme-form-bg: rgba(var(--theme-bg-rgb), 0.94);
+  --theme-form-input-bg: rgba(var(--theme-bg-rgb), 0.88);
+  --theme-form-input-focus-bg: rgba(var(--theme-bg-rgb), 0.94);
+  --theme-form-border: rgba(var(--theme-accent-rgb), 0.28);
+  --theme-form-inset-bg: rgba(var(--theme-accent-rgb), 0.04);
+  --theme-form-inset-border: rgba(var(--theme-accent-rgb), 0.12);
+  --theme-form-muted-bg: rgba(var(--theme-bg-rgb), 0.6);
+  --theme-table-header-bg: rgba(var(--theme-accent-rgb), 0.14);
+  --theme-table-row-hover: rgba(var(--theme-accent-rgb), 0.12);
+  --theme-table-wrapper-border: rgba(var(--theme-accent-rgb), 0.28);
+  --theme-table-wrapper-inset: inset 0 0 18px rgba(var(--theme-accent-rgb), 0.1);
+  --theme-data-card-bg: rgba(var(--theme-bg-rgb), 0.92);
+  --theme-data-card-border: rgba(var(--theme-accent-rgb), 0.28);
+  --theme-data-card-inset: inset 0 0 18px rgba(var(--theme-accent-rgb), 0.12);
+  --theme-list-control-bg: rgba(var(--theme-accent-rgb), 0.1);
+  --theme-list-control-focus-bg: rgba(var(--theme-accent-rgb), 0.2);
+  --theme-list-control-inset: inset 0 0 14px rgba(var(--theme-accent-rgb), 0.12);
+  --theme-list-control-border: rgba(var(--theme-accent-rgb), 0.32);
+
+  --theme-font-weight-base: 400;
+  --theme-font-weight-strong: 600;
+  --theme-dept-box-bg: linear-gradient(
+    165deg,
+    rgba(var(--theme-accent-rgb), 0.05) 0%,
+    rgba(22, 19, 16, 0.92) 45%,
+    rgba(10, 9, 7, 0.98) 100%
+  );
+  --theme-dept-box-bg-hover: linear-gradient(
+    165deg,
+    rgba(var(--theme-accent-rgb), 0.13) 0%,
+    rgba(26, 23, 18, 0.93) 48%,
+    rgba(12, 10, 8, 0.99) 100%
+  );
+  --theme-dept-box-bg-active: linear-gradient(
+    165deg,
+    rgba(var(--theme-accent-rgb), 0.28) 0%,
+    rgba(36, 31, 22, 0.96) 42%,
+    rgba(14, 12, 10, 1) 100%
+  );
+  --theme-buy-strip-bg: rgba(0, 0, 0, 0.22);
+  --theme-buy-text: rgba(140, 255, 195, 0.95);
+  --theme-buy-label: rgba(120, 235, 175, 0.88);
+  --theme-avoid-text: rgba(255, 160, 160, 0.98);
+  --theme-avoid-label: rgba(255, 130, 130, 0.92);
+  --theme-tag-good-bg: rgba(96, 255, 159, 0.2);
+  --theme-tag-good-text: #60ff9f;
+  --theme-tag-good-border: rgba(96, 255, 159, 0.4);
+  --theme-tag-avoid-bg: rgba(255, 125, 125, 0.2);
+  --theme-tag-avoid-text: #ff7d7d;
+  --theme-tag-avoid-border: rgba(255, 125, 125, 0.4);
+  --theme-tag-mid-text: #ffd666;
+  --theme-tag-mid-bg: rgba(255, 214, 102, 0.12);
+  --theme-tag-mid-border: rgba(255, 214, 102, 0.45);
+
+  --theme-season-col-bg: var(--theme-dept-box-bg);
+  --theme-season-col-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
+  --theme-season-col-bg-current: rgba(var(--color-positive-rgb), 0.06);
+  --theme-season-col-border-current: rgba(var(--color-positive-rgb), 0.45);
+  --theme-season-col-shadow-current:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.15),
+    0 0 0 1px rgba(var(--color-positive-rgb), 0.12);
+  --theme-season-pill-bg: rgba(255, 255, 255, 0.06);
+  --theme-season-pill-border: rgba(255, 255, 255, 0.08);
+  --theme-season-pill-current-text: #0d1f14;
+  --theme-season-badge-text: #0d1f14;
+  --theme-season-badge-bg: linear-gradient(135deg, var(--color-positive-text), #5ed99a);
+
+  --theme-notice-bg: linear-gradient(
+    165deg,
+    rgba(62, 36, 32, 0.72) 0%,
+    rgba(28, 18, 16, 0.88) 100%
+  );
+  --theme-notice-border: rgba(255, 160, 130, 0.32);
+  --theme-notice-text: rgba(255, 228, 218, 0.94);
+  --theme-notice-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 200, 180, 0.06);
+  --theme-notice-code-bg: rgba(0, 0, 0, 0.28);
+  --theme-flash-bg: rgba(40, 90, 60, 0.35);
+  --theme-flash-border: rgba(120, 220, 160, 0.28);
+  --theme-flash-text: rgba(180, 255, 210, 0.95);
+  --theme-card-hover-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+  --theme-modal-backdrop: rgba(0, 0, 0, 0.72);
+  --theme-modal-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+
+  --theme-search-block-bg: rgba(0, 0, 0, 0.32);
+  --theme-search-block-shadow: inset 0 0 28px rgba(0, 0, 0, 0.4);
+  --theme-search-query-input-bg: rgba(var(--theme-accent-rgb), 0.14);
+  --theme-search-query-input-shadow: inset 0 0 22px rgba(var(--theme-accent-rgb), 0.24);
+  --theme-search-query-input-focus-bg: rgba(var(--theme-accent-rgb), 0.24);
+
+  /* Legacy aliases used across the app */
+  --neon-bg: var(--theme-bg);
+  --neon-surface: rgba(var(--theme-accent-rgb), 0.08);
+  --neon-surface-strong: rgba(var(--theme-accent-rgb), 0.14);
+  --neon-border: rgba(var(--theme-accent-rgb), 0.35);
+  --neon-border-strong: rgba(var(--theme-accent-rgb), 0.6);
+  --neon-primary: var(--theme-accent);
+  --neon-primary-strong: var(--theme-accent-strong);
+  --neon-shadow: var(--theme-shadow);
+  --text-strong: var(--theme-text);
+  --text-muted: var(--theme-text-muted);
+}

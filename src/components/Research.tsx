@@ -13,6 +13,8 @@ import { Bar, Pie } from 'react-chartjs-2';
 import ReactMarkdown from 'react-markdown';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { getApiBase } from '../utils/apiBase';
+import { useTheme } from '../context/ThemeContext';
+import { themeAccentRgba, themeTextRgba } from '../utils/themeColors';
 import ResearchItemViews from './ResearchItemViews';
 import './BrandResearch.css';
 
@@ -1691,6 +1693,7 @@ export type ResearchProps = {
 };
 
 const Research: React.FC<ResearchProps> = ({ forcedView }) => {
+  const { colorScheme } = useTheme();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const brandQueryParam = searchParams.get('brand');
@@ -4999,7 +5002,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           label: 'Sold lines',
           data: chartOrderRows.map((x) => x.sold),
           backgroundColor: 'rgba(130, 210, 155, 0.82)',
-          borderColor: 'rgba(255, 214, 91, 0.38)',
+          borderColor: themeAccentRgba(0.38),
           borderWidth: 1,
           stack: 'inv',
         },
@@ -5007,7 +5010,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           label: 'Unsold lines',
           data: chartOrderRows.map((x) => x.unsold),
           backgroundColor: 'rgba(248, 113, 113, 0.78)',
-          borderColor: 'rgba(255, 214, 91, 0.38)',
+          borderColor: themeAccentRgba(0.38),
           borderWidth: 1,
           stack: 'inv',
         },
@@ -5049,19 +5052,19 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         x: {
           stacked: true,
           beginAtZero: true,
-          ticks: { color: 'rgba(255, 248, 226, 0.62)', precision: 0 },
-          grid: { color: 'rgba(255, 214, 91, 0.1)' },
+          ticks: { color: themeTextRgba(0.62), precision: 0 },
+          grid: { color: themeAccentRgba(0.1) },
         },
         y: {
           stacked: true,
-          ticks: { color: 'rgba(255, 248, 226, 0.88)' },
+          ticks: { color: themeTextRgba(0.88) },
           grid: { display: false },
         },
       },
       plugins: {
         legend: {
           position: 'top',
-          labels: { color: 'rgba(255, 248, 226, 0.88)', boxWidth: 12, boxHeight: 12 },
+          labels: { color: themeTextRgba(0.88), boxWidth: 12, boxHeight: 12 },
         },
         tooltip: {
           mode: 'index',
@@ -5087,7 +5090,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         },
       },
     };
-  }, [clothingTypesInvestRiskModel, openClothingTypeFromPieBucket]);
+  }, [clothingTypesInvestRiskModel, openClothingTypeFromPieBucket,
+    colorScheme]);
 
   const menswearBrandInventoryPieModel = useMemo(() => {
     if (menswearCategoryIdFromUrl == null) {
@@ -5206,7 +5210,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       plugins: {
         legend: {
           position: 'bottom',
-          labels: { color: 'rgba(255, 248, 226, 0.85)', boxWidth: 12, boxHeight: 12 },
+          labels: { color: themeTextRgba(0.85), boxWidth: 12, boxHeight: 12 },
           onClick: (_e, legendItem) => {
             if (!clickable) return;
             const idx = legendItem.index;
@@ -5224,12 +5228,11 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         },
       },
     };
-  }, [
-    menswearSalesPieModel.sliceBrandIds,
+  }, [menswearSalesPieModel.sliceBrandIds,
     menswearSalesPieModel.sliceCategoryIds,
     openBrandResearchInUrl,
-    openMenswearCategoryInUrl,
-  ]);
+    openMenswearCategoryInUrl,,
+    colorScheme]);
 
   const menswearInventoryPieChartOptions = useMemo((): ChartOptions<'pie'> => {
     const sliceIds = menswearInventoryPieModel.sliceCategoryIds;
@@ -5252,7 +5255,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       plugins: {
         legend: {
           position: 'bottom',
-          labels: { color: 'rgba(255, 248, 226, 0.85)', boxWidth: 12, boxHeight: 12 },
+          labels: { color: themeTextRgba(0.85), boxWidth: 12, boxHeight: 12 },
           onClick: (_e, legendItem) => {
             if (!sliceIds?.length) return;
             const idx = legendItem.index;
@@ -5272,7 +5275,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         },
       },
     };
-  }, [menswearInventoryPieModel.sliceCategoryIds, openMenswearCategoryInUrl]);
+  }, [menswearInventoryPieModel.sliceCategoryIds, openMenswearCategoryInUrl,
+    colorScheme]);
 
   const menswearCategoryItemsSoldPieChartOptions = useMemo((): ChartOptions<'pie'> => {
     const sliceIds = menswearCategoryItemsSoldPieModel.sliceCategoryIds;
@@ -5295,7 +5299,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       plugins: {
         legend: {
           position: 'bottom',
-          labels: { color: 'rgba(255, 248, 226, 0.85)', boxWidth: 12, boxHeight: 12 },
+          labels: { color: themeTextRgba(0.85), boxWidth: 12, boxHeight: 12 },
           onClick: (_e, legendItem) => {
             if (!sliceIds?.length) return;
             const idx = legendItem.index;
@@ -5315,7 +5319,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         },
       },
     };
-  }, [menswearCategoryItemsSoldPieModel.sliceCategoryIds, openMenswearCategoryInUrl]);
+  }, [menswearCategoryItemsSoldPieModel.sliceCategoryIds, openMenswearCategoryInUrl,
+    colorScheme]);
 
   const clothingTypesSalesPieChartOptions = useMemo((): ChartOptions<'pie'> => {
     const sliceIds = clothingTypesSalesPieModel.sliceBucketIds;
@@ -5338,7 +5343,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       plugins: {
         legend: {
           position: 'bottom',
-          labels: { color: 'rgba(255, 248, 226, 0.85)', boxWidth: 12, boxHeight: 12 },
+          labels: { color: themeTextRgba(0.85), boxWidth: 12, boxHeight: 12 },
           onClick: (_e, legendItem) => {
             if (!sliceIds?.length) return;
             const idx = legendItem.index;
@@ -5356,7 +5361,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         },
       },
     };
-  }, [clothingTypesSalesPieModel.sliceBucketIds, openClothingTypeFromPieBucket]);
+  }, [clothingTypesSalesPieModel.sliceBucketIds, openClothingTypeFromPieBucket,
+    colorScheme]);
 
   const clothingTypesItemsSoldPieChartOptions = useMemo((): ChartOptions<'pie'> => {
     const sliceIds = clothingTypesItemsSoldPieModel.sliceBucketIds;
@@ -5379,7 +5385,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       plugins: {
         legend: {
           position: 'bottom',
-          labels: { color: 'rgba(255, 248, 226, 0.85)', boxWidth: 12, boxHeight: 12 },
+          labels: { color: themeTextRgba(0.85), boxWidth: 12, boxHeight: 12 },
           onClick: (_e, legendItem) => {
             if (!sliceIds?.length) return;
             const idx = legendItem.index;
@@ -5398,7 +5404,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         },
       },
     };
-  }, [clothingTypesItemsSoldPieModel.sliceBucketIds, openClothingTypeFromPieBucket]);
+  }, [clothingTypesItemsSoldPieModel.sliceBucketIds, openClothingTypeFromPieBucket,
+    colorScheme]);
 
   const clothingTypesInventoryPieChartOptions = useMemo((): ChartOptions<'pie'> => {
     const sliceIds = clothingTypesInventoryPieModel.sliceBucketIds;
@@ -5422,7 +5429,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       plugins: {
         legend: {
           position: 'bottom',
-          labels: { color: 'rgba(255, 248, 226, 0.85)', boxWidth: 12, boxHeight: 12 },
+          labels: { color: themeTextRgba(0.85), boxWidth: 12, boxHeight: 12 },
           onClick: (_e, legendItem) => {
             if (!sliceIds?.length) return;
             const idx = legendItem.index;
@@ -5453,7 +5460,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         },
       },
     };
-  }, [clothingTypesInventoryPieModel, openClothingTypeFromPieBucket]);
+  }, [clothingTypesInventoryPieModel, openClothingTypeFromPieBucket,
+    colorScheme]);
 
   const menswearBrandInventoryPieChartOptions = useMemo((): ChartOptions<'pie'> => {
     const sliceIds = menswearBrandInventoryPieModel.sliceBrandIds;
@@ -5476,7 +5484,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       plugins: {
         legend: {
           position: 'bottom',
-          labels: { color: 'rgba(255, 248, 226, 0.85)', boxWidth: 12, boxHeight: 12 },
+          labels: { color: themeTextRgba(0.85), boxWidth: 12, boxHeight: 12 },
           onClick: (_e, legendItem) => {
             if (!sliceIds?.length) return;
             const idx = legendItem.index;
@@ -5496,7 +5504,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         },
       },
     };
-  }, [menswearBrandInventoryPieModel.sliceBrandIds, openBrandResearchInUrl]);
+  }, [menswearBrandInventoryPieModel.sliceBrandIds, openBrandResearchInUrl,
+    colorScheme]);
 
   const menswearBrandItemsSoldPieChartOptions = useMemo((): ChartOptions<'pie'> => {
     const sliceIds = menswearBrandItemsSoldPieModel.sliceBrandIds;
@@ -5519,7 +5528,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       plugins: {
         legend: {
           position: 'bottom',
-          labels: { color: 'rgba(255, 248, 226, 0.85)', boxWidth: 12, boxHeight: 12 },
+          labels: { color: themeTextRgba(0.85), boxWidth: 12, boxHeight: 12 },
           onClick: (_e, legendItem) => {
             if (!sliceIds?.length) return;
             const idx = legendItem.index;
@@ -5539,7 +5548,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         },
       },
     };
-  }, [menswearBrandItemsSoldPieModel.sliceBrandIds, openBrandResearchInUrl]);
+  }, [menswearBrandItemsSoldPieModel.sliceBrandIds, openBrandResearchInUrl,
+    colorScheme]);
 
   const menswearAddBrandCandidates = useMemo(() => {
     const q = menswearAddBrandSearch.trim().toLowerCase();
@@ -6426,7 +6436,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           label: 'Items',
           data: [s.soldCount, s.unsoldCount],
           backgroundColor: ['rgba(130, 210, 155, 0.78)', 'rgba(255, 165, 120, 0.72)'],
-          borderColor: ['rgba(255, 214, 91, 0.5)', 'rgba(255, 214, 91, 0.5)'],
+          borderColor: [themeAccentRgba(0.5), themeAccentRgba(0.5)],
           borderWidth: 1,
           barPercentage: 0.65,
           categoryPercentage: 0.85,
@@ -6476,25 +6486,25 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           title: {
             display: true,
             text: 'Number of items',
-            color: 'rgba(255, 248, 226, 0.65)',
+            color: themeTextRgba(0.65),
             font: { size: 12 },
           },
           ticks: {
-            color: 'rgba(255, 248, 226, 0.8)',
+            color: themeTextRgba(0.8),
             precision: 0,
           },
-          grid: { color: 'rgba(255, 214, 91, 0.1)' },
+          grid: { color: themeAccentRgba(0.1) },
         },
         y: {
           ticks: {
-            color: 'rgba(255, 248, 226, 0.88)',
+            color: themeTextRgba(0.88),
             font: { size: 13 },
           },
           grid: { display: false },
         },
       },
     }),
-    []
+    [colorScheme]
   );
 
   const categorySoldUnsoldStackData = useMemo(() => {
@@ -6513,7 +6523,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           label: 'Sold',
           data: rows.map((r) => r.sold_count),
           backgroundColor: 'rgba(130, 210, 155, 0.78)',
-          borderColor: 'rgba(255, 214, 91, 0.45)',
+          borderColor: themeAccentRgba(0.45),
           borderWidth: 1,
           stack: 'cat',
         },
@@ -6521,7 +6531,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           label: 'Unsold',
           data: rows.map((r) => r.unsold_count),
           backgroundColor: 'rgba(255, 165, 120, 0.72)',
-          borderColor: 'rgba(255, 214, 91, 0.45)',
+          borderColor: themeAccentRgba(0.45),
           borderWidth: 1,
           stack: 'cat',
         },
@@ -6539,7 +6549,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           display: true,
           position: 'bottom',
           labels: {
-            color: 'rgba(255, 248, 226, 0.85)',
+            color: themeTextRgba(0.85),
             boxWidth: 12,
             boxHeight: 12,
             padding: 16,
@@ -6566,26 +6576,26 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           title: {
             display: true,
             text: 'Items (count)',
-            color: 'rgba(255, 248, 226, 0.65)',
+            color: themeTextRgba(0.65),
             font: { size: 12 },
           },
           ticks: {
-            color: 'rgba(255, 248, 226, 0.8)',
+            color: themeTextRgba(0.8),
             precision: 0,
           },
-          grid: { color: 'rgba(255, 214, 91, 0.1)' },
+          grid: { color: themeAccentRgba(0.1) },
         },
         y: {
           stacked: true,
           ticks: {
-            color: 'rgba(255, 248, 226, 0.88)',
+            color: themeTextRgba(0.88),
             font: { size: 12 },
           },
           grid: { display: false },
         },
       },
     }),
-    [brandStockSummary?.categorySoldUnsold]
+    [brandStockSummary?.categorySoldUnsold, colorScheme]
   );
 
   const handleSaveBrandInfo = async () => {
@@ -6711,7 +6721,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     setBrandTagCaption('');
     setBrandTagNewImageKind('tag');
     setBrandTagAddPanelOpen(false);
-  }, []);
+  }, [colorScheme]);
 
   const handleToggleBrandTagImagePanel = useCallback(() => {
     if (brandTagAddPanelOpen && brandTagAddSubMode === 'image') {
@@ -7106,7 +7116,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           label: 'In stock',
           data: sorted.map((x) => x.inStock),
           backgroundColor: 'rgba(255, 165, 120, 0.72)',
-          borderColor: 'rgba(255, 214, 91, 0.45)',
+          borderColor: themeAccentRgba(0.45),
           borderWidth: 1,
           stack: 'cat',
         },
@@ -7114,7 +7124,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           label: 'Sold',
           data: sorted.map((x) => x.sold),
           backgroundColor: 'rgba(130, 210, 155, 0.78)',
-          borderColor: 'rgba(255, 214, 91, 0.45)',
+          borderColor: themeAccentRgba(0.45),
           borderWidth: 1,
           stack: 'cat',
         },
@@ -7181,7 +7191,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
             label: 'In stock',
             data: sorted.map((x) => x.inStock),
             backgroundColor: 'rgba(255, 165, 120, 0.72)',
-            borderColor: 'rgba(255, 214, 91, 0.45)',
+            borderColor: themeAccentRgba(0.45),
             borderWidth: 1,
             stack: 'size',
           },
@@ -7189,7 +7199,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
             label: 'Sold',
             data: sorted.map((x) => x.sold),
             backgroundColor: 'rgba(130, 210, 155, 0.78)',
-            borderColor: 'rgba(255, 214, 91, 0.45)',
+            borderColor: themeAccentRgba(0.45),
             borderWidth: 1,
             stack: 'size',
           },
@@ -7275,7 +7285,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           display: true,
           position: 'bottom',
           labels: {
-            color: 'rgba(255, 248, 226, 0.85)',
+            color: themeTextRgba(0.85),
             boxWidth: 12,
             boxHeight: 12,
             padding: 16,
@@ -7319,26 +7329,26 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           title: {
             display: true,
             text: 'Number of items',
-            color: 'rgba(255, 248, 226, 0.65)',
+            color: themeTextRgba(0.65),
             font: { size: 12 },
           },
           ticks: {
-            color: 'rgba(255, 248, 226, 0.8)',
+            color: themeTextRgba(0.8),
             precision: 0,
           },
-          grid: { color: 'rgba(255, 214, 91, 0.1)' },
+          grid: { color: themeAccentRgba(0.1) },
         },
         y: {
           stacked: true,
           ticks: {
-            color: 'rgba(255, 248, 226, 0.88)',
+            color: themeTextRgba(0.88),
             font: { size: 12 },
           },
           grid: { display: false },
         },
       },
     }),
-    [menswearBrandStockCategoryStackChart]
+    [menswearBrandStockCategoryStackChart, colorScheme]
   );
 
   const menswearBrandStockSizeStackBarOptions = useMemo<ChartOptions<'bar'>>(
@@ -7356,7 +7366,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           display: true,
           position: 'bottom',
           labels: {
-            color: 'rgba(255, 248, 226, 0.85)',
+            color: themeTextRgba(0.85),
             boxWidth: 12,
             boxHeight: 12,
             padding: 16,
@@ -7400,26 +7410,26 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           title: {
             display: true,
             text: 'Number of items',
-            color: 'rgba(255, 248, 226, 0.65)',
+            color: themeTextRgba(0.65),
             font: { size: 12 },
           },
           ticks: {
-            color: 'rgba(255, 248, 226, 0.8)',
+            color: themeTextRgba(0.8),
             precision: 0,
           },
-          grid: { color: 'rgba(255, 214, 91, 0.1)' },
+          grid: { color: themeAccentRgba(0.1) },
         },
         y: {
           stacked: true,
           ticks: {
-            color: 'rgba(255, 248, 226, 0.88)',
+            color: themeTextRgba(0.88),
             font: { size: 12 },
           },
           grid: { display: false },
         },
       },
     }),
-    []
+    [colorScheme]
   );
 
   const runMenswearAvoidStockAskAi = useCallback(async () => {

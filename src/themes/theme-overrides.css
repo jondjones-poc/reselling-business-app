@@ -1,0 +1,174 @@
+/**
+ * Theme-specific tweaks for components with hard-coded dark shadows or contrast.
+ */
+
+[data-theme='vinted'] .navigation {
+  border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.22);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.06);
+}
+
+[data-theme='vinted'] .nav-button,
+[data-theme='vinted'] .nav-settings-icon {
+  box-shadow: none;
+  background: rgba(var(--theme-accent-rgb), 0.06);
+}
+
+[data-theme='vinted'] .nav-button.active,
+[data-theme='vinted'] .nav-settings-icon.active {
+  box-shadow: 0 2px 10px rgba(var(--theme-accent-rgb), 0.22);
+}
+
+[data-theme='vinted'] .reporting-container,
+[data-theme='vinted'] .config-container,
+[data-theme='vinted'] .stock-container,
+[data-theme='vinted'] .orders-container,
+[data-theme='vinted'] .expenses-container,
+[data-theme='vinted'] .sourcing-container,
+[data-theme='vinted'] .research-container {
+  box-shadow: var(--theme-panel-shadow);
+}
+
+[data-theme='vinted'] .view-toggle-container,
+[data-theme='vinted'] .reporting-sales-subnav,
+[data-theme='vinted'] .reporting-sales-filter-bar {
+  background: rgba(var(--theme-accent-rgb), 0.04);
+}
+
+[data-theme='vinted'] .total-profit-card,
+[data-theme='vinted'] .reporting-card,
+[data-theme='vinted'] .config-grid-item {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
+}
+
+[data-theme='vinted'] .react-datepicker.date-picker-calendar .react-datepicker__day--selected,
+[data-theme='vinted'] .react-datepicker.date-picker-calendar .react-datepicker__day--keyboard-selected {
+  color: var(--theme-on-accent) !important;
+}
+
+[data-theme='vinted'] .ebay-search-container {
+  box-shadow: var(--theme-panel-shadow);
+  background: rgba(var(--theme-accent-rgb), 0.04);
+}
+
+[data-theme='vinted'] .ebay-search-header h1 {
+  text-shadow: none;
+}
+
+/* Minimal — Facebook-style flat dark surfaces, no glow */
+[data-theme='minimal'] .navigation {
+  border-bottom: 1px solid #3e4042;
+  box-shadow: none;
+  background: #1c1c1d;
+}
+
+[data-theme='minimal'] .nav-button,
+[data-theme='minimal'] .nav-settings-icon {
+  box-shadow: var(--theme-inset-shadow);
+  background: #1c1c1d;
+  border-radius: 8px;
+}
+
+[data-theme='minimal'] .nav-button:hover,
+[data-theme='minimal'] .nav-settings-icon:hover {
+  background: #242526;
+  box-shadow: var(--theme-inset-shadow);
+}
+
+[data-theme='minimal'] .nav-button.active,
+[data-theme='minimal'] .nav-settings-icon.active {
+  background: rgba(var(--theme-accent-rgb), 0.18);
+  box-shadow: none;
+  border-color: rgba(var(--theme-accent-rgb), 0.45);
+}
+
+[data-theme='minimal'] .reporting-container,
+[data-theme='minimal'] .config-container,
+[data-theme='minimal'] .stock-container,
+[data-theme='minimal'] .orders-container,
+[data-theme='minimal'] .expenses-container,
+[data-theme='minimal'] .sourcing-container,
+[data-theme='minimal'] .research-container,
+[data-theme='minimal'] .ebay-search-container {
+  box-shadow: var(--theme-panel-shadow);
+  background: #1c1c1d;
+}
+
+[data-theme='minimal'] .view-toggle-container,
+[data-theme='minimal'] .reporting-sales-subnav,
+[data-theme='minimal'] .reporting-sales-filter-bar {
+  background: #1c1c1d;
+}
+
+[data-theme='minimal'] .view-toggle-button:not(.active) {
+  background: #1c1c1d;
+  box-shadow: var(--theme-inset-shadow);
+}
+
+[data-theme='minimal'] .view-toggle-button.active {
+  background: rgba(var(--theme-accent-rgb), 0.18);
+  box-shadow: none;
+}
+
+[data-theme='minimal'] .total-profit-card,
+[data-theme='minimal'] .reporting-card,
+[data-theme='minimal'] .config-grid-item {
+  box-shadow: none;
+  border: 1px solid #3e4042;
+  background: #1c1c1d;
+}
+
+[data-theme='minimal'] .ebay-search-header h1 {
+  text-shadow: none;
+}
+
+[data-theme='minimal'] .ebay-search-button,
+[data-theme='minimal'] .str-calculate-button {
+  background: var(--theme-accent);
+  color: var(--theme-on-accent);
+  box-shadow: none;
+  border-color: transparent;
+}
+
+[data-theme='minimal'] .ebay-search-button:hover:not(:disabled),
+[data-theme='minimal'] .str-calculate-button:hover:not(:disabled) {
+  background: #166fe5;
+  box-shadow: none;
+  filter: none;
+}
+
+[data-theme='minimal'] .clear-button,
+[data-theme='minimal'] .copy-button,
+[data-theme='minimal'] .category-section .dropdown-select,
+[data-theme='minimal'] .ebay-include-mens-toggle,
+[data-theme='minimal'] .ebay-search-input,
+[data-theme='minimal'] .potential-profit-input {
+  box-shadow: var(--theme-inset-shadow);
+}
+
+[data-theme='minimal'] .category-section {
+  box-shadow: var(--theme-inset-shadow);
+}
+
+[data-theme='minimal'] .new-entry-card {
+  box-shadow: var(--theme-panel-shadow);
+}
+
+[data-theme='minimal'] .new-entry-field input:focus,
+[data-theme='minimal'] .new-entry-field select:focus,
+[data-theme='minimal'] .new-entry-field .react-datepicker__input-container input:focus,
+[data-theme='minimal'] .edit-input:focus,
+[data-theme='minimal'] .stock-form-dropdown-trigger:focus-visible,
+[data-theme='minimal'] .stock-edit-sold-platform-trigger:focus-visible,
+[data-theme='minimal'] .stock-change-sku-field input:focus,
+[data-theme='minimal'] .stock-filters .search-input:focus,
+[data-theme='minimal'] .stock-filters .filter-select:focus,
+[data-theme='minimal'] .orders-search-input:focus,
+[data-theme='minimal'] .orders-sales-summary-toolbar .orders-sales-summary-week-select:focus,
+[data-theme='minimal'] .orders-sales-ebay-toolbar .orders-sales-platform-select:focus,
+[data-theme='minimal'] .orders-sales-ebay-toolbar .orders-vinted-ebay-check-button:focus-visible,
+[data-theme='minimal'] .reporting-sales-filter-select:focus,
+[data-theme='minimal'] .year-filter select:focus,
+[data-theme='minimal'] .monthly-filter-select:focus {
+  box-shadow: var(--theme-inset-shadow);
+  border-color: rgba(var(--theme-accent-rgb), 0.45);
+}
