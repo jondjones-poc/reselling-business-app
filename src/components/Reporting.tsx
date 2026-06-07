@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Chart as ChartJS,
@@ -206,6 +206,10 @@ function parseSalesDataSubTab(value: string | null): SalesDataSubTab {
   if (value === 'all-time-sales') return 'all-time-sales';
   if (value === 'graphs') return 'graphs';
   return 'current-sales';
+}
+
+function salesFilterModeForSubTab(subTab: SalesDataSubTab): SalesFilterMode {
+  return subTab === 'all-time-sales' ? 'period' : 'month';
 }
 
 interface CashFlowPurchasedItem {
@@ -472,6 +476,8 @@ const Reporting: React.FC = () => {
   const chartOptions = useMemo(() => buildChartBarOptions(), []);
   const tabFromUrl = searchParams.get('tab');
   const initialViewMode = parseReportingViewMode(tabFromUrl);
+  const initialSalesSubTab = parseSalesDataSubTab(searchParams.get('salesSubTab'));
+  const prevSalesSubTabRef = useRef<SalesDataSubTab>(initialSalesSubTab);
 
   const [availableYears, setAvailableYears] = useState<number[]>([]);
   const [selectedYear, setSelectedYear] = useState<number | 'all'>('all');
@@ -514,9 +520,7 @@ const Reporting: React.FC = () => {
   
   // Monthly view state
   const [viewMode, setViewMode] = useState<ReportingViewMode>(initialViewMode);
-  const [salesSubTab, setSalesSubTabState] = useState<SalesDataSubTab>(() =>
-    parseSalesDataSubTab(searchParams.get('salesSubTab'))
-  );
+  const [salesSubTab, setSalesSubTabState] = useState<SalesDataSubTab>(() => initialSalesSubTab);
   const [vintedData, setVintedData] = useState<{ purchases: number; sales: number; profit: number }>({ purchases: 0, sales: 0, profit: 0 });
   const [ebayData, setEbayData] = useState<{ purchases: number; sales: number; profit: number }>({ purchases: 0, sales: 0, profit: 0 });
   const [depopData, setDepopData] = useState<{ purchases: number; sales: number; profit: number }>({ purchases: 0, sales: 0, profit: 0 });
@@ -557,7 +561,9 @@ const Reporting: React.FC = () => {
   const [trailingInventory, setTrailingInventory] = useState<TrailingInventoryPoint[]>([]);
   const [trailingInventoryLoading, setTrailingInventoryLoading] = useState(false);
   const [stockRowsForSalesData, setStockRowsForSalesData] = useState<StockRowForSalesData[]>([]);
-  const [salesFilterMode, setSalesFilterMode] = useState<SalesFilterMode>('month');
+  const [salesFilterMode, setSalesFilterMode] = useState<SalesFilterMode>(() =>
+    salesFilterModeForSubTab(initialSalesSubTab)
+  );
   const [salesDateFilter, setSalesDateFilter] = useState<SalesDateFilterValue>('all-time');
   const [cashFlowPinnedDay, setCashFlowPinnedDay] = useState<number | null>(null);
   const now = useMemo(() => new Date(), []);
@@ -650,6 +656,14 @@ const Reporting: React.FC = () => {
   }, [searchParams]);
 
   useEffect(() => {
+    if (salesSubTab === 'all-time-sales' && prevSalesSubTabRef.current !== 'all-time-sales') {
+      setSalesFilterMode('period');
+      setSalesDateFilter('all-time');
+    }
+    prevSalesSubTabRef.current = salesSubTab;
+  }, [salesSubTab]);
+
+  useEffect(() => {
     const currentTab = searchParams.get('tab');
     const normalizedTab = viewMode === 'projections' ? 'projections' : viewMode;
     if (currentTab === normalizedTab) {
@@ -668,6 +682,10 @@ const Reporting: React.FC = () => {
   const setSalesSubTab = useCallback(
     (next: SalesDataSubTab) => {
       setSalesSubTabState(next);
+      if (next === 'all-time-sales') {
+        setSalesFilterMode('period');
+        setSalesDateFilter('all-time');
+      }
       const nextParams = new URLSearchParams(searchParams);
       if (next === 'current-sales') {
         nextParams.delete('salesSubTab');

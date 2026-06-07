@@ -40,11 +40,8 @@ const ResearchRoute: React.FC = () => {
     next.set('view', 'offline');
     return <Navigate to={`/research?${next.toString()}`} replace />;
   }
-  if (tab === 'ai') {
-    const next = new URLSearchParams(searchParams);
-    next.delete('tab');
-    next.set('view', 'ai');
-    return <Navigate to={`/research?${next.toString()}`} replace />;
+  if (tab === 'ai' || searchParams.get('view') === 'ai') {
+    return <Navigate to="/" replace />;
   }
   if (tab === 'ebay-feed') {
     const next = new URLSearchParams(searchParams);

@@ -5,11 +5,11 @@ import ResearchTagSellThrough from './ResearchTagSellThrough';
 import Research from './Research';
 import './BrandResearch.css';
 
-type HubView = 'feed' | 'tag-sell-through' | 'offline' | 'ai';
+type HubView = 'feed' | 'tag-sell-through' | 'offline';
 
 function normalizeView(raw: string | null): HubView {
   if (raw === 'tag-sell-through') return 'tag-sell-through';
-  if (raw === 'offline' || raw === 'ai') return raw;
+  if (raw === 'offline') return raw;
   return 'feed';
 }
 
@@ -44,20 +44,11 @@ const ResearchHub: React.FC = () => {
         >
           Brand offline research
         </NavLink>
-        <NavLink
-          to="/research?view=ai"
-          role="tab"
-          aria-selected={view === 'ai'}
-          className={() => `research-tab${view === 'ai' ? ' active' : ''}`}
-        >
-          AI research
-        </NavLink>
       </nav>
 
       {view === 'feed' && <ResearchEbayFeed />}
       {view === 'tag-sell-through' && <ResearchTagSellThrough />}
       {view === 'offline' && <Research forcedView="offline" />}
-      {view === 'ai' && <Research forcedView="ai" />}
     </div>
   );
 };

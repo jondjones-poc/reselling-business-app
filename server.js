@@ -10694,112 +10694,74 @@ app.get('/api/analytics/trailing-inventory', async (req, res) => {
   }
 });
 
-app.post('/api/gemini/research', async (req, res) => {
+app.post('/api/gemini/identify-item', async (req, res) => {
   try {
-    // Debug: Log the raw request body first
-    console.log('=== GEMINI RESEARCH REQUEST ===');
-    console.log('Raw req.body keys:', Object.keys(req.body));
-    console.log('req.body.text:', req.body.text ? `present (${req.body.text.length} chars)` : 'missing');
-    console.log('req.body.images:', Array.isArray(req.body.images) ? `array[${req.body.images.length}]` : req.body.images);
-    console.log('req.body.image:', req.body.image ? 'present' : 'missing');
-    
-    const { text, images, image } = req.body; // Support both 'images' (array) and 'image' (single) for backward compatibility
+    const { image } = req.body;
     const geminiApiKey = process.env.GEMINI_API_KEY;
 
     if (!geminiApiKey) {
       return res.status(500).json({ error: 'Gemini API key not configured' });
     }
 
-    // Normalize: convert single 'image' to 'images' array if needed
-    let imageArray = [];
-    if (Array.isArray(images)) {
-      imageArray = images;
-      console.log('Using images array, length:', imageArray.length);
-    } else if (image) {
-      imageArray = [image];
-      console.log('Using single image, converted to array');
-    } else {
-      console.log('No images found in request');
+    if (!image || typeof image !== 'string') {
+      return res.status(400).json({ error: 'An image is required' });
     }
 
-    // Debug logging (remove in production if needed)
-    console.log('Normalized values:', {
-      hasText: !!text,
-      textLength: text ? text.length : 0,
-      imagesCount: imageArray.length,
-      imagesType: Array.isArray(images) ? 'array' : typeof images,
-      hasImage: !!image
-    });
-    console.log('==============================');
+    let mimeType = 'image/jpeg';
+    let base64Image = image;
 
-    if (!text && imageArray.length === 0) {
-      return res.status(400).json({ error: 'Either text or at least one image is required' });
-    }
-
-    const instruction = `You are a professional UK Vinted reseller whose mission is to evaluate whether a given item is worth buying for resale, based on data, condition, and profit potential, without ever guessing. You must analyse all available photos and text carefully to identify brand, design, materials, tags, and condition details. You are responsible for checking authenticity by reviewing stitching, logos, fonts, care labels, and hardware. If key photos or information are missing, you must return "Needs Info" and clearly list what is required to make an accurate judgement. For each item, identify and record the brand, pattern, material, size, edition type (standard, limited, or special), and production country. Estimate when the item was made if possible, and state uncertainty when unsure. Research the brand to determine if it is high-end, mid-range, high-street, or budget, and note whether it has collector or niche appeal. Assess the build quality based on material and construction, and classify it as cheap, mid, or premium. You must research at least three to ten comparable sold listings within the last one hundred and eighty days for items of similar size and condition. Report the median sold price and the overall sell-through rate for that category. Estimate the original retail price range if possible, as well as the expected resale price range and the likely time to sell. Include all costs in your calculations, such as buying price, platform and payment fees, postage, packaging, cleaning, repairs, and refund risk. Calculate both the expected net profit and the net profit margin. Only recommend an item for purchase if the expected net profit margin is at least fifty percent, the net profit is at least ten pounds, authenticity confidence is at least eighty percent, and either the sell-through rate is above thirty percent or the median days on market is below ninety days. You must grade item condition using a standard six-point scale: New, Like New, Excellent, Good, Fair, or For Parts. Apply the correct category-specific checks and measurements, such as clothing measurements, shoe sizes, or functionality tests for electronics. Flag any compliance or safety concerns, such as fakes, missing labels, or restricted products. When you output results, include the item title, a concise buyer overview summarizing your research, and a detailed resale matrix. The matrix must show the recommended buy price ceiling, expected resale range, estimated original retail price, expected profit range, profit margin percentage, sell-through rate, median and P90 days to sell, authenticity confidence, seasonality indicator (positive, neutral, or negative), item tier (high-end, mid, high-street, or low), and a final decision of Yes, No, or Needs Info. Include a dedicated authenticity review explaining your confidence level and listing the reasons, such as tag style, label format, stitching, hardware, or logo placement. Add detailed notes on item condition, including any wear, defects, or cleaning needs. If important information or photos are missing, include a list of what must be provided to make a full decision. Always state uncertainty clearly and never make assumptions. Every recommendation must be supported by verifiable data and clear reasoning. Focus on realistic resale speed, genuine authenticity, and true net profit after costs. Reject any item that cannot meet the minimum profit and confidence thresholds or that carries a high risk of being fake or slow to sell.`;
-
-    const parts = [];
-    
-    if (text) {
-      parts.push({
-        text: `${instruction}\n\nItem description or query: ${text}`
-      });
-    }
-
-    // Handle multiple images
-    for (const image of imageArray) {
-      // Detect MIME type from base64 data URL if present, default to jpeg
-      let mimeType = 'image/jpeg';
-      let base64Image = image;
-      
-      if (image.startsWith('data:image/')) {
-        const mimeMatch = image.match(/data:image\/([a-z]+);base64,/);
-        if (mimeMatch) {
-          mimeType = `image/${mimeMatch[1]}`;
-        }
-        base64Image = image.replace(/^data:image\/[a-z]+;base64,/, '');
+    if (image.startsWith('data:image/')) {
+      const mimeMatch = image.match(/data:image\/([a-z]+);base64,/);
+      if (mimeMatch) {
+        mimeType = `image/${mimeMatch[1]}`;
       }
-      
-      parts.push({
-        inline_data: {
-          mime_type: mimeType,
-          data: base64Image
-        }
-      });
+      base64Image = image.replace(/^data:image\/[a-z]+;base64,/, '');
     }
+
+    const instruction =
+      'You identify clothing and accessories from photos for UK resellers. Return ONLY one line of plain text: brand + item type (+ colour or model if obvious). No quotes, no punctuation at the end, no explanation. Suitable for a UK eBay search. If unsure, give your best guess. Examples: Stone Island crew neck jumper, Nike Air Max 90 trainers, Levi\'s 501 jeans';
 
     const requestBody = {
-      contents: [{
-        parts: parts
-      }]
+      contents: [
+        {
+          parts: [
+            { text: instruction },
+            {
+              inline_data: {
+                mime_type: mimeType,
+                data: base64Image,
+              },
+            },
+          ],
+        },
+      ],
     };
 
-    // Use gemini-2.5-flash which supports both text and images (free tier: 15 RPM, 1,500 RPD)
     const modelName = 'gemini-2.5-flash';
     const apiVersion = 'v1beta';
-    
+
     const response = await fetch(
       `https://generativelanguage.googleapis.com/${apiVersion}/models/${modelName}:generateContent?key=${geminiApiKey}`,
       {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
         },
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify(requestBody),
       }
     );
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Gemini API error:', errorText);
-      return res.status(response.status).json({ 
-        error: 'Failed to get response from Gemini API', 
-        details: errorText 
+      console.error('Gemini identify-item API error:', errorText);
+      return res.status(response.status).json({
+        error: 'Failed to get response from Gemini API',
+        details: errorText,
       });
     }
 
     const data = await response.json();
-    
+
     if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
       return res.status(500).json({ error: 'Invalid response from Gemini API' });
     }
@@ -10808,8 +10770,8 @@ app.post('/api/gemini/research', async (req, res) => {
 
     res.json({ result });
   } catch (error) {
-    console.error('Gemini research error:', error);
-    res.status(500).json({ error: 'Failed to process research request', details: error.message });
+    console.error('Gemini identify-item error:', error);
+    res.status(500).json({ error: 'Failed to identify item', details: error.message });
   }
 });
 

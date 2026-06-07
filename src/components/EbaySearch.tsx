@@ -4,6 +4,7 @@ import BarcodeScanner from 'react-qr-barcode-scanner';
 import { augmentEbaySearchQuery } from '../utils/augmentEbaySearchQuery';
 import { getApiBase } from '../utils/apiBase';
 import { pingDatabase } from '../utils/dbPing';
+import ScoutItemIdentify from './ScoutItemIdentify';
 import './EbaySearch.css';
 
 interface AppSettings {
@@ -798,6 +799,8 @@ const EbaySearch: React.FC = () => {
         )}
       </form>
     </div>
+
+    <ScoutItemIdentify onIdentified={setSearchTerm} />
 
     <div className="ebay-search-container">
       <div className="potential-profit-section">
