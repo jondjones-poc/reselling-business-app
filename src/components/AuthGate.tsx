@@ -99,17 +99,6 @@ const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
       try {
         const hashTokens = parseAuthHash();
         if (hashTokens.access_token && hashTokens.refresh_token) {
-          const establishKey = `auth-establish:${hashTokens.access_token.slice(0, 24)}`;
-          try {
-            if (sessionStorage.getItem(establishKey) === 'done') {
-              await loadSession();
-              return;
-            }
-            sessionStorage.setItem(establishKey, 'pending');
-          } catch {
-            /* ignore sessionStorage errors */
-          }
-
           const establishResponse = await sameOriginApiFetch('/api/auth/establish', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -125,11 +114,6 @@ const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
           );
 
           if (!establishResponse.ok || !establishData.authenticated) {
-            try {
-              sessionStorage.removeItem(establishKey);
-            } catch {
-              /* ignore */
-            }
             if (!cancelled) {
               setError(establishData.error || 'Sign-in failed.');
               setUserEmail(null);
@@ -139,11 +123,6 @@ const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
           }
 
           window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`);
-          try {
-            sessionStorage.setItem(establishKey, 'done');
-          } catch {
-            /* ignore */
-          }
 
           if (!cancelled) {
             setUserEmail(establishData.email ?? null);

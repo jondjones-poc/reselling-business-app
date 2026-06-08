@@ -416,6 +416,7 @@ const PUBLIC_API_ROUTES = new Set([
 
 function isPublicApiRoute(req) {
   if (req.method === 'OPTIONS') return true;
+  if (req.path.startsWith('/auth/')) return true;
   return PUBLIC_API_ROUTES.has(`${req.method} ${req.path}`);
 }
 
@@ -465,24 +466,44 @@ function authCookieBaseOptions() {
   return `Path=/; HttpOnly; SameSite=${sameSite}${secure ? '; Secure' : ''}`;
 }
 
+function readAuthTokensFromCookies(req) {
+  const cookies = parseCookieHeader(req.headers.cookie);
+  const bundled = cookies.rbauth || '';
+  if (bundled) {
+    try {
+      const parsed = JSON.parse(decodeURIComponent(bundled));
+      return {
+        accessToken: parsed.a ? String(parsed.a) : '',
+        refreshToken: parsed.r ? String(parsed.r) : '',
+      };
+    } catch {
+      /* fall through to legacy cookies */
+    }
+  }
+  return {
+    accessToken: cookies.rbauth_access ? String(cookies.rbauth_access) : '',
+    refreshToken: cookies.rbauth_refresh ? String(cookies.rbauth_refresh) : '',
+  };
+}
+
 function setAuthCookies(res, session) {
   const accessToken = session?.access_token ? String(session.access_token) : '';
   const refreshToken = session?.refresh_token ? String(session.refresh_token) : '';
   if (!accessToken || !refreshToken) {
     throw new Error('Missing auth tokens');
   }
-  const maxAgeAccess = Math.max(60, Number(session.expires_in) || 3600);
   const maxAgeRefresh = 60 * 60 * 24 * 30;
   const base = authCookieBaseOptions();
-  res.setHeader('Set-Cookie', [
-    `rbauth_access=${encodeURIComponent(accessToken)}; Max-Age=${maxAgeAccess}; ${base}`,
-    `rbauth_refresh=${encodeURIComponent(refreshToken)}; Max-Age=${maxAgeRefresh}; ${base}`,
-  ]);
+  const payload = encodeURIComponent(JSON.stringify({ a: accessToken, r: refreshToken }));
+  // Single Set-Cookie — some proxies (Netlify → Render) drop additional Set-Cookie headers.
+  res.setHeader('Set-Cookie', `rbauth=${payload}; Max-Age=${maxAgeRefresh}; ${base}`);
+  res.setHeader('Cache-Control', 'no-store');
 }
 
 function clearAuthCookies(res) {
   const base = authCookieBaseOptions();
   res.setHeader('Set-Cookie', [
+    `rbauth=; Max-Age=0; ${base}`,
     `rbauth_access=; Max-Age=0; ${base}`,
     `rbauth_refresh=; Max-Age=0; ${base}`,
   ]);
@@ -530,9 +551,7 @@ async function resolveAuthUserFromRequest(req, res) {
   const sb = getSupabaseAdmin();
   if (!sb) return null;
 
-  const cookies = parseCookieHeader(req.headers.cookie);
-  const accessToken = cookies.rbauth_access || '';
-  const refreshToken = cookies.rbauth_refresh || '';
+  const { accessToken, refreshToken } = readAuthTokensFromCookies(req);
 
   if (accessToken) {
     const { data, error } = await sb.auth.getUser(accessToken);
@@ -597,6 +616,7 @@ app.get('/api/auth/google/start', async (req, res) => {
 });
 
 app.post('/api/auth/establish', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   try {
     const sb = getSupabaseAdmin();
     if (!sb) {
@@ -643,6 +663,7 @@ app.post('/api/auth/establish', async (req, res) => {
 });
 
 app.get('/api/auth/session', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   try {
     const resolved = await resolveAuthUserFromRequest(req, res);
     if (!resolved?.user) {

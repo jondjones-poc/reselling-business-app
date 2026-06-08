@@ -1,0 +1,5 @@
+# Disable edge caching for proxied API responses (auth cookies / session must not be cached).
+[[headers]]
+  for = "/api/*"
+  [headers.values]
+    Cache-Control = "no-store"
