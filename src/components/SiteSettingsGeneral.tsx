@@ -81,7 +81,7 @@ export const SiteSettingsGeneral: React.FC = () => {
       <div className="site-settings-general-session">
         <h3 className="site-settings-general-title">Session</h3>
         <p className="site-settings-general-hint">
-          Sign out of the app on this device. You will need to enter the access password again.
+          Sign out of the app on this device. You will need to sign in with Google again.
         </p>
         <button type="button" className="site-settings-logout-button" onClick={logout}>
           Log out

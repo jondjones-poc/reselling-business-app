@@ -3,6 +3,8 @@ import { getApiBase } from '../utils/apiBase';
 import './Config.css';
 import './Stock.css';
 import { SiteSettingsGeneral } from './SiteSettingsGeneral';
+import { SiteSettingsAccess } from './SiteSettingsAccess';
+import { useAuth } from './AuthGate';
 
 const API_BASE = getApiBase();
 
@@ -142,7 +144,8 @@ type ConfigMenu =
   | 'clothing-categories'
   | 'sizes'
   | 'brands'
-  | 'site-general';
+  | 'site-general'
+  | 'site-access';
 
 /** Normalise for duplicate detection: trim + lowercase; empty → null (ignored). */
 function stockDuplicateNameKey(item_name: Nullable<string>): string | null {
@@ -275,6 +278,7 @@ function buildBrandsRankByMenswearCategoriesPrompt(
 }
 
 const Config: React.FC = () => {
+  const { isAdmin } = useAuth();
   const [activeMenu, setActiveMenu] = useState<ConfigMenu>('untagged-brand');
   const [rows, setRows] = useState<StockRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2378,6 +2382,17 @@ const Config: React.FC = () => {
               >
                 General
               </button>
+              {isAdmin ? (
+                <button
+                  type="button"
+                  className={`config-menu-item config-menu-item--in-group ${
+                    activeMenu === 'site-access' ? 'active' : ''
+                  }`}
+                  onClick={() => setActiveMenu('site-access')}
+                >
+                  Access
+                </button>
+              ) : null}
             </div>
           </nav>
         </div>
@@ -4356,6 +4371,12 @@ const Config: React.FC = () => {
           {activeMenu === 'site-general' && (
             <div className="config-section">
               <SiteSettingsGeneral />
+            </div>
+          )}
+
+          {activeMenu === 'site-access' && isAdmin && (
+            <div className="config-section">
+              <SiteSettingsAccess />
             </div>
           )}
         </div>

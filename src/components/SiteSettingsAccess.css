@@ -1,0 +1,227 @@
+.site-settings-access {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: 100%;
+  max-width: 640px;
+}
+
+.site-settings-access-title {
+  margin: 0 0 8px;
+  font-size: 1.15rem;
+  letter-spacing: 0.06rem;
+  text-transform: uppercase;
+  color: var(--theme-accent-strong);
+}
+
+.site-settings-access-subtitle {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.site-settings-access-hint {
+  margin: 0;
+  color: var(--theme-text-muted);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.site-settings-access-hint code,
+.site-settings-access-muted code {
+  font-size: 0.88em;
+  color: var(--neon-primary-strong, var(--theme-accent-strong));
+}
+
+.site-settings-access-error,
+.site-settings-access-success {
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 0.9rem;
+}
+
+.site-settings-access-error {
+  border: 1px solid rgba(var(--color-error-bg-rgb), 0.45);
+  background: rgba(var(--color-error-bg-rgb), 0.12);
+  color: var(--color-error-text);
+}
+
+.site-settings-access-success {
+  border: 1px solid rgba(var(--color-positive-rgb), 0.35);
+  background: rgba(var(--color-positive-rgb), 0.1);
+  color: var(--color-positive-text);
+}
+
+.site-settings-access-env {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.16);
+  background: rgba(var(--theme-accent-rgb), 0.06);
+}
+
+.site-settings-access-env-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--theme-text-muted);
+  font-size: 0.9rem;
+}
+
+.site-settings-access-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.site-settings-access-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 240px;
+}
+
+.site-settings-access-field span {
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--theme-text-muted);
+}
+
+.site-settings-access-field input,
+.site-settings-access-field select {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--neon-border);
+  background: var(--theme-fill);
+  color: var(--text-strong);
+  font-size: 0.95rem;
+}
+
+.site-settings-access-field--role {
+  flex: 0 0 140px;
+}
+
+.site-settings-access-add-btn,
+.site-settings-access-remove-btn {
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.32);
+  background: rgba(var(--theme-accent-rgb), 0.12);
+  color: var(--neon-primary-strong, var(--theme-accent-strong));
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.site-settings-access-add-btn:disabled,
+.site-settings-access-remove-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.site-settings-access-remove-btn {
+  border-color: rgba(var(--color-error-bg-rgb), 0.35);
+  background: rgba(var(--color-error-bg-rgb), 0.1);
+  color: var(--color-error-text);
+}
+
+.site-settings-access-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.site-settings-access-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--neon-border);
+  background: var(--neon-surface);
+}
+
+.site-settings-access-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.site-settings-access-role-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.site-settings-access-role-field-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--theme-text-muted);
+}
+
+.site-settings-access-role-field select {
+  min-width: 120px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--neon-border);
+  background: var(--theme-fill);
+  color: var(--text-strong);
+  font-size: 0.9rem;
+}
+
+.site-settings-access-role-badge {
+  display: inline-flex;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(var(--theme-accent-rgb), 0.12);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.22);
+  color: var(--neon-primary-strong, var(--theme-accent-strong));
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.site-settings-access-row-email {
+  font-size: 0.95rem;
+  color: var(--text-strong);
+  word-break: break-all;
+}
+
+.site-settings-access-muted {
+  margin: 0;
+  color: var(--theme-text-muted);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 640px) {
+  .site-settings-access-add {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .site-settings-access-add-btn {
+    width: 100%;
+  }
+
+  .site-settings-access-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

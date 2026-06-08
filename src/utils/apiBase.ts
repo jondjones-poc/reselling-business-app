@@ -2,11 +2,12 @@
 export const getApiBase = (): string => {
   const fromEnv = (process.env.REACT_APP_API_BASE || '').trim().replace(/\/$/, '');
   if (process.env.NODE_ENV === 'development') {
-    // npm run dev always talks to the local API unless you opt into remote explicitly.
+    // Optional: hit a remote API from local UI (requires credentials on fetch).
     if (process.env.REACT_APP_FORCE_REMOTE_API === '1' && fromEnv) {
       return fromEnv;
     }
-    return 'http://localhost:5003';
+    // Same-origin /api/* — CRA proxy (localhost:3000) or API dev UI (localhost:5003).
+    return '';
   }
   if (fromEnv) return fromEnv;
   return '';
@@ -15,6 +16,14 @@ export const getApiBase = (): string => {
 export const apiUrl = (path: string): string => {
   const base = getApiBase();
   return base ? `${base}${path}` : path;
+};
+
+/** Authenticated API requests — always sends session cookies (required when API host differs from UI). */
+export const apiFetch = (path: string, init?: RequestInit): Promise<Response> => {
+  return fetch(apiUrl(path), {
+    ...init,
+    credentials: 'include',
+  });
 };
 
 /** eBay OAuth start — pass return path so postback returns here (needed when RuName callback hits production). */

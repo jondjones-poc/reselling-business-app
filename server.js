@@ -19,7 +19,33 @@ const { normalizeDateOnlyString, serializeStockDateFields } = require('./utils/d
 const app = express();
 const PORT = process.env.PORT || 5003;
 
-app.use(cors());
+const authAllowedOrigins = new Set(
+  [
+    process.env.FRONTEND_DEV_ORIGIN || 'http://localhost:3000',
+    process.env.FRONTEND_DEV_ORIGIN_ALT || 'http://localhost:3001',
+    ...(process.env.AUTH_ALLOWED_ORIGINS || '').split(','),
+  ]
+    .map((value) => String(value || '').trim().replace(/\/$/, ''))
+    .filter(Boolean)
+);
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+      const normalized = origin.replace(/\/$/, '');
+      if (authAllowedOrigins.has(normalized)) {
+        callback(null, true);
+        return;
+      }
+      callback(null, false);
+    },
+    credentials: true,
+  })
+);
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
@@ -230,6 +256,519 @@ const getSupabaseAdmin = () => {
   }
   return supabaseAdmin;
 };
+
+function getAllowedAuthEmailsFromEnv() {
+  const raw = process.env.ALLOWED_AUTH_EMAILS || process.env.REACT_APP_ALLOWED_AUTH_EMAILS || '';
+  return raw
+    .split(',')
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function getAuthAdminEmails() {
+  const raw = process.env.AUTH_ADMIN_EMAILS || '';
+  return raw
+    .split(',')
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+const AUTH_USER_ROLES = ['admin', 'user'];
+
+function normalizeAuthRole(raw) {
+  const role = String(raw || 'user').trim().toLowerCase();
+  return AUTH_USER_ROLES.includes(role) ? role : 'user';
+}
+
+function isEnvAuthAdminEmail(email) {
+  if (!email) return false;
+  return getAuthAdminEmails().includes(String(email).trim().toLowerCase());
+}
+
+function normalizeAuthEmailInput(raw) {
+  const email = String(raw || '').trim().toLowerCase();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return null;
+  }
+  return email;
+}
+
+async function ensureAuthAllowedEmailTable(pool) {
+  if (!pool) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS auth_allowed_email (
+      id SERIAL PRIMARY KEY,
+      email VARCHAR(320) NOT NULL,
+      role VARCHAR(16) NOT NULL DEFAULT 'user',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT auth_allowed_email_email_unique UNIQUE (email),
+      CONSTRAINT auth_allowed_email_role_check CHECK (role IN ('admin', 'user'))
+    )
+  `);
+  await pool.query(`
+    ALTER TABLE auth_allowed_email ADD COLUMN IF NOT EXISTS role VARCHAR(16) NOT NULL DEFAULT 'user'
+  `);
+  await pool.query(`
+    ALTER TABLE auth_allowed_email ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_auth_allowed_email_email ON auth_allowed_email (LOWER(email))
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_auth_allowed_email_role ON auth_allowed_email (role)
+  `);
+}
+
+async function loadAuthUserRoleFromDb(pool, email) {
+  if (!pool || !email) return null;
+  try {
+    await ensureAuthAllowedEmailTable(pool);
+    const result = await pool.query(
+      `SELECT role FROM auth_allowed_email WHERE LOWER(email) = LOWER($1) LIMIT 1`,
+      [email]
+    );
+    const role = result.rows[0]?.role;
+    return role ? normalizeAuthRole(role) : null;
+  } catch (err) {
+    console.warn('loadAuthUserRoleFromDb failed:', err?.message || err);
+    return null;
+  }
+}
+
+async function isAuthAdminUser(email) {
+  if (!email) return false;
+  const normalized = String(email).trim().toLowerCase();
+  if (isEnvAuthAdminEmail(normalized)) return true;
+
+  const pool = getDatabasePool();
+  const role = await loadAuthUserRoleFromDb(pool, normalized);
+  return role === 'admin';
+}
+
+async function loadAllowedSignInEmailsFromDb(pool) {
+  if (!pool) return [];
+  try {
+    await ensureAuthAllowedEmailTable(pool);
+    const result = await pool.query(
+      `SELECT email FROM auth_allowed_email ORDER BY LOWER(email) ASC`
+    );
+    return result.rows
+      .map((row) => String(row.email || '').trim().toLowerCase())
+      .filter(Boolean);
+  } catch (err) {
+    console.warn('loadAllowedSignInEmailsFromDb failed:', err?.message || err);
+    return [];
+  }
+}
+
+async function isAllowedAuthEmail(email) {
+  if (!email) return false;
+  const normalized = String(email).trim().toLowerCase();
+
+  if (isEnvAuthAdminEmail(normalized)) return true;
+
+  const envAllowed = getAllowedAuthEmailsFromEnv();
+  if (envAllowed.includes(normalized)) return true;
+
+  const pool = getDatabasePool();
+  const dbAllowed = await loadAllowedSignInEmailsFromDb(pool);
+  if (dbAllowed.includes(normalized)) return true;
+
+  return false;
+}
+
+async function requireAuthAdmin(req, res) {
+  const resolved = await resolveAuthUserFromRequest(req, res);
+  if (!resolved?.user?.email) {
+    res.status(401).json({ error: 'Sign in required.' });
+    return null;
+  }
+  if (!(await isAuthAdminUser(resolved.user.email))) {
+    res.status(403).json({ error: 'Admin access required.' });
+    return null;
+  }
+  return resolved.user;
+}
+
+async function requireAuthUser(req, res) {
+  const resolved = await resolveAuthUserFromRequest(req, res);
+  if (!resolved?.user?.email) {
+    res.status(401).json({ error: 'Sign in required.' });
+    return null;
+  }
+  if (!(await isAllowedAuthEmail(resolved.user.email))) {
+    clearAuthCookies(res);
+    res.status(403).json({ error: 'Not allowed to access this application.' });
+    return null;
+  }
+  return resolved.user;
+}
+
+const PUBLIC_API_ROUTES = new Set([
+  'GET /db-ping',
+  'GET /db-keepalive',
+  'GET /ebay/oauth/callback',
+]);
+
+function isPublicApiRoute(req) {
+  if (req.method === 'OPTIONS') return true;
+  return PUBLIC_API_ROUTES.has(`${req.method} ${req.path}`);
+}
+
+async function apiAuthMiddleware(req, res, next) {
+  try {
+    if (isPublicApiRoute(req)) {
+      return next();
+    }
+    const user = await requireAuthUser(req, res);
+    if (!user) return;
+    req.authUser = user;
+    req.authUserEmail = user.email ? String(user.email).trim().toLowerCase() : null;
+    next();
+  } catch (err) {
+    console.error('API auth middleware error:', err);
+    res.status(500).json({ error: 'Authentication check failed.' });
+  }
+}
+
+function parseCookieHeader(header) {
+  const cookies = {};
+  String(header || '')
+    .split(';')
+    .forEach((part) => {
+      const trimmed = part.trim();
+      if (!trimmed) return;
+      const eq = trimmed.indexOf('=');
+      if (eq === -1) return;
+      const key = trimmed.slice(0, eq).trim();
+      const value = trimmed.slice(eq + 1).trim();
+      cookies[key] = decodeURIComponent(value);
+    });
+  return cookies;
+}
+
+function authCookieBaseOptions() {
+  const secure = process.env.NODE_ENV === 'production' || process.env.AUTH_COOKIE_SECURE === '1';
+  return `Path=/; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
+}
+
+function setAuthCookies(res, session) {
+  const accessToken = session?.access_token ? String(session.access_token) : '';
+  const refreshToken = session?.refresh_token ? String(session.refresh_token) : '';
+  if (!accessToken || !refreshToken) {
+    throw new Error('Missing auth tokens');
+  }
+  const maxAgeAccess = Math.max(60, Number(session.expires_in) || 3600);
+  const maxAgeRefresh = 60 * 60 * 24 * 30;
+  const base = authCookieBaseOptions();
+  res.setHeader('Set-Cookie', [
+    `rbauth_access=${encodeURIComponent(accessToken)}; Max-Age=${maxAgeAccess}; ${base}`,
+    `rbauth_refresh=${encodeURIComponent(refreshToken)}; Max-Age=${maxAgeRefresh}; ${base}`,
+  ]);
+}
+
+function clearAuthCookies(res) {
+  const base = authCookieBaseOptions();
+  res.setHeader('Set-Cookie', [
+    `rbauth_access=; Max-Age=0; ${base}`,
+    `rbauth_refresh=; Max-Age=0; ${base}`,
+  ]);
+}
+
+function getDefaultFrontendOrigin() {
+  return (process.env.FRONTEND_DEV_ORIGIN || 'http://localhost:3000').replace(/\/$/, '');
+}
+
+function sanitizeAuthReturnTo(raw) {
+  if (raw == null) return null;
+  const value = String(raw).trim();
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    const origin = url.origin.replace(/\/$/, '');
+    if (!authAllowedOrigins.has(origin)) return null;
+    return `${url.origin}${url.pathname}${url.search}`;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveAuthUserFromRequest(req, res) {
+  const sb = getSupabaseAdmin();
+  if (!sb) return null;
+
+  const cookies = parseCookieHeader(req.headers.cookie);
+  const accessToken = cookies.rbauth_access || '';
+  const refreshToken = cookies.rbauth_refresh || '';
+
+  if (accessToken) {
+    const { data, error } = await sb.auth.getUser(accessToken);
+    if (!error && data.user) {
+      return { user: data.user, session: null };
+    }
+  }
+
+  if (refreshToken) {
+    const { data, error } = await sb.auth.refreshSession({ refresh_token: refreshToken });
+    if (!error && data.session?.user) {
+      setAuthCookies(res, data.session);
+      return { user: data.session.user, session: data.session };
+    }
+  }
+
+  clearAuthCookies(res);
+  return null;
+}
+
+app.get('/api/auth/google/start', async (req, res) => {
+  try {
+    const sb = getSupabaseAdmin();
+    if (!sb) {
+      return res.status(503).type('text/plain').send('Supabase auth is not configured on the server.');
+    }
+
+    const returnTo = sanitizeAuthReturnTo(req.query.return_to) || getDefaultFrontendOrigin();
+    const { data, error } = await sb.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: returnTo,
+        skipBrowserRedirect: true,
+      },
+    });
+
+    if (error || !data?.url) {
+      return res
+        .status(500)
+        .type('text/plain')
+        .send(error?.message || 'Unable to start Google sign-in.');
+    }
+
+    res.redirect(302, data.url);
+  } catch (err) {
+    console.error('Google auth start error:', err);
+    res.status(500).type('text/plain').send(err instanceof Error ? err.message : 'Auth start failed.');
+  }
+});
+
+app.post('/api/auth/establish', async (req, res) => {
+  try {
+    const sb = getSupabaseAdmin();
+    if (!sb) {
+      return res.status(503).json({ error: 'Supabase auth is not configured on the server.' });
+    }
+
+    const accessToken = req.body?.access_token != null ? String(req.body.access_token).trim() : '';
+    const refreshToken = req.body?.refresh_token != null ? String(req.body.refresh_token).trim() : '';
+    const expiresIn = req.body?.expires_in != null ? Number(req.body.expires_in) : 3600;
+
+    if (!accessToken || !refreshToken) {
+      return res.status(400).json({ error: 'Missing auth tokens.' });
+    }
+
+    const { data, error } = await sb.auth.getUser(accessToken);
+    if (error || !data.user) {
+      return res.status(401).json({ error: 'Invalid sign-in session.' });
+    }
+
+    if (!(await isAllowedAuthEmail(data.user.email))) {
+      clearAuthCookies(res);
+      return res.status(403).json({
+        error: data.user.email
+          ? `${data.user.email} is not allowed to sign in.`
+          : 'This Google account is not allowed to sign in.',
+      });
+    }
+
+    setAuthCookies(res, {
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      expires_in: expiresIn,
+    });
+
+    res.json({
+      authenticated: true,
+      email: data.user.email ?? null,
+      isAdmin: await isAuthAdminUser(data.user.email),
+    });
+  } catch (err) {
+    console.error('Auth establish error:', err);
+    res.status(500).json({ error: 'Unable to establish session.' });
+  }
+});
+
+app.get('/api/auth/session', async (req, res) => {
+  try {
+    const resolved = await resolveAuthUserFromRequest(req, res);
+    if (!resolved?.user) {
+      return res.status(401).json({ authenticated: false });
+    }
+    if (!(await isAllowedAuthEmail(resolved.user.email))) {
+      clearAuthCookies(res);
+      return res.status(403).json({ authenticated: false, error: 'Not allowed.' });
+    }
+    res.json({
+      authenticated: true,
+      email: resolved.user.email ?? null,
+      isAdmin: await isAuthAdminUser(resolved.user.email),
+    });
+  } catch (err) {
+    console.error('Auth session error:', err);
+    res.status(500).json({ error: 'Unable to read session.' });
+  }
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  clearAuthCookies(res);
+  res.json({ ok: true });
+});
+
+app.get('/api/auth/admin/status', async (req, res) => {
+  try {
+    const resolved = await resolveAuthUserFromRequest(req, res);
+    if (!resolved?.user?.email) {
+      return res.json({ isAdmin: false, authenticated: false });
+    }
+    if (!(await isAllowedAuthEmail(resolved.user.email))) {
+      clearAuthCookies(res);
+      return res.json({ isAdmin: false, authenticated: false });
+    }
+    res.json({
+      authenticated: true,
+      email: resolved.user.email,
+      isAdmin: await isAuthAdminUser(resolved.user.email),
+    });
+  } catch (err) {
+    console.error('Auth admin status error:', err);
+    res.status(500).json({ error: 'Unable to read admin status.' });
+  }
+});
+
+app.get('/api/auth/admin/allowed-emails', async (req, res) => {
+  try {
+    const admin = await requireAuthAdmin(req, res);
+    if (!admin) return;
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    await ensureAuthAllowedEmailTable(pool);
+    const result = await pool.query(
+      `SELECT id, email, role, created_at, updated_at FROM auth_allowed_email ORDER BY LOWER(email) ASC`
+    );
+    res.json({
+      rows: result.rows,
+      envAdmins: getAuthAdminEmails(),
+      envAllowed: getAllowedAuthEmailsFromEnv(),
+    });
+  } catch (err) {
+    console.error('List allowed emails error:', err);
+    res.status(500).json({ error: 'Failed to load allowed emails.' });
+  }
+});
+
+app.post('/api/auth/admin/allowed-emails', async (req, res) => {
+  try {
+    const admin = await requireAuthAdmin(req, res);
+    if (!admin) return;
+
+    const email = normalizeAuthEmailInput(req.body?.email);
+    if (!email) {
+      return res.status(400).json({ error: 'Enter a valid email address.' });
+    }
+
+    const role = normalizeAuthRole(req.body?.role);
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    await ensureAuthAllowedEmailTable(pool);
+    const result = await pool.query(
+      `INSERT INTO auth_allowed_email (email, role, updated_at)
+       VALUES ($1, $2, CURRENT_TIMESTAMP)
+       ON CONFLICT (email) DO UPDATE
+       SET role = EXCLUDED.role, updated_at = CURRENT_TIMESTAMP
+       RETURNING id, email, role, created_at, updated_at`,
+      [email, role]
+    );
+
+    res.status(201).json({ row: result.rows[0] });
+  } catch (err) {
+    console.error('Add allowed email error:', err);
+    res.status(500).json({ error: 'Failed to add allowed email.' });
+  }
+});
+
+app.delete('/api/auth/admin/allowed-emails/:id', async (req, res) => {
+  try {
+    const admin = await requireAuthAdmin(req, res);
+    if (!admin) return;
+
+    const id = Math.floor(Number(req.params.id));
+    if (!Number.isFinite(id) || id < 1) {
+      return res.status(400).json({ error: 'Invalid id.' });
+    }
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    await ensureAuthAllowedEmailTable(pool);
+    const result = await pool.query(`DELETE FROM auth_allowed_email WHERE id = $1 RETURNING id`, [id]);
+    if (!result.rows.length) {
+      return res.status(404).json({ error: 'Email not found.' });
+    }
+
+    res.json({ ok: true, id: result.rows[0].id });
+  } catch (err) {
+    console.error('Delete allowed email error:', err);
+    res.status(500).json({ error: 'Failed to remove allowed email.' });
+  }
+});
+
+app.patch('/api/auth/admin/allowed-emails/:id', async (req, res) => {
+  try {
+    const admin = await requireAuthAdmin(req, res);
+    if (!admin) return;
+
+    const id = Math.floor(Number(req.params.id));
+    if (!Number.isFinite(id) || id < 1) {
+      return res.status(400).json({ error: 'Invalid id.' });
+    }
+
+    const role = normalizeAuthRole(req.body?.role);
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    await ensureAuthAllowedEmailTable(pool);
+    const result = await pool.query(
+      `UPDATE auth_allowed_email
+       SET role = $2, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1
+       RETURNING id, email, role, created_at, updated_at`,
+      [id, role]
+    );
+    if (!result.rows.length) {
+      return res.status(404).json({ error: 'Email not found.' });
+    }
+
+    res.json({ row: result.rows[0] });
+  } catch (err) {
+    console.error('Update allowed email role error:', err);
+    res.status(500).json({ error: 'Failed to update role.' });
+  }
+});
+
+// Require signed-in allowlisted user for all /api routes below (except PUBLIC_API_ROUTES).
+app.use('/api', apiAuthMiddleware);
 
 const brandTagImageUpload = multer({
   storage: multer.memoryStorage(),
