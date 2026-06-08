@@ -7,7 +7,7 @@ import React, {
   useState,
   type ReactNode,
 } from 'react';
-import { getApiBase } from '../utils/apiBase';
+import { apiFetch } from '../utils/apiBase';
 import '../themes/neon.css';
 import '../themes/vinted.css';
 import '../themes/minimal.css';
@@ -39,7 +39,6 @@ export const COLOR_SCHEME_OPTIONS: Array<{
 ];
 
 const STORAGE_KEY = 'app-color-scheme';
-const API_BASE = getApiBase();
 
 function readStoredScheme(): ColorSchemeId {
   try {
@@ -70,7 +69,13 @@ interface ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
+interface ThemeProviderProps {
+  children: ReactNode;
+  /** When false, skip loading/saving site theme from the API (e.g. before sign-in). */
+  syncWithServer?: boolean;
+}
+
+export function ThemeProvider({ children, syncWithServer = true }: ThemeProviderProps) {
   const [colorScheme, setColorSchemeState] = useState<ColorSchemeId>(readStoredScheme);
   const [themeLoading, setThemeLoading] = useState(true);
   const [themeSaving, setThemeSaving] = useState(false);
@@ -81,10 +86,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [colorScheme]);
 
   useEffect(() => {
+    if (!syncWithServer) {
+      setThemeLoading(false);
+      return undefined;
+    }
     let cancelled = false;
     (async () => {
       try {
-        const response = await fetch(`${API_BASE}/api/settings/site`);
+        const response = await apiFetch('/api/settings/site');
         if (!response.ok) return;
         const data = (await response.json()) as { colorScheme?: string };
         if (cancelled) return;
@@ -100,7 +109,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [syncWithServer]);
 
   const setColorScheme = useCallback(async (scheme: ColorSchemeId) => {
     setThemeError(null);
@@ -109,7 +118,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setColorSchemeState(scheme);
     applyDocumentTheme(scheme);
     try {
-      const response = await fetch(`${API_BASE}/api/settings/site`, {
+      const response = await apiFetch('/api/settings/site', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ colorScheme: scheme }),

@@ -7,7 +7,8 @@ import React, {
   useState,
 } from 'react';
 import { clearAuthSession } from '../utils/authSession';
-import { apiFetch, apiUrl } from '../utils/apiBase';
+import { sameOriginApiFetch, sameOriginApiUrl } from '../utils/apiBase';
+import { ThemeProvider } from '../context/ThemeContext';
 import './AuthGate.css';
 
 interface AuthContextValue {
@@ -66,7 +67,7 @@ const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
   const [error, setError] = useState<string | null>(null);
 
   const loadSession = useCallback(async () => {
-    const response = await apiFetch('/api/auth/session');
+    const response = await sameOriginApiFetch('/api/auth/session');
 
     if (response.status === 401) {
       setUserEmail(null);
@@ -98,7 +99,18 @@ const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
       try {
         const hashTokens = parseAuthHash();
         if (hashTokens.access_token && hashTokens.refresh_token) {
-          const establishResponse = await apiFetch('/api/auth/establish', {
+          const establishKey = `auth-establish:${hashTokens.access_token.slice(0, 24)}`;
+          try {
+            if (sessionStorage.getItem(establishKey) === 'done') {
+              await loadSession();
+              return;
+            }
+            sessionStorage.setItem(establishKey, 'pending');
+          } catch {
+            /* ignore sessionStorage errors */
+          }
+
+          const establishResponse = await sameOriginApiFetch('/api/auth/establish', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -112,15 +124,25 @@ const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
             establishResponse
           );
 
-          window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`);
-
           if (!establishResponse.ok || !establishData.authenticated) {
+            try {
+              sessionStorage.removeItem(establishKey);
+            } catch {
+              /* ignore */
+            }
             if (!cancelled) {
               setError(establishData.error || 'Sign-in failed.');
               setUserEmail(null);
               setIsAdmin(false);
             }
             return;
+          }
+
+          window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`);
+          try {
+            sessionStorage.setItem(establishKey, 'done');
+          } catch {
+            /* ignore */
           }
 
           if (!cancelled) {
@@ -156,7 +178,7 @@ const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
     setIsAdmin(false);
     setError(null);
     try {
-      await apiFetch('/api/auth/logout', { method: 'POST' });
+      await sameOriginApiFetch('/api/auth/logout', { method: 'POST' });
     } catch (err) {
       console.warn('Logout request failed:', err);
     }
@@ -168,7 +190,7 @@ const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
     setSigningIn(true);
     setError(null);
     const returnTo = `${window.location.origin}${window.location.pathname}${window.location.search}`;
-    window.location.href = apiUrl(
+    window.location.href = sameOriginApiUrl(
       `/api/auth/google/start?return_to=${encodeURIComponent(returnTo)}`
     );
   };
@@ -249,7 +271,11 @@ const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
     );
   }
 
-  return <AuthContext.Provider value={authContextValue}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={authContextValue}>
+      <ThemeProvider syncWithServer>{children}</ThemeProvider>
+    </AuthContext.Provider>
+  );
 };
 
 export default AuthGate;

@@ -18,6 +18,22 @@ export const apiUrl = (path: string): string => {
   return base ? `${base}${path}` : path;
 };
 
+/** Auth routes always use the page origin so session cookies stay same-site (Netlify /api proxy). */
+export const sameOriginApiUrl = (path: string): string => {
+  if (typeof window !== 'undefined') {
+    const normalized = path.startsWith('/') ? path : `/${path}`;
+    return `${window.location.origin}${normalized}`;
+  }
+  return apiUrl(path);
+};
+
+export const sameOriginApiFetch = (path: string, init?: RequestInit): Promise<Response> => {
+  return fetch(sameOriginApiUrl(path), {
+    ...init,
+    credentials: 'include',
+  });
+};
+
 /** Authenticated API requests — always sends session cookies (required when API host differs from UI). */
 export const apiFetch = (path: string, init?: RequestInit): Promise<Response> => {
   return fetch(apiUrl(path), {

@@ -453,7 +453,16 @@ function parseCookieHeader(header) {
 
 function authCookieBaseOptions() {
   const secure = process.env.NODE_ENV === 'production' || process.env.AUTH_COOKIE_SECURE === '1';
-  return `Path=/; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
+  // SameSite=None + Secure in production so cookies work when UI and API hosts differ.
+  const sameSite =
+    process.env.AUTH_COOKIE_SAMESITE === 'lax'
+      ? 'Lax'
+      : process.env.AUTH_COOKIE_SAMESITE === 'strict'
+        ? 'Strict'
+        : secure
+          ? 'None'
+          : 'Lax';
+  return `Path=/; HttpOnly; SameSite=${sameSite}${secure ? '; Secure' : ''}`;
 }
 
 function setAuthCookies(res, session) {
