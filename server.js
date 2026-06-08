@@ -466,6 +466,13 @@ function authCookieBaseOptions() {
   return `Path=/; HttpOnly; SameSite=${sameSite}${secure ? '; Secure' : ''}`;
 }
 
+function getAuthSessionMaxAgeSeconds() {
+  const daysRaw = process.env.AUTH_SESSION_MAX_AGE_DAYS;
+  const days = daysRaw != null && String(daysRaw).trim() !== '' ? Number(daysRaw) : 365;
+  if (!Number.isFinite(days) || days < 1) return 60 * 60 * 24 * 365;
+  return Math.floor(days * 24 * 60 * 60);
+}
+
 function readAuthTokensFromCookies(req) {
   const cookies = parseCookieHeader(req.headers.cookie);
   const bundled = cookies.rbauth || '';
@@ -492,11 +499,11 @@ function setAuthCookies(res, session) {
   if (!accessToken || !refreshToken) {
     throw new Error('Missing auth tokens');
   }
-  const maxAgeRefresh = 60 * 60 * 24 * 30;
+  const maxAgeSeconds = getAuthSessionMaxAgeSeconds();
   const base = authCookieBaseOptions();
   const payload = encodeURIComponent(JSON.stringify({ a: accessToken, r: refreshToken }));
   // Single Set-Cookie — some proxies (Netlify → Render) drop additional Set-Cookie headers.
-  res.setHeader('Set-Cookie', `rbauth=${payload}; Max-Age=${maxAgeRefresh}; ${base}`);
+  res.setHeader('Set-Cookie', `rbauth=${payload}; Max-Age=${maxAgeSeconds}; ${base}`);
   res.setHeader('Cache-Control', 'no-store');
 }
 
