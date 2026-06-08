@@ -21,9 +21,12 @@ const PORT = process.env.PORT || 5003;
 
 const authAllowedOrigins = new Set(
   [
-    process.env.FRONTEND_DEV_ORIGIN || 'http://localhost:3000',
-    process.env.FRONTEND_DEV_ORIGIN_ALT || 'http://localhost:3001',
     ...(process.env.AUTH_ALLOWED_ORIGINS || '').split(','),
+    process.env.FRONTEND_DEV_ORIGIN,
+    process.env.FRONTEND_DEV_ORIGIN_ALT,
+    ...(process.env.NODE_ENV === 'production'
+      ? []
+      : ['http://localhost:3000', 'http://localhost:3001']),
   ]
     .map((value) => String(value || '').trim().replace(/\/$/, ''))
     .filter(Boolean)
@@ -477,7 +480,26 @@ function clearAuthCookies(res) {
 }
 
 function getDefaultFrontendOrigin() {
+  const prodOrigins = (process.env.AUTH_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((value) => String(value || '').trim().replace(/\/$/, ''))
+    .filter(Boolean);
+  if (prodOrigins.length) return prodOrigins[0];
   return (process.env.FRONTEND_DEV_ORIGIN || 'http://localhost:3000').replace(/\/$/, '');
+}
+
+function getFrontendOriginFromRequest(req) {
+  const candidates = [req.get('origin'), req.get('referer')].filter(Boolean);
+  for (const raw of candidates) {
+    try {
+      const url = new URL(raw);
+      const origin = url.origin.replace(/\/$/, '');
+      if (authAllowedOrigins.has(origin)) return origin;
+    } catch {
+      /* ignore invalid origin/referer */
+    }
+  }
+  return null;
 }
 
 function sanitizeAuthReturnTo(raw) {
@@ -529,7 +551,20 @@ app.get('/api/auth/google/start', async (req, res) => {
       return res.status(503).type('text/plain').send('Supabase auth is not configured on the server.');
     }
 
-    const returnTo = sanitizeAuthReturnTo(req.query.return_to) || getDefaultFrontendOrigin();
+    const returnTo =
+      sanitizeAuthReturnTo(req.query.return_to) ||
+      getFrontendOriginFromRequest(req) ||
+      getDefaultFrontendOrigin();
+
+    if (!sanitizeAuthReturnTo(req.query.return_to) && req.query.return_to) {
+      console.warn(
+        '[auth] return_to rejected:',
+        String(req.query.return_to).slice(0, 120),
+        'using',
+        returnTo
+      );
+    }
+
     const { data, error } = await sb.auth.signInWithOAuth({
       provider: 'google',
       options: {
