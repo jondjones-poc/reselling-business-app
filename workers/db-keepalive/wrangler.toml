@@ -1,16 +1,18 @@
-# Cloudflare Worker: scheduled fetch to your API /api/db-ping (keeps Supabase Postgres warm).
+# Cloudflare Worker: scheduled fetch to Render /api/db-keepalive (Postgres SELECT 1 via Supabase).
 # Deploy: cd workers/db-keepalive && npx wrangler@3 deploy
-# Secrets: npx wrangler@3 secret put DB_KEEPALIVE_SECRET   (must match server DB_KEEPALIVE_SECRET)
-# Vars:   npx wrangler@3 secret put KEEPALIVE_URL   OR set [vars] below for non-secret URL only
+# Secrets: npx wrangler@3 secret put DB_KEEPALIVE_SECRET   (must match Render DB_KEEPALIVE_SECRET)
+# Vars:    KEEPALIVE_URL below (public Render URL)
 
 name = "reselling-db-keepalive"
 main = "src/index.js"
 compatibility_date = "2025-01-01"
 
-# Twice weekly UTC — enough for Supabase ~7-day pause window; edit if you prefer daily.
+# Free-tier schedule (Cloudflare Workers cron + Render 750 h/mo):
+# - Every 14 min during 06:00–22:59 UTC (~510 Render instance-hours/mo, under 750 free cap)
+# - Beats Render's ~15 min idle spin-down so the API stays warm while you're likely awake (UK/EU)
+# - Hits Supabase many times daily (well inside the ~7-day free pause window)
 [triggers]
-crons = ["0 8 * * 1", "0 8 * * 4"]
+crons = ["*/14 6-22 * * *"]
 
-# Public URL only (no secrets). Example:
-# [vars]
-# KEEPALIVE_URL = "https://your-api.example.com/api/db-keepalive"
+[vars]
+KEEPALIVE_URL = "https://reselling-business-app.onrender.com/api/db-keepalive"

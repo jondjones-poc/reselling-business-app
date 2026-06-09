@@ -17,7 +17,9 @@ This worker **calls that URL on a schedule** so something hits the DB even when 
 
 Only add vars to **Netlify** if you actually **call** `/api/db-ping` from a Netlify Function (unusual). Do **not** put `DB_KEEPALIVE_SECRET` in `REACT_APP_*` — that would expose it in the browser bundle.
 
-**Render free tier:** the worker’s scheduled `fetch` also wakes a sleeping Render instance before `SELECT 1` runs; the first cron hit after idle may take a bit longer (cold start).
+**Render free tier:** the worker pings every **14 minutes** during **06:00–22:59 UTC** so Render stays awake in that window (~510 instance-hours/month, under the **750 h/mo** free cap). Outside those hours Render may sleep (no extra cost). Each ping also runs `SELECT 1` on Supabase (many times daily — well inside the ~7-day free pause window).
+
+**Cloudflare free tier:** ~75 cron runs/day × 30 ≈ 2,250 Worker invocations/month — negligible vs the free request allowance.
 
 ## Why Cloudflare Worker (vs Netlify scheduled function)?
 
@@ -83,7 +85,7 @@ That hits your **API** directly (same as the worker).
 
 ### Cron schedule
 
-Default: **Monday and Thursday 08:00 UTC** (`wrangler.toml` `[triggers].crons`). Adjust if you want daily pings.
+Default: **every 14 minutes, 06:00–22:59 UTC** (`*/14 6-22 * * *` in `wrangler.toml`). Keeps Render warm during waking hours on the free tier without exceeding **750 instance-hours/month**. Edit if you want 24/7 warmth (`*/14 * * * *`, ~720 h/mo — still free but tighter).
 
 ## Netlify alternative (outline)
 

@@ -383,29 +383,39 @@ async function isAllowedAuthEmail(email) {
 
 async function requireAuthAdmin(req, res) {
   const resolved = await resolveAuthUserFromRequest(req, res);
-  if (!resolved?.user?.email) {
+  if (resolved.kind === 'transient') {
+    respondAuthTransientUnavailable(res);
+    return null;
+  }
+  const user = getAuthUserFromResolve(resolved);
+  if (!user?.email) {
     res.status(401).json({ error: 'Sign in required.' });
     return null;
   }
-  if (!(await isAuthAdminUser(resolved.user.email))) {
+  if (!(await isAuthAdminUser(user.email))) {
     res.status(403).json({ error: 'Admin access required.' });
     return null;
   }
-  return resolved.user;
+  return user;
 }
 
 async function requireAuthUser(req, res) {
   const resolved = await resolveAuthUserFromRequest(req, res);
-  if (!resolved?.user?.email) {
+  if (resolved.kind === 'transient') {
+    respondAuthTransientUnavailable(res);
+    return null;
+  }
+  const user = getAuthUserFromResolve(resolved);
+  if (!user?.email) {
     res.status(401).json({ error: 'Sign in required.' });
     return null;
   }
-  if (!(await isAllowedAuthEmail(resolved.user.email))) {
+  if (!(await isAllowedAuthEmail(user.email))) {
     clearAuthCookies(res);
     res.status(403).json({ error: 'Not allowed to access this application.' });
     return null;
   }
-  return resolved.user;
+  return user;
 }
 
 const PUBLIC_API_ROUTES = new Set([
@@ -516,6 +526,109 @@ function clearAuthCookies(res) {
   ]);
 }
 
+function isTransientAuthError(err) {
+  if (!err) return false;
+  const causeCode = err?.cause?.code || err?.code;
+  if (
+    causeCode === 'ECONNRESET' ||
+    causeCode === 'ETIMEDOUT' ||
+    causeCode === 'ENOTFOUND' ||
+    causeCode === 'EAI_AGAIN' ||
+    causeCode === 'ECONNREFUSED'
+  ) {
+    return true;
+  }
+  const msg = String(err?.message || err).toLowerCase();
+  if (/fetch failed|network|timeout|socket hang up|aborted|econnreset|etimedout/.test(msg)) {
+    return true;
+  }
+  const status = Number(err?.status ?? err?.statusCode);
+  return Number.isFinite(status) && status >= 500;
+}
+
+function isDefinitiveAuthTokenError(err) {
+  if (!err) return false;
+  const msg = String(err?.message || err).toLowerCase();
+  const code = String(err?.code ?? err?.error_code ?? '').toLowerCase();
+  if (code === 'invalid_grant' || code === 'refresh_token_not_found' || code === 'session_not_found') {
+    return true;
+  }
+  return /invalid refresh token|refresh token not found|invalid grant|token has been revoked|user not found/.test(
+    msg
+  );
+}
+
+async function resolveAuthUserFromRequest(req, res) {
+  const sb = getSupabaseAdmin();
+  if (!sb) return { kind: 'none' };
+
+  const { accessToken, refreshToken } = readAuthTokensFromCookies(req);
+  if (!accessToken && !refreshToken) return { kind: 'none' };
+
+  if (accessToken) {
+    try {
+      const { data, error } = await sb.auth.getUser(accessToken);
+      if (!error && data.user) {
+        return { kind: 'ok', user: data.user, session: null };
+      }
+      if (error) {
+        if (isTransientAuthError(error)) return { kind: 'transient' };
+        if (!refreshToken) {
+          clearAuthCookies(res);
+          return { kind: 'none' };
+        }
+      }
+    } catch (err) {
+      if (isTransientAuthError(err)) return { kind: 'transient' };
+      if (!refreshToken) {
+        clearAuthCookies(res);
+        return { kind: 'none' };
+      }
+    }
+  }
+
+  if (refreshToken) {
+    try {
+      const { data, error } = await sb.auth.refreshSession({ refresh_token: refreshToken });
+      if (!error && data.session?.user) {
+        setAuthCookies(res, data.session);
+        return { kind: 'ok', user: data.session.user, session: data.session };
+      }
+      if (error) {
+        if (isDefinitiveAuthTokenError(error)) {
+          clearAuthCookies(res);
+          return { kind: 'none' };
+        }
+        if (isTransientAuthError(error)) return { kind: 'transient' };
+        console.warn('[auth] refresh failed (keeping session cookie):', error.message);
+        return { kind: 'transient' };
+      }
+    } catch (err) {
+      if (isDefinitiveAuthTokenError(err)) {
+        clearAuthCookies(res);
+        return { kind: 'none' };
+      }
+      console.warn('[auth] refresh error (keeping session cookie):', err?.message || err);
+      return { kind: 'transient' };
+    }
+  }
+
+  clearAuthCookies(res);
+  return { kind: 'none' };
+}
+
+function getAuthUserFromResolve(resolved) {
+  return resolved?.kind === 'ok' ? resolved.user : null;
+}
+
+function respondAuthTransientUnavailable(res) {
+  res.status(503).json({
+    error: 'Auth service temporarily unavailable. Retry shortly.',
+    retry: true,
+    transient: true,
+  });
+}
+
 function getDefaultFrontendOrigin() {
   const prodOrigins = (process.env.AUTH_ALLOWED_ORIGINS || '')
     .split(',')
@@ -552,31 +665,6 @@ function sanitizeAuthReturnTo(raw) {
   } catch {
     return null;
   }
-}
-
-async function resolveAuthUserFromRequest(req, res) {
-  const sb = getSupabaseAdmin();
-  if (!sb) return null;
-
-  const { accessToken, refreshToken } = readAuthTokensFromCookies(req);
-
-  if (accessToken) {
-    const { data, error } = await sb.auth.getUser(accessToken);
-    if (!error && data.user) {
-      return { user: data.user, session: null };
-    }
-  }
-
-  if (refreshToken) {
-    const { data, error } = await sb.auth.refreshSession({ refresh_token: refreshToken });
-    if (!error && data.session?.user) {
-      setAuthCookies(res, data.session);
-      return { user: data.session.user, session: data.session };
-    }
-  }
-
-  clearAuthCookies(res);
-  return null;
 }
 
 app.get('/api/auth/google/start', async (req, res) => {
@@ -673,7 +761,14 @@ app.get('/api/auth/session', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   try {
     const resolved = await resolveAuthUserFromRequest(req, res);
-    if (!resolved?.user) {
+    if (resolved.kind === 'transient') {
+      return res.status(503).json({
+        authenticated: false,
+        transient: true,
+        error: 'Auth service temporarily unavailable. Retry shortly.',
+      });
+    }
+    if (resolved.kind !== 'ok' || !resolved.user) {
       return res.status(401).json({ authenticated: false });
     }
     if (!(await isAllowedAuthEmail(resolved.user.email))) {
@@ -699,7 +794,15 @@ app.post('/api/auth/logout', (req, res) => {
 app.get('/api/auth/admin/status', async (req, res) => {
   try {
     const resolved = await resolveAuthUserFromRequest(req, res);
-    if (!resolved?.user?.email) {
+    if (resolved.kind === 'transient') {
+      return res.status(503).json({
+        authenticated: false,
+        isAdmin: false,
+        transient: true,
+        error: 'Auth service temporarily unavailable. Retry shortly.',
+      });
+    }
+    if (resolved.kind !== 'ok' || !resolved.user?.email) {
       return res.json({ isAdmin: false, authenticated: false });
     }
     if (!(await isAllowedAuthEmail(resolved.user.email))) {

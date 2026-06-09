@@ -59,6 +59,13 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
   }
 }
 
+const SESSION_RETRY_ATTEMPTS = 5;
+const SESSION_RETRY_BASE_MS = 1500;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -66,30 +73,54 @@ const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loadSession = useCallback(async () => {
-    const response = await sameOriginApiFetch('/api/auth/session');
+  const loadSession = useCallback(async (): Promise<boolean> => {
+    for (let attempt = 0; attempt < SESSION_RETRY_ATTEMPTS; attempt++) {
+      const response = await sameOriginApiFetch('/api/auth/session');
 
-    if (response.status === 401) {
-      setUserEmail(null);
-      setIsAdmin(false);
-      return false;
+      if (response.status === 503) {
+        let transient = false;
+        try {
+          const data = await readJsonResponse<{ transient?: boolean }>(response);
+          transient = Boolean(data.transient);
+        } catch {
+          transient = true;
+        }
+        if (transient && attempt < SESSION_RETRY_ATTEMPTS - 1) {
+          await sleep(SESSION_RETRY_BASE_MS * (attempt + 1));
+          continue;
+        }
+        setError('Session check temporarily unavailable. Please try again in a moment.');
+        return false;
+      }
+
+      if (response.status === 401) {
+        setUserEmail(null);
+        setIsAdmin(false);
+        return false;
+      }
+
+      const data = await readJsonResponse<{
+        authenticated?: boolean;
+        email?: string | null;
+        error?: string;
+        isAdmin?: boolean;
+      }>(response);
+
+      if (!response.ok || !data.authenticated) {
+        setUserEmail(null);
+        setIsAdmin(false);
+        if (data.error) setError(data.error);
+        return false;
+      }
+
+      setUserEmail(data.email ?? null);
+      setIsAdmin(Boolean(data.isAdmin));
+      setError(null);
+      return true;
     }
 
-    const data = await readJsonResponse<{ authenticated?: boolean; email?: string | null; error?: string; isAdmin?: boolean }>(
-      response
-    );
-
-    if (!response.ok || !data.authenticated) {
-      setUserEmail(null);
-      setIsAdmin(false);
-      if (data.error) setError(data.error);
-      return false;
-    }
-
-    setUserEmail(data.email ?? null);
-    setIsAdmin(Boolean(data.isAdmin));
-    setError(null);
-    return true;
+    setError('Session check temporarily unavailable. Please try again in a moment.');
+    return false;
   }, []);
 
   useEffect(() => {
