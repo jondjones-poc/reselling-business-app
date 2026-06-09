@@ -661,6 +661,8 @@ function sanitizeAuthReturnTo(raw) {
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
     const origin = url.origin.replace(/\/$/, '');
     if (!authAllowedOrigins.has(origin)) return null;
+    // OAuth must land on the SPA (hash tokens), never an API route — otherwise google/start loops.
+    if (url.pathname.startsWith('/api/')) return null;
     return `${url.origin}${url.pathname}${url.search}`;
   } catch {
     return null;

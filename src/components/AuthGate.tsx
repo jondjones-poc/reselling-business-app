@@ -66,6 +66,15 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Post-OAuth landing URL — must be a frontend route (SPA reads #access_token), never /api/*. */
+function getOAuthReturnTo(): string {
+  const { origin, pathname, search } = window.location;
+  if (pathname.startsWith('/api/')) {
+    return `${origin}/`;
+  }
+  return `${origin}${pathname}${search}`;
+}
+
 const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -199,7 +208,7 @@ const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
   const handleGoogleSignIn = () => {
     setSigningIn(true);
     setError(null);
-    const returnTo = `${window.location.origin}${window.location.pathname}${window.location.search}`;
+    const returnTo = getOAuthReturnTo();
     window.location.href = sameOriginApiUrl(
       `/api/auth/google/start?return_to=${encodeURIComponent(returnTo)}`
     );
