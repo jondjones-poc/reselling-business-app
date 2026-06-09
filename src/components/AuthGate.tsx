@@ -7,7 +7,7 @@ import React, {
   useState,
 } from 'react';
 import { clearAuthSession } from '../utils/authSession';
-import { sameOriginApiFetch, sameOriginApiUrl } from '../utils/apiBase';
+import { sameOriginApiFetch, authFlowApiUrl } from '../utils/apiBase';
 import { ThemeProvider } from '../context/ThemeContext';
 import './AuthGate.css';
 
@@ -66,13 +66,9 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Post-OAuth landing URL — must be a frontend route (SPA reads #access_token), never /api/*. */
+/** Post-OAuth landing URL — always app root so hash tokens are read by the SPA. */
 function getOAuthReturnTo(): string {
-  const { origin, pathname, search } = window.location;
-  if (pathname.startsWith('/api/')) {
-    return `${origin}/`;
-  }
-  return `${origin}${pathname}${search}`;
+  return `${window.location.origin}/`;
 }
 
 const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
@@ -130,6 +126,13 @@ const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
 
     setError('Session check temporarily unavailable. Please try again in a moment.');
     return false;
+  }, []);
+
+  useEffect(() => {
+    const { pathname, hash, origin } = window.location;
+    if (pathname.startsWith('/api/')) {
+      window.location.replace(`${origin}${hash || '/'}`);
+    }
   }, []);
 
   useEffect(() => {
@@ -209,7 +212,7 @@ const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
     setSigningIn(true);
     setError(null);
     const returnTo = getOAuthReturnTo();
-    window.location.href = sameOriginApiUrl(
+    window.location.href = authFlowApiUrl(
       `/api/auth/google/start?return_to=${encodeURIComponent(returnTo)}`
     );
   };

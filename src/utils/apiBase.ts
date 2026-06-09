@@ -18,6 +18,25 @@ export const apiUrl = (path: string): string => {
   return base ? `${base}${path}` : path;
 };
 
+/** Direct API origin for full-page navigations (OAuth redirects). CRA dev server serves index.html for browser GET /api/* instead of proxying. */
+export const getAuthFlowApiOrigin = (): string => {
+  if (process.env.NODE_ENV === 'development' && typeof window !== 'undefined') {
+    const fromEnv = (process.env.REACT_APP_API_BASE || '').trim().replace(/\/$/, '');
+    if (fromEnv) return fromEnv;
+    return `http://localhost:${process.env.REACT_APP_API_PORT || '5003'}`;
+  }
+  return typeof window !== 'undefined' ? window.location.origin : '';
+};
+
+/** OAuth / full-page API URLs — use API host in dev, same-origin in production. */
+export const authFlowApiUrl = (path: string): string => {
+  const normalized = path.startsWith('/') ? path : `/${path}`;
+  if (process.env.NODE_ENV === 'development' && typeof window !== 'undefined') {
+    return `${getAuthFlowApiOrigin()}${normalized}`;
+  }
+  return sameOriginApiUrl(normalized);
+};
+
 /** Browser requests to /api/* on the current site (Netlify proxy → Render). Sends session cookies. */
 export const sameOriginApiUrl = (path: string): string => {
   if (typeof window !== 'undefined') {
@@ -49,5 +68,5 @@ export const apiFetch = (path: string, init?: RequestInit): Promise<Response> =>
 export const ebayOAuthStartUrl = (returnPath = '/orders?tab=sales'): string => {
   if (typeof window === 'undefined') return '/api/ebay/oauth/start';
   const returnTo = `${window.location.origin}${returnPath.startsWith('/') ? returnPath : `/${returnPath}`}`;
-  return `${window.location.origin}/api/ebay/oauth/start?return_to=${encodeURIComponent(returnTo)}`;
+  return authFlowApiUrl(`/api/ebay/oauth/start?return_to=${encodeURIComponent(returnTo)}`);
 };

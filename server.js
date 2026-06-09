@@ -26,7 +26,7 @@ const authAllowedOrigins = new Set(
     process.env.FRONTEND_DEV_ORIGIN_ALT,
     ...(process.env.NODE_ENV === 'production'
       ? []
-      : ['http://localhost:3000', 'http://localhost:3001']),
+      : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:5003']),
   ]
     .map((value) => String(value || '').trim().replace(/\/$/, ''))
     .filter(Boolean)
