@@ -30,6 +30,16 @@ interface ResearchResult {
 
 const API_BASE = getApiBase();
 
+/** eBay UK Men's Clothing — matches server EBAY_BROWSE_CATEGORY_IDS default. */
+const EBAY_UK_MENS_CLOTHING_CATEGORY = '260012';
+
+function buildEbayUkSearchUrl(encodedSearch: string, opts: { sold: boolean; includeMens: boolean }): string {
+  const categoryPath = opts.includeMens ? `/sch/${EBAY_UK_MENS_CLOTHING_CATEGORY}` : '/sch';
+  const fromCategory = opts.includeMens ? '&_from=R40' : '';
+  const soldParams = opts.sold ? '&LH_Sold=1&LH_Complete=1' : '';
+  return `https://www.ebay.co.uk${categoryPath}/i.html?_nkw=${encodedSearch}${fromCategory}&rt=nc${soldParams}&LH_PrefLoc=1`;
+}
+
 const EbaySearch: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showScanner, setShowScanner] = useState(false);
@@ -558,8 +568,8 @@ const EbaySearch: React.FC = () => {
       console.warn('Unable to persist search term to localStorage:', storageError);
     }
     const encodedSearch = encodeURIComponent(combinedSearchTerm);
-    const soldUrl = `https://www.ebay.co.uk/sch/260012/i.html?_nkw=${encodedSearch}&_from=R40&rt=nc&LH_Sold=1&LH_Complete=1&LH_PrefLoc=1`;
-    
+    const soldUrl = buildEbayUkSearchUrl(encodedSearch, { sold: true, includeMens });
+
     // Open sold URL directly in new tab
     window.open(soldUrl, '_blank');
   };
@@ -593,9 +603,8 @@ const EbaySearch: React.FC = () => {
       console.warn('Unable to persist search term to localStorage:', storageError);
     }
     const encodedSearch = encodeURIComponent(combinedSearchTerm);
-    // Only build active URL - no sold/completed filters
-    const activeUrl = `https://www.ebay.co.uk/sch/260012/i.html?_nkw=${encodedSearch}&_from=R40&rt=nc&LH_PrefLoc=1`;
-    
+    const activeUrl = buildEbayUkSearchUrl(encodedSearch, { sold: false, includeMens });
+
     // Open active URL directly in new tab
     window.open(activeUrl, '_blank');
   };

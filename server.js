@@ -479,8 +479,9 @@ function authCookieBaseOptions() {
 function getAuthSessionMaxAgeSeconds() {
   const daysRaw = process.env.AUTH_SESSION_MAX_AGE_DAYS;
   const days = daysRaw != null && String(daysRaw).trim() !== '' ? Number(daysRaw) : 365;
-  if (!Number.isFinite(days) || days < 1) return 60 * 60 * 24 * 365;
-  return Math.floor(days * 24 * 60 * 60);
+  const effectiveDays = Number.isFinite(days) && days >= 1 ? days : 365;
+  // At least 30 days so users stay signed in across typical usage.
+  return Math.floor(Math.max(30, effectiveDays) * 24 * 60 * 60);
 }
 
 function readAuthTokensFromCookies(req) {
@@ -776,6 +777,10 @@ app.get('/api/auth/session', async (req, res) => {
     if (!(await isAllowedAuthEmail(resolved.user.email))) {
       clearAuthCookies(res);
       return res.status(403).json({ authenticated: false, error: 'Not allowed.' });
+    }
+    const { accessToken, refreshToken } = readAuthTokensFromCookies(req);
+    if (accessToken && refreshToken) {
+      setAuthCookies(res, { access_token: accessToken, refresh_token: refreshToken });
     }
     res.json({
       authenticated: true,
@@ -2280,6 +2285,10 @@ function parseEbayQueryBool(val, defaultValue) {
 /** eBay UK Men's Clothing — same as ebay.co.uk/sch/260012. Override with EBAY_BROWSE_CATEGORY_IDS (single id). */
 const EBAY_GB_MENS_CLOTHING_CATEGORY_ID = (process.env.EBAY_BROWSE_CATEGORY_IDS || '260012').trim();
 
+function ebayBrowseCategoryIdsForAppendMens(appendMens) {
+  return appendMens ? EBAY_GB_MENS_CLOTHING_CATEGORY_ID : null;
+}
+
 /**
  * @param {object} opts
  * @param {string} opts.query
@@ -2479,7 +2488,13 @@ app.get('/api/ebay/search', async (req, res) => {
       const phraseWrap = parseEbayQueryBool(req.query.phraseWrap, false);
       const appendMens = parseEbayQueryBool(req.query.appendMens, true);
       const qAugmented = augmentEbaySearchQuery(q, { phraseWrap, appendMens });
-      const data = await getBrowseSearch({ query: qAugmented, accessToken, limit, sort });
+      const data = await getBrowseSearch({
+        query: qAugmented,
+        accessToken,
+        limit,
+        sort,
+        categoryIds: ebayBrowseCategoryIdsForAppendMens(appendMens),
+      });
       res.json(data);
     } catch (error) {
       return res.status(500).json({ error: 'Internal server error', details: error.message });
@@ -2512,13 +2527,15 @@ app.get('/api/ebay/research', async (req, res) => {
     const phraseWrap = parseEbayQueryBool(req.query.phraseWrap, false);
     const appendMens = parseEbayQueryBool(req.query.appendMens, true);
     const qAugmented = augmentEbaySearchQuery(q, { phraseWrap, appendMens });
+    const browseCategoryIds = ebayBrowseCategoryIdsForAppendMens(appendMens);
     // Get active listings from last month
     // For research, always filter to last 30 days
     const browseData = await getBrowseSearch({ 
       query: qAugmented, 
       accessToken, 
       limit: '50',
-      lastMonthOnly: true // Always filter to last 30 days for research
+      lastMonthOnly: true, // Always filter to last 30 days for research
+      categoryIds: browseCategoryIds,
     });
     const activeCount = typeof browseData.total === 'number'
       ? browseData.total
@@ -2541,7 +2558,8 @@ app.get('/api/ebay/research', async (req, res) => {
         limit: '50',
         sort: '-price',
         soldOnly: true,
-        lastMonthOnly: true // Always filter to last 30 days for research
+        lastMonthOnly: true, // Always filter to last 30 days for research
+        categoryIds: browseCategoryIds,
       });
       
       // Extract sold count from Browse API response

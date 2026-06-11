@@ -61,6 +61,10 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
 
 const SESSION_RETRY_ATTEMPTS = 5;
 const SESSION_RETRY_BASE_MS = 1500;
+/** Refresh session before Supabase access tokens typically expire (~1h). */
+const SESSION_REFRESH_INTERVAL_MS = 45 * 60 * 1000;
+
+type LoadSessionResult = 'ok' | 'none' | 'transient';
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -77,8 +81,9 @@ const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
   const [authReady, setAuthReady] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sessionTransient, setSessionTransient] = useState(false);
 
-  const loadSession = useCallback(async (): Promise<boolean> => {
+  const loadSession = useCallback(async (): Promise<LoadSessionResult> => {
     for (let attempt = 0; attempt < SESSION_RETRY_ATTEMPTS; attempt++) {
       const response = await sameOriginApiFetch('/api/auth/session');
 
@@ -95,13 +100,13 @@ const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
           continue;
         }
         setError('Session check temporarily unavailable. Please try again in a moment.');
-        return false;
+        return 'transient';
       }
 
       if (response.status === 401) {
         setUserEmail(null);
         setIsAdmin(false);
-        return false;
+        return 'none';
       }
 
       const data = await readJsonResponse<{
@@ -115,17 +120,18 @@ const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
         setUserEmail(null);
         setIsAdmin(false);
         if (data.error) setError(data.error);
-        return false;
+        return 'none';
       }
 
       setUserEmail(data.email ?? null);
       setIsAdmin(Boolean(data.isAdmin));
       setError(null);
-      return true;
+      setSessionTransient(false);
+      return 'ok';
     }
 
     setError('Session check temporarily unavailable. Please try again in a moment.');
-    return false;
+    return 'transient';
   }, []);
 
   useEffect(() => {
@@ -175,7 +181,10 @@ const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
           return;
         }
 
-        await loadSession();
+        const sessionResult = await loadSession();
+        if (!cancelled && sessionResult === 'transient') {
+          setSessionTransient(true);
+        }
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : 'Unable to check sign-in status.');
@@ -194,17 +203,51 @@ const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
     };
   }, [loadSession]);
 
+  useEffect(() => {
+    if (!userEmail) return undefined;
+
+    const refreshSession = () => {
+      void loadSession();
+    };
+
+    const intervalId = window.setInterval(refreshSession, SESSION_REFRESH_INTERVAL_MS);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshSession();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [userEmail, loadSession]);
+
   const logout = useCallback(async () => {
     clearAuthSession();
     setUserEmail(null);
     setIsAdmin(false);
     setError(null);
+    setSessionTransient(false);
     try {
       await sameOriginApiFetch('/api/auth/logout', { method: 'POST' });
     } catch (err) {
       console.warn('Logout request failed:', err);
     }
   }, []);
+
+  const handleRetrySession = () => {
+    setError(null);
+    setSessionTransient(false);
+    setAuthReady(false);
+    void loadSession().then((result) => {
+      if (result === 'transient') {
+        setSessionTransient(true);
+      }
+      setAuthReady(true);
+    });
+  };
 
   const authContextValue = useMemo(() => ({ logout, userEmail, isAdmin }), [logout, userEmail, isAdmin]);
 
@@ -223,6 +266,19 @@ const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
         <div className="auth-loading" role="status" aria-live="polite">
           <span className="auth-loading__spinner" aria-hidden />
           Loading…
+        </div>
+      </div>
+    );
+  }
+
+  if (!userEmail && sessionTransient) {
+    return (
+      <div className="auth-gate auth-gate--loading">
+        <div className="auth-loading" role="status" aria-live="polite">
+          <p>{error || 'Session check temporarily unavailable.'}</p>
+          <button type="button" className="auth-button" onClick={handleRetrySession}>
+            Retry
+          </button>
         </div>
       </div>
     );

@@ -14,7 +14,7 @@ import { pingDatabase } from './utils/dbPing';
 import './App.css';
 
 const navItems = [
-  { to: '/', label: 'Scouting', end: true },
+  { to: '/', label: 'Pricing', end: true },
   { to: '/stock', label: 'Stock' },
   { to: '/orders', label: 'Orders' },
   { to: '/reporting', label: 'Reporting' },
@@ -147,7 +147,7 @@ function App() {
                 end
                 className={({ isActive }) => navLinkClassName(isActive, 'nav-mobile-home')}
               >
-                Scouting
+                Pricing
               </NavLink>
               <button
                 type="button"
