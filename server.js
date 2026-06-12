@@ -2599,6 +2599,244 @@ app.get('/api/ebay/research', async (req, res) => {
   }
 });
 
+/** eBay UK niche explorer — taxonomy cache + Browse sold/active scores per category. */
+const EBAY_NICHE_SCORE_CACHE_MS = 24 * 60 * 60 * 1000;
+const EBAY_TAXONOMY_DISK_CACHE_PATH = path.join(__dirname, 'cache', 'ebay-uk-top-categories.json');
+const ebayNicheScoreCache = new Map();
+
+/** Business department name (lowercase) → eBay UK category id to highlight in niche grid. */
+const DEPARTMENT_EBAY_HIGHLIGHT_CATEGORY = {
+  menswear: '11450',
+  womenswear: '11450',
+  electronics: '293',
+  media: '267',
+  toys: '220',
+  'bric-a-brac': '1',
+};
+
+async function fetchEbayTaxonomyJson(url, accessToken) {
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json',
+      'Accept-Encoding': 'gzip',
+    },
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`eBay Taxonomy ${response.status}: ${text.slice(0, 400)}`);
+  }
+  return JSON.parse(text);
+}
+
+async function getEbayUkCategoryTreeId(accessToken) {
+  const data = await fetchEbayTaxonomyJson(
+    'https://api.ebay.com/commerce/taxonomy/v1/get_default_category_tree_id?marketplace_id=EBAY_GB',
+    accessToken
+  );
+  const treeId = data?.categoryTreeId != null ? String(data.categoryTreeId) : '';
+  if (!treeId) throw new Error('eBay taxonomy: missing categoryTreeId for EBAY_GB');
+  return treeId;
+}
+
+function parseTaxonomyTopLevelCards(treePayload) {
+  const root = treePayload?.rootCategoryNode;
+  const children = Array.isArray(root?.childCategoryTreeNodes) ? root.childCategoryTreeNodes : [];
+  return children
+    .map((node) => {
+      const cat = node?.category;
+      const id = cat?.categoryId != null ? String(cat.categoryId) : '';
+      const name = cat?.categoryName != null ? String(cat.categoryName).trim() : '';
+      if (!id || !name) return null;
+      const subNodes = Array.isArray(node.childCategoryTreeNodes) ? node.childCategoryTreeNodes : [];
+      const subcategories = subNodes
+        .map((sub) => {
+          const sc = sub?.category;
+          const sid = sc?.categoryId != null ? String(sc.categoryId) : '';
+          const sname = sc?.categoryName != null ? String(sc.categoryName).trim() : '';
+          return sid && sname ? { id: sid, name: sname } : null;
+        })
+        .filter(Boolean)
+        .slice(0, 12);
+      return { id, name, subcategories };
+    })
+    .filter(Boolean);
+}
+
+async function loadEbayUkTopCategories(accessToken) {
+  try {
+    const raw = await fs.promises.readFile(EBAY_TAXONOMY_DISK_CACHE_PATH, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (parsed?.cards?.length && parsed.fetchedAt && Date.now() - parsed.fetchedAt < 7 * 24 * 60 * 60 * 1000) {
+      return parsed;
+    }
+  } catch {
+    /* refresh */
+  }
+
+  const treeId = await getEbayUkCategoryTreeId(accessToken);
+  const treePayload = await fetchEbayTaxonomyJson(
+    `https://api.ebay.com/commerce/taxonomy/v1/category_tree/${encodeURIComponent(treeId)}`,
+    accessToken
+  );
+  const cards = parseTaxonomyTopLevelCards(treePayload);
+  const payload = {
+    treeId,
+    version: treePayload?.categoryTreeVersion ?? null,
+    fetchedAt: Date.now(),
+    cards,
+  };
+  try {
+    await fs.promises.mkdir(path.dirname(EBAY_TAXONOMY_DISK_CACHE_PATH), { recursive: true });
+    await fs.promises.writeFile(EBAY_TAXONOMY_DISK_CACHE_PATH, JSON.stringify(payload), 'utf8');
+  } catch (err) {
+    console.warn('[ebay-niches] taxonomy disk cache write failed:', err?.message || err);
+  }
+  return payload;
+}
+
+function soldCountToStars(soldCount, peerSoldCounts) {
+  if (soldCount == null || !Number.isFinite(soldCount) || soldCount <= 0) return 0;
+  const peers = peerSoldCounts.filter((n) => Number.isFinite(n) && n > 0);
+  const max = peers.length > 0 ? Math.max(...peers) : soldCount;
+  const ratio = soldCount / Math.max(max, 1);
+  if (ratio >= 0.75) return 5;
+  if (ratio >= 0.5) return 4;
+  if (ratio >= 0.3) return 3;
+  if (ratio >= 0.12) return 2;
+  return 1;
+}
+
+async function fetchEbayCategoryNicheScore(accessToken, categoryId, days) {
+  const cacheKey = `${categoryId}:${days}`;
+  const cached = ebayNicheScoreCache.get(cacheKey);
+  if (cached && Date.now() - cached.fetchedAt < EBAY_NICHE_SCORE_CACHE_MS) {
+    return cached.data;
+  }
+
+  const searchBase = {
+    query: '*',
+    accessToken,
+    limit: '1',
+    categoryIds: String(categoryId),
+    requireUsedCondition: false,
+    ukItemsOnly: true,
+  };
+
+  const [activeData, soldData] = await Promise.all([
+    getBrowseSearch({ ...searchBase, soldOnly: false, lastMonthOnly: true }),
+    getBrowseSearch({
+      ...searchBase,
+      soldOnly: true,
+      soldDateRangeDays: days,
+      sort: 'newlyListed',
+    }),
+  ]);
+
+  const activeCount = browseSearchTotal(activeData, `niche-active:${categoryId}`);
+  const soldCount = browseSearchTotal(soldData, `niche-sold:${categoryId}`);
+  const sellThroughRatio =
+    activeCount != null && soldCount != null && activeCount > 0 ? soldCount / activeCount : null;
+
+  const data = {
+    categoryId: String(categoryId),
+    activeCount,
+    soldCount,
+    sellThroughRatio,
+    fetchedAt: new Date().toISOString(),
+  };
+  ebayNicheScoreCache.set(cacheKey, { fetchedAt: Date.now(), data });
+  return data;
+}
+
+async function mapWithConcurrency(items, concurrency, mapper) {
+  const results = new Array(items.length);
+  let index = 0;
+  async function worker() {
+    while (index < items.length) {
+      const i = index++;
+      results[i] = await mapper(items[i], i);
+    }
+  }
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
+app.get('/api/ebay/niches/taxonomy', async (req, res) => {
+  const appId = process.env.REACT_APP_EBAY_APP_ID || process.env.EBAY_APP;
+  const certId = process.env.REACT_APP_EBAY_CERT_ID;
+  if (!appId || !certId) {
+    return res.status(500).json({ error: 'eBay credentials not configured' });
+  }
+  try {
+    const accessToken = await getAccessToken(appId, certId);
+    const taxonomy = await loadEbayUkTopCategories(accessToken);
+    res.json({
+      treeId: taxonomy.treeId,
+      version: taxonomy.version,
+      fetchedAt: taxonomy.fetchedAt,
+      cards: taxonomy.cards,
+      departmentHighlights: DEPARTMENT_EBAY_HIGHLIGHT_CATEGORY,
+    });
+  } catch (err) {
+    console.error('[ebay-niches] taxonomy error:', err);
+    res.status(500).json({ error: 'Failed to load eBay categories', details: err.message });
+  }
+});
+
+app.get('/api/ebay/niches/scores', async (req, res) => {
+  const appId = process.env.REACT_APP_EBAY_APP_ID || process.env.EBAY_APP;
+  const certId = process.env.REACT_APP_EBAY_CERT_ID;
+  if (!appId || !certId) {
+    return res.status(500).json({ error: 'eBay credentials not configured' });
+  }
+
+  const rawIds = req.query.categoryIds ?? req.query.category_ids;
+  const idList = String(rawIds || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => /^\d+$/.test(s));
+  if (idList.length === 0) {
+    return res.status(400).json({ error: 'categoryIds query param required (comma-separated eBay category ids)' });
+  }
+  if (idList.length > 40) {
+    return res.status(400).json({ error: 'At most 40 category ids per request' });
+  }
+
+  const daysRaw = req.query.days != null ? Number(req.query.days) : 30;
+  const days = Number.isFinite(daysRaw) ? Math.min(90, Math.max(7, Math.trunc(daysRaw))) : 30;
+
+  try {
+    const accessToken = await getAccessToken(appId, certId);
+    const scores = await mapWithConcurrency(idList, 3, async (categoryId) => {
+      try {
+        return await fetchEbayCategoryNicheScore(accessToken, categoryId, days);
+      } catch (err) {
+        return {
+          categoryId,
+          activeCount: null,
+          soldCount: null,
+          sellThroughRatio: null,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    });
+
+    const soldPeers = scores.map((s) => s.soldCount).filter((n) => n != null);
+    const withStars = scores.map((s) => ({
+      ...s,
+      stars: soldCountToStars(s.soldCount, soldPeers),
+    }));
+
+    res.json({ days, rows: withStars });
+  } catch (err) {
+    console.error('[ebay-niches] scores error:', err);
+    res.status(500).json({ error: 'Failed to load niche scores', details: err.message });
+  }
+});
+
 /** Scouting bootsale todo — table: database/scouting_source_item.sql */
 function sanitizeScoutingSourceTitle(raw) {
   if (typeof raw !== 'string') return '';

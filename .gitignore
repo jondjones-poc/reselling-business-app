@@ -131,3 +131,6 @@ dist
 # Cloudflare Wrangler (workers/db-keepalive)
 workers/**/.wrangler/
 workers/**/.dev.vars
+
+# eBay taxonomy disk cache (server.js)
+/cache/

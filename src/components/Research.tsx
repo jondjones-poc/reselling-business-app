@@ -14,6 +14,7 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { getApiBase } from '../utils/apiBase';
 import { themeAccentRgba, themeTextRgba } from '../utils/themeColors';
 import ResearchItemViews from './ResearchItemViews';
+import EbayNicheExplorer from './EbayNicheExplorer';
 import './BrandResearch.css';
 
 ChartJS.register(ArcElement, BarElement, CategoryScale, LinearScale, Tooltip, Legend);
@@ -7336,6 +7337,58 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     [clothingTypesSalesRows, clothingTypesInventoryRows]
   );
 
+  /** Sales by category: `mcView` — eBay niche grid vs automated stock analytics. */
+  const menswearCategoryViewMode = useMemo<'ebay-niches' | 'automated'>(() => {
+    const raw = searchParams.get('mcView')?.trim().toLowerCase();
+    if (raw === 'ebay-niches' || raw === 'ebay') return 'ebay-niches';
+    return 'automated';
+  }, [searchParams]);
+
+  const setMenswearCategoryViewMode = useCallback(
+    (mode: 'ebay-niches' | 'automated') => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set('tab', 'menswear-categories');
+          if (mode === 'ebay-niches') {
+            next.set('mcView', 'ebay-niches');
+            next.delete('menswearCategoryId');
+            next.delete('menswearBrandId');
+            next.delete('mcPanel');
+          } else {
+            next.delete('mcView');
+          }
+          return next;
+        },
+        { replace: true }
+      );
+    },
+    [setSearchParams]
+  );
+
+  const menswearDepartmentEbayHighlightId = useMemo(() => {
+    const deptId = menswearCategoriesListDepartmentIdForApi;
+    if (deptId == null) return null;
+    const dept = researchDepartments.find((d) => d.id === deptId);
+    if (!dept) return null;
+    const key = dept.department_name.trim().toLowerCase().replace(/[\s_]+/g, '-');
+    const map: Record<string, string> = {
+      menswear: '11450',
+      womenswear: '11450',
+      electronics: '293',
+      media: '267',
+      toys: '220',
+      'bric-a-brac': '1',
+    };
+    return map[key] ?? null;
+  }, [researchDepartments, menswearCategoriesListDepartmentIdForApi]);
+
+  const menswearDepartmentLabel = useMemo(() => {
+    const deptId = menswearCategoriesListDepartmentIdForApi;
+    if (deptId == null) return undefined;
+    return researchDepartments.find((d) => d.id === deptId)?.department_name?.trim() || undefined;
+  }, [researchDepartments, menswearCategoriesListDepartmentIdForApi]);
+
   /** Menswear Categories tab: `mcPanel` selects subpanel. List view defaults to chart; detail defaults to overview. */
   const menswearClothingSubpanel = useMemo<'overview' | 'sales'>(() => {
     const p = searchParams.get('mcPanel')?.trim().toLowerCase();
@@ -9498,6 +9551,37 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           aria-labelledby="research-tab-menswear-categories"
           className="research-tab-panel"
         >
+          <nav
+            className="menswear-categories-view-tabs"
+            role="tablist"
+            aria-label="Sales by category data source"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={menswearCategoryViewMode === 'ebay-niches'}
+              className={`menswear-categories-view-tab${menswearCategoryViewMode === 'ebay-niches' ? ' menswear-categories-view-tab--active' : ''}`}
+              onClick={() => setMenswearCategoryViewMode('ebay-niches')}
+            >
+              eBay niches
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={menswearCategoryViewMode === 'automated'}
+              className={`menswear-categories-view-tab${menswearCategoryViewMode === 'automated' ? ' menswear-categories-view-tab--active' : ''}`}
+              onClick={() => setMenswearCategoryViewMode('automated')}
+            >
+              Automated
+            </button>
+          </nav>
+
+          {menswearCategoryViewMode === 'ebay-niches' ? (
+            <EbayNicheExplorer
+              highlightCategoryId={menswearDepartmentEbayHighlightId}
+              departmentLabel={menswearDepartmentLabel}
+            />
+          ) : (
           <div
             className={
               'menswear-categories-page' +
@@ -11400,6 +11484,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
               renderMenswearSalesPie()
             ) : null}
           </div>
+          )}
         </div>
       )}
 
