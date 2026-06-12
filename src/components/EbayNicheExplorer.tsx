@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { apiUrl } from '../utils/apiBase';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { apiFetch } from '../utils/apiBase';
 import './EbayNicheExplorer.css';
 
 type TaxonomyCard = {
@@ -20,11 +20,50 @@ type NicheScoreRow = {
 type EbayNicheExplorerProps = {
   /** Highlight eBay top-level card matching the selected business department. */
   highlightCategoryId?: string | null;
-  departmentLabel?: string;
 };
 
 const NICHE_DAYS = 30;
 const SUBCATEGORIES_SHOWN = 8;
+const TOP_BUY_TICKER_COUNT = 8;
+/** Must match server limit in GET /api/ebay/niches/scores */
+const SCORE_BATCH_SIZE = 40;
+
+type TopBuyTickerItem = {
+  id: string;
+  name: string;
+  parentName: string;
+  soldCount: number;
+  stars: number;
+};
+
+function soldCountToStars(soldCount: number | null | undefined, peerSoldCounts: number[]): number {
+  if (soldCount == null || !Number.isFinite(soldCount) || soldCount <= 0) return 0;
+  const peers = peerSoldCounts.filter((n) => Number.isFinite(n) && n > 0);
+  const max = peers.length > 0 ? Math.max(...peers) : soldCount;
+  const ratio = soldCount / Math.max(max, 1);
+  if (ratio >= 0.75) return 5;
+  if (ratio >= 0.5) return 4;
+  if (ratio >= 0.3) return 3;
+  if (ratio >= 0.12) return 2;
+  return 1;
+}
+
+function sortSubcategoriesByPopularity(
+  subs: { id: string; name: string }[],
+  scoresById: Map<string, NicheScoreRow>
+): { id: string; name: string }[] {
+  const peerSold = subs.map((s) => scoresById.get(s.id)?.soldCount ?? 0);
+  return [...subs].sort((a, b) => {
+    const soldA = scoresById.get(a.id)?.soldCount;
+    const soldB = scoresById.get(b.id)?.soldCount;
+    const starsA = soldCountToStars(soldA, peerSold);
+    const starsB = soldCountToStars(soldB, peerSold);
+    if (starsB !== starsA) return starsB - starsA;
+    const numA = soldA != null && Number.isFinite(soldA) ? soldA : -1;
+    const numB = soldB != null && Number.isFinite(soldB) ? soldB : -1;
+    return numB - numA;
+  });
+}
 
 function StarRating({ stars }: { stars: number }) {
   return (
@@ -51,14 +90,14 @@ async function readJson<T>(res: Response): Promise<T> {
   }
 }
 
-const EbayNicheExplorer: React.FC<EbayNicheExplorerProps> = ({
-  highlightCategoryId,
-  departmentLabel,
-}) => {
+const EbayNicheExplorer: React.FC<EbayNicheExplorerProps> = ({ highlightCategoryId }) => {
   const [cards, setCards] = useState<TaxonomyCard[]>([]);
   const [taxonomyLoading, setTaxonomyLoading] = useState(true);
   const [taxonomyError, setTaxonomyError] = useState<string | null>(null);
   const [scoresById, setScoresById] = useState<Map<string, NicheScoreRow>>(new Map());
+  const scoresByIdRef = useRef(scoresById);
+  scoresByIdRef.current = scoresById;
+  const scoresInFlightRef = useRef<Set<string>>(new Set());
   const [scoresLoading, setScoresLoading] = useState(false);
   const [scoresError, setScoresError] = useState<string | null>(null);
   const [filterCategoryId, setFilterCategoryId] = useState<string>('all');
@@ -69,7 +108,7 @@ const EbayNicheExplorer: React.FC<EbayNicheExplorerProps> = ({
       setTaxonomyLoading(true);
       setTaxonomyError(null);
       try {
-        const res = await fetch(apiUrl('/api/ebay/niches/taxonomy'));
+        const res = await apiFetch('/api/ebay/niches/taxonomy');
         const data = await readJson<{ cards?: TaxonomyCard[]; error?: string }>(res);
         if (!res.ok) throw new Error(data.error || 'Failed to load eBay categories');
         if (!cancelled) setCards(Array.isArray(data.cards) ? data.cards : []);
@@ -94,87 +133,195 @@ const EbayNicheExplorer: React.FC<EbayNicheExplorerProps> = ({
   }, [cards, filterCategoryId]);
 
   const loadScores = useCallback(async (categoryIds: string[]) => {
-    if (categoryIds.length === 0) return;
+    const toFetch = categoryIds.filter(
+      (id) => !scoresByIdRef.current.has(id) && !scoresInFlightRef.current.has(id)
+    );
+    if (toFetch.length === 0) return;
+
+    for (const id of toFetch) {
+      scoresInFlightRef.current.add(id);
+    }
     setScoresLoading(true);
     setScoresError(null);
+
     try {
-      const params = new URLSearchParams({
-        categoryIds: categoryIds.join(','),
-        days: String(NICHE_DAYS),
-      });
-      const res = await fetch(apiUrl(`/api/ebay/niches/scores?${params.toString()}`));
-      const data = await readJson<{ rows?: NicheScoreRow[]; error?: string }>(res);
-      if (!res.ok) throw new Error(data.error || 'Failed to load sales data');
-      const next = new Map<string, NicheScoreRow>();
-      for (const row of data.rows ?? []) {
-        next.set(String(row.categoryId), row);
+      for (let offset = 0; offset < toFetch.length; offset += SCORE_BATCH_SIZE) {
+        const chunk = toFetch.slice(offset, offset + SCORE_BATCH_SIZE);
+        const params = new URLSearchParams({
+          categoryIds: chunk.join(','),
+          days: String(NICHE_DAYS),
+        });
+        const res = await apiFetch(`/api/ebay/niches/scores?${params.toString()}`);
+        const data = await readJson<{ rows?: NicheScoreRow[]; error?: string }>(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to load sales data');
+        setScoresById((prev) => {
+          const merged = new Map(prev);
+          for (const row of data.rows ?? []) {
+            merged.set(String(row.categoryId), row);
+          }
+          return merged;
+        });
       }
-      setScoresById((prev) => {
-        const merged = new Map(prev);
-        next.forEach((v, k) => merged.set(k, v));
-        return merged;
-      });
     } catch (err) {
       setScoresError(err instanceof Error ? err.message : 'Failed to load sales data');
     } finally {
+      for (const id of toFetch) {
+        scoresInFlightRef.current.delete(id);
+      }
       setScoresLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    if (cards.length === 0) return;
-    const ids = new Set<string>();
+  const visibleSubcategoryIds = useMemo(() => {
+    const ids: string[] = [];
     for (const card of visibleCards) {
-      for (const sub of card.subcategories.slice(0, SUBCATEGORIES_SHOWN)) {
-        ids.add(sub.id);
+      for (const sub of card.subcategories) {
+        ids.push(sub.id);
       }
     }
-    const missing = Array.from(ids).filter((id) => !scoresById.has(id));
-    if (missing.length === 0) return;
-    void loadScores(missing);
-  }, [cards, visibleCards, scoresById, loadScores]);
+    return ids;
+  }, [visibleCards]);
 
   useEffect(() => {
-    if (highlightCategoryId && cards.some((c) => c.id === highlightCategoryId)) {
-      setFilterCategoryId(highlightCategoryId);
-    }
-  }, [highlightCategoryId, cards]);
+    if (cards.length === 0 || visibleSubcategoryIds.length === 0) return;
+    const missing = visibleSubcategoryIds.filter(
+      (id) => !scoresByIdRef.current.has(id) && !scoresInFlightRef.current.has(id)
+    );
+    if (missing.length === 0) return;
+    void loadScores(missing);
+  }, [cards, visibleSubcategoryIds, loadScores]);
 
   const formatSold = (n: number | null | undefined) => {
     if (n == null || !Number.isFinite(n)) return '—';
     return n.toLocaleString('en-GB');
   };
 
+  const topBuyTickerItems = useMemo((): TopBuyTickerItem[] => {
+    const rows: TopBuyTickerItem[] = [];
+    for (const card of visibleCards) {
+      const sortedSubs = sortSubcategoriesByPopularity(card.subcategories, scoresById);
+      const peerSold = card.subcategories.map((s) => scoresById.get(s.id)?.soldCount ?? 0);
+      for (const sub of sortedSubs) {
+        const score = scoresById.get(sub.id);
+        const sold = score?.soldCount;
+        if (sold == null || !Number.isFinite(sold) || sold <= 0) continue;
+        rows.push({
+          id: sub.id,
+          name: sub.name,
+          parentName: card.name,
+          soldCount: sold,
+          stars: soldCountToStars(sold, peerSold),
+        });
+      }
+    }
+    return rows
+      .sort(
+        (a, b) =>
+          b.soldCount - a.soldCount ||
+          a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+      )
+      .slice(0, TOP_BUY_TICKER_COUNT);
+  }, [visibleCards, scoresById]);
+
+  const renderTickerChip = (item: TopBuyTickerItem) => (
+    <span key={item.id} className="ebay-niche-buy-ticker-chip" title={`${item.parentName} · ${item.name}`}>
+      <span className="ebay-niche-buy-ticker-chip-parent">{item.parentName}</span>
+      <span className="ebay-niche-buy-ticker-chip-sep" aria-hidden>
+        ·
+      </span>
+      <span className="ebay-niche-buy-ticker-chip-name">{item.name}</span>
+      <StarRating stars={item.stars} />
+      <span className="ebay-niche-buy-ticker-chip-sold">{formatSold(item.soldCount)} sold</span>
+    </span>
+  );
+
   return (
     <div className="ebay-niche-explorer">
-      <header className="ebay-niche-explorer-header">
-        <div>
-          <h2 className="ebay-niche-explorer-title">Explore eBay niches</h2>
-          <p className="ebay-niche-explorer-subtitle">
-            Star ratings rank sub-categories by sold volume in the last {NICHE_DAYS} days on eBay UK
-            {departmentLabel ? ` · ${departmentLabel} highlighted` : ''}.
-          </p>
-        </div>
-        <div className="ebay-niche-explorer-filter">
-          <label htmlFor="ebay-niche-category-filter" className="ebay-niche-explorer-filter-label">
-            eBay category
-          </label>
-          <select
-            id="ebay-niche-category-filter"
-            className="ebay-niche-explorer-filter-select"
-            value={filterCategoryId}
-            onChange={(e) => setFilterCategoryId(e.target.value)}
-            disabled={taxonomyLoading || cards.length === 0}
+      <div className="ebay-niche-explorer-toolbar">
+        <span className="ebay-niche-info-wrap">
+          <button
+            type="button"
+            className="ebay-niche-info-btn"
+            aria-label="How star ratings are calculated"
+            aria-describedby="ebay-niche-info-tooltip"
           >
-            <option value="all">All top-level categories</option>
-            {cards.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+            <svg
+              className="ebay-niche-info-icon"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <circle cx="12" cy="12" r="10" />
+              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+          </button>
+          <span id="ebay-niche-info-tooltip" className="ebay-niche-info-tooltip" role="tooltip">
+            <strong>Star ratings</strong> rank each sub-category against the others in the same card by{' '}
+            <strong>eBay UK sold volume</strong> in the last {NICHE_DAYS} days (Browse API, category name +
+            category ID). The number beside the stars is that sold count. Within a card:{' '}
+            <strong>5★</strong> ≈ top seller (≥75% of the highest), <strong>4★</strong> ≥50%,{' '}
+            <strong>3★</strong> ≥30%, <strong>2★</strong> ≥12%, <strong>1★</strong> has sales but below that,{' '}
+            <strong>0★</strong> no sold listings in the period.
+          </span>
+        </span>
+
+        <select
+          id="ebay-niche-category-filter"
+          className="ebay-niche-explorer-filter-select"
+          value={filterCategoryId}
+          onChange={(e) => setFilterCategoryId(e.target.value)}
+          disabled={taxonomyLoading || cards.length === 0}
+          aria-label="eBay category filter"
+        >
+          <option value="all">All Categories</option>
+          {cards.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+
+        <span className="ebay-niche-toolbar-spacer" aria-hidden />
+      </div>
+
+      {!taxonomyLoading && !taxonomyError ? (
+        <div
+          className="ebay-niche-buy-ticker"
+          role="region"
+          aria-label="Top categories to buy on eBay"
+        >
+          <span className="ebay-niche-buy-ticker-heading">Top {TOP_BUY_TICKER_COUNT} to buy</span>
+          {topBuyTickerItems.length === 0 ? (
+            <p className="ebay-niche-buy-ticker-empty">
+              {scoresLoading ? 'Loading top picks…' : 'No sold data yet for this view.'}
+            </p>
+          ) : (
+            <div className="ebay-niche-buy-ticker-viewport">
+              <div
+                className={`ebay-niche-buy-ticker-track${topBuyTickerItems.length >= 3 ? ' ebay-niche-buy-ticker-track--animate' : ''}`}
+              >
+                <div className="ebay-niche-buy-ticker-segment" aria-hidden={false}>
+                  {topBuyTickerItems.map(renderTickerChip)}
+                </div>
+                {topBuyTickerItems.length >= 3 ? (
+                  <div className="ebay-niche-buy-ticker-segment" aria-hidden>
+                    {topBuyTickerItems.map((item) =>
+                      renderTickerChip({ ...item, id: `${item.id}-dup` })
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          )}
         </div>
-      </header>
+      ) : null}
 
       {taxonomyError && (
         <div className="ebay-niche-explorer-error" role="alert">
@@ -195,7 +342,12 @@ const EbayNicheExplorer: React.FC<EbayNicheExplorerProps> = ({
         <div className="ebay-niche-card-grid">
           {visibleCards.map((card) => {
             const highlighted = highlightCategoryId != null && card.id === highlightCategoryId;
-            const subs = card.subcategories.slice(0, SUBCATEGORIES_SHOWN);
+            const sortedSubs = sortSubcategoriesByPopularity(card.subcategories, scoresById);
+            const showAllSubs = filterCategoryId !== 'all' && filterCategoryId === card.id;
+            const subs = showAllSubs
+              ? sortedSubs
+              : sortedSubs.slice(0, SUBCATEGORIES_SHOWN);
+            const peerSold = card.subcategories.map((s) => scoresById.get(s.id)?.soldCount ?? 0);
             return (
               <article
                 key={card.id}
@@ -208,30 +360,30 @@ const EbayNicheExplorer: React.FC<EbayNicheExplorerProps> = ({
                   ) : (
                     subs.map((sub) => {
                       const score = scoresById.get(sub.id);
-                      const stars = score != null ? score.stars : 0;
+                      const stars = soldCountToStars(score?.soldCount, peerSold);
                       return (
                         <li key={sub.id} className="ebay-niche-card-row">
                           <span className="ebay-niche-card-row-name" title={sub.name}>
                             {sub.name}
                           </span>
-                          <span className="ebay-niche-card-row-meta">
+                          <span className="ebay-niche-card-row-stars">
                             <StarRating stars={stars} />
-                            <span className="ebay-niche-sold-count" title="Sold (30 days)">
-                              {formatSold(score?.soldCount)}
-                            </span>
+                          </span>
+                          <span className="ebay-niche-sold-count" title="Sold (30 days)">
+                            {formatSold(score?.soldCount)}
                           </span>
                         </li>
                       );
                     })
                   )}
                 </ul>
-                {card.subcategories.length > SUBCATEGORIES_SHOWN ? (
+                {!showAllSubs && sortedSubs.length > SUBCATEGORIES_SHOWN ? (
                   <button
                     type="button"
                     className="ebay-niche-card-more"
                     onClick={() => setFilterCategoryId(card.id)}
                   >
-                    More
+                    More ({sortedSubs.length - SUBCATEGORIES_SHOWN} more)
                   </button>
                 ) : null}
               </article>

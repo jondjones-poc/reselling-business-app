@@ -2601,7 +2601,7 @@ app.get('/api/ebay/research', async (req, res) => {
 
 /** eBay UK niche explorer — taxonomy cache + Browse sold/active scores per category. */
 const EBAY_NICHE_SCORE_CACHE_MS = 24 * 60 * 60 * 1000;
-const EBAY_TAXONOMY_DISK_CACHE_PATH = path.join(__dirname, 'cache', 'ebay-uk-top-categories.json');
+const EBAY_TAXONOMY_DISK_CACHE_PATH = path.join(__dirname, 'cache', 'ebay-uk-top-categories-v3.json');
 const ebayNicheScoreCache = new Map();
 
 /** Business department name (lowercase) → eBay UK category id to highlight in niche grid. */
@@ -2657,8 +2657,7 @@ function parseTaxonomyTopLevelCards(treePayload) {
           const sname = sc?.categoryName != null ? String(sc.categoryName).trim() : '';
           return sid && sname ? { id: sid, name: sname } : null;
         })
-        .filter(Boolean)
-        .slice(0, 12);
+        .filter(Boolean);
       return { id, name, subcategories };
     })
     .filter(Boolean);
@@ -2708,15 +2707,38 @@ function soldCountToStars(soldCount, peerSoldCounts) {
   return 1;
 }
 
-async function fetchEbayCategoryNicheScore(accessToken, categoryId, days) {
-  const cacheKey = `${categoryId}:${days}`;
+async function loadEbayCategoryNameLookup() {
+  const lookup = new Map();
+  try {
+    const raw = await fs.promises.readFile(EBAY_TAXONOMY_DISK_CACHE_PATH, 'utf8');
+    const parsed = JSON.parse(raw);
+    for (const card of parsed.cards || []) {
+      if (card?.id && card?.name) lookup.set(String(card.id), String(card.name).trim());
+      for (const sub of card.subcategories || []) {
+        if (sub?.id && sub?.name) lookup.set(String(sub.id), String(sub.name).trim());
+      }
+    }
+  } catch {
+    /* taxonomy cache optional */
+  }
+  return lookup;
+}
+
+function nicheBrowseQueryForCategory(categoryName) {
+  const name = typeof categoryName === 'string' ? categoryName.trim() : '';
+  if (name) return name;
+  return 'item';
+}
+
+async function fetchEbayCategoryNicheScore(accessToken, categoryId, days, categoryName) {
+  const cacheKey = `${categoryId}:${days}:v2`;
   const cached = ebayNicheScoreCache.get(cacheKey);
   if (cached && Date.now() - cached.fetchedAt < EBAY_NICHE_SCORE_CACHE_MS) {
     return cached.data;
   }
 
   const searchBase = {
-    query: '*',
+    query: nicheBrowseQueryForCategory(categoryName),
     accessToken,
     limit: '1',
     categoryIds: String(categoryId),
@@ -2810,9 +2832,15 @@ app.get('/api/ebay/niches/scores', async (req, res) => {
 
   try {
     const accessToken = await getAccessToken(appId, certId);
+    const nameLookup = await loadEbayCategoryNameLookup();
     const scores = await mapWithConcurrency(idList, 3, async (categoryId) => {
       try {
-        return await fetchEbayCategoryNicheScore(accessToken, categoryId, days);
+        return await fetchEbayCategoryNicheScore(
+          accessToken,
+          categoryId,
+          days,
+          nameLookup.get(categoryId)
+        );
       } catch (err) {
         return {
           categoryId,

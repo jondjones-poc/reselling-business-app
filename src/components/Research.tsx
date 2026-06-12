@@ -1834,6 +1834,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         next.delete('brand');
         next.delete('departmentId');
         next.delete('mcPanel');
+        next.delete('mcView');
         return next;
       },
       { replace: false }
@@ -7344,27 +7345,20 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     return 'automated';
   }, [searchParams]);
 
-  const setMenswearCategoryViewMode = useCallback(
-    (mode: 'ebay-niches' | 'automated') => {
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
-          next.set('tab', 'menswear-categories');
-          if (mode === 'ebay-niches') {
-            next.set('mcView', 'ebay-niches');
-            next.delete('menswearCategoryId');
-            next.delete('menswearBrandId');
-            next.delete('mcPanel');
-          } else {
-            next.delete('mcView');
-          }
-          return next;
-        },
-        { replace: true }
-      );
-    },
-    [setSearchParams]
-  );
+  const goToEbayNichesView = useCallback(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set('tab', 'menswear-categories');
+        next.set('mcView', 'ebay-niches');
+        next.delete('menswearCategoryId');
+        next.delete('menswearBrandId');
+        next.delete('mcPanel');
+        return next;
+      },
+      { replace: true }
+    );
+  }, [setSearchParams]);
 
   const menswearDepartmentEbayHighlightId = useMemo(() => {
     const deptId = menswearCategoriesListDepartmentIdForApi;
@@ -7381,12 +7375,6 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       'bric-a-brac': '1',
     };
     return map[key] ?? null;
-  }, [researchDepartments, menswearCategoriesListDepartmentIdForApi]);
-
-  const menswearDepartmentLabel = useMemo(() => {
-    const deptId = menswearCategoriesListDepartmentIdForApi;
-    if (deptId == null) return undefined;
-    return researchDepartments.find((d) => d.id === deptId)?.department_name?.trim() || undefined;
   }, [researchDepartments, menswearCategoriesListDepartmentIdForApi]);
 
   /** Menswear Categories tab: `mcPanel` selects subpanel. List view defaults to chart; detail defaults to overview. */
@@ -8025,6 +8013,23 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                   </button>
                 </li>
               ) : null}
+              {researchTab === 'menswear-categories' ? (
+                <li key="menswear-ebay-niches" className="research-menswear-departments-item">
+                  <button
+                    type="button"
+                    className={
+                      'research-menswear-department-box' +
+                      (menswearCategoryViewMode === 'ebay-niches'
+                        ? ' research-menswear-department-box--active'
+                        : '')
+                    }
+                    aria-pressed={menswearCategoryViewMode === 'ebay-niches'}
+                    onClick={goToEbayNichesView}
+                  >
+                    <span className="research-menswear-department-box-name">All Categories</span>
+                  </button>
+                </li>
+              ) : null}
               {researchDepartments.map((d) => {
                 const activeDeptId =
                   researchTab === 'clothing-types'
@@ -8041,6 +8046,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                       : typeof brandResearchDepartmentFilterSelection === 'number'
                         ? brandResearchDepartmentFilterSelection === d.id
                         : brandResearchDepartmentFilterEffective === d.id
+                    : researchTab === 'menswear-categories' && menswearCategoryViewMode === 'ebay-niches'
+                      ? false
                     : activeDeptId === d.id;
                 return (
                   <li key={d.id} className="research-menswear-departments-item">
@@ -8065,6 +8072,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                             next.delete('clothingTypeBrandId');
                           }
                           if (researchTab === 'menswear-categories') {
+                            next.delete('mcView');
                             next.delete('menswearCategoryId');
                             next.delete('menswearBrandId');
                             next.delete('mcPanel');
@@ -9551,36 +9559,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           aria-labelledby="research-tab-menswear-categories"
           className="research-tab-panel"
         >
-          <nav
-            className="menswear-categories-view-tabs"
-            role="tablist"
-            aria-label="Sales by category data source"
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={menswearCategoryViewMode === 'ebay-niches'}
-              className={`menswear-categories-view-tab${menswearCategoryViewMode === 'ebay-niches' ? ' menswear-categories-view-tab--active' : ''}`}
-              onClick={() => setMenswearCategoryViewMode('ebay-niches')}
-            >
-              eBay niches
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={menswearCategoryViewMode === 'automated'}
-              className={`menswear-categories-view-tab${menswearCategoryViewMode === 'automated' ? ' menswear-categories-view-tab--active' : ''}`}
-              onClick={() => setMenswearCategoryViewMode('automated')}
-            >
-              Automated
-            </button>
-          </nav>
-
           {menswearCategoryViewMode === 'ebay-niches' ? (
-            <EbayNicheExplorer
-              highlightCategoryId={menswearDepartmentEbayHighlightId}
-              departmentLabel={menswearDepartmentLabel}
-            />
+            <EbayNicheExplorer highlightCategoryId={menswearDepartmentEbayHighlightId} />
           ) : (
           <div
             className={
