@@ -2284,6 +2284,28 @@ function parseEbayQueryBool(val, defaultValue) {
 
 /** eBay UK Men's Clothing — same as ebay.co.uk/sch/260012. Override with EBAY_BROWSE_CATEGORY_IDS (single id). */
 const EBAY_GB_MENS_CLOTHING_CATEGORY_ID = (process.env.EBAY_BROWSE_CATEGORY_IDS || '260012').trim();
+/** Seller inspiration feed — discover categories once (all sellers), then fetch per category (all sellers). */
+const RESEARCH_SELLER_PAGE_SIZE = 24;
+const RESEARCH_SELLER_FETCH_LIMIT = 200;
+const SELLER_SOLD_FEED_CACHE_MS = 12 * 60 * 60 * 1000;
+const SELLER_SOLD_FEED_CACHE_HOURS = 12;
+const RESEARCH_SELLER_PROBE_LIMIT = 2;
+const RESEARCH_SELLER_PER_CATEGORY_FETCH_LIMIT = 50;
+const RESEARCH_SELLER_DISCOVERY_CONCURRENCY = 2;
+const RESEARCH_SELLER_BROWSE_DELAY_MS = 200;
+/** Categories probed per seller to discover where they sell (not full taxonomy — avoids rate limits). */
+const RESEARCH_SELLER_PROBE_CATEGORIES = [
+  { id: '11450', name: 'Clothes, Shoes & Accessories' },
+  { id: EBAY_GB_MENS_CLOTHING_CATEGORY_ID, name: 'Men' },
+  { id: '260010', name: 'Women' },
+  { id: '888', name: 'Sporting Goods' },
+  { id: '281', name: 'Jewellery & Watches' },
+  { id: '11700', name: 'Home, Furniture & DIY' },
+  { id: '1', name: 'Collectables' },
+  { id: '11232', name: 'Films & TV' },
+  { id: '220', name: 'Toys & Games' },
+  { id: '267', name: 'Books, Comics & Magazines' }
+];
 
 function ebayBrowseCategoryIdsForAppendMens(appendMens) {
   return appendMens ? EBAY_GB_MENS_CLOTHING_CATEGORY_ID : null;
@@ -2304,6 +2326,8 @@ function ebayBrowseCategoryIdsForAppendMens(appendMens) {
  * @param {number|null} [opts.minPriceGbp] — Minimum sold price in GBP (adds price + priceCurrency filters).
  * @param {number|null} [opts.maxPriceGbp] — Maximum sold price in GBP (upper bound of price range filter).
  * @param {boolean} [opts.ukItemsOnly=false] — When true, add itemLocationCountry:GB (UK-sited listings).
+ * @param {string[]|null} [opts.sellerUsernames=null] — Restrict to these eBay seller usernames (max 250).
+ * @param {string|null} [opts.buyingOptions=null] — e.g. `AUCTION|FIXED_PRICE` when searching by seller.
  */
 const getBrowseSearch = async ({
   query,
@@ -2318,14 +2342,20 @@ const getBrowseSearch = async ({
   categoryIds = EBAY_GB_MENS_CLOTHING_CATEGORY_ID,
   minPriceGbp = null,
   maxPriceGbp = null,
-  ukItemsOnly = false
+  ukItemsOnly = false,
+  sellerUsernames = null,
+  buyingOptions = null
 }) => {
   const params = new URLSearchParams({
-    q: query,
     limit,
     sort,
     marketplaceId: 'EBAY_GB'
   });
+
+  const q = typeof query === 'string' ? query : String(query ?? '');
+  if (q.trim() !== '') {
+    params.set('q', q);
+  }
 
   if (offset != null && String(offset).trim() !== '') {
     const o = Math.trunc(Number(offset));
@@ -2354,6 +2384,20 @@ const getBrowseSearch = async ({
     }
     filterParts.push(`price:[${lo}..${hi}]`);
     filterParts.push('priceCurrency:GBP');
+  }
+
+  if (Array.isArray(sellerUsernames) && sellerUsernames.length > 0) {
+    const names = sellerUsernames
+      .map((n) => (typeof n === 'string' ? n.trim() : String(n ?? '').trim()))
+      .filter(Boolean)
+      .slice(0, 250);
+    if (names.length > 0) {
+      filterParts.push(`sellers:{${names.join('|')}}`);
+    }
+  }
+
+  if (typeof buyingOptions === 'string' && buyingOptions.trim()) {
+    filterParts.push(`buyingOptions:{${buyingOptions.trim()}}`);
   }
 
   if (requireUsedCondition !== false) {
@@ -2405,11 +2449,31 @@ const getBrowseSearch = async ({
   if (!response.ok) {
     const errorText = await response.text();
     console.error('Browse API error:', response.status, errorText);
-    throw new Error(`Browse API error: ${response.status}`);
+    throw new Error(formatBrowseApiError(response.status, errorText));
   }
 
   return response.json();
 };
+
+function formatBrowseApiError(status, errorText) {
+  const statusNum = Number(status);
+  if (errorText) {
+    try {
+      const parsed = JSON.parse(errorText);
+      const ebayErr = Array.isArray(parsed?.errors) ? parsed.errors[0] : null;
+      const msg =
+        (ebayErr && (ebayErr.longMessage || ebayErr.message)) ||
+        (typeof parsed?.error === 'string' ? parsed.error : null) ||
+        (typeof parsed?.message === 'string' ? parsed.message : null);
+      if (msg) return `Browse API ${statusNum}: ${msg}`;
+    } catch {
+      /* use fallback below */
+    }
+    const trimmed = String(errorText).replace(/\s+/g, ' ').trim().slice(0, 240);
+    if (trimmed) return `Browse API ${statusNum}: ${trimmed}`;
+  }
+  return `Browse API error: ${statusNum}`;
+}
 
 function sanitizeEbayFeedSearchTerm(raw) {
   let s = typeof raw === 'string' ? raw : String(raw ?? '');
@@ -2425,6 +2489,660 @@ function ebaySummaryListedAtMs(s) {
   if (raw == null || String(raw).trim() === '') return 0;
   const t = Date.parse(String(raw));
   return Number.isFinite(t) ? t : 0;
+}
+
+function ebaySummarySoldAtMs(s) {
+  const end = s?.itemEndDate;
+  if (end != null && String(end).trim() !== '') {
+    const t = Date.parse(String(end));
+    if (Number.isFinite(t)) return t;
+  }
+  return ebaySummaryListedAtMs(s);
+}
+
+function sanitizeEbaySellerUsername(raw) {
+  let s = typeof raw === 'string' ? raw : String(raw ?? '');
+  s = s.replace(/[\u0000-\u001F\u007F]/g, '').trim().replace(/^@+/, '');
+  if (s.length > 64) {
+    s = s.slice(0, 64).trim();
+  }
+  if (!s || !/^[A-Za-z0-9_\-]+$/.test(s)) {
+    return '';
+  }
+  return s;
+}
+
+function ebaySummarySellerUsername(summary) {
+  const seller = summary?.seller;
+  if (!seller || typeof seller !== 'object') return null;
+  if (typeof seller.username === 'string' && seller.username.trim()) {
+    return seller.username.trim();
+  }
+  return null;
+}
+
+function itemSummarySellerMatches(summary, expectedUsername) {
+  const expected = typeof expectedUsername === 'string' ? expectedUsername.trim() : '';
+  if (!expected) return false;
+  const actual = ebaySummarySellerUsername(summary);
+  if (!actual) return false;
+  return actual.toLowerCase() === expected.toLowerCase();
+}
+
+function mapEbayItemSummaryToSellerSoldCard(s, sellerId, sellerUsername) {
+  const actualUsername = ebaySummarySellerUsername(s) || sellerUsername;
+  const base = mapEbayItemSummaryToFeedCard(s, sellerId, actualUsername);
+  return {
+    ...base,
+    sellerId,
+    sellerUsername: actualUsername,
+    soldAtMs: ebaySummarySoldAtMs(s)
+  };
+}
+
+function mapEbayItemSummaryToNicheCategorySoldCard(s, categoryId, categoryName) {
+  const sellerUsername = ebaySummarySellerUsername(s) || '';
+  const base = mapEbayItemSummaryToFeedCard(s, categoryId, categoryName);
+  return {
+    ...base,
+    categoryId: String(categoryId),
+    categoryName,
+    sellerUsername,
+    soldAtMs: ebaySummarySoldAtMs(s)
+  };
+}
+
+const ebayNicheCategoryInsightCache = new Map();
+const NICHE_CATEGORY_INSIGHT_CACHE_MS = 24 * 60 * 60 * 1000;
+const NICHE_CATEGORY_INSIGHT_TOP_SELLERS = 5;
+const NICHE_CATEGORY_INSIGHT_ITEM_LIMIT = 24;
+const NICHE_CATEGORY_INSIGHT_SAMPLE_LIMIT = 200;
+
+async function fetchNicheCategorySellerInsight(accessToken, categoryId, categoryName, days) {
+  const cacheKey = `${categoryId}:${days}:v1`;
+  const cached = ebayNicheCategoryInsightCache.get(cacheKey);
+  if (cached && Date.now() - cached.fetchedAt < NICHE_CATEGORY_INSIGHT_CACHE_MS) {
+    return cached.data;
+  }
+
+  const data = await getBrowseSearch({
+    query: nicheBrowseQueryForCategory(categoryName),
+    accessToken,
+    limit: String(NICHE_CATEGORY_INSIGHT_SAMPLE_LIMIT),
+    sort: 'newlyListed',
+    soldOnly: true,
+    soldDateRangeDays: days,
+    lastMonthOnly: false,
+    requireUsedCondition: false,
+    categoryIds: String(categoryId),
+    minPriceGbp: null,
+    maxPriceGbp: null,
+    ukItemsOnly: true,
+    buyingOptions: 'AUCTION|FIXED_PRICE'
+  });
+
+  const raw = Array.isArray(data.itemSummaries) ? data.itemSummaries : [];
+  const uk = raw.filter(isUkItemSummary);
+  const sellerCounts = new Map();
+
+  for (const summary of uk) {
+    const username = ebaySummarySellerUsername(summary);
+    if (!username) continue;
+    const key = username.toLowerCase();
+    const prev = sellerCounts.get(key);
+    if (prev) {
+      prev.soldListingCount += 1;
+    } else {
+      sellerCounts.set(key, { username, soldListingCount: 1 });
+    }
+  }
+
+  const topSellers = [...sellerCounts.values()]
+    .sort(
+      (a, b) =>
+        b.soldListingCount - a.soldListingCount ||
+        a.username.localeCompare(b.username, undefined, { sensitivity: 'base' })
+    )
+    .slice(0, NICHE_CATEGORY_INSIGHT_TOP_SELLERS);
+
+  const topSellerKeys = new Set(topSellers.map((s) => s.username.toLowerCase()));
+  const items = uk
+    .filter((s) => {
+      const u = ebaySummarySellerUsername(s);
+      return u && topSellerKeys.has(u.toLowerCase());
+    })
+    .map((s) => mapEbayItemSummaryToNicheCategorySoldCard(s, categoryId, categoryName))
+    .sort((a, b) => (b.soldAtMs ?? 0) - (a.soldAtMs ?? 0))
+    .slice(0, NICHE_CATEGORY_INSIGHT_ITEM_LIMIT);
+
+  const payload = {
+    categoryId: String(categoryId),
+    categoryName,
+    days,
+    sampleSize: uk.length,
+    topSellers,
+    items,
+    fetchedAt: new Date().toISOString()
+  };
+  ebayNicheCategoryInsightCache.set(cacheKey, { fetchedAt: Date.now(), data: payload });
+  return payload;
+}
+
+const sellerMergedFeedCache = new Map();
+const sellerActiveCategoriesCache = new Map();
+
+function researchSellerCacheKey(usernames, soldDays, minPriceGbp) {
+  const names = usernames
+    .map((u) => String(u).trim().toLowerCase())
+    .filter(Boolean)
+    .sort()
+    .join('|');
+  return `${names}:${soldDays}:${minPriceGbp}`;
+}
+
+function researchSellerMergedFeedCacheKey(sellerRows, soldDays, minPriceGbp) {
+  const usernames = sellerRows.map((r) => String(r.username ?? '').trim()).filter(Boolean);
+  return researchSellerCacheKey(usernames, soldDays, minPriceGbp);
+}
+
+function invalidateSellerSoldFeedCache() {
+  sellerMergedFeedCache.clear();
+  sellerActiveCategoriesCache.clear();
+}
+
+function normalizeEbayCacheItemId(itemId) {
+  const raw = itemId != null ? String(itemId).trim() : '';
+  if (!raw) return '';
+  const parts = raw.split('|');
+  if (parts.length >= 2) {
+    const legacy = parts[1].replace(/\D/g, '');
+    if (legacy) return legacy;
+  }
+  const digits = raw.replace(/\D/g, '');
+  return digits || raw;
+}
+
+function mapResearchSellerItemCacheRowToCard(row) {
+  return {
+    itemId: row.ebay_item_id != null ? String(row.ebay_item_id) : null,
+    title: typeof row.title === 'string' ? row.title : '',
+    imageUrl: row.image_url != null ? String(row.image_url) : null,
+    priceLabel: typeof row.price_label === 'string' ? row.price_label : '—',
+    itemWebUrl: row.item_web_url != null ? String(row.item_web_url) : null,
+    sellerId: Number(row.seller_id),
+    sellerUsername: typeof row.seller_username === 'string' ? row.seller_username : '',
+    soldAtMs:
+      row.sold_at_ms != null && Number.isFinite(Number(row.sold_at_ms))
+        ? Number(row.sold_at_ms)
+        : undefined
+  };
+}
+
+function researchSellerItemCacheTableHint(error) {
+  if (error && error.code === '42P01') {
+    return {
+      status: 503,
+      body: {
+        error: 'ebay_research_seller_item_cache tables missing',
+        details: 'Run database/ebay_research_seller_item_cache.sql in your database.'
+      }
+    };
+  }
+  return null;
+}
+
+async function readResearchSellerFeedFreshness(pool, sellerRows, soldDays, minPriceGbp) {
+  const sellerIds = sellerRows.map((r) => r.id);
+  if (sellerIds.length === 0) {
+    return { allFresh: true, freshSellerIds: new Set(), freshItems: [] };
+  }
+
+  const fetched = await pool.query(
+    `SELECT seller_id, item_count, fetched_at
+     FROM ebay_research_seller_feed_fetched
+     WHERE seller_id = ANY($1::int[])
+       AND sold_days = $2
+       AND min_price_gbp = $3
+       AND fetched_at >= NOW() - INTERVAL '1 hour' * $4`,
+    [sellerIds, soldDays, minPriceGbp, SELLER_SOLD_FEED_CACHE_HOURS]
+  );
+
+  const freshSellerIds = new Set(
+    (fetched.rows ?? []).map((r) => Number(r.seller_id)).filter((id) => Number.isFinite(id))
+  );
+  const allFresh = sellerIds.every((id) => freshSellerIds.has(id));
+
+  let freshItems = [];
+  if (freshSellerIds.size > 0) {
+    const itemsRes = await pool.query(
+      `SELECT seller_id, ebay_item_id, seller_username, title, image_url, price_label,
+              item_web_url, sold_at_ms
+       FROM ebay_research_seller_item_cache
+       WHERE seller_id = ANY($1::int[])
+         AND sold_days = $2
+         AND min_price_gbp = $3
+         AND fetched_at >= NOW() - INTERVAL '1 hour' * $4
+       ORDER BY sold_at_ms DESC NULLS LAST, ebay_item_id ASC
+       LIMIT $5`,
+      [[...freshSellerIds], soldDays, minPriceGbp, SELLER_SOLD_FEED_CACHE_HOURS, RESEARCH_SELLER_FETCH_LIMIT]
+    );
+    freshItems = (itemsRes.rows ?? []).map(mapResearchSellerItemCacheRowToCard);
+  }
+
+  return { allFresh, freshSellerIds, freshItems };
+}
+
+async function readResearchSellerItemsFromDb(pool, sellerRows, soldDays, minPriceGbp) {
+  const sellerIds = sellerRows.map((r) => r.id);
+  if (sellerIds.length === 0) return [];
+
+  const itemsRes = await pool.query(
+    `SELECT seller_id, ebay_item_id, seller_username, title, image_url, price_label,
+            item_web_url, sold_at_ms
+     FROM ebay_research_seller_item_cache
+     WHERE seller_id = ANY($1::int[])
+       AND sold_days = $2
+       AND min_price_gbp = $3
+       AND fetched_at >= NOW() - INTERVAL '1 hour' * $4
+     ORDER BY sold_at_ms DESC NULLS LAST, ebay_item_id ASC
+     LIMIT $5`,
+    [sellerIds, soldDays, minPriceGbp, SELLER_SOLD_FEED_CACHE_HOURS, RESEARCH_SELLER_FETCH_LIMIT]
+  );
+  return (itemsRes.rows ?? []).map(mapResearchSellerItemCacheRowToCard);
+}
+
+async function invalidateResearchSellerDbFeed(pool, sellerIds, soldDays, minPriceGbp) {
+  if (!pool || !Array.isArray(sellerIds) || sellerIds.length === 0) return;
+  await pool.query(
+    `DELETE FROM ebay_research_seller_item_cache
+     WHERE seller_id = ANY($1::int[]) AND sold_days = $2 AND min_price_gbp = $3`,
+    [sellerIds, soldDays, minPriceGbp]
+  );
+  await pool.query(
+    `DELETE FROM ebay_research_seller_feed_fetched
+     WHERE seller_id = ANY($1::int[]) AND sold_days = $2 AND min_price_gbp = $3`,
+    [sellerIds, soldDays, minPriceGbp]
+  );
+}
+
+async function replaceResearchSellerItemsInDb(pool, sellerId, soldDays, minPriceGbp, items) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `DELETE FROM ebay_research_seller_item_cache
+       WHERE seller_id = $1 AND sold_days = $2 AND min_price_gbp = $3`,
+      [sellerId, soldDays, minPriceGbp]
+    );
+
+    const sellerItems = items.filter((it) => Number(it.sellerId) === Number(sellerId));
+    for (const item of sellerItems) {
+      const ebayItemId = normalizeEbayCacheItemId(item.itemId);
+      if (!ebayItemId) continue;
+      await client.query(
+        `INSERT INTO ebay_research_seller_item_cache (
+           seller_id, ebay_item_id, sold_days, min_price_gbp, seller_username,
+           title, image_url, price_label, item_web_url, sold_at_ms, fetched_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
+        [
+          sellerId,
+          ebayItemId,
+          soldDays,
+          minPriceGbp,
+          String(item.sellerUsername ?? '').trim(),
+          String(item.title ?? ''),
+          item.imageUrl != null ? String(item.imageUrl) : null,
+          String(item.priceLabel ?? '—'),
+          item.itemWebUrl != null ? String(item.itemWebUrl) : null,
+          item.soldAtMs != null && Number.isFinite(Number(item.soldAtMs)) ? Number(item.soldAtMs) : null
+        ]
+      );
+    }
+
+    await client.query(
+      `INSERT INTO ebay_research_seller_feed_fetched (seller_id, sold_days, min_price_gbp, item_count, fetched_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (seller_id, sold_days, min_price_gbp)
+       DO UPDATE SET item_count = EXCLUDED.item_count, fetched_at = NOW()`,
+      [sellerId, soldDays, minPriceGbp, sellerItems.length]
+    );
+
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+function mergeResearchSellerSoldCards(existing, incoming, limit) {
+  const seen = new Set();
+  const merged = [];
+  for (const item of [...existing, ...incoming]) {
+    const id = normalizeEbayCacheItemId(item?.itemId);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    merged.push(item);
+    if (merged.length >= limit) break;
+  }
+  merged.sort((a, b) => (b.soldAtMs ?? 0) - (a.soldAtMs ?? 0));
+  return merged.slice(0, limit);
+}
+
+function researchSellerBrowseDelay() {
+  return new Promise((resolve) => setTimeout(resolve, RESEARCH_SELLER_BROWSE_DELAY_MS));
+}
+
+function nicheBrowseQueryForCategoryEarly(categoryName) {
+  const name = typeof categoryName === 'string' ? categoryName.trim() : '';
+  if (name) return name;
+  return 'item';
+}
+
+function resolveTrackedSellerUsername(summary, trackedKeys, singleSellerHint) {
+  let u = ebaySummarySellerUsername(summary);
+  if (!u && singleSellerHint) u = singleSellerHint;
+  if (!u || !trackedKeys.has(u.toLowerCase())) return null;
+  return u;
+}
+
+function researchSellerBrowseBaseOpts(cat, soldDays, minPriceGbp, limit) {
+  return {
+    query: nicheBrowseQueryForCategoryEarly(cat.name),
+    limit: String(limit),
+    sort: 'newlyListed',
+    soldOnly: true,
+    soldDateRangeDays: soldDays,
+    lastMonthOnly: false,
+    requireUsedCondition: false,
+    categoryIds: cat.id,
+    minPriceGbp,
+    maxPriceGbp: null,
+    ukItemsOnly: true,
+    buyingOptions: 'AUCTION|FIXED_PRICE'
+  };
+}
+
+function researchSellerLogError(errorLog, entry) {
+  if (!Array.isArray(errorLog)) return;
+  const msg = typeof entry === 'string' ? entry : entry?.error;
+  if (!msg) return;
+  const line =
+    typeof entry === 'string'
+      ? entry
+      : [entry.seller, entry.category, entry.error].filter(Boolean).join(' — ');
+  if (!errorLog.includes(line)) errorLog.push(line);
+}
+
+async function browseSoldSummariesForSellers(
+  accessToken,
+  usernames,
+  cat,
+  soldDays,
+  minPriceGbp,
+  limit,
+  errorLog
+) {
+  const base = researchSellerBrowseBaseOpts(cat, soldDays, minPriceGbp, limit);
+  const out = [];
+
+  if (usernames.length > 1) {
+    try {
+      const data = await getBrowseSearch({ ...base, accessToken, sellerUsernames: usernames });
+      const raw = Array.isArray(data.itemSummaries) ? data.itemSummaries : [];
+      for (const s of raw.filter(isUkItemSummary)) {
+        out.push({ summary: s, singleSellerHint: null });
+      }
+      if (out.length > 0) return out;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      researchSellerLogError(errorLog, {
+        seller: usernames.join(', '),
+        category: cat.name,
+        error: msg
+      });
+      console.warn(`research-seller multi-seller fetch "${cat.name}" failed, falling back per seller:`, msg);
+    }
+  }
+
+  for (const username of usernames) {
+    await researchSellerBrowseDelay();
+    try {
+      const data = await getBrowseSearch({
+        ...base,
+        accessToken,
+        sellerUsernames: [username]
+      });
+      const raw = Array.isArray(data.itemSummaries) ? data.itemSummaries : [];
+      for (const s of raw.filter(isUkItemSummary)) {
+        out.push({ summary: s, singleSellerHint: username });
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      researchSellerLogError(errorLog, { seller: username, category: cat.name, error: msg });
+      console.warn(`research-seller seller "${username}" category "${cat.name}" failed:`, msg);
+    }
+  }
+  return out;
+}
+
+async function probeSingleSellerInCategory(accessToken, username, cat, soldDays, minPriceGbp, errorLog) {
+  try {
+    const data = await getBrowseSearch({
+      ...researchSellerBrowseBaseOpts(cat, soldDays, minPriceGbp, RESEARCH_SELLER_PROBE_LIMIT),
+      accessToken,
+      sellerUsernames: [username]
+    });
+    const raw = Array.isArray(data.itemSummaries) ? data.itemSummaries : [];
+    return raw.filter(isUkItemSummary).length;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    researchSellerLogError(errorLog, { seller: username, category: `${cat.name} (probe)`, error: msg });
+    return 0;
+  }
+}
+
+async function discoverTrackedSellerCategories(
+  accessToken,
+  usernames,
+  soldDays,
+  minPriceGbp,
+  skipCache,
+  errorLog
+) {
+  const cacheKey = `${researchSellerCacheKey(usernames, soldDays, minPriceGbp)}:cats`;
+  if (!skipCache) {
+    const cached = sellerActiveCategoriesCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < SELLER_SOLD_FEED_CACHE_MS) {
+      return cached.categories;
+    }
+  }
+
+  const activeMap = new Map();
+  for (const username of usernames) {
+    await mapWithConcurrency(RESEARCH_SELLER_PROBE_CATEGORIES, RESEARCH_SELLER_DISCOVERY_CONCURRENCY, async (cat) => {
+      await researchSellerBrowseDelay();
+      const hitCount = await probeSingleSellerInCategory(
+        accessToken,
+        username,
+        cat,
+        soldDays,
+        minPriceGbp,
+        errorLog
+      );
+      if (hitCount > 0) activeMap.set(cat.id, cat);
+    });
+  }
+
+  let categories = [...activeMap.values()];
+  if (categories.length === 0) {
+    categories = [
+      { id: EBAY_GB_MENS_CLOTHING_CATEGORY_ID, name: 'Men' },
+      { id: '11450', name: 'Clothes, Shoes & Accessories' }
+    ];
+  }
+
+  sellerActiveCategoriesCache.set(cacheKey, { at: Date.now(), categories });
+  console.log(
+    `research-seller: ${usernames.length} seller(s) active in ${categories.length} categories (${soldDays}d, min £${minPriceGbp})`
+  );
+  return categories;
+}
+
+async function fetchMergedResearchSellerFeed(accessToken, sellerRows, opts, pool) {
+  const { soldDays, minPriceGbp, skipCache = false } = opts;
+  const errorLog = [];
+
+  const usernames = sellerRows.map((r) => String(r.username ?? '').trim()).filter(Boolean);
+  if (usernames.length === 0) {
+    return { items: [], diagnostics: { categoryCount: 0, categories: [], errors: [] } };
+  }
+
+  const sellerIdByKey = new Map();
+  for (const row of sellerRows) {
+    const u = String(row.username ?? '').trim();
+    if (u) sellerIdByKey.set(u.toLowerCase(), row.id);
+  }
+  const trackedKeys = new Set(sellerIdByKey.keys());
+
+  let dbCachedItems = [];
+  let sellersToFetch = sellerRows;
+
+  if (pool) {
+    try {
+      if (skipCache) {
+        await invalidateResearchSellerDbFeed(
+          pool,
+          sellerRows.map((r) => r.id),
+          soldDays,
+          minPriceGbp
+        );
+      } else {
+        const freshness = await readResearchSellerFeedFreshness(pool, sellerRows, soldDays, minPriceGbp);
+        if (freshness.allFresh) {
+          const items = await readResearchSellerItemsFromDb(pool, sellerRows, soldDays, minPriceGbp);
+          return {
+            items,
+            diagnostics: {
+              cached: true,
+              cacheSource: 'database',
+              categoryCount: 0,
+              categories: [],
+              sellerCount: sellerRows.length,
+              soldDays,
+              minPriceGbp,
+              errors: []
+            }
+          };
+        }
+        dbCachedItems = freshness.freshItems;
+        sellersToFetch = sellerRows.filter((r) => !freshness.freshSellerIds.has(r.id));
+      }
+    } catch (dbErr) {
+      const hint = researchSellerItemCacheTableHint(dbErr);
+      if (hint) throw dbErr;
+      console.warn('research-seller DB cache read failed:', dbErr.message || dbErr);
+    }
+  }
+
+  if (sellersToFetch.length === 0) {
+    const items = mergeResearchSellerSoldCards(dbCachedItems, [], RESEARCH_SELLER_FETCH_LIMIT);
+    return {
+      items,
+      diagnostics: {
+        cached: true,
+        cacheSource: 'database',
+        categoryCount: 0,
+        categories: [],
+        sellerCount: sellerRows.length,
+        soldDays,
+        minPriceGbp,
+        errors: errorLog
+      }
+    };
+  }
+
+  const fetchUsernames = sellersToFetch.map((r) => String(r.username ?? '').trim()).filter(Boolean);
+
+  const activeCats = await discoverTrackedSellerCategories(
+    accessToken,
+    fetchUsernames,
+    soldDays,
+    minPriceGbp,
+    skipCache,
+    errorLog
+  );
+
+  const seen = new Set();
+  const apiItems = [];
+
+  for (const cat of activeCats) {
+    if (apiItems.length >= RESEARCH_SELLER_FETCH_LIMIT) break;
+    const remaining = RESEARCH_SELLER_FETCH_LIMIT - apiItems.length;
+    const perCatLimit = Math.min(RESEARCH_SELLER_PER_CATEGORY_FETCH_LIMIT, remaining);
+    const hits = await browseSoldSummariesForSellers(
+      accessToken,
+      fetchUsernames,
+      cat,
+      soldDays,
+      minPriceGbp,
+      perCatLimit,
+      errorLog
+    );
+    for (const { summary: s, singleSellerHint } of hits) {
+      const u = resolveTrackedSellerUsername(s, trackedKeys, singleSellerHint);
+      if (!u) continue;
+      const id = s?.itemId != null ? String(s.itemId) : '';
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      apiItems.push(mapEbayItemSummaryToSellerSoldCard(s, sellerIdByKey.get(u.toLowerCase()), u));
+      if (apiItems.length >= RESEARCH_SELLER_FETCH_LIMIT) break;
+    }
+  }
+
+  if (pool && (errorLog.length === 0 || apiItems.length > 0)) {
+    try {
+      const itemsBySeller = new Map();
+      for (const item of apiItems) {
+        const sid = Number(item.sellerId);
+        if (!Number.isFinite(sid)) continue;
+        if (!itemsBySeller.has(sid)) itemsBySeller.set(sid, []);
+        itemsBySeller.get(sid).push(item);
+      }
+      for (const row of sellersToFetch) {
+        const sellerItems = itemsBySeller.get(row.id) ?? [];
+        await replaceResearchSellerItemsInDb(pool, row.id, soldDays, minPriceGbp, sellerItems);
+      }
+    } catch (dbErr) {
+      const hint = researchSellerItemCacheTableHint(dbErr);
+      if (hint) throw dbErr;
+      console.warn('research-seller DB cache write failed:', dbErr.message || dbErr);
+    }
+  }
+
+  const categories = activeCats.map((c) => c.name);
+  const items = mergeResearchSellerSoldCards(dbCachedItems, apiItems, RESEARCH_SELLER_FETCH_LIMIT);
+  const diagnostics = {
+    cached: dbCachedItems.length > 0 && apiItems.length === 0,
+    cacheSource: dbCachedItems.length > 0 && apiItems.length === 0 ? 'database' : apiItems.length > 0 ? 'ebay' : null,
+    categoryCount: activeCats.length,
+    categories,
+    sellerCount: sellerRows.length,
+    sellersFetchedFromEbay: sellersToFetch.length,
+    soldDays,
+    minPriceGbp,
+    errors: errorLog
+  };
+
+  console.log(
+    `research-seller: ${sellerRows.length} seller(s) → ${items.length} sold items` +
+      (sellersToFetch.length < sellerRows.length
+        ? ` (${sellerRows.length - sellersToFetch.length} from DB cache)`
+        : '') +
+      (errorLog.length ? ` (${errorLog.length} API error(s))` : '')
+  );
+  return { items, diagnostics };
 }
 
 /** Post-filter when API location metadata is present (Browse itemLocationCountry:GB is primary). */
@@ -2772,12 +3490,14 @@ async function fetchEbayCategoryNicheScore(accessToken, categoryId, days, catego
   return data;
 }
 
-async function mapWithConcurrency(items, concurrency, mapper) {
+async function mapWithConcurrency(items, concurrency, mapper, shouldContinue) {
   const results = new Array(items.length);
   let index = 0;
   async function worker() {
     while (index < items.length) {
+      if (shouldContinue && !shouldContinue()) return;
       const i = index++;
+      if (i >= items.length) break;
       results[i] = await mapper(items[i], i);
     }
   }
@@ -2862,6 +3582,49 @@ app.get('/api/ebay/niches/scores', async (req, res) => {
   } catch (err) {
     console.error('[ebay-niches] scores error:', err);
     res.status(500).json({ error: 'Failed to load niche scores', details: err.message });
+  }
+});
+
+/**
+ * Top sellers + recent sold feed for one eBay sub-category (Browse sample in that category_id).
+ * GET /api/ebay/niches/category-insight?categoryId=123&name=Coats&days=30
+ */
+app.get('/api/ebay/niches/category-insight', async (req, res) => {
+  const appId = process.env.REACT_APP_EBAY_APP_ID || process.env.EBAY_APP;
+  const certId = process.env.REACT_APP_EBAY_CERT_ID;
+  if (!appId || !certId) {
+    return res.status(500).json({ error: 'eBay credentials not configured' });
+  }
+
+  const categoryId = String(req.query.categoryId ?? req.query.category_id ?? '').trim();
+  if (!/^\d+$/.test(categoryId)) {
+    return res.status(400).json({ error: 'categoryId query param required (eBay category id)' });
+  }
+
+  let categoryName = typeof req.query.name === 'string' ? req.query.name.trim() : '';
+  if (!categoryName) {
+    const lookup = await loadEbayCategoryNameLookup();
+    categoryName = lookup.get(categoryId) || '';
+  }
+  if (!categoryName) {
+    return res.status(400).json({ error: 'name query param required when category is not in taxonomy cache' });
+  }
+
+  const daysRaw = req.query.days != null ? Number(req.query.days) : 30;
+  const days = Number.isFinite(daysRaw) ? Math.min(90, Math.max(7, Math.trunc(daysRaw))) : 30;
+
+  try {
+    const accessToken = await getAccessToken(appId, certId);
+    const insight = await fetchNicheCategorySellerInsight(
+      accessToken,
+      categoryId,
+      categoryName,
+      days
+    );
+    res.json(insight);
+  } catch (err) {
+    console.error('[ebay-niches] category-insight error:', err);
+    res.status(500).json({ error: 'Failed to load category seller insight', details: err.message });
   }
 });
 
@@ -3106,6 +3869,11 @@ function normalizeResearchFeedPriceBand(rawMin, rawMax) {
     priceLo = Math.max(priceHi - 5, 20);
   }
   return { priceLo, priceHi };
+}
+
+function normalizeResearchSellerMinPriceGbp(raw) {
+  const rawP = parseInt(String(raw ?? '25'), 10);
+  return Math.min(200, Math.max(20, Number.isFinite(rawP) ? rawP : 25));
 }
 
 function parseResearchFeedSoldDays(raw) {
@@ -3622,6 +4390,169 @@ app.get('/api/research-feed/items', async (req, res) => {
   } catch (error) {
     console.error('research-feed items failed:', error);
     res.status(500).json({ error: 'Failed to load feed', details: error.message });
+  }
+});
+
+/** Tracked eBay sellers for Seller Solds feed — table: database/ebay_research_seller.sql */
+app.get('/api/research-seller/sellers', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const result = await pool.query(
+      `SELECT id, username, created_at FROM ebay_research_seller ORDER BY created_at ASC, id ASC`
+    );
+    res.json({ rows: result.rows ?? [] });
+  } catch (error) {
+    console.error('research-seller list failed:', error);
+    res.status(500).json({
+      error: 'Failed to load sellers',
+      details: error.message,
+      hint: 'Run database/ebay_research_seller.sql in your database.'
+    });
+  }
+});
+
+app.post('/api/research-seller/sellers', async (req, res) => {
+  const username = sanitizeEbaySellerUsername(req.body?.username);
+  if (!username) {
+    return res.status(400).json({
+      error: 'username is required (letters, numbers, underscore, hyphen; max 64 characters)'
+    });
+  }
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const dup = await pool.query(
+      `SELECT id, username, created_at FROM ebay_research_seller WHERE lower(trim(username)) = lower(trim($1)) LIMIT 1`,
+      [username]
+    );
+    if (dup.rowCount) {
+      return res.json({ row: dup.rows[0], created: false });
+    }
+    const ins = await pool.query(
+      `INSERT INTO ebay_research_seller (username) VALUES ($1) RETURNING id, username, created_at`,
+      [username]
+    );
+    invalidateSellerSoldFeedCache();
+    res.status(201).json({ row: ins.rows[0], created: true });
+  } catch (error) {
+    console.error('research-seller insert failed:', error);
+    res.status(500).json({
+      error: 'Failed to save seller',
+      details: error.message,
+      hint: 'Run database/ebay_research_seller.sql in your database.'
+    });
+  }
+});
+
+app.delete('/api/research-seller/sellers/:id', async (req, res) => {
+  const id = parseInt(String(req.params.id ?? ''), 10);
+  if (!Number.isFinite(id) || id < 1) {
+    return res.status(400).json({ error: 'Invalid seller id' });
+  }
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const del = await pool.query(
+      `DELETE FROM ebay_research_seller WHERE id = $1 RETURNING id, username`,
+      [id]
+    );
+    if (!del.rowCount) {
+      return res.status(404).json({ error: 'Seller not found' });
+    }
+    invalidateSellerSoldFeedCache();
+    res.json({ ok: true, id: del.rows[0].id });
+  } catch (error) {
+    console.error('research-seller delete failed:', error);
+    res.status(500).json({ error: 'Failed to remove seller', details: error.message });
+  }
+});
+
+/**
+ * Inspiration feed: recent solds from all tracked sellers, merged newest-first.
+ * Discover categories where any tracked seller has solds, then fetch each category
+ * with all seller usernames in one Browse call. Cached 12h.
+ * GET /api/research-seller/items?page=0&soldDays=7&minPriceGbp=25
+ */
+app.get('/api/research-seller/items', async (req, res) => {
+  const page = Math.max(0, parseInt(String(req.query.page ?? '0'), 10) || 0);
+  const soldDays = Math.min(365, Math.max(7, parseInt(String(req.query.soldDays ?? '7'), 10) || 7));
+  const minPriceGbp = normalizeResearchSellerMinPriceGbp(req.query.minPriceGbp);
+  const skipCache =
+    req.query.refresh === '1' ||
+    req.query.refresh === 'true' ||
+    req.query.nocache === '1';
+
+  const appId = process.env.REACT_APP_EBAY_APP_ID || process.env.EBAY_APP;
+  const certId = process.env.REACT_APP_EBAY_CERT_ID;
+  if (!appId || !certId) {
+    return res.status(500).json({
+      error: 'eBay credentials not configured',
+      details: 'Set REACT_APP_EBAY_APP_ID and REACT_APP_EBAY_CERT_ID.'
+    });
+  }
+
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured', items: [], sellers: [], hasMore: false });
+    }
+
+    const all = await pool.query(
+      `SELECT id, username, created_at FROM ebay_research_seller ORDER BY created_at ASC, id ASC`
+    );
+    const sellerRows = all.rows ?? [];
+
+    if (sellerRows.length === 0) {
+      return res.json({ items: [], sellers: [], hasMore: false, page: 0, soldDays, minPriceGbp });
+    }
+
+    const accessToken = await getAccessToken(appId, certId);
+    const { items: allItems, diagnostics } = await fetchMergedResearchSellerFeed(
+      accessToken,
+      sellerRows,
+      {
+        soldDays,
+        minPriceGbp,
+        skipCache
+      },
+      pool
+    );
+
+    const offset = page * RESEARCH_SELLER_PAGE_SIZE;
+    const pageItems = allItems.slice(offset, offset + RESEARCH_SELLER_PAGE_SIZE);
+    const hasMore = offset + RESEARCH_SELLER_PAGE_SIZE < allItems.length;
+    const apiErrors = Array.isArray(diagnostics?.errors) ? diagnostics.errors : [];
+
+    res.json({
+      items: pageItems,
+      sellers: sellerRows.map((r) => ({ id: r.id, username: r.username, created_at: r.created_at })),
+      hasMore,
+      page,
+      pageSize: RESEARCH_SELLER_PAGE_SIZE,
+      totalCached: allItems.length,
+      soldDays,
+      minPriceGbp,
+      diagnostics,
+      errors: apiErrors.map((error) => ({ sellerUsername: '', error: String(error) })),
+      emptyHint:
+        pageItems.length === 0 && apiErrors.length === 0
+          ? `No sold listings found for ${diagnostics?.sellerCount ?? sellerRows.length} seller(s) in the last ${soldDays} days (min £${minPriceGbp}). Try lowering min price, widening sold days, or refresh in a few minutes if eBay rate-limited.`
+          : null
+    });
+  } catch (error) {
+    console.error('research-seller items failed:', error);
+    const hint = researchSellerItemCacheTableHint(error);
+    if (hint) {
+      return res.status(hint.status).json(hint.body);
+    }
+    res.status(500).json({ error: 'Failed to load seller sold feed', details: error.message });
   }
 });
 

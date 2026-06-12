@@ -203,9 +203,9 @@ function parseReportingViewMode(tab: string | null): ReportingViewMode {
 }
 
 function parseSalesDataSubTab(value: string | null): SalesDataSubTab {
-  if (value === 'all-time-sales') return 'all-time-sales';
+  if (value === 'current-sales') return 'current-sales';
   if (value === 'graphs') return 'graphs';
-  return 'current-sales';
+  return 'all-time-sales';
 }
 
 function salesFilterModeForSubTab(subTab: SalesDataSubTab): SalesFilterMode {
@@ -656,12 +656,19 @@ const Reporting: React.FC = () => {
   }, [searchParams]);
 
   useEffect(() => {
-    if (salesSubTab === 'all-time-sales' && prevSalesSubTabRef.current !== 'all-time-sales') {
+    if (prevSalesSubTabRef.current === salesSubTab) return;
+
+    if (salesSubTab === 'all-time-sales') {
       setSalesFilterMode('period');
       setSalesDateFilter('all-time');
+    } else if (salesSubTab === 'current-sales') {
+      setSalesFilterMode('month');
+      setMonthlySummaryYear(now.getFullYear());
+      setMonthlySummaryMonth(now.getMonth() + 1);
     }
+
     prevSalesSubTabRef.current = salesSubTab;
-  }, [salesSubTab]);
+  }, [salesSubTab, now]);
 
   useEffect(() => {
     const currentTab = searchParams.get('tab');
@@ -682,12 +689,8 @@ const Reporting: React.FC = () => {
   const setSalesSubTab = useCallback(
     (next: SalesDataSubTab) => {
       setSalesSubTabState(next);
-      if (next === 'all-time-sales') {
-        setSalesFilterMode('period');
-        setSalesDateFilter('all-time');
-      }
       const nextParams = new URLSearchParams(searchParams);
-      if (next === 'current-sales') {
+      if (next === 'all-time-sales') {
         nextParams.delete('salesSubTab');
       } else {
         nextParams.set('salesSubTab', next);
@@ -2518,20 +2521,20 @@ const Reporting: React.FC = () => {
             <button
               type="button"
               role="tab"
-              aria-selected={salesSubTab === 'current-sales'}
-              className={`reporting-sales-subnav-btn${salesSubTab === 'current-sales' ? ' reporting-sales-subnav-btn--active' : ''}`}
-              onClick={() => setSalesSubTab('current-sales')}
-            >
-              Current Sales
-            </button>
-            <button
-              type="button"
-              role="tab"
               aria-selected={salesSubTab === 'all-time-sales'}
               className={`reporting-sales-subnav-btn${salesSubTab === 'all-time-sales' ? ' reporting-sales-subnav-btn--active' : ''}`}
               onClick={() => setSalesSubTab('all-time-sales')}
             >
               Total Sales
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={salesSubTab === 'current-sales'}
+              className={`reporting-sales-subnav-btn${salesSubTab === 'current-sales' ? ' reporting-sales-subnav-btn--active' : ''}`}
+              onClick={() => setSalesSubTab('current-sales')}
+            >
+              Current Sales
             </button>
             <button
               type="button"

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch } from '../utils/apiBase';
 import './EbayNicheExplorer.css';
+import './ResearchEbayFeed.css';
 
 type TaxonomyCard = {
   id: string;
@@ -35,6 +36,38 @@ type TopBuyTickerItem = {
   soldCount: number;
   stars: number;
 };
+
+type SelectedSubcategory = {
+  id: string;
+  name: string;
+  parentName: string;
+};
+
+type CategoryInsightSeller = {
+  username: string;
+  soldListingCount: number;
+};
+
+type CategoryInsightItem = {
+  itemId: string | null;
+  title: string;
+  imageUrl: string | null;
+  priceLabel: string;
+  itemWebUrl: string | null;
+  categoryId: string;
+  categoryName: string;
+  sellerUsername: string;
+  soldAtMs?: number;
+};
+
+function ebayUkSellerProfileUrl(username: string): string {
+  return `https://www.ebay.co.uk/usr/${encodeURIComponent(username.trim())}`;
+}
+
+function formatSoldDate(ms: number | undefined): string | null {
+  if (ms == null || !Number.isFinite(ms) || ms <= 0) return null;
+  return new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
 
 function soldCountToStars(soldCount: number | null | undefined, peerSoldCounts: number[]): number {
   if (soldCount == null || !Number.isFinite(soldCount) || soldCount <= 0) return 0;
@@ -101,6 +134,13 @@ const EbayNicheExplorer: React.FC<EbayNicheExplorerProps> = ({ highlightCategory
   const [scoresLoading, setScoresLoading] = useState(false);
   const [scoresError, setScoresError] = useState<string | null>(null);
   const [filterCategoryId, setFilterCategoryId] = useState<string>('all');
+  const [selectedSub, setSelectedSub] = useState<SelectedSubcategory | null>(null);
+  const [insightLoading, setInsightLoading] = useState(false);
+  const [insightError, setInsightError] = useState<string | null>(null);
+  const [insightSellers, setInsightSellers] = useState<CategoryInsightSeller[]>([]);
+  const [insightItems, setInsightItems] = useState<CategoryInsightItem[]>([]);
+  const [insightSampleSize, setInsightSampleSize] = useState<number | null>(null);
+  const insightPanelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -190,6 +230,48 @@ const EbayNicheExplorer: React.FC<EbayNicheExplorerProps> = ({ highlightCategory
     if (missing.length === 0) return;
     void loadScores(missing);
   }, [cards, visibleSubcategoryIds, loadScores]);
+
+  const loadCategoryInsight = useCallback(async (sub: SelectedSubcategory) => {
+    setInsightLoading(true);
+    setInsightError(null);
+    setInsightSellers([]);
+    setInsightItems([]);
+    setInsightSampleSize(null);
+    try {
+      const params = new URLSearchParams({
+        categoryId: sub.id,
+        name: sub.name,
+        days: String(NICHE_DAYS),
+      });
+      const res = await apiFetch(`/api/ebay/niches/category-insight?${params.toString()}`);
+      const data = await readJson<{
+        topSellers?: CategoryInsightSeller[];
+        items?: CategoryInsightItem[];
+        sampleSize?: number;
+        error?: string;
+      }>(res);
+      if (!res.ok) throw new Error(data.error || 'Failed to load category sellers');
+      setInsightSellers(Array.isArray(data.topSellers) ? data.topSellers : []);
+      setInsightItems(Array.isArray(data.items) ? data.items : []);
+      setInsightSampleSize(typeof data.sampleSize === 'number' ? data.sampleSize : null);
+    } catch (err) {
+      setInsightError(err instanceof Error ? err.message : 'Failed to load category sellers');
+    } finally {
+      setInsightLoading(false);
+    }
+  }, []);
+
+  const handleSubcategoryClick = useCallback(
+    (sub: { id: string; name: string }, parentName: string) => {
+      const next: SelectedSubcategory = { id: sub.id, name: sub.name, parentName };
+      setSelectedSub(next);
+      void loadCategoryInsight(next);
+      window.setTimeout(() => {
+        insightPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 80);
+    },
+    [loadCategoryInsight]
+  );
 
   const formatSold = (n: number | null | undefined) => {
     if (n == null || !Number.isFinite(n)) return '—';
@@ -362,16 +444,21 @@ const EbayNicheExplorer: React.FC<EbayNicheExplorerProps> = ({ highlightCategory
                       const score = scoresById.get(sub.id);
                       const stars = soldCountToStars(score?.soldCount, peerSold);
                       return (
-                        <li key={sub.id} className="ebay-niche-card-row">
-                          <span className="ebay-niche-card-row-name" title={sub.name}>
-                            {sub.name}
-                          </span>
-                          <span className="ebay-niche-card-row-stars">
-                            <StarRating stars={stars} />
-                          </span>
-                          <span className="ebay-niche-sold-count" title="Sold (30 days)">
-                            {formatSold(score?.soldCount)}
-                          </span>
+                        <li key={sub.id}>
+                          <button
+                            type="button"
+                            className={`ebay-niche-card-row ebay-niche-card-row--clickable${selectedSub?.id === sub.id ? ' ebay-niche-card-row--selected' : ''}`}
+                            onClick={() => handleSubcategoryClick(sub, card.name)}
+                            title={`Top sellers in ${sub.name}`}
+                          >
+                            <span className="ebay-niche-card-row-name">{sub.name}</span>
+                            <span className="ebay-niche-card-row-stars">
+                              <StarRating stars={stars} />
+                            </span>
+                            <span className="ebay-niche-sold-count" title="Sold (30 days)">
+                              {formatSold(score?.soldCount)}
+                            </span>
+                          </button>
                         </li>
                       );
                     })
@@ -391,6 +478,110 @@ const EbayNicheExplorer: React.FC<EbayNicheExplorerProps> = ({ highlightCategory
           })}
         </div>
       )}
+
+      {selectedSub ? (
+        <section
+          ref={insightPanelRef}
+          className="ebay-niche-category-insight"
+          aria-label={`Top sellers in ${selectedSub.name}`}
+        >
+          <div className="ebay-niche-category-insight-header">
+            <div>
+              <p className="ebay-niche-category-insight-eyebrow">{selectedSub.parentName}</p>
+              <h3 className="ebay-niche-category-insight-title">{selectedSub.name}</h3>
+              <p className="ebay-niche-category-insight-meta">
+                Top {NICHE_DAYS}-day sellers from eBay sold listings in this category
+                {insightSampleSize != null ? ` (sampled ${insightSampleSize.toLocaleString('en-GB')})` : ''}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="ebay-niche-category-insight-close"
+              onClick={() => setSelectedSub(null)}
+              aria-label="Close category sellers"
+            >
+              ×
+            </button>
+          </div>
+
+          {insightError ? (
+            <div className="ebay-niche-explorer-error" role="alert">
+              {insightError}
+            </div>
+          ) : null}
+
+          {insightLoading ? (
+            <p className="ebay-niche-explorer-muted">Finding top sellers…</p>
+          ) : (
+            <>
+              {insightSellers.length > 0 ? (
+                <div className="ebay-niche-category-insight-sellers" aria-label="Top sellers">
+                  {insightSellers.map((s, i) => (
+                    <a
+                      key={s.username}
+                      href={ebayUkSellerProfileUrl(s.username)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`research-ebay-feed-chip research-ebay-feed-chip--tone-${i % 6}`}
+                      title={`${s.soldListingCount} sold listings in sample`}
+                    >
+                      @{s.username}
+                      <span className="ebay-niche-category-insight-seller-count">
+                        {s.soldListingCount}
+                      </span>
+                    </a>
+                  ))}
+                </div>
+              ) : !insightError ? (
+                <p className="ebay-niche-explorer-muted">No seller data in the recent sold sample.</p>
+              ) : null}
+
+              {insightItems.length > 0 ? (
+                <div className="research-ebay-feed-grid ebay-niche-category-insight-grid">
+                  {insightItems.map((it) => {
+                    const href =
+                      it.itemWebUrl || (it.itemId ? `https://www.ebay.co.uk/itm/${it.itemId}` : null);
+                    const soldDate = formatSoldDate(it.soldAtMs);
+                    const inner = (
+                      <>
+                        <div className="research-ebay-feed-card-media">
+                          {it.imageUrl ? (
+                            <img src={it.imageUrl} alt="" loading="lazy" decoding="async" />
+                          ) : null}
+                        </div>
+                        <div className="research-ebay-feed-card-body">
+                          <div className="research-ebay-feed-card-tag">@{it.sellerUsername}</div>
+                          <h4 className="research-ebay-feed-card-title">{it.title || 'Listing'}</h4>
+                          <div className="research-ebay-feed-card-price">{it.priceLabel}</div>
+                          {soldDate ? (
+                            <div className="ebay-niche-category-insight-sold-date">Sold {soldDate}</div>
+                          ) : null}
+                        </div>
+                      </>
+                    );
+                    return (
+                      <article key={`${it.itemId}-${it.sellerUsername}`} className="research-ebay-feed-card">
+                        {href ? (
+                          <a
+                            href={href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="research-ebay-feed-card-link"
+                          >
+                            {inner}
+                          </a>
+                        ) : (
+                          inner
+                        )}
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </>
+          )}
+        </section>
+      ) : null}
     </div>
   );
 };

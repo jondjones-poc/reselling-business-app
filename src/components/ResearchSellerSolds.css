@@ -1,0 +1,19 @@
+.research-seller-solds-chip-label {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.research-seller-solds-chip-label:hover {
+  text-decoration: underline;
+}
+
+.research-seller-solds-card-date {
+  margin-top: 0.35rem;
+  font-size: 0.74rem;
+  color: rgba(var(--theme-text-rgb, 255, 255, 255), 0.48);
+}

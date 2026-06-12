@@ -286,6 +286,35 @@
   font-size: 0.86rem;
 }
 
+.ebay-niche-card-row--clickable {
+  width: 100%;
+  margin: 0;
+  border: none;
+  border-bottom: 1px solid rgba(var(--theme-text-rgb, 255, 255, 255), 0.06);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.ebay-niche-card-row--clickable:hover {
+  background: rgba(var(--theme-accent-rgb, 120, 180, 255), 0.08);
+}
+
+.ebay-niche-card-row--clickable.ebay-niche-card-row--selected {
+  background: rgba(var(--theme-accent-rgb, 120, 180, 255), 0.14);
+  box-shadow: inset 0 0 0 1px rgba(var(--theme-accent-rgb, 120, 180, 255), 0.35);
+}
+
+.ebay-niche-card-list > li:last-child .ebay-niche-card-row--clickable {
+  border-bottom: none;
+}
+
 .ebay-niche-card-row:last-child {
   border-bottom: none;
 }
@@ -349,6 +378,85 @@
 .ebay-niche-card-more:hover {
   border-color: rgba(var(--theme-accent-rgb, 120, 180, 255), 0.6);
   background: rgba(var(--theme-accent-rgb, 120, 180, 255), 0.08);
+}
+
+.ebay-niche-category-insight {
+  margin-top: 28px;
+  padding: 18px 16px 8px;
+  border-radius: 16px;
+  border: 1px solid rgba(var(--theme-accent-rgb, 120, 180, 255), 0.28);
+  background: rgba(var(--theme-accent-rgb, 120, 180, 255), 0.05);
+}
+
+.ebay-niche-category-insight-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.ebay-niche-category-insight-eyebrow {
+  margin: 0 0 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: rgba(var(--theme-text-rgb, 255, 255, 255), 0.48);
+}
+
+.ebay-niche-category-insight-title {
+  margin: 0 0 6px;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.ebay-niche-category-insight-meta {
+  margin: 0;
+  font-size: 0.82rem;
+  color: rgba(var(--theme-text-rgb, 255, 255, 255), 0.55);
+}
+
+.ebay-niche-category-insight-close {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--theme-accent-rgb, 120, 180, 255), 0.35);
+  background: transparent;
+  color: inherit;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ebay-niche-category-insight-sellers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.ebay-niche-category-insight-sellers .research-ebay-feed-chip {
+  text-decoration: none;
+  color: inherit;
+}
+
+.ebay-niche-category-insight-seller-count {
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  color: rgba(var(--theme-text-rgb, 255, 255, 255), 0.5);
+}
+
+.ebay-niche-category-insight-grid {
+  padding: 0;
+  max-width: none;
+}
+
+.ebay-niche-category-insight-sold-date {
+  margin-top: 0.35rem;
+  font-size: 0.74rem;
+  color: rgba(var(--theme-text-rgb, 255, 255, 255), 0.48);
 }
 
 @media (max-width: 640px) {

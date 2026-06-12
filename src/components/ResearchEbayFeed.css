@@ -184,6 +184,12 @@
   border: 1px solid #fde68a;
 }
 
+.research-ebay-feed-banner--info {
+  background: #eff6ff;
+  color: #1e40af;
+  border: 1px solid #bfdbfe;
+}
+
 .research-ebay-feed-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
