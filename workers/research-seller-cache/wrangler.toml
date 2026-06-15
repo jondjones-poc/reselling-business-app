@@ -1,0 +1,14 @@
+# Cloudflare Worker: daily Seller Solds cache refresh (eBay → Postgres on Render).
+# Deploy: cd workers/research-seller-cache && npx wrangler@3 deploy
+# Secrets: npx wrangler@3 secret put DB_KEEPALIVE_SECRET   (must match Render DB_KEEPALIVE_SECRET)
+
+name = "reselling-research-seller-cache"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# 16:00 UTC every day = 4pm GMT (5pm UK local during BST).
+[triggers]
+crons = ["0 16 * * *"]
+
+[vars]
+REFRESH_URL = "https://reselling-business-app.onrender.com/api/research-seller/cache-refresh"

@@ -560,33 +560,34 @@ const Stock: React.FC = () => {
 
   // Scroll to entry form when it opens (edit at top, add below Next SKU)
   useEffect(() => {
-    if (showNewEntry && editFormRef.current) {
-      const isMobile = window.innerWidth <= 768;
-      const scrollToForm = () => {
-        if (editFormRef.current) {
-          editFormRef.current.scrollIntoView({ 
-            behavior: 'smooth', 
-            block: isMobile ? 'center' : 'start',
-            inline: 'nearest'
-          });
-          // Additional scroll adjustment for mobile to account for fixed headers
-          if (isMobile) {
-            setTimeout(() => {
-              const rect = editFormRef.current?.getBoundingClientRect();
-              if (rect && rect.top < 120) {
-                window.scrollBy({
-                  top: rect.top - 120,
-                  behavior: 'smooth'
-                });
-              }
-            }, 100);
+    if (!showNewEntry || !editFormRef.current) return undefined;
+
+    const isMobile = window.innerWidth <= 768;
+    let innerScrollTimeoutId: ReturnType<typeof setTimeout> | undefined;
+    const outerScrollTimeoutId = setTimeout(() => {
+      if (!editFormRef.current) return;
+      editFormRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: isMobile ? 'center' : 'start',
+        inline: 'nearest',
+      });
+      if (isMobile) {
+        innerScrollTimeoutId = setTimeout(() => {
+          const rect = editFormRef.current?.getBoundingClientRect();
+          if (rect && rect.top < 120) {
+            window.scrollBy({
+              top: rect.top - 120,
+              behavior: 'smooth',
+            });
           }
-        }
-      };
-      // Delay to ensure DOM has updated
-      const timeoutId = setTimeout(scrollToForm, 200);
-      return () => clearTimeout(timeoutId);
-    }
+        }, 100);
+      }
+    }, 200);
+
+    return () => {
+      clearTimeout(outerScrollTimeoutId);
+      if (innerScrollTimeoutId != null) clearTimeout(innerScrollTimeoutId);
+    };
   }, [showNewEntry, editingRowId]);
 
   const loadStock = async () => {
@@ -612,18 +613,6 @@ const Stock: React.FC = () => {
       }
 
       const data: StockApiResponse = await response.json();
-      // Verify we're using the actual database id values
-      if (data.rows && data.rows.length > 0) {
-        console.log('Stock data loaded from API:', data.rows.length, 'rows');
-        console.log('Sample row with database id:', data.rows[0]?.id, data.rows[0]);
-        console.log('Sample row vinted_id:', data.rows[0]?.vinted_id);
-        console.log('Sample row ebay_id:', data.rows[0]?.ebay_id);
-        // Find row with specific ebay_id for debugging
-        const testRow = data.rows.find(r => r.ebay_id && String(r.ebay_id).includes('297907143894'));
-        if (testRow) {
-          console.log('Found row with ebay_id 297907143894:', testRow);
-        }
-      }
       const nextRows = (Array.isArray(data.rows) ? data.rows : []).map(normalizeStockRowDates);
       setRows(nextRows);
       // Never clear editingRowId on refresh — that left the form open while Save switched to POST (duplicate rows).
@@ -787,27 +776,32 @@ const Stock: React.FC = () => {
     setShowNewEntry(true);
     setSuccessMessage(null);
 
-    setTimeout(() => {
-      if (editFormRef.current) {
-        const isMobile = window.innerWidth <= 768;
-        editFormRef.current.scrollIntoView({
-          behavior: 'smooth',
-          block: isMobile ? 'center' : 'start',
-          inline: 'nearest',
-        });
-        if (isMobile) {
-          setTimeout(() => {
-            const rect = editFormRef.current?.getBoundingClientRect();
-            if (rect && rect.top < 120) {
-              window.scrollBy({
-                top: rect.top - 120,
-                behavior: 'smooth',
-              });
-            }
-          }, 100);
-        }
+    let innerScrollTimeoutId: ReturnType<typeof setTimeout> | undefined;
+    const outerScrollTimeoutId = setTimeout(() => {
+      if (!editFormRef.current) return;
+      const isMobile = window.innerWidth <= 768;
+      editFormRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: isMobile ? 'center' : 'start',
+        inline: 'nearest',
+      });
+      if (isMobile) {
+        innerScrollTimeoutId = setTimeout(() => {
+          const rect = editFormRef.current?.getBoundingClientRect();
+          if (rect && rect.top < 120) {
+            window.scrollBy({
+              top: rect.top - 120,
+              behavior: 'smooth',
+            });
+          }
+        }, 100);
       }
     }, 150);
+
+    return () => {
+      clearTimeout(outerScrollTimeoutId);
+      if (innerScrollTimeoutId != null) clearTimeout(innerScrollTimeoutId);
+    };
   }, [
     rows,
     loading,
@@ -983,7 +977,6 @@ const Stock: React.FC = () => {
     setSavingCategory(true);
     setError(null);
     try {
-      console.log('Adding category:', categoryName);
       const response = await fetch(`${API_BASE}/api/categories`, {
         method: 'POST',
         headers: {
@@ -994,8 +987,6 @@ const Stock: React.FC = () => {
           department_id: Number(createForm.department_id),
         }),
       });
-
-      console.log('Category API response status:', response.status);
 
       if (!response.ok) {
         let errorMessage = 'Failed to add category';
@@ -1012,7 +1003,6 @@ const Stock: React.FC = () => {
       }
 
       const data = await response.json();
-      console.log('Category created successfully:', data);
       
       // Reload categories to get the updated list
       await loadCategories();
@@ -1063,7 +1053,6 @@ const Stock: React.FC = () => {
     setSavingBrand(true);
     setError(null);
     try {
-      console.log('Adding brand:', brandName);
       const response = await fetch(`${API_BASE}/api/brands`, {
         method: 'POST',
         headers: {
@@ -1075,8 +1064,6 @@ const Stock: React.FC = () => {
           category_id: catId,
         }),
       });
-
-      console.log('Brand API response status:', response.status);
 
       if (!response.ok) {
         let errorMessage = 'Failed to add brand';
@@ -1093,7 +1080,6 @@ const Stock: React.FC = () => {
       }
 
       const data = await response.json();
-      console.log('Brand created successfully:', data);
       
       // Reload brands to get the updated list
       await loadBrands();
@@ -1399,23 +1385,8 @@ const Stock: React.FC = () => {
         
         // For IDs: exact match (for precise ID searches)
         const idMatches = vintedId.includes(searchLower) || ebayId.includes(searchLower) || skuId.includes(searchLower);
-        
-        const matches = itemNameMatches || idMatches;
-        if (searchLower && (row.ebay_id || row.vinted_id)) {
-          console.log('Search debug:', { 
-            searchTerm: searchLower, 
-            searchWords,
-            ebayId, 
-            vintedId, 
-            itemName, 
-            skuId,
-            rowId: row.id,
-            itemNameMatches,
-            idMatches,
-            matches 
-          });
-        }
-        return matches;
+
+        return itemNameMatches || idMatches;
       });
 
       // Then apply category filter to narrow down search results
@@ -1677,6 +1648,11 @@ const Stock: React.FC = () => {
     });
   }, [filteredRows, sortConfig, categories]);
 
+  const visibleRows = useMemo(
+    () => sortedRows.slice(0, visibleItemsCount),
+    [sortedRows, visibleItemsCount]
+  );
+
   const exportToCSV = () => {
     if (sortedRows.length === 0) {
       return;
@@ -1755,7 +1731,6 @@ const Stock: React.FC = () => {
       return;
     }
 
-    console.log('startEditingRow - Setting editingRowId to:', row.id);
     setFormIntent('edit');
     setEditingRowId(Number(row.id));
     const deptForRow =
@@ -1787,9 +1762,6 @@ const Stock: React.FC = () => {
       bulky_item: stockRowBulkyFromRow(row),
       ebay_draft: stockRowEbayDraftFromRow(row),
     });
-    console.log('startEditingRow - row data:', row);
-    console.log('startEditingRow - vinted_id:', row.vinted_id);
-    console.log('startEditingRow - form vinted_id:', row.vinted_id ?? '');
     setShowNewEntry(true);
     setSuccessMessage(null);
     setStockEditIdInUrl(Number(row.id));
@@ -1966,17 +1938,10 @@ const Stock: React.FC = () => {
         is_ebay_draft: createForm.ebay_draft
       };
 
-      console.log('Stock submit - Payload:', payload);
-      console.log('Stock submit - editingRowId:', currentEditingId);
-      console.log('Stock submit - brand_id value:', createForm.brand_id);
-      console.log('Stock submit - brand_id in payload:', payload.brand_id);
-
       // Check if we're editing or creating
       const isEditing = currentEditingId !== null;
       const url = isEditing ? `${API_BASE}/api/stock/${currentEditingId}` : `${API_BASE}/api/stock`;
       const method = isEditing ? 'PUT' : 'POST';
-      
-      console.log('Stock submit - Method:', method, 'URL:', url);
 
       const response = await fetch(url, {
         method,
@@ -2007,10 +1972,6 @@ const Stock: React.FC = () => {
       const data = await response.json();
       const updatedRow: StockRow | undefined = data?.row ? normalizeStockRowDates(data.row) : undefined;
 
-      console.log('Stock update response - updatedRow:', updatedRow);
-      console.log('Stock update response - brand_id:', updatedRow?.brand_id);
-      console.log('Stock update response - vinted_id:', updatedRow?.vinted_id);
-
       if (!updatedRow) {
         throw new Error('Server did not return the updated row.');
       }
@@ -2035,8 +1996,6 @@ const Stock: React.FC = () => {
       window.setTimeout(() => {
         stockFiltersRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 0);
-
-      console.log('Stock submit - Success:', isEditing ? 'Updated' : 'Created', 'ID:', updatedRow.id);
     } catch (err: any) {
       console.error('Stock create error:', err);
       setError(err.message || 'Unable to create stock record');
@@ -3943,7 +3902,9 @@ const Stock: React.FC = () => {
         <div className="stock-add-form-below-summary">{stockEntryFormEl}</div>
       )}
 
-      {/* Desktop Table View */}
+      {/* Desktop Table View + mobile cards — unmount while editing to avoid re-rendering thousands of rows on each keystroke */}
+      {!showNewEntry && (
+        <>
       <div className="table-wrapper">
         <table className="stock-table">
           <thead>
@@ -4014,7 +3975,7 @@ const Stock: React.FC = () => {
                 </td>
               </tr>
             )}
-            {sortedRows.map((row) => {
+            {visibleRows.map((row) => {
               return (
                 <tr key={row.id}>
                   <td>{row.id}</td>
@@ -4089,7 +4050,7 @@ const Stock: React.FC = () => {
             No stock records found.
           </div>
         )}
-        {sortedRows.slice(0, visibleItemsCount).map((row) => {
+        {visibleRows.map((row) => {
           const categoryName = categories.find(c => c.id === row.category_id)?.category_name || '—';
           const brandName = brands.find(b => b.id === row.brand_id)?.brand_name || '—';
           const deptName = departmentNameForRow(row, categories, departments);
@@ -4165,6 +4126,8 @@ const Stock: React.FC = () => {
           </div>
         )}
       </div>
+        </>
+      )}
 
       <div className="export-section">
         <button

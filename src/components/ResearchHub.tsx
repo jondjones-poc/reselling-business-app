@@ -6,11 +6,11 @@ import ResearchSellerSolds from './ResearchSellerSolds';
 import Research from './Research';
 import './BrandResearch.css';
 
-type HubView = 'feed' | 'tag-sell-through' | 'seller-solds' | 'offline';
+type HubView = 'feed' | 'tag-sell-through' | 'seller-listings' | 'offline';
 
 function normalizeView(raw: string | null): HubView {
   if (raw === 'tag-sell-through') return 'tag-sell-through';
-  if (raw === 'seller-solds') return 'seller-solds';
+  if (raw === 'seller-listings' || raw === 'seller-solds') return 'seller-listings';
   if (raw === 'offline') return raw;
   return 'feed';
 }
@@ -39,12 +39,12 @@ const ResearchHub: React.FC = () => {
           Tag sell-through rate
         </NavLink>
         <NavLink
-          to="/research?view=seller-solds"
+          to="/research?view=seller-listings"
           role="tab"
-          aria-selected={view === 'seller-solds'}
-          className={() => `research-tab${view === 'seller-solds' ? ' active' : ''}`}
+          aria-selected={view === 'seller-listings'}
+          className={() => `research-tab${view === 'seller-listings' ? ' active' : ''}`}
         >
-          Seller Solds
+          Seller Listing
         </NavLink>
         <NavLink
           to="/research?view=offline"
@@ -58,7 +58,7 @@ const ResearchHub: React.FC = () => {
 
       {view === 'feed' && <ResearchEbayFeed />}
       {view === 'tag-sell-through' && <ResearchTagSellThrough />}
-      {view === 'seller-solds' && <ResearchSellerSolds />}
+      {view === 'seller-listings' && <ResearchSellerSolds />}
       {view === 'offline' && <Research forcedView="offline" />}
     </div>
   );
