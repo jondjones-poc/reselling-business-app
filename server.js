@@ -1403,6 +1403,52 @@ function mapBrowseListingDetails(item, stockRow) {
   };
 }
 
+function mapBrowseItemPreview(item, ebayIdRaw) {
+  const legacy = extractEbayLegacyItemId(ebayIdRaw);
+  const aspects = [];
+  if (item && Array.isArray(item.localizedAspects)) {
+    for (const aspect of item.localizedAspects.slice(0, 10)) {
+      if (aspect?.name && aspect?.value) {
+        aspects.push({ name: String(aspect.name), value: String(aspect.value) });
+      }
+    }
+  }
+  const condition =
+    item?.condition != null && String(item.condition).trim() !== ''
+      ? String(item.condition).trim()
+      : null;
+  const buyingOptions = Array.isArray(item?.buyingOptions)
+    ? item.buyingOptions.map((o) => String(o)).filter(Boolean)
+    : [];
+  return {
+    ebay_id: legacy || (item?.legacyItemId != null ? String(item.legacyItemId) : null),
+    title: item?.title != null && String(item.title).trim() !== '' ? String(item.title).trim() : null,
+    imageUrl: item ? extractBrowseItemImageUrl(item) : null,
+    priceLabel: formatBrowseListingPrice(item, null),
+    condition,
+    itemEndDate: item?.itemEndDate != null ? String(item.itemEndDate) : null,
+    itemWebUrl:
+      item?.itemWebUrl != null && String(item.itemWebUrl).trim() !== ''
+        ? String(item.itemWebUrl).trim()
+        : legacy
+          ? `https://www.ebay.co.uk/itm/${legacy}`
+          : null,
+    buyingOptions,
+    aspects
+  };
+}
+
+async function fetchBrowseListingItemWithRetry(browseToken, ebayIdRaw, attempts = 4, delayMs = 700) {
+  for (let i = 0; i < attempts; i++) {
+    const item = await fetchBrowseListingItem(browseToken, ebayIdRaw);
+    if (item) return item;
+    if (i < attempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  return null;
+}
+
 async function enrichListingRowsWithBrowseDetails(_pool, rows) {
   if (!rows.length) return rows;
 
@@ -7028,10 +7074,10 @@ function isBrowseItemStillBuyable(item) {
   return browseListingAvailabilityBuyable(item);
 }
 
-async function fetchBrowseItemStillBuyable(accessToken, ebayIdRaw) {
+async function fetchBrowseItemCompact(accessToken, ebayIdRaw) {
   const legacy = extractEbayLegacyItemId(ebayIdRaw);
   if (!legacy) {
-    return { ok: false, buyable: null, error: 'invalid_ebay_id' };
+    return { ok: false, buyable: null, itemEndDate: null, error: 'invalid_ebay_id' };
   }
   const restId = ebayBrowseRestItemIdFromLegacy(legacy);
   const url = `https://api.ebay.com/buy/browse/v1/item/${encodeURIComponent(restId)}?fieldgroups=COMPACT`;
@@ -7044,13 +7090,14 @@ async function fetchBrowseItemStillBuyable(accessToken, ebayIdRaw) {
     }
   });
   if (response.status === 404) {
-    return { ok: true, buyable: false, reason: 'not_found_or_unavailable' };
+    return { ok: true, buyable: false, itemEndDate: null, reason: 'not_found_or_unavailable' };
   }
   if (!response.ok) {
     const text = await response.text();
     return {
       ok: false,
       buyable: null,
+      itemEndDate: null,
       error: `eBay ${response.status}: ${text.slice(0, 400)}`,
       httpStatus: response.status
     };
@@ -7059,7 +7106,25 @@ async function fetchBrowseItemStillBuyable(accessToken, ebayIdRaw) {
   return {
     ok: true,
     buyable: isBrowseItemStillBuyable(item),
+    itemEndDate: item.itemEndDate != null ? String(item.itemEndDate) : null,
     reason: null
+  };
+}
+
+async function fetchBrowseItemStillBuyable(accessToken, ebayIdRaw) {
+  const outcome = await fetchBrowseItemCompact(accessToken, ebayIdRaw);
+  if (!outcome.ok) {
+    return {
+      ok: false,
+      buyable: null,
+      error: outcome.error || 'eBay request failed',
+      httpStatus: outcome.httpStatus ?? null
+    };
+  }
+  return {
+    ok: true,
+    buyable: outcome.buyable,
+    reason: outcome.reason ?? null
   };
 }
 
@@ -7081,11 +7146,176 @@ function parseEbayTradingApiResponse(xmlText) {
     }
   }
   const endTimeMatch = String(xmlText).match(/<EndTime>([^<]+)<\/EndTime>/i);
+  const itemIdMatches = [...String(xmlText).matchAll(/<ItemID>(\d+)<\/ItemID>/gi)];
+  const itemId = itemIdMatches.length ? itemIdMatches[itemIdMatches.length - 1][1] : null;
+  const startTimeMatch = String(xmlText).match(/<StartTime>([^<]+)<\/StartTime>/i);
   return {
     ack,
     errors,
-    endTime: endTimeMatch ? endTimeMatch[1].trim() : null
+    endTime: endTimeMatch ? endTimeMatch[1].trim() : null,
+    startTime: startTimeMatch ? startTimeMatch[1].trim() : null,
+    itemId
   };
+}
+
+function getMondayToSundayBoundsLocal(ref = new Date()) {
+  const day = ref.getDay();
+  const offsetToMonday = day === 0 ? -6 : 1 - day;
+  const weekStart = new Date(
+    ref.getFullYear(),
+    ref.getMonth(),
+    ref.getDate() + offsetToMonday,
+    0,
+    0,
+    0,
+    0
+  );
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 6);
+  weekEnd.setHours(23, 59, 59, 999);
+  return { weekStart, weekEnd };
+}
+
+function dateInLocalWeek(isoOrDate, weekStart, weekEnd) {
+  const t = Date.parse(String(isoOrDate));
+  if (!Number.isFinite(t)) return false;
+  return t >= weekStart.getTime() && t <= weekEnd.getTime();
+}
+
+function decodeBasicXmlEntities(value) {
+  return String(value)
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function formatEbayTradingUtcIso(date) {
+  return new Date(date).toISOString().replace(/\.\d{3}Z$/, '.000Z');
+}
+
+/** Parse GetSellerList Trading API XML into listing rows + pagination. */
+function parseGetSellerListResponse(xmlText) {
+  const text = String(xmlText);
+  const totalEntries = Number.parseInt(
+    text.match(/<TotalNumberOfEntries>(\d+)<\/TotalNumberOfEntries>/i)?.[1] ?? '0',
+    10
+  );
+  const totalPages = Math.max(
+    1,
+    Number.parseInt(text.match(/<TotalNumberOfPages>(\d+)<\/TotalNumberOfPages>/i)?.[1] ?? '1', 10)
+  );
+  const pageNumber = Math.max(
+    1,
+    Number.parseInt(text.match(/<PageNumber>(\d+)<\/PageNumber>/i)?.[1] ?? '1', 10)
+  );
+  const entriesPerPage = Math.max(
+    1,
+    Number.parseInt(text.match(/<EntriesPerPage>(\d+)<\/EntriesPerPage>/i)?.[1] ?? '200', 10)
+  );
+  const items = [];
+  for (const blockMatch of text.matchAll(/<Item>([\s\S]*?)<\/Item>/gi)) {
+    const block = blockMatch[1];
+    const itemId = block.match(/<ItemID>(\d+)<\/ItemID>/i)?.[1];
+    const endTime = block.match(/<EndTime>([^<]+)<\/EndTime>/i)?.[1]?.trim();
+    if (!itemId || !endTime) continue;
+    const titleRaw = block.match(/<Title>([^<]*)<\/Title>/i)?.[1];
+    const listingStatus = block.match(/<ListingStatus>([^<]+)<\/ListingStatus>/i)?.[1]?.trim() ?? null;
+    items.push({
+      itemId,
+      title: titleRaw ? decodeBasicXmlEntities(titleRaw) : null,
+      endTime,
+      listingStatus
+    });
+  }
+  return { items, totalEntries, totalPages, pageNumber, entriesPerPage };
+}
+
+async function fetchSellerListEndingInRange(userAccessToken, options) {
+  const { endTimeFrom, endTimeTo, pageNumber, entriesPerPage } = options;
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+<GetSellerListRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <ErrorLanguage>en_US</ErrorLanguage>
+  <WarningLevel>High</WarningLevel>
+  <GranularityLevel>Fine</GranularityLevel>
+  <EndTimeFrom>${endTimeFrom}</EndTimeFrom>
+  <EndTimeTo>${endTimeTo}</EndTimeTo>
+  <IncludeWatchCount>false</IncludeWatchCount>
+  <Pagination>
+    <EntriesPerPage>${entriesPerPage}</EntriesPerPage>
+    <PageNumber>${pageNumber}</PageNumber>
+  </Pagination>
+  <DetailLevel>ReturnAll</DetailLevel>
+</GetSellerListRequest>`;
+  const { text, parsed } = await callEbayTradingApi(userAccessToken, 'GetSellerList', xml);
+  const list = parseGetSellerListResponse(text);
+  return { ...list, ack: parsed.ack };
+}
+
+async function buildStockByEbayLegacyIdMap(pool) {
+  const stockResult = await pool.query(
+    `SELECT id, item_name, ebay_id, sale_date,
+            to_char(purchase_date, 'YYYY-MM-DD') AS purchase_date
+     FROM stock
+     WHERE ebay_id IS NOT NULL
+       AND TRIM(COALESCE(ebay_id::text, '')) <> ''
+     ORDER BY (sale_date IS NULL) DESC, id ASC`
+  );
+  const stockByLegacyId = new Map();
+  for (const row of stockResult.rows ?? []) {
+    const leg = extractEbayLegacyItemId(row.ebay_id);
+    if (!leg || stockByLegacyId.has(leg)) continue;
+    stockByLegacyId.set(leg, {
+      id: row.id,
+      item_name: row.item_name ?? null,
+      purchase_date: row.purchase_date ?? null
+    });
+  }
+  return stockByLegacyId;
+}
+
+function ebayTradingApiHeaders(userAccessToken, callName) {
+  const appId = process.env.REACT_APP_EBAY_APP_ID || process.env.EBAY_APP;
+  const siteId = String(process.env.EBAY_TRADING_SITE_ID || '3').trim() || '3';
+  const compatLevel = String(process.env.EBAY_TRADING_COMPAT_LEVEL || '967').trim() || '967';
+  const headers = {
+    'Content-Type': 'text/xml',
+    'X-EBAY-API-CALL-NAME': callName,
+    'X-EBAY-API-SITEID': siteId,
+    'X-EBAY-API-COMPATIBILITY-LEVEL': compatLevel,
+    'X-EBAY-API-IAF-TOKEN': userAccessToken
+  };
+  if (appId) headers['X-EBAY-API-APP-NAME'] = appId;
+  return headers;
+}
+
+async function callEbayTradingApi(userAccessToken, callName, xmlBody) {
+  const res = await fetch(EBAY_TRADING_API_URL, {
+    method: 'POST',
+    headers: ebayTradingApiHeaders(userAccessToken, callName),
+    body: xmlBody
+  });
+  const text = await res.text();
+  const parsed = parseEbayTradingApiResponse(text);
+  if (!res.ok) {
+    const err = new Error(`eBay Trading ${callName} HTTP ${res.status}: ${text.slice(0, 400)}`);
+    err.httpStatus = res.status;
+    throw err;
+  }
+  if (parsed.ack !== 'Success' && parsed.ack !== 'Warning') {
+    const codeMap = {
+      EndItem: 'EBAY_END_ITEM_FAILED',
+      RelistItem: 'EBAY_RELIST_ITEM_FAILED',
+      GetSellerList: 'EBAY_GET_SELLER_LIST_FAILED'
+    };
+    const err = new Error(parsed.errors[0] || `${callName} failed (Ack=${parsed.ack || 'unknown'})`);
+    err.code = codeMap[callName] || `EBAY_${callName.toUpperCase()}_FAILED`;
+    err.ebayErrors = parsed.errors;
+    err.ack = parsed.ack;
+    throw err;
+  }
+  return { text, parsed };
 }
 
 /**
@@ -7100,43 +7330,48 @@ async function endEbayListingViaTradingApi(userAccessToken, legacyItemId) {
     throw err;
   }
 
-  const appId = process.env.REACT_APP_EBAY_APP_ID || process.env.EBAY_APP;
-  const siteId = String(process.env.EBAY_TRADING_SITE_ID || '3').trim() || '3';
-  const compatLevel = String(process.env.EBAY_TRADING_COMPAT_LEVEL || '967').trim() || '967';
-
   const xml = `<?xml version="1.0" encoding="utf-8"?>
 <EndItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
   <ItemID>${itemId}</ItemID>
   <EndingReason>NotAvailable</EndingReason>
 </EndItemRequest>`;
 
-  const headers = {
-    'Content-Type': 'text/xml',
-    'X-EBAY-API-CALL-NAME': 'EndItem',
-    'X-EBAY-API-SITEID': siteId,
-    'X-EBAY-API-COMPATIBILITY-LEVEL': compatLevel,
-    'X-EBAY-API-IAF-TOKEN': userAccessToken
-  };
-  if (appId) headers['X-EBAY-API-APP-NAME'] = appId;
-
-  const res = await fetch(EBAY_TRADING_API_URL, { method: 'POST', headers, body: xml });
-  const text = await res.text();
-  if (!res.ok) {
-    const err = new Error(`eBay Trading EndItem HTTP ${res.status}: ${text.slice(0, 400)}`);
-    err.httpStatus = res.status;
-    throw err;
-  }
-
-  const parsed = parseEbayTradingApiResponse(text);
-  if (parsed.ack !== 'Success' && parsed.ack !== 'Warning') {
-    const err = new Error(parsed.errors[0] || `EndItem failed (Ack=${parsed.ack || 'unknown'})`);
-    err.code = 'EBAY_END_ITEM_FAILED';
-    err.ebayErrors = parsed.errors;
-    err.ack = parsed.ack;
-    throw err;
-  }
-
+  const { parsed } = await callEbayTradingApi(userAccessToken, 'EndItem', xml);
   return { legacyItemId: itemId, endTime: parsed.endTime, ack: parsed.ack };
+}
+
+/**
+ * Relist an ended eBay listing (Trading API RelistItem) — returns a new legacy item id.
+ */
+async function relistEbayListingViaTradingApi(userAccessToken, endedLegacyItemId) {
+  const itemId = extractEbayLegacyItemId(endedLegacyItemId);
+  if (!itemId) {
+    const err = new Error('Invalid eBay item id');
+    err.code = 'INVALID_EBAY_ID';
+    throw err;
+  }
+
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+<RelistItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <Item>
+    <ItemID>${itemId}</ItemID>
+  </Item>
+</RelistItemRequest>`;
+
+  const { parsed } = await callEbayTradingApi(userAccessToken, 'RelistItem', xml);
+  const newLegacyItemId = parsed.itemId;
+  if (!newLegacyItemId) {
+    const err = new Error('RelistItem succeeded but no new ItemID in response');
+    err.code = 'EBAY_RELIST_NO_ITEM_ID';
+    throw err;
+  }
+  return {
+    endedLegacyItemId: itemId,
+    newLegacyItemId,
+    startTime: parsed.startTime,
+    endTime: parsed.endTime,
+    ack: parsed.ack
+  };
 }
 
 /**
@@ -7203,6 +7438,348 @@ app.post('/api/stock/:id/ebay-unlist', async (req, res) => {
       code,
       details: error instanceof Error ? error.message : String(error),
       ebay_errors: error.ebayErrors ?? undefined
+    });
+  }
+});
+
+/**
+ * POST — Active eBay seller listings whose end time falls in the current calendar week (Mon–Sun).
+ * Uses Trading API GetSellerList (seller OAuth), not Stock + Browse per-row scans.
+ */
+app.post('/api/stock/ebay-ending-this-week', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    let userToken;
+    try {
+      userToken = await ebaySellerOAuth.getFulfillmentUserAccessToken(pool);
+    } catch (tokErr) {
+      if (tokErr.code === 'EBAY_USER_TOKEN_MISSING') {
+        return res.status(503).json({
+          error: 'eBay seller not connected',
+          code: 'EBAY_USER_TOKEN_MISSING',
+          details: tokErr.message
+        });
+      }
+      throw tokErr;
+    }
+
+    const { weekStart, weekEnd } = getMondayToSundayBoundsLocal(new Date());
+    const endTimeFrom = formatEbayTradingUtcIso(weekStart);
+    const endTimeTo = formatEbayTradingUtcIso(weekEnd);
+
+    const offset = Math.max(0, Number.parseInt(String(req.body?.offset ?? 0), 10) || 0);
+    const limit = Math.min(
+      200,
+      Math.max(1, Number.parseInt(String(req.body?.limit ?? 100), 10) || 100)
+    );
+    const pageNumber = Math.floor(offset / limit) + 1;
+
+    const sellerList = await fetchSellerListEndingInRange(userToken, {
+      endTimeFrom,
+      endTimeTo,
+      pageNumber,
+      entriesPerPage: limit
+    });
+
+    const stockByEbayId = await buildStockByEbayLegacyIdMap(pool);
+    const nowMs = Date.now();
+    const matches = [];
+    for (const item of sellerList.items) {
+      const endMs = Date.parse(item.endTime);
+      if (!Number.isFinite(endMs) || endMs <= nowMs) continue;
+      if (item.listingStatus && item.listingStatus !== 'Active') continue;
+      if (!dateInLocalWeek(item.endTime, weekStart, weekEnd)) continue;
+
+      const stock = stockByEbayId.get(item.itemId);
+      matches.push({
+        id: stock?.id ?? null,
+        item_name: stock?.item_name ?? item.title ?? null,
+        ebay_id: item.itemId,
+        ebay_url: `https://www.ebay.co.uk/itm/${item.itemId}`,
+        item_end_date: item.endTime,
+        purchase_date: stock?.purchase_date ?? null,
+        still_buyable: true,
+        in_stock: stock != null
+      });
+    }
+
+    const total = sellerList.totalEntries;
+    const processed = Math.min(total, sellerList.pageNumber * sellerList.entriesPerPage);
+    res.json({
+      week_start: weekStart.toISOString(),
+      week_end: weekEnd.toISOString(),
+      total,
+      offset: (sellerList.pageNumber - 1) * sellerList.entriesPerPage,
+      limit: sellerList.entriesPerPage,
+      processed,
+      done: sellerList.pageNumber >= sellerList.totalPages || processed >= total,
+      matches,
+      apiErrors: []
+    });
+  } catch (error) {
+    console.error('ebay-ending-this-week failed:', error);
+    const code = error.code || 'EBAY_ENDING_THIS_WEEK_FAILED';
+    const status =
+      code === 'EBAY_GET_SELLER_LIST_FAILED'
+        ? 422
+        : code === 'EBAY_USER_TOKEN_MISSING'
+          ? 503
+          : 500;
+    res.status(status).json({
+      error: 'Check failed',
+      code,
+      details: error instanceof Error ? error.message : String(error),
+      ebay_errors: error.ebayErrors ?? undefined
+    });
+  }
+});
+
+/**
+ * POST — Relist an ended eBay listing (new item id on eBay; stock row id unchanged until confirm).
+ */
+app.post('/api/stock/:id/ebay-relist', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const stockId = Number.parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(stockId) || stockId <= 0) {
+      return res.status(400).json({ error: 'Invalid stock id' });
+    }
+
+    let userToken;
+    try {
+      userToken = await ebaySellerOAuth.getFulfillmentUserAccessToken(pool);
+    } catch (tokErr) {
+      if (tokErr.code === 'EBAY_USER_TOKEN_MISSING') {
+        return res.status(503).json({
+          error: 'eBay seller not connected',
+          code: 'EBAY_USER_TOKEN_MISSING',
+          details: tokErr.message
+        });
+      }
+      throw tokErr;
+    }
+
+    const endedLegacy =
+      req.body?.ended_legacy_item_id != null
+        ? extractEbayLegacyItemId(req.body.ended_legacy_item_id)
+        : null;
+
+    const stockResult = await pool.query(
+      `SELECT id, item_name, ebay_id FROM stock WHERE id = $1`,
+      [stockId]
+    );
+    const row = stockResult.rows?.[0];
+    if (!row) {
+      return res.status(404).json({ error: 'Stock row not found' });
+    }
+    const sourceLegacy = endedLegacy || extractEbayLegacyItemId(row.ebay_id);
+    if (!sourceLegacy) {
+      return res.status(400).json({ error: 'Stock row has no eBay listing id to relist from' });
+    }
+
+    const outcome = await relistEbayListingViaTradingApi(userToken, sourceLegacy);
+    const newUrl = `https://www.ebay.co.uk/itm/${outcome.newLegacyItemId}`;
+    const reviseUrl = `https://www.ebay.co.uk/sl/list?itemId=${encodeURIComponent(outcome.newLegacyItemId)}&mode=ReviseItem`;
+
+    res.json({
+      ok: true,
+      stock_id: row.id,
+      item_name: row.item_name ?? null,
+      ended_legacy_item_id: outcome.endedLegacyItemId,
+      new_legacy_item_id: outcome.newLegacyItemId,
+      ebay_url: newUrl,
+      revise_url: reviseUrl,
+      start_time: outcome.startTime,
+      end_time: outcome.endTime,
+      ack: outcome.ack
+    });
+  } catch (error) {
+    console.error('ebay-relist failed:', error);
+    const code = error.code || 'EBAY_RELIST_FAILED';
+    const status =
+      code === 'INVALID_EBAY_ID'
+        ? 400
+        : code === 'EBAY_RELIST_ITEM_FAILED' || code === 'EBAY_RELIST_NO_ITEM_ID'
+          ? 422
+          : 500;
+    res.status(status).json({
+      error: 'Failed to relist on eBay',
+      code,
+      details: error instanceof Error ? error.message : String(error),
+      ebay_errors: error.ebayErrors ?? undefined
+    });
+  }
+});
+
+/**
+ * GET — Browse API snapshot of an eBay listing for relist review (title, image, price, aspects).
+ */
+app.get('/api/ebay/listing-preview', async (req, res) => {
+  try {
+    const ebayIdRaw = req.query.ebay_id ?? req.query.ebayId;
+    const legacy = extractEbayLegacyItemId(ebayIdRaw);
+    if (!legacy) {
+      return res.status(400).json({ error: 'ebay_id query parameter is required' });
+    }
+
+    const appId = process.env.REACT_APP_EBAY_APP_ID || process.env.EBAY_APP;
+    const certId = process.env.REACT_APP_EBAY_CERT_ID;
+    if (!appId || !certId) {
+      return res.status(500).json({
+        error: 'eBay credentials not configured',
+        details: 'Set REACT_APP_EBAY_APP_ID and REACT_APP_EBAY_CERT_ID.'
+      });
+    }
+
+    const accessToken = await getAccessToken(appId, certId);
+    const item = await fetchBrowseListingItemWithRetry(accessToken, legacy);
+    res.json({
+      ok: true,
+      preview: mapBrowseItemPreview(item, legacy),
+      found: item != null
+    });
+  } catch (error) {
+    console.error('ebay listing-preview failed:', error);
+    res.status(500).json({
+      error: 'Preview failed',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+/**
+ * POST — Save the new eBay listing id on a stock row after reviewing the relisted item.
+ */
+app.post('/api/stock/:id/ebay-relist/confirm', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const stockId = Number.parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(stockId) || stockId <= 0) {
+      return res.status(400).json({ error: 'Invalid stock id' });
+    }
+
+    const newLegacy = extractEbayLegacyItemId(req.body?.new_ebay_id ?? req.body?.new_legacy_item_id);
+    if (!newLegacy) {
+      return res.status(400).json({ error: 'new_ebay_id is required' });
+    }
+
+    const stockResult = await pool.query(`SELECT id, ebay_id FROM stock WHERE id = $1`, [stockId]);
+    if (!stockResult.rows?.[0]) {
+      return res.status(404).json({ error: 'Stock row not found' });
+    }
+
+    const updateResult = await pool.query(
+      `UPDATE stock SET ebay_id = $2 WHERE id = $1 RETURNING id, ebay_id`,
+      [stockId, newLegacy]
+    );
+
+    res.json({
+      ok: true,
+      stock_id: stockId,
+      ebay_id: updateResult.rows[0].ebay_id,
+      ebay_url: `https://www.ebay.co.uk/itm/${newLegacy}`
+    });
+  } catch (error) {
+    console.error('ebay-relist confirm failed:', error);
+    res.status(500).json({
+      error: 'Failed to update stock eBay id',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+/**
+ * POST — Check one Vinted-sold stock row: is its eBay listing still buyable (duplicate listing)?
+ */
+app.post('/api/stock/:id/vinted-ebay-active-check', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const stockId = Number.parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(stockId) || stockId <= 0) {
+      return res.status(400).json({ error: 'Invalid stock id' });
+    }
+
+    const appId = process.env.REACT_APP_EBAY_APP_ID || process.env.EBAY_APP;
+    const certId = process.env.REACT_APP_EBAY_CERT_ID;
+    if (!appId || !certId) {
+      return res.status(500).json({
+        error: 'eBay credentials not configured',
+        details: 'Set REACT_APP_EBAY_APP_ID and REACT_APP_EBAY_CERT_ID (same as Browse search).'
+      });
+    }
+
+    const stockResult = await pool.query(
+      `SELECT id, item_name, ebay_id, vinted_id, sold_platform
+       FROM stock
+       WHERE id = $1`,
+      [stockId]
+    );
+    const row = stockResult.rows?.[0];
+    if (!row) {
+      return res.status(404).json({ error: 'Stock row not found' });
+    }
+
+    const soldPlatform = String(row.sold_platform ?? '').trim().toLowerCase();
+    const isVintedSold = soldPlatform === 'vinted' || (row.vinted_id != null && String(row.vinted_id).trim() !== '');
+    const hasEbayId = row.ebay_id != null && String(row.ebay_id).trim() !== '';
+
+    if (!isVintedSold || !hasEbayId) {
+      return res.json({ needs_unlist: false, reason: 'not_applicable' });
+    }
+
+    const accessToken = await getAccessToken(appId, certId);
+    const outcome = await fetchBrowseItemStillBuyable(accessToken, row.ebay_id);
+    if (!outcome.ok) {
+      return res.status(502).json({
+        error: 'eBay check failed',
+        details: outcome.error || 'eBay request failed',
+        needs_unlist: false,
+        httpStatus: outcome.httpStatus ?? null
+      });
+    }
+
+    if (outcome.buyable !== true) {
+      return res.json({ needs_unlist: false, reason: 'ebay_not_buyable' });
+    }
+
+    const leg = extractEbayLegacyItemId(row.ebay_id);
+    const ebayUrl =
+      leg != null
+        ? `https://www.ebay.co.uk/itm/${leg}`
+        : /^https?:\/\//i.test(String(row.ebay_id))
+          ? String(row.ebay_id).trim()
+          : `https://www.ebay.co.uk/itm/${String(row.ebay_id).replace(/\D/g, '')}`;
+
+    res.json({
+      needs_unlist: true,
+      id: row.id,
+      item_name: row.item_name ?? null,
+      ebay_id: leg ?? String(row.ebay_id).trim(),
+      ebay_url: ebayUrl,
+      vinted_id: row.vinted_id ?? null
+    });
+  } catch (error) {
+    console.error('vinted-ebay-active-check (single) failed:', error);
+    res.status(500).json({
+      error: 'Check failed',
+      details: error instanceof Error ? error.message : String(error),
+      needs_unlist: false
     });
   }
 });

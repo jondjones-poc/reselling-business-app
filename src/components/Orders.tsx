@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { pingDatabase } from '../utils/dbPing';
 import { getApiBase, ebayOAuthStartUrl } from '../utils/apiBase';
@@ -64,7 +64,7 @@ function parseOrdersTabParam(raw: string | null): OrdersTab {
   return 'to-pack';
 }
 
-type SalesEbayGridMode = 'none' | 'unlist-ebay' | 'missing-ebay-order';
+type SalesEbayGridMode = 'none' | 'unlist-ebay' | 'missing-ebay-order' | 'ending-this-week';
 
 function weekMondayKey(d: Date): string {
   const { weekStart } = getMondayToSundayBounds(d);
@@ -246,6 +246,30 @@ function EbayLogoIcon({ className }: { className?: string }) {
   );
 }
 
+function EbaySellerProfileIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      width={24}
+      height={24}
+      aria-hidden
+      focusable="false"
+    >
+      <circle cx="12" cy="12" r="10.25" fill="none" stroke="currentColor" strokeWidth="1.75" />
+      <circle cx="12" cy="9.25" r="3.1" fill="currentColor" />
+      <path
+        d="M6.2 18.4c.9-2.8 3.2-4.6 5.8-4.6s4.9 1.8 5.8 4.6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 const ebayListingHref = (ebayId: Nullable<string>): string | null => {
   const s = ebayId?.trim();
   if (!s) return null;
@@ -415,6 +439,25 @@ const formatCurrency = (value: Nullable<string | number>) => {
   }).format(parsed);
 };
 
+interface VintedEbaySingleCheckResponse {
+  needs_unlist: boolean;
+  reason?: string;
+  id?: number;
+  item_name?: Nullable<string>;
+  ebay_id?: string;
+  ebay_url?: string;
+  vinted_id?: Nullable<string>;
+  error?: string;
+  details?: string;
+}
+
+interface ToPackEbayUnlistModalState {
+  item: OrderItem;
+  violation: VintedEbayViolation;
+  unlistLoading: boolean;
+  unlistError: string | null;
+}
+
 interface VintedEbayViolation {
   id: number;
   item_name: Nullable<string>;
@@ -466,6 +509,152 @@ interface MissingEbayStockMatchResponse {
   ebay_distinct_listings: number;
   stock_ebay_ids_count: number;
   missing: MissingEbayStockRow[];
+}
+
+interface EbayEndingThisWeekRow {
+  id: number | null;
+  item_name: Nullable<string>;
+  ebay_id: string;
+  ebay_url: string;
+  item_end_date: string;
+  purchase_date?: Nullable<string>;
+  still_buyable?: boolean;
+  in_stock?: boolean;
+}
+
+interface EbayEndingThisWeekResponse {
+  week_start: string;
+  week_end: string;
+  total: number;
+  offset: number;
+  limit: number;
+  processed: number;
+  done: boolean;
+  matches: EbayEndingThisWeekRow[];
+  apiErrors: Array<{ stock_id: number; message: string; httpStatus: number | null }>;
+}
+
+function endingThisWeekRowKey(row: Pick<EbayEndingThisWeekRow, 'id' | 'ebay_id'>): string {
+  return row.id != null ? `stock-${row.id}` : `ebay-${row.ebay_id}`;
+}
+
+interface EbayRelistPending {
+  newLegacyItemId: string;
+  ebayUrl: string;
+  reviseUrl: string;
+  endedLegacyItemId: string;
+}
+
+interface EbayListingPreview {
+  ebay_id: string | null;
+  title: string | null;
+  imageUrl: string | null;
+  priceLabel: string | null;
+  condition: string | null;
+  itemEndDate: string | null;
+  itemWebUrl: string | null;
+  buyingOptions: string[];
+  aspects: Array<{ name: string; value: string }>;
+}
+
+interface EndingThisWeekRelistModalState {
+  row: EbayEndingThisWeekRow;
+  rowKey: string;
+  pending: EbayRelistPending;
+  preview: EbayListingPreview | null;
+  previewLoading: boolean;
+  previewError: string | null;
+}
+
+function formatEbayEndDateDisplay(iso: Nullable<string>): string | null {
+  if (iso == null || String(iso).trim() === '') return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleString('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+function formatEbayEndDateShort(iso: Nullable<string>): string | null {
+  if (iso == null || String(iso).trim() === '') return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit'
+  });
+}
+
+function formatTimeInStock(purchaseDate: Nullable<string>): string | null {
+  if (purchaseDate == null || String(purchaseDate).trim() === '') return null;
+  const match = String(purchaseDate).trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return null;
+  const start = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  if (Number.isNaN(start.getTime())) return null;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  start.setHours(0, 0, 0, 0);
+  if (start > today) return null;
+
+  let months =
+    (today.getFullYear() - start.getFullYear()) * 12 + (today.getMonth() - start.getMonth());
+  let days = today.getDate() - start.getDate();
+  if (days < 0) {
+    months -= 1;
+    days += new Date(today.getFullYear(), today.getMonth(), 0).getDate();
+  }
+
+  const parts: string[] = [];
+  if (months > 0) {
+    parts.push(`${months} month${months === 1 ? '' : 's'}`);
+  }
+  if (days > 0 || months === 0) {
+    parts.push(`${days} day${days === 1 ? '' : 's'}`);
+  }
+  return parts.join(', ');
+}
+
+function formatPurchaseDateLabel(purchaseDate: Nullable<string>): string | null {
+  if (purchaseDate == null || String(purchaseDate).trim() === '') return null;
+  const match = String(purchaseDate).trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return null;
+  const d = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric'
+  });
+}
+
+function formatEbayTimeRemaining(iso: Nullable<string>, listingEnded = false): string | null {
+  if (listingEnded) return 'Ended';
+  if (iso == null || String(iso).trim() === '') return null;
+  const end = new Date(iso);
+  if (Number.isNaN(end.getTime())) return null;
+  const ms = end.getTime() - Date.now();
+  if (ms <= 0) return 'Ended';
+  const totalMinutes = Math.floor(ms / 60000);
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+function ebayTimeRemainingIsUrgent(iso: Nullable<string>): boolean {
+  if (iso == null || String(iso).trim() === '') return false;
+  const end = new Date(iso);
+  if (Number.isNaN(end.getTime())) return false;
+  const ms = end.getTime() - Date.now();
+  return ms > 0 && ms <= 24 * 60 * 60 * 1000;
 }
 
 interface OrdersApiResponse {
@@ -538,6 +727,35 @@ const Orders: React.FC = () => {
   const [missingEbayCheckLoading, setMissingEbayCheckLoading] = useState(false);
   const [missingEbayInStock, setMissingEbayInStock] = useState<MissingEbayStockRow[]>([]);
   const [missingEbayCheckError, setMissingEbayCheckError] = useState<string | null>(null);
+  const [endingThisWeekLoading, setEndingThisWeekLoading] = useState(false);
+  const [endingThisWeekRows, setEndingThisWeekRows] = useState<EbayEndingThisWeekRow[]>([]);
+  const [endingThisWeekError, setEndingThisWeekError] = useState<string | null>(null);
+  const [endingThisWeekApiErrors, setEndingThisWeekApiErrors] = useState<
+    EbayEndingThisWeekResponse['apiErrors']
+  >([]);
+  const [endingThisWeekWeekLabel, setEndingThisWeekWeekLabel] = useState<string | null>(null);
+  const [endingThisWeekProgress, setEndingThisWeekProgress] = useState<{
+    checked: number;
+    total: number;
+    matchesFound: number;
+  } | null>(null);
+  const [endingThisWeekEndedRowKeys, setEndingThisWeekEndedRowKeys] = useState<string[]>([]);
+  const [ebayRefreshEndLoadingId, setEbayRefreshEndLoadingId] = useState<string | null>(null);
+  const [ebayRefreshEndErrorById, setEbayRefreshEndErrorById] = useState<Record<string, string>>({});
+  const [ebayRelistPendingByStockId, setEbayRelistPendingByStockId] = useState<
+    Record<string, EbayRelistPending>
+  >({});
+  const [ebayRelistLoadingId, setEbayRelistLoadingId] = useState<string | null>(null);
+  const [ebayRelistErrorById, setEbayRelistErrorById] = useState<Record<string, string>>({});
+  const [endingThisWeekRelistConfirmedRowKeys, setEndingThisWeekRelistConfirmedRowKeys] = useState<
+    string[]
+  >([]);
+  const [ebayRelistConfirmLoadingId, setEbayRelistConfirmLoadingId] = useState<string | null>(null);
+  const [toPackEbayUnlistModal, setToPackEbayUnlistModal] = useState<ToPackEbayUnlistModalState | null>(
+    null
+  );
+  const [endingThisWeekRelistModal, setEndingThisWeekRelistModal] =
+    useState<EndingThisWeekRelistModalState | null>(null);
   const [salesEbayGridMode, setSalesEbayGridMode] = useState<SalesEbayGridMode>('none');
   const [ebayOAuthStatus, setEbayOAuthStatus] = useState<{
     connected: boolean;
@@ -903,7 +1121,9 @@ const Orders: React.FC = () => {
   const salesGridRowCount =
     salesEbayGridMode === 'missing-ebay-order'
       ? missingEbayInStock.length
-      : salesGridStockRows.length;
+      : salesEbayGridMode === 'ending-this-week'
+        ? endingThisWeekRows.length
+        : salesGridStockRows.length;
 
   const salesPageCount = useMemo(
     () => Math.max(1, Math.ceil(salesGridRowCount / SALES_PAGE_SIZE)),
@@ -922,6 +1142,21 @@ const Orders: React.FC = () => {
     return missingEbayInStock.slice(start, start + SALES_PAGE_SIZE);
   }, [missingEbayInStock, salesPage, salesPageCount]);
 
+  const endingThisWeekPaged = useMemo(() => {
+    const safePage = Math.min(Math.max(salesPage, 1), salesPageCount);
+    const start = (safePage - 1) * SALES_PAGE_SIZE;
+    return endingThisWeekRows.slice(start, start + SALES_PAGE_SIZE);
+  }, [endingThisWeekRows, salesPage, salesPageCount]);
+
+  const ebayRefreshEndedIdSet = useMemo(
+    () => new Set(endingThisWeekEndedRowKeys),
+    [endingThisWeekEndedRowKeys]
+  );
+  const ebayRelistConfirmedIdSet = useMemo(
+    () => new Set(endingThisWeekRelistConfirmedRowKeys),
+    [endingThisWeekRelistConfirmedRowKeys]
+  );
+
   useEffect(() => {
     setSalesPage(1);
   }, [
@@ -931,7 +1166,8 @@ const Orders: React.FC = () => {
     salesMissingOnlineIdFilter,
     salesEbayGridMode,
     vintedEbayViolations.length,
-    missingEbayInStock.length
+    missingEbayInStock.length,
+    endingThisWeekRows.length
   ]);
 
   useEffect(() => {
@@ -1129,13 +1365,111 @@ const Orders: React.FC = () => {
         throw new Error(message);
       }
 
-      // Reload orders to get the updated list
       await loadOrders();
     } catch (err: any) {
       console.error('Remove from orders error:', err);
       setError(err.message || 'Unable to remove item from orders');
     } finally {
       setOrdersLoading(false);
+    }
+  };
+
+  const closeToPackEbayUnlistModal = useCallback(() => {
+    setToPackEbayUnlistModal(null);
+  }, []);
+
+  const handlePostedClick = async (item: OrderItem) => {
+    const soldPlatform = String(item.sold_platform ?? '').trim().toLowerCase();
+    const isVintedSold =
+      soldPlatform === 'vinted' || (item.vinted_id != null && String(item.vinted_id).trim() !== '');
+    const hasEbayId = item.ebay_id != null && String(item.ebay_id).trim() !== '';
+
+    if (isVintedSold && hasEbayId) {
+      setOrdersLoading(true);
+      setError(null);
+      try {
+        const response = await fetch(`${API_BASE}/api/stock/${item.id}/vinted-ebay-active-check`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        const text = await response.text();
+        let data: VintedEbaySingleCheckResponse | null = null;
+        try {
+          data = text ? (JSON.parse(text) as VintedEbaySingleCheckResponse) : null;
+        } catch {
+          /* not JSON */
+        }
+        if (response.ok && data?.needs_unlist && data.ebay_id && data.ebay_url) {
+          setToPackEbayUnlistModal({
+            item,
+            violation: {
+              id: data.id ?? item.id,
+              item_name: data.item_name ?? item.item_name,
+              ebay_id: data.ebay_id,
+              ebay_url: data.ebay_url,
+              vinted_id: data.vinted_id ?? item.vinted_id ?? null
+            },
+            unlistLoading: false,
+            unlistError: null
+          });
+          return;
+        }
+      } catch (err: unknown) {
+        console.warn('Posted eBay duplicate check failed:', err);
+      } finally {
+        setOrdersLoading(false);
+      }
+    }
+
+    await handleRemoveItem(item.id);
+  };
+
+  const handleRemoveItemRef = useRef(handleRemoveItem);
+  handleRemoveItemRef.current = handleRemoveItem;
+
+  const finishPostedAfterUnlistModal = useCallback(async (itemId: number) => {
+    closeToPackEbayUnlistModal();
+    await handleRemoveItemRef.current(itemId);
+  }, [closeToPackEbayUnlistModal]);
+
+  const handleToPackEbayUnlist = async () => {
+    if (
+      !toPackEbayUnlistModal ||
+      ebayOAuthStatus?.connected !== true ||
+      toPackEbayUnlistModal.unlistLoading
+    ) {
+      return;
+    }
+    const { item, violation } = toPackEbayUnlistModal;
+    setToPackEbayUnlistModal((prev) =>
+      prev ? { ...prev, unlistLoading: true, unlistError: null } : prev
+    );
+    try {
+      const response = await fetch(`${API_BASE}/api/stock/${violation.id}/ebay-unlist`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const text = await response.text();
+      let data: { error?: string; details?: string } | null = null;
+      try {
+        data = text ? (JSON.parse(text) as { error?: string; details?: string }) : null;
+      } catch {
+        /* not JSON */
+      }
+      if (!response.ok) {
+        throw new Error(data?.details || data?.error || text || `Unlist failed (${response.status})`);
+      }
+      await finishPostedAfterUnlistModal(item.id);
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message === 'Failed to fetch' || err.name === 'TypeError'
+            ? 'Unable to connect to server. Is the API running?'
+            : err.message
+          : 'Unlist failed';
+      setToPackEbayUnlistModal((prev) =>
+        prev ? { ...prev, unlistLoading: false, unlistError: message } : prev
+      );
     }
   };
 
@@ -1336,7 +1670,330 @@ const Orders: React.FC = () => {
     }
   };
 
+  const handleEndingThisWeekCheck = async () => {
+    if (!ebaySellerConnected) return;
+    if (salesEbayGridMode === 'ending-this-week') {
+      setSalesEbayGridMode('none');
+      return;
+    }
+    setSalesEbayGridMode('ending-this-week');
+    setSalesPlatformFilter('ebay');
+    setEndingThisWeekLoading(true);
+    setEndingThisWeekError(null);
+    setEndingThisWeekProgress({ checked: 0, total: 0, matchesFound: 0 });
+    setEndingThisWeekEndedRowKeys([]);
+    setEbayRefreshEndErrorById({});
+    setEbayRelistPendingByStockId({});
+    setEbayRelistErrorById({});
+    setEndingThisWeekRelistConfirmedRowKeys([]);
+    setEndingThisWeekRelistModal(null);
+    setEndingThisWeekRows([]);
+    setEndingThisWeekApiErrors([]);
+    const batchSize = 100;
+    let offset = 0;
+    try {
+      for (;;) {
+        const response = await fetch(`${API_BASE}/api/stock/ebay-ending-this-week`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ offset, limit: batchSize })
+        });
+        const text = await response.text();
+        let data: EbayEndingThisWeekResponse | null = null;
+        try {
+          data = text ? (JSON.parse(text) as EbayEndingThisWeekResponse) : null;
+        } catch {
+          /* not JSON */
+        }
+        if (!response.ok) {
+          const msg =
+            (data as { error?: string; details?: string } | null)?.details ||
+            (data as { error?: string; details?: string } | null)?.error ||
+            text ||
+            'Check failed';
+          throw new Error(msg);
+        }
+        if (!data) {
+          throw new Error('Unexpected empty response');
+        }
+        const batchMatches = data.matches;
+        const batchApiErrors = data.apiErrors;
+        if (Array.isArray(batchMatches) && batchMatches.length > 0) {
+          setEndingThisWeekRows((prev) => [...prev, ...batchMatches]);
+        }
+        if (Array.isArray(batchApiErrors) && batchApiErrors.length > 0) {
+          setEndingThisWeekApiErrors((prev) => [...prev, ...batchApiErrors]);
+        }
+        const total = Number(data.total) || 0;
+        const processed = Number(data.processed) || offset;
+        setEndingThisWeekProgress((prev) => ({
+          checked: processed,
+          total,
+          matchesFound: (prev?.matchesFound ?? 0) + (batchMatches?.length ?? 0)
+        }));
+        if (data.week_start && data.week_end) {
+          const ws = new Date(data.week_start);
+          const we = new Date(data.week_end);
+          if (!Number.isNaN(ws.getTime()) && !Number.isNaN(we.getTime())) {
+            setEndingThisWeekWeekLabel(formatWeekRangeLabel(ws, we));
+          }
+        }
+        if (data.done || processed >= total || total === 0) {
+          break;
+        }
+        offset = processed;
+      }
+    } catch (err: unknown) {
+      console.error('Ending this week check:', err);
+      setEndingThisWeekError(
+        err instanceof Error
+          ? err.message === 'Failed to fetch' || err.name === 'TypeError'
+            ? 'Unable to connect to server. Is the API running?'
+            : err.message || 'Check failed'
+          : 'Check failed'
+      );
+    } finally {
+      setEndingThisWeekLoading(false);
+      setEndingThisWeekProgress(null);
+    }
+  };
+
+  const handleEbayRefreshEnd = async (row: EbayEndingThisWeekRow) => {
+    if (!ebaySellerConnected || ebayRefreshEndLoadingId != null || row.id == null) return;
+    const rowKey = endingThisWeekRowKey(row);
+    setEbayRefreshEndLoadingId(rowKey);
+    setEbayRefreshEndErrorById((prev) => {
+      if (!prev[rowKey]) return prev;
+      const next = { ...prev };
+      delete next[rowKey];
+      return next;
+    });
+    try {
+      const response = await fetch(`${API_BASE}/api/stock/${row.id}/ebay-unlist`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const text = await response.text();
+      let data: { error?: string; details?: string } | null = null;
+      try {
+        data = text ? (JSON.parse(text) as { error?: string; details?: string }) : null;
+      } catch {
+        /* not JSON */
+      }
+      if (!response.ok) {
+        throw new Error(data?.details || data?.error || text || `End failed (${response.status})`);
+      }
+      setEndingThisWeekEndedRowKeys((prev) => (prev.includes(rowKey) ? prev : [...prev, rowKey]));
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message === 'Failed to fetch' || err.name === 'TypeError'
+            ? 'Unable to connect to server. Is the API running?'
+            : err.message
+          : 'End failed';
+      setEbayRefreshEndErrorById((prev) => ({ ...prev, [rowKey]: message }));
+    } finally {
+      setEbayRefreshEndLoadingId(null);
+    }
+  };
+
+  const handleEbayRelist = async (row: EbayEndingThisWeekRow) => {
+    if (!ebaySellerConnected || ebayRelistLoadingId != null || row.id == null) return;
+    const rowKey = endingThisWeekRowKey(row);
+    setEbayRelistLoadingId(rowKey);
+    setEbayRelistErrorById((prev) => {
+      if (!prev[rowKey]) return prev;
+      const next = { ...prev };
+      delete next[rowKey];
+      return next;
+    });
+    try {
+      const response = await fetch(`${API_BASE}/api/stock/${row.id}/ebay-relist`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ended_legacy_item_id: row.ebay_id })
+      });
+      const text = await response.text();
+      let data: {
+        error?: string;
+        details?: string;
+        new_legacy_item_id?: string;
+        ebay_url?: string;
+        revise_url?: string;
+        ended_legacy_item_id?: string;
+      } | null = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        /* not JSON */
+      }
+      if (!response.ok) {
+        throw new Error(data?.details || data?.error || text || `Relist failed (${response.status})`);
+      }
+      const newId = data?.new_legacy_item_id;
+      if (!newId) {
+        throw new Error('Relist succeeded but no new eBay item id returned');
+      }
+      const pending: EbayRelistPending = {
+        newLegacyItemId: newId,
+        ebayUrl: data?.ebay_url || `https://www.ebay.co.uk/itm/${newId}`,
+        reviseUrl:
+          data?.revise_url ||
+          `https://www.ebay.co.uk/sl/list?itemId=${encodeURIComponent(newId)}&mode=ReviseItem`,
+        endedLegacyItemId: data?.ended_legacy_item_id || row.ebay_id
+      };
+      setEbayRelistPendingByStockId((prev) => ({
+        ...prev,
+        [rowKey]: pending
+      }));
+      void openEndingThisWeekRelistModal(row, pending);
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message === 'Failed to fetch' || err.name === 'TypeError'
+            ? 'Unable to connect to server. Is the API running?'
+            : err.message
+          : 'Relist failed';
+      setEbayRelistErrorById((prev) => ({ ...prev, [rowKey]: message }));
+    } finally {
+      setEbayRelistLoadingId(null);
+    }
+  };
+
+  const handleEbayRelistConfirm = async (row: EbayEndingThisWeekRow) => {
+    if (row.id == null) return;
+    const rowKey = endingThisWeekRowKey(row);
+    const pending = ebayRelistPendingByStockId[rowKey];
+    if (!pending || ebayRelistConfirmLoadingId != null) return;
+    setEbayRelistConfirmLoadingId(rowKey);
+    try {
+      const response = await fetch(`${API_BASE}/api/stock/${row.id}/ebay-relist/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_ebay_id: pending.newLegacyItemId })
+      });
+      const text = await response.text();
+      let data: { error?: string; details?: string } | null = null;
+      try {
+        data = text ? (JSON.parse(text) as { error?: string; details?: string }) : null;
+      } catch {
+        /* not JSON */
+      }
+      if (!response.ok) {
+        throw new Error(
+          data?.details || data?.error || text || `Update failed (${response.status})`
+        );
+      }
+      setEndingThisWeekRelistConfirmedRowKeys((prev) =>
+        prev.includes(rowKey) ? prev : [...prev, rowKey]
+      );
+      setEbayRelistPendingByStockId((prev) => {
+        const next = { ...prev };
+        delete next[rowKey];
+        return next;
+      });
+      setEndingThisWeekRows((prev) =>
+        prev.map((r) =>
+          endingThisWeekRowKey(r) === rowKey ? { ...r, ebay_id: pending.newLegacyItemId } : r
+        )
+      );
+      setEndingThisWeekRelistModal(null);
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message === 'Failed to fetch' || err.name === 'TypeError'
+            ? 'Unable to connect to server. Is the API running?'
+            : err.message
+          : 'Update failed';
+      setEbayRelistErrorById((prev) => ({ ...prev, [rowKey]: message }));
+    } finally {
+      setEbayRelistConfirmLoadingId(null);
+    }
+  };
+
   const ebaySellerConnected = ebayOAuthStatus?.connected === true;
+
+  const closeEndingThisWeekRelistModal = useCallback(() => {
+    setEndingThisWeekRelistModal(null);
+  }, []);
+
+  const openEndingThisWeekRelistModal = useCallback(
+    async (row: EbayEndingThisWeekRow, pending: EbayRelistPending) => {
+      const rowKey = endingThisWeekRowKey(row);
+      setEndingThisWeekRelistModal({
+        row,
+        rowKey,
+        pending,
+        preview: null,
+        previewLoading: true,
+        previewError: null
+      });
+      try {
+        const response = await fetch(
+          `${API_BASE}/api/ebay/listing-preview?ebay_id=${encodeURIComponent(pending.newLegacyItemId)}`
+        );
+        const text = await response.text();
+        let data: {
+          error?: string;
+          details?: string;
+          preview?: EbayListingPreview;
+          found?: boolean;
+        } | null = null;
+        try {
+          data = text ? JSON.parse(text) : null;
+        } catch {
+          /* not JSON */
+        }
+        if (!response.ok) {
+          throw new Error(data?.details || data?.error || text || 'Preview failed');
+        }
+        setEndingThisWeekRelistModal((prev) => {
+          if (!prev || prev.rowKey !== rowKey) return prev;
+          return {
+            ...prev,
+            preview: data?.preview ?? null,
+            previewLoading: false,
+            previewError:
+              data?.found === false
+                ? 'Listing created — preview not indexed yet. Use Review to open on eBay.'
+                : null
+          };
+        });
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error
+            ? err.message === 'Failed to fetch' || err.name === 'TypeError'
+              ? 'Unable to connect to server. Is the API running?'
+              : err.message
+            : 'Preview failed';
+        setEndingThisWeekRelistModal((prev) => {
+          if (!prev || prev.rowKey !== rowKey) return prev;
+          return { ...prev, previewLoading: false, previewError: message };
+        });
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!toPackEbayUnlistModal) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !toPackEbayUnlistModal.unlistLoading) {
+        void finishPostedAfterUnlistModal(toPackEbayUnlistModal.item.id);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [toPackEbayUnlistModal, finishPostedAfterUnlistModal]);
+
+  useEffect(() => {
+    if (!endingThisWeekRelistModal) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeEndingThisWeekRelistModal();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [endingThisWeekRelistModal, closeEndingThisWeekRelistModal]);
 
   return (
     <div className="orders-container">
@@ -1557,7 +2214,7 @@ const Orders: React.FC = () => {
                           <button
                             type="button"
                             className="orders-posted-button"
-                            onClick={() => handleRemoveItem(item.id)}
+                            onClick={() => void handlePostedClick(item)}
                             disabled={ordersLoading}
                             title="Remove from pack list — item posted / shipped"
                           >
@@ -1591,7 +2248,7 @@ const Orders: React.FC = () => {
                     <button
                       type="button"
                       className="orders-posted-button"
-                      onClick={() => handleRemoveItem(item.id)}
+                      onClick={() => void handlePostedClick(item)}
                       disabled={ordersLoading}
                       title="Remove from pack list — item posted / shipped"
                     >
@@ -1708,6 +2365,35 @@ const Orders: React.FC = () => {
                   </span>
                 )}
               </div>
+              <div className="orders-ebay-seller-status">
+                {ebaySellerConnected ? (
+                  <span
+                    className="orders-ebay-seller-status-icon orders-ebay-seller-status-icon--connected"
+                    title={
+                      ebayOAuthStatus?.user_name
+                        ? `eBay seller linked as ${ebayOAuthStatus.user_name}`
+                        : 'eBay seller linked'
+                    }
+                    aria-label={
+                      ebayOAuthStatus?.user_name
+                        ? `eBay seller linked as ${ebayOAuthStatus.user_name}`
+                        : 'eBay seller linked'
+                    }
+                    role="img"
+                  >
+                    <EbaySellerProfileIcon className="orders-ebay-seller-status-profile" />
+                  </span>
+                ) : (
+                  <a
+                    href={ebayOAuthStartUrl('/orders?tab=listing-management')}
+                    className="orders-ebay-seller-status-icon orders-ebay-seller-status-icon--disconnected"
+                    title="Connect eBay seller account"
+                    aria-label="Connect eBay seller account"
+                  >
+                    <EbaySellerProfileIcon className="orders-ebay-seller-status-profile" />
+                  </a>
+                )}
+              </div>
             </div>
             <div className="orders-sales-toolbar-controls-row">
               <div className="orders-sales-filters-group orders-sales-toolbar-filters">
@@ -1795,31 +2481,6 @@ const Orders: React.FC = () => {
               </div>
               <div className="orders-sales-toolbar-right">
                 <div className="orders-vinted-ebay-check-bar orders-sales-ebay-actions">
-                  {ebaySellerConnected ? (
-                    <span
-                      className="orders-vinted-ebay-check-button orders-vinted-ebay-check-button--disabled"
-                      aria-disabled="true"
-                      title="eBay seller account already connected"
-                    >
-                      <EbayLogoIcon className="orders-unlist-ebay-logo" />
-                      <span className="orders-unlist-ebay-label">Connect eBay seller</span>
-                    </span>
-                  ) : (
-                    <a
-                      href={ebayOAuthStartUrl('/orders?tab=listing-management')}
-                      className="orders-vinted-ebay-check-button"
-                      title="Connect your eBay seller account"
-                    >
-                      <EbayLogoIcon className="orders-unlist-ebay-logo" />
-                      <span className="orders-unlist-ebay-label">Connect eBay seller</span>
-                    </a>
-                  )}
-                  {ebayOAuthStatus?.connected ? (
-                    <span className="orders-ebay-oauth-status orders-ebay-oauth-status--ok">
-                      Linked
-                      {ebayOAuthStatus.user_name ? ` as ${ebayOAuthStatus.user_name}` : ''}
-                    </span>
-                  ) : null}
                   <button
                     type="button"
                     className={`orders-vinted-ebay-check-button${
@@ -1878,6 +2539,35 @@ const Orders: React.FC = () => {
                       {missingEbayCheckLoading ? 'Checking…' : 'Missing eBay order'}
                     </span>
                   </button>
+                  <button
+                    type="button"
+                    className={`orders-vinted-ebay-check-button orders-ending-this-week-button${
+                      salesEbayGridMode === 'ending-this-week'
+                        ? ' orders-vinted-ebay-check-button--active'
+                        : ''
+                    }`}
+                    onClick={handleEndingThisWeekCheck}
+                    disabled={endingThisWeekLoading || !ebaySellerConnected}
+                    title={
+                      !ebaySellerConnected
+                        ? 'Connect your eBay seller account first'
+                        : salesEbayGridMode === 'ending-this-week'
+                          ? 'Clear Ending this week filter'
+                          : 'Show unsold Stock listings whose eBay end date is this calendar week'
+                    }
+                    aria-label={
+                      endingThisWeekLoading
+                        ? 'Loading eBay listings ending this week'
+                        : !ebaySellerConnected
+                          ? 'Ending this week (connect eBay seller account first)'
+                          : 'Show active eBay seller listings ending this week (from your account)'
+                    }
+                  >
+                    <EbayLogoIcon className="orders-unlist-ebay-logo" />
+                    <span className="orders-unlist-ebay-label">
+                      {endingThisWeekLoading ? 'Checking…' : 'Ending this week'}
+                    </span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -1920,10 +2610,22 @@ const Orders: React.FC = () => {
                   {missingEbayCheckError}
                 </div>
               )}
+              {endingThisWeekError && (
+                <div className="orders-error orders-vinted-ebay-check-error" role="alert">
+                  {endingThisWeekError}
+                </div>
+              )}
               {vintedEbayCheckApiErrors.length > 0 && (
                 <p className="orders-vinted-ebay-api-errors" role="status">
                   {vintedEbayCheckApiErrors.length} listing
                   {vintedEbayCheckApiErrors.length === 1 ? '' : 's'} could not be checked (eBay API). Try
+                  again later.
+                </p>
+              )}
+              {endingThisWeekApiErrors.length > 0 && (
+                <p className="orders-vinted-ebay-api-errors" role="status">
+                  {endingThisWeekApiErrors.length} listing
+                  {endingThisWeekApiErrors.length === 1 ? '' : 's'} could not be checked for end date. Try
                   again later.
                 </p>
               )}
@@ -1941,16 +2643,59 @@ const Orders: React.FC = () => {
               {missingEbayInStock.length === 1 ? '' : 's'} with no matching Stock listing ID.
             </p>
           )}
-          {soldLoading ? (
-            <div className="orders-empty-state">
-              <p>Loading sold items…</p>
+          {salesEbayGridMode === 'ending-this-week' &&
+          (endingThisWeekRows.length > 0 || !endingThisWeekLoading) ? (
+            <p className="orders-sales-grid-mode-hint" role="status">
+              Showing {endingThisWeekRows.length} active eBay listing
+              {endingThisWeekRows.length === 1 ? '' : 's'} ending
+              {endingThisWeekWeekLabel ? ` (${endingThisWeekWeekLabel})` : ' this week'}
+              {endingThisWeekLoading && endingThisWeekProgress
+                ? ` — still scanning ${endingThisWeekProgress.checked.toLocaleString()} of ${endingThisWeekProgress.total.toLocaleString()}`
+                : ''}
+              . End the listing, relist via API for a new eBay item id, review the link, then confirm to
+              update Stock.
+            </p>
+          ) : null}
+          {salesEbayGridMode === 'ending-this-week' && endingThisWeekLoading ? (
+            <div
+              className={`orders-sales-grid-progress${
+                endingThisWeekRows.length > 0 ? ' orders-sales-grid-progress--compact' : ''
+              }`}
+              role="status"
+              aria-live="polite"
+            >
+              <div className="orders-sales-grid-progress__track" aria-hidden="true">
+                <div
+                  className="orders-sales-grid-progress__bar"
+                  style={{
+                    width:
+                      endingThisWeekProgress && endingThisWeekProgress.total > 0
+                        ? `${Math.min(
+                            100,
+                            Math.round(
+                              (endingThisWeekProgress.checked /
+                                endingThisWeekProgress.total) *
+                                100
+                            )
+                          )}%`
+                        : endingThisWeekProgress
+                          ? '8%'
+                          : '0%'
+                  }}
+                />
+              </div>
+              <p>
+                Checking eBay end dates…{' '}
+                {endingThisWeekProgress
+                  ? `${endingThisWeekProgress.checked.toLocaleString()} of ${endingThisWeekProgress.total.toLocaleString()} listings`
+                  : 'Starting…'}
+                {endingThisWeekProgress && endingThisWeekProgress.matchesFound > 0
+                  ? ` · ${endingThisWeekProgress.matchesFound} ending this week so far`
+                  : ''}
+              </p>
             </div>
-          ) : soldRows.length === 0 ? (
-            <div className="orders-empty-state">
-              <p>No sold items yet.</p>
-              <p>Items with a sale date appear here, newest first.</p>
-            </div>
-          ) : salesEbayGridMode === 'unlist-ebay' && vintedEbayCheckLoading ? (
+          ) : null}
+          {salesEbayGridMode === 'unlist-ebay' && vintedEbayCheckLoading ? (
             <div className="orders-sales-grid-loading" role="status" aria-live="polite">
               <span className="orders-sales-grid-loading__spinner" aria-hidden />
               <p>Checking which Vinted sales are still live on eBay…</p>
@@ -1959,6 +2704,33 @@ const Orders: React.FC = () => {
             <div className="orders-sales-grid-loading" role="status" aria-live="polite">
               <span className="orders-sales-grid-loading__spinner" aria-hidden />
               <p>Matching eBay orders to Stock listing IDs…</p>
+            </div>
+          ) : salesEbayGridMode === 'ending-this-week' &&
+            endingThisWeekLoading &&
+            endingThisWeekRows.length === 0 ? (
+            null
+          ) : salesEbayGridMode === 'ending-this-week' &&
+            !endingThisWeekLoading &&
+            endingThisWeekRows.length === 0 ? (
+            <div className="orders-empty-state">
+              <p>No active eBay listings ending this week on your seller account.</p>
+              <p>
+                GTC listings renew on a rolling schedule — try again later in the week, or check Item Views
+                for stale listings.
+              </p>
+            </div>
+          ) : soldLoading &&
+            salesEbayGridMode !== 'ending-this-week' &&
+            salesEbayGridMode !== 'missing-ebay-order' ? (
+            <div className="orders-empty-state">
+              <p>Loading sold items…</p>
+            </div>
+          ) : salesEbayGridMode !== 'ending-this-week' &&
+            salesEbayGridMode !== 'missing-ebay-order' &&
+            soldRows.length === 0 ? (
+            <div className="orders-empty-state">
+              <p>No sold items yet.</p>
+              <p>Items with a sale date appear here, newest first.</p>
             </div>
           ) : salesGridRowCount === 0 ? (
             <div className="orders-empty-state">
@@ -1971,6 +2743,10 @@ const Orders: React.FC = () => {
                 <>
                   <p>No missing eBay orders.</p>
                   <p>Every recent eBay sale matches a Stock listing ID.</p>
+                </>
+              ) : salesEbayGridMode === 'ending-this-week' ? (
+                <>
+                  <p>No active eBay listings ending this week on your seller account.</p>
                 </>
               ) : soldByPlatformOnly.length === 0 ? (
                 <>
@@ -1996,18 +2772,64 @@ const Orders: React.FC = () => {
             </div>
           ) : (
             <>
-            <div className="table-wrapper orders-sales-table">
+            <div
+              className={`table-wrapper orders-sales-table${
+                salesEbayGridMode === 'ending-this-week' ? ' orders-sales-table--ending-this-week' : ''
+              }`}
+            >
               <table className="orders-table">
                 <thead>
                   <tr>
-                    <th>{salesEbayGridMode === 'missing-ebay-order' ? 'eBay item' : 'ID'}</th>
-                    <th>Name</th>
-                    <th>{salesEbayGridMode === 'missing-ebay-order' ? 'eBay order' : 'Sold'}</th>
-                    <th>eBay link</th>
-                    <th>Vinted link</th>
+                    {salesEbayGridMode === 'ending-this-week' ? (
+                      <th className="orders-ew-col orders-ew-col--time">Time left</th>
+                    ) : null}
+                    <th
+                      className={
+                        salesEbayGridMode === 'ending-this-week' ? 'orders-ew-col orders-ew-col--id' : undefined
+                      }
+                    >
+                      {salesEbayGridMode === 'missing-ebay-order' ? 'eBay item' : 'ID'}
+                    </th>
+                    <th
+                      className={
+                        salesEbayGridMode === 'ending-this-week' ? 'orders-ew-col orders-ew-col--name' : undefined
+                      }
+                    >
+                      Name
+                    </th>
+                    <th
+                      className={
+                        salesEbayGridMode === 'ending-this-week' ? 'orders-ew-col orders-ew-col--time-in-stock' : undefined
+                      }
+                    >
+                      {salesEbayGridMode === 'missing-ebay-order'
+                        ? 'eBay order'
+                        : salesEbayGridMode === 'ending-this-week'
+                          ? 'Time In Stock'
+                          : 'Sold'}
+                    </th>
+                    <th
+                      className={
+                        salesEbayGridMode === 'ending-this-week' ? 'orders-ew-col orders-ew-col--ebay' : undefined
+                      }
+                    >
+                      {salesEbayGridMode === 'ending-this-week' ? 'Item' : 'eBay link'}
+                    </th>
+                    {salesEbayGridMode === 'ending-this-week' ? (
+                      <th className="orders-ew-col orders-ew-col--edit">Edit</th>
+                    ) : null}
+                    {salesEbayGridMode !== 'ending-this-week' ? <th>Vinted link</th> : null}
                     {salesEbayGridMode === 'unlist-ebay' ? <th>Edit</th> : null}
                     {salesEbayGridMode === 'unlist-ebay' ? <th>Unlist</th> : null}
-                    <th className="orders-sales-info-header">Info</th>
+                    {salesEbayGridMode === 'ending-this-week' ? (
+                      <th className="orders-ew-col orders-ew-col--end">End</th>
+                    ) : null}
+                    {salesEbayGridMode === 'ending-this-week' ? (
+                      <th className="orders-ew-col orders-ew-col--relist">Relist</th>
+                    ) : null}
+                    {salesEbayGridMode !== 'ending-this-week' ? (
+                      <th className="orders-sales-info-header">Info</th>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -2076,6 +2898,202 @@ const Orders: React.FC = () => {
                             )}
                           </td>
                         </tr>
+                        );
+                      })
+                    : salesEbayGridMode === 'ending-this-week'
+                    ? endingThisWeekPaged.map((row) => {
+                        const rowKey = endingThisWeekRowKey(row);
+                        const hasStock = row.id != null;
+                        const ebayReviseHref = ebayReviseListingHref(row.ebay_id);
+                        const endLoading = ebayRefreshEndLoadingId === rowKey;
+                        const relistLoading = ebayRelistLoadingId === rowKey;
+                        const ended = ebayRefreshEndedIdSet.has(rowKey);
+                        const confirmed = ebayRelistConfirmedIdSet.has(rowKey);
+                        const pending = ebayRelistPendingByStockId[rowKey];
+                        const endError = ebayRefreshEndErrorById[rowKey];
+                        const relistError = ebayRelistErrorById[rowKey];
+                        const timeRemaining = formatEbayTimeRemaining(
+                          row.item_end_date,
+                          ended || confirmed
+                        );
+                        const timeRemainingUrgent =
+                          !ended && !confirmed && ebayTimeRemainingIsUrgent(row.item_end_date);
+                        const rowClass = [
+                          confirmed ? 'orders-sales-row--ebay-unlisted' : '',
+                          ended && !confirmed ? 'orders-sales-row--ebay-ended' : '',
+                          !ended && !confirmed ? 'orders-sales-row--ebay-fix-needed' : ''
+                        ]
+                          .filter(Boolean)
+                          .join(' ');
+                        return (
+                          <tr key={rowKey} className={rowClass || undefined}>
+                            <td className="orders-ew-col orders-ew-col--time">
+                              {timeRemaining ? (
+                                <span
+                                  className={
+                                    timeRemainingUrgent
+                                      ? 'orders-ebay-time-remaining orders-ebay-time-remaining--urgent'
+                                      : 'orders-ebay-time-remaining'
+                                  }
+                                  title={
+                                    formatEbayEndDateDisplay(row.item_end_date) || undefined
+                                  }
+                                >
+                                  {timeRemaining}
+                                </span>
+                              ) : (
+                                <span className="orders-table-dash">—</span>
+                              )}
+                            </td>
+                            <td className="orders-ew-col orders-ew-col--id">
+                              {hasStock ? (
+                                <span className="orders-sales-id-num">{row.id}</span>
+                              ) : (
+                                <span className="orders-table-dash" title="Not linked to a Stock row">
+                                  —
+                                </span>
+                              )}
+                            </td>
+                            <td className="orders-ew-col orders-ew-col--name">
+                              {row.item_name?.trim() ? (
+                                hasStock ? (
+                                  <Link
+                                    to={`/stock?editId=${row.id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="orders-sales-stock-name-link"
+                                    title={`Edit item ${row.id} in Stock`}
+                                  >
+                                    {row.item_name.trim()}
+                                  </Link>
+                                ) : (
+                                  row.item_name.trim()
+                                )
+                              ) : (
+                                <span className="orders-table-dash">—</span>
+                              )}
+                            </td>
+                            <td className="orders-ew-col orders-ew-col--time-in-stock">
+                              {formatTimeInStock(row.purchase_date) ? (
+                                <span
+                                  className="orders-time-in-stock"
+                                  title={
+                                    formatPurchaseDateLabel(row.purchase_date)
+                                      ? `Purchased ${formatPurchaseDateLabel(row.purchase_date)}`
+                                      : undefined
+                                  }
+                                >
+                                  {formatTimeInStock(row.purchase_date)}
+                                </span>
+                              ) : (
+                                <span className="orders-table-dash" title="No purchase date in Stock">
+                                  —
+                                </span>
+                              )}
+                            </td>
+                            <td className="orders-ew-col orders-ew-col--ebay">
+                              <a
+                                href={row.ebay_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="orders-table-external-link"
+                                title="View listing on eBay"
+                              >
+                                {row.ebay_id}
+                              </a>
+                            </td>
+                            <td className="orders-ew-col orders-ew-col--edit">
+                              {ebayReviseHref ? (
+                                <a
+                                  href={ebayReviseHref}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="orders-sales-edit-button"
+                                  title="Edit this listing on eBay"
+                                >
+                                  Edit
+                                </a>
+                              ) : (
+                                <span className="orders-table-dash">—</span>
+                              )}
+                            </td>
+                            <td className="orders-ew-col orders-ew-col--end">
+                              <div className="orders-sales-unlist-cell">
+                                {ended || confirmed ? (
+                                  <span className="orders-sales-unlist-done" title="Listing ended on eBay">
+                                    Ended
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="orders-sales-unlist-button"
+                                    disabled={
+                                      !hasStock ||
+                                      !ebaySellerConnected ||
+                                      endLoading ||
+                                      ebayRefreshEndLoadingId != null
+                                    }
+                                    title={
+                                      hasStock
+                                        ? 'End this listing on eBay via the seller API'
+                                        : 'Link this listing in Stock to end from here'
+                                    }
+                                    onClick={() => handleEbayRefreshEnd(row)}
+                                  >
+                                    {endLoading ? 'Ending…' : 'End'}
+                                  </button>
+                                )}
+                                {endError ? (
+                                  <span className="orders-sales-unlist-error" title={endError}>
+                                    {endError}
+                                  </span>
+                                ) : null}
+                              </div>
+                            </td>
+                            <td className="orders-ew-col orders-ew-col--relist">
+                              <div className="orders-sales-unlist-cell">
+                                {confirmed ? (
+                                  <span className="orders-sales-unlist-done" title="Stock updated with new eBay id">
+                                    Updated
+                                  </span>
+                                ) : pending ? (
+                                  <button
+                                    type="button"
+                                    className="orders-sales-relist-review-button"
+                                    title="Review the new listing before saving the eBay ID"
+                                    onClick={() => void openEndingThisWeekRelistModal(row, pending)}
+                                  >
+                                    Review
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="orders-sales-relist-button"
+                                    disabled={
+                                      !hasStock ||
+                                      !ebaySellerConnected ||
+                                      !ended ||
+                                      relistLoading ||
+                                      ebayRelistLoadingId != null
+                                    }
+                                    title={
+                                      hasStock
+                                        ? 'Create a new eBay listing from the ended item (new item id)'
+                                        : 'Link this listing in Stock to relist from here'
+                                    }
+                                    onClick={() => handleEbayRelist(row)}
+                                  >
+                                    {relistLoading ? 'Creating…' : 'Recreate'}
+                                  </button>
+                                )}
+                                {relistError ? (
+                                  <span className="orders-sales-unlist-error" title={relistError}>
+                                    {relistError}
+                                  </span>
+                                ) : null}
+                              </div>
+                            </td>
+                          </tr>
                         );
                       })
                     : soldRowsPaged.map((row) => {
@@ -2448,6 +3466,223 @@ const Orders: React.FC = () => {
           )}
         </div>
       )}
+
+      {toPackEbayUnlistModal ? (
+        <div
+          className="orders-relist-modal-backdrop orders-topack-unlist-modal-backdrop"
+          role="presentation"
+          onClick={() => {
+            if (!toPackEbayUnlistModal.unlistLoading) {
+              void finishPostedAfterUnlistModal(toPackEbayUnlistModal.item.id);
+            }
+          }}
+        >
+          <div
+            className="orders-relist-modal orders-topack-unlist-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="orders-topack-unlist-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="orders-relist-modal-close"
+              aria-label="Close and mark posted"
+              disabled={toPackEbayUnlistModal.unlistLoading}
+              onClick={() => void finishPostedAfterUnlistModal(toPackEbayUnlistModal.item.id)}
+            >
+              ×
+            </button>
+            <div className="orders-topack-unlist-modal-body">
+              <p className="orders-relist-modal-eyebrow">Sold on Vinted</p>
+              <h2 id="orders-topack-unlist-modal-title" className="orders-relist-modal-title">
+                Still live on eBay
+              </h2>
+              <p className="orders-topack-unlist-modal-lead">
+                This item sold on Vinted but the eBay listing is still active. End it before marking
+                posted.
+              </p>
+              <dl className="orders-relist-modal-details orders-topack-unlist-modal-details">
+                <div className="orders-relist-modal-detail orders-topack-unlist-modal-detail--wide">
+                  <dt>Item</dt>
+                  <dd>{toPackEbayUnlistModal.violation.item_name?.trim() || '—'}</dd>
+                </div>
+                <div className="orders-relist-modal-detail">
+                  <dt>eBay item</dt>
+                  <dd>
+                    <a
+                      href={toPackEbayUnlistModal.violation.ebay_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="orders-table-external-link"
+                    >
+                      {toPackEbayUnlistModal.violation.ebay_id}
+                    </a>
+                  </dd>
+                </div>
+              </dl>
+              {toPackEbayUnlistModal.unlistError ? (
+                <p className="orders-relist-modal-note orders-relist-modal-note--warn" role="alert">
+                  {toPackEbayUnlistModal.unlistError}
+                </p>
+              ) : null}
+              {!ebaySellerConnected ? (
+                <p className="orders-relist-modal-note orders-relist-modal-note--warn">
+                  Connect your eBay seller account on Listing Management to unlist from here.
+                </p>
+              ) : null}
+              <div className="orders-relist-modal-actions">
+                <button
+                  type="button"
+                  className="orders-sales-unlist-button"
+                  disabled={
+                    !ebaySellerConnected ||
+                    toPackEbayUnlistModal.unlistLoading ||
+                    ebayUnlistLoadingId != null
+                  }
+                  onClick={() => void handleToPackEbayUnlist()}
+                >
+                  {toPackEbayUnlistModal.unlistLoading ? 'Unlisting…' : 'Unlist on eBay'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {endingThisWeekRelistModal ? (
+        <div
+          className="orders-relist-modal-backdrop"
+          role="presentation"
+          onClick={closeEndingThisWeekRelistModal}
+        >
+          <div
+            className="orders-relist-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="orders-relist-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="orders-relist-modal-close"
+              aria-label="Close review"
+              onClick={closeEndingThisWeekRelistModal}
+            >
+              ×
+            </button>
+            <div className="orders-relist-modal-layout">
+              <div className="orders-relist-modal-media" aria-hidden={endingThisWeekRelistModal.previewLoading}>
+                {endingThisWeekRelistModal.previewLoading ? (
+                  <div className="orders-relist-modal-media-loading">Loading preview…</div>
+                ) : endingThisWeekRelistModal.preview?.imageUrl ? (
+                  <img
+                    src={endingThisWeekRelistModal.preview.imageUrl}
+                    alt=""
+                    className="orders-relist-modal-image"
+                  />
+                ) : (
+                  <div className="orders-relist-modal-media-fallback">No image</div>
+                )}
+              </div>
+              <div className="orders-relist-modal-body">
+                <p className="orders-relist-modal-eyebrow">New eBay listing</p>
+                <h2 id="orders-relist-modal-title" className="orders-relist-modal-title">
+                  {endingThisWeekRelistModal.preview?.title ||
+                    endingThisWeekRelistModal.row.item_name?.trim() ||
+                    'Review recreated listing'}
+                </h2>
+                {endingThisWeekRelistModal.previewError ? (
+                  <p className="orders-relist-modal-note orders-relist-modal-note--warn">
+                    {endingThisWeekRelistModal.previewError}
+                  </p>
+                ) : null}
+                <dl className="orders-relist-modal-details">
+                  <div className="orders-relist-modal-detail">
+                    <dt>Item ID</dt>
+                    <dd>{endingThisWeekRelistModal.pending.newLegacyItemId}</dd>
+                  </div>
+                  {endingThisWeekRelistModal.preview?.priceLabel ? (
+                    <div className="orders-relist-modal-detail">
+                      <dt>Price</dt>
+                      <dd>{endingThisWeekRelistModal.preview.priceLabel}</dd>
+                    </div>
+                  ) : null}
+                  {endingThisWeekRelistModal.preview?.condition ? (
+                    <div className="orders-relist-modal-detail">
+                      <dt>Condition</dt>
+                      <dd>{endingThisWeekRelistModal.preview.condition}</dd>
+                    </div>
+                  ) : null}
+                  {endingThisWeekRelistModal.preview?.itemEndDate ? (
+                    <div className="orders-relist-modal-detail">
+                      <dt>Ends</dt>
+                      <dd>
+                        {formatEbayEndDateDisplay(endingThisWeekRelistModal.preview.itemEndDate) ??
+                          formatEbayEndDateShort(endingThisWeekRelistModal.preview.itemEndDate) ??
+                          endingThisWeekRelistModal.preview.itemEndDate}
+                      </dd>
+                    </div>
+                  ) : null}
+                  {endingThisWeekRelistModal.preview?.buyingOptions?.length ? (
+                    <div className="orders-relist-modal-detail">
+                      <dt>Format</dt>
+                      <dd>{endingThisWeekRelistModal.preview.buyingOptions.join(', ')}</dd>
+                    </div>
+                  ) : null}
+                  {endingThisWeekRelistModal.row.id != null ? (
+                    <div className="orders-relist-modal-detail">
+                      <dt>Stock ID</dt>
+                      <dd>{endingThisWeekRelistModal.row.id}</dd>
+                    </div>
+                  ) : null}
+                </dl>
+                {endingThisWeekRelistModal.preview?.aspects?.length ? (
+                  <ul className="orders-relist-modal-aspects">
+                    {endingThisWeekRelistModal.preview.aspects.map((aspect) => (
+                      <li key={`${aspect.name}-${aspect.value}`}>
+                        <span className="orders-relist-modal-aspect-name">{aspect.name}</span>
+                        <span className="orders-relist-modal-aspect-value">{aspect.value}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                <div className="orders-relist-modal-actions">
+                  <a
+                    href={endingThisWeekRelistModal.pending.ebayUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="orders-sales-edit-button"
+                  >
+                    Review
+                  </a>
+                  <a
+                    href={endingThisWeekRelistModal.pending.reviseUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="orders-sales-relist-modal-edit-link"
+                  >
+                    Edit on eBay
+                  </a>
+                  <button
+                    type="button"
+                    className="orders-sales-relist-confirm-button"
+                    disabled={
+                      endingThisWeekRelistModal.row.id == null ||
+                      ebayRelistConfirmLoadingId === endingThisWeekRelistModal.rowKey
+                    }
+                    onClick={() => void handleEbayRelistConfirm(endingThisWeekRelistModal.row)}
+                  >
+                    {ebayRelistConfirmLoadingId === endingThisWeekRelistModal.rowKey
+                      ? 'Saving…'
+                      : 'Save eBay ID'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };
