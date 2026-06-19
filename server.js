@@ -1086,10 +1086,10 @@ function getDefaultOAuthFrontendRedirects() {
   return {
     success:
       process.env.EBAY_OAUTH_SUCCESS_REDIRECT_URL?.trim() ||
-      `${frontendDevOrigin}/orders?tab=sales&ebay_oauth=success`,
+      `${frontendDevOrigin}/orders?tab=listing-management&ebay_oauth=success`,
     errorBase:
       process.env.EBAY_OAUTH_ERROR_REDIRECT_URL?.trim() ||
-      `${frontendDevOrigin}/orders?tab=sales&ebay_oauth=error`
+      `${frontendDevOrigin}/orders?tab=listing-management&ebay_oauth=error`
   };
 }
 
@@ -1479,7 +1479,7 @@ app.get('/api/ebay/listing-views', async (req, res) => {
         error: 'eBay seller not connected',
         details: msg,
         code,
-        reconnectUrl: '/orders?tab=sales'
+        reconnectUrl: '/orders?tab=listing-management'
       });
     }
 
@@ -1496,7 +1496,7 @@ app.get('/api/ebay/listing-views', async (req, res) => {
         error: 'eBay token missing Analytics access',
         details:
           'Set EBAY_OAUTH_INCLUDE_ANALYTICS=1 on the API server, enable Sell Analytics in the eBay Developer Portal, restart the API, then reconnect eBay seller.',
-        reconnectUrl: '/orders?tab=sales'
+        reconnectUrl: '/orders?tab=listing-management'
       });
     }
 
@@ -7063,6 +7063,150 @@ async function fetchBrowseItemStillBuyable(accessToken, ebayIdRaw) {
   };
 }
 
+const EBAY_TRADING_API_URL = 'https://api.ebay.com/ws/api.dll';
+
+/** Parse Trading API XML for Ack + error messages (no XML dependency). */
+function parseEbayTradingApiResponse(xmlText) {
+  const ackMatch = String(xmlText).match(/<Ack>([^<]+)<\/Ack>/i);
+  const ack = ackMatch ? ackMatch[1].trim() : null;
+  const errors = [];
+  for (const m of String(xmlText).matchAll(/<LongMessage>([^<]*)<\/LongMessage>/gi)) {
+    const msg = m[1]?.trim();
+    if (msg) errors.push(msg);
+  }
+  if (errors.length === 0) {
+    for (const m of String(xmlText).matchAll(/<ShortMessage>([^<]*)<\/ShortMessage>/gi)) {
+      const msg = m[1]?.trim();
+      if (msg) errors.push(msg);
+    }
+  }
+  const endTimeMatch = String(xmlText).match(/<EndTime>([^<]+)<\/EndTime>/i);
+  return {
+    ack,
+    errors,
+    endTime: endTimeMatch ? endTimeMatch[1].trim() : null
+  };
+}
+
+/**
+ * End a live eBay listing via Trading API EndItem (seller OAuth token).
+ * Works for legacy/quick listings; Inventory-managed listings may need withdrawOffer instead.
+ */
+async function endEbayListingViaTradingApi(userAccessToken, legacyItemId) {
+  const itemId = extractEbayLegacyItemId(legacyItemId);
+  if (!itemId) {
+    const err = new Error('Invalid eBay item id');
+    err.code = 'INVALID_EBAY_ID';
+    throw err;
+  }
+
+  const appId = process.env.REACT_APP_EBAY_APP_ID || process.env.EBAY_APP;
+  const siteId = String(process.env.EBAY_TRADING_SITE_ID || '3').trim() || '3';
+  const compatLevel = String(process.env.EBAY_TRADING_COMPAT_LEVEL || '967').trim() || '967';
+
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+<EndItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <ItemID>${itemId}</ItemID>
+  <EndingReason>NotAvailable</EndingReason>
+</EndItemRequest>`;
+
+  const headers = {
+    'Content-Type': 'text/xml',
+    'X-EBAY-API-CALL-NAME': 'EndItem',
+    'X-EBAY-API-SITEID': siteId,
+    'X-EBAY-API-COMPATIBILITY-LEVEL': compatLevel,
+    'X-EBAY-API-IAF-TOKEN': userAccessToken
+  };
+  if (appId) headers['X-EBAY-API-APP-NAME'] = appId;
+
+  const res = await fetch(EBAY_TRADING_API_URL, { method: 'POST', headers, body: xml });
+  const text = await res.text();
+  if (!res.ok) {
+    const err = new Error(`eBay Trading EndItem HTTP ${res.status}: ${text.slice(0, 400)}`);
+    err.httpStatus = res.status;
+    throw err;
+  }
+
+  const parsed = parseEbayTradingApiResponse(text);
+  if (parsed.ack !== 'Success' && parsed.ack !== 'Warning') {
+    const err = new Error(parsed.errors[0] || `EndItem failed (Ack=${parsed.ack || 'unknown'})`);
+    err.code = 'EBAY_END_ITEM_FAILED';
+    err.ebayErrors = parsed.errors;
+    err.ack = parsed.ack;
+    throw err;
+  }
+
+  return { legacyItemId: itemId, endTime: parsed.endTime, ack: parsed.ack };
+}
+
+/**
+ * POST — End the eBay listing for a stock row (Trading API EndItem + seller OAuth).
+ */
+app.post('/api/stock/:id/ebay-unlist', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const stockId = Number.parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(stockId) || stockId <= 0) {
+      return res.status(400).json({ error: 'Invalid stock id' });
+    }
+
+    let userToken;
+    try {
+      userToken = await ebaySellerOAuth.getFulfillmentUserAccessToken(pool);
+    } catch (tokErr) {
+      if (tokErr.code === 'EBAY_USER_TOKEN_MISSING') {
+        return res.status(503).json({
+          error: 'eBay seller not connected',
+          code: 'EBAY_USER_TOKEN_MISSING',
+          details: tokErr.message
+        });
+      }
+      throw tokErr;
+    }
+
+    const stockResult = await pool.query(
+      `SELECT id, item_name, ebay_id FROM stock WHERE id = $1`,
+      [stockId]
+    );
+    const row = stockResult.rows?.[0];
+    if (!row) {
+      return res.status(404).json({ error: 'Stock row not found' });
+    }
+    if (row.ebay_id == null || String(row.ebay_id).trim() === '') {
+      return res.status(400).json({ error: 'Stock row has no eBay listing id' });
+    }
+
+    const outcome = await endEbayListingViaTradingApi(userToken, row.ebay_id);
+    res.json({
+      ok: true,
+      stock_id: row.id,
+      item_name: row.item_name ?? null,
+      legacy_item_id: outcome.legacyItemId,
+      end_time: outcome.endTime,
+      ack: outcome.ack
+    });
+  } catch (error) {
+    console.error('ebay-unlist failed:', error);
+    const code = error.code || 'EBAY_UNLIST_FAILED';
+    const status =
+      code === 'INVALID_EBAY_ID'
+        ? 400
+        : code === 'EBAY_END_ITEM_FAILED'
+          ? 422
+          : 500;
+    res.status(status).json({
+      error: 'Failed to end eBay listing',
+      code,
+      details: error instanceof Error ? error.message : String(error),
+      ebay_errors: error.ebayErrors ?? undefined
+    });
+  }
+});
+
 /**
  * POST — For sold-on-Vinted rows that still have an eBay id, call Browse getItem (COMPACT).
  * Rows where eBay still appears buyable are returned as `violations` (should end duplicate listing).
@@ -7209,6 +7353,13 @@ async function fetchEbayFulfillmentLineLegacyItems(userAccessToken, windowDays =
   return aggregated;
 }
 
+function normalizeListingTitleForMatch(raw) {
+  return String(raw ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
 /**
  * POST — Compare eBay Fulfillment line items (sold on your account) to stock.ebay_id.
  * The app `orders` table is only the to-pack queue; matching is against Stock listing IDs.
@@ -7260,14 +7411,30 @@ app.post('/api/stock/ebay-sold-missing-stock-match', async (req, res) => {
       if (!m.title && row.title) m.title = row.title;
     }
 
+    const soldEbayBareResult = await pool.query(
+      `SELECT id, item_name, ebay_id FROM stock
+       WHERE sale_date IS NOT NULL
+         AND LOWER(TRIM(COALESCE(sold_platform::text, ''))) LIKE '%ebay%'
+         AND (ebay_id IS NULL OR TRIM(COALESCE(ebay_id::text, '')) = '')`
+    );
+    const titleToStockId = new Map();
+    for (const row of soldEbayBareResult.rows || []) {
+      const key = normalizeListingTitleForMatch(row.item_name);
+      if (key && !titleToStockId.has(key)) titleToStockId.set(key, row.id);
+    }
+
     const missing = [];
     for (const [legacyItemId, meta] of byLegacy) {
       if (!stockLegacy.has(legacyItemId)) {
+        const titleKey = normalizeListingTitleForMatch(meta.title);
+        const stockId =
+          titleKey && titleToStockId.has(titleKey) ? titleToStockId.get(titleKey) : null;
         missing.push({
           legacy_item_id: legacyItemId,
           item_title: meta.title,
           order_ids: meta.orderIds,
-          ebay_url: `https://www.ebay.co.uk/itm/${legacyItemId}`
+          ebay_url: `https://www.ebay.co.uk/itm/${legacyItemId}`,
+          stock_id: stockId
         });
       }
     }

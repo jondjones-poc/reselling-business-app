@@ -65,7 +65,7 @@ export const apiFetch = (path: string, init?: RequestInit): Promise<Response> =>
 };
 
 /** eBay OAuth start — pass return path so postback returns here (needed when RuName callback hits production). */
-export const ebayOAuthStartUrl = (returnPath = '/orders?tab=sales'): string => {
+export const ebayOAuthStartUrl = (returnPath = '/orders?tab=listing-management'): string => {
   if (typeof window === 'undefined') return '/api/ebay/oauth/start';
   const returnTo = `${window.location.origin}${returnPath.startsWith('/') ? returnPath : `/${returnPath}`}`;
   return authFlowApiUrl(`/api/ebay/oauth/start?return_to=${encodeURIComponent(returnTo)}`);

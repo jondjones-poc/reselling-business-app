@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { pingDatabase } from '../utils/dbPing';
 import { getApiBase, ebayOAuthStartUrl } from '../utils/apiBase';
-import { StockRowInfoOverlay, computeStockInfoPanelMetrics } from './StockRowInfoOverlay';
+import { computeStockInfoPanelMetrics } from './StockRowInfoOverlay';
 import './Orders.css';
 
 const API_BASE = getApiBase();
@@ -59,10 +59,12 @@ const SALES_SUMMARY_MONTHS_BACK = 12;
 const SALES_PAGE_SIZE = 40;
 
 function parseOrdersTabParam(raw: string | null): OrdersTab {
-  if (raw === 'sales') return 'sales';
+  if (raw === 'sales' || raw === 'listing-management') return 'sales';
   if (raw === 'sales-summary') return 'sales-summary';
   return 'to-pack';
 }
+
+type SalesEbayGridMode = 'none' | 'unlist-ebay' | 'missing-ebay-order';
 
 function weekMondayKey(d: Date): string {
   const { weekStart } = getMondayToSundayBounds(d);
@@ -251,6 +253,14 @@ const ebayListingHref = (ebayId: Nullable<string>): string | null => {
   return `https://www.ebay.co.uk/itm/${encodeURIComponent(s)}`;
 };
 
+const ebayReviseListingHref = (ebayId: Nullable<string>): string | null => {
+  const s = ebayId?.trim();
+  if (!s) return null;
+  const legacy = s.replace(/\D/g, '');
+  if (!legacy) return null;
+  return `https://www.ebay.co.uk/sl/list?itemId=${encodeURIComponent(legacy)}&mode=ReviseItem`;
+};
+
 const vintedListingHref = (vintedId: Nullable<string>): string | null => {
   const s = vintedId?.trim();
   if (!s) return null;
@@ -424,6 +434,30 @@ interface MissingEbayStockRow {
   item_title: Nullable<string>;
   order_ids: string[];
   ebay_url: string;
+  stock_id?: number | null;
+}
+
+function normalizeListingTitleForMatch(raw: Nullable<string>): string {
+  return (raw?.trim().toLowerCase() ?? '').replace(/\s+/g, ' ');
+}
+
+function stockEditIdForMissingEbaySale(
+  missing: MissingEbayStockRow,
+  soldRows: StockRow[]
+): number | null {
+  if (missing.stock_id != null && Number.isFinite(Number(missing.stock_id))) {
+    return Number(missing.stock_id);
+  }
+  const missingTitle = normalizeListingTitleForMatch(missing.item_title);
+  for (const row of soldRows) {
+    const platform = row.sold_platform?.trim().toLowerCase() ?? '';
+    if (!platform.includes('ebay')) continue;
+    if (missingTitle && normalizeListingTitleForMatch(row.item_name) === missingTitle) {
+      const rowLegacy = row.ebay_id?.replace(/\D/g, '') ?? '';
+      if (!rowLegacy || rowLegacy !== missing.legacy_item_id) return row.id;
+    }
+  }
+  return null;
 }
 
 interface MissingEbayStockMatchResponse {
@@ -463,12 +497,13 @@ const Orders: React.FC = () => {
   const ordersTab: OrdersTab = parseOrdersTabParam(searchParams.get('tab'));
 
   const setOrdersTab = (tab: OrdersTab) => {
+    const urlTab = tab === 'sales' ? 'listing-management' : tab;
     try {
-      sessionStorage.setItem('ordersTab', tab);
+      sessionStorage.setItem('ordersTab', urlTab);
     } catch {
       /* ignore */
     }
-    setSearchParams({ tab }, { replace: true });
+    setSearchParams({ tab: urlTab }, { replace: true });
   };
   const [allStock, setAllStock] = useState<StockRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -497,11 +532,13 @@ const Orders: React.FC = () => {
   const [vintedEbayCheckApiErrors, setVintedEbayCheckApiErrors] = useState<
     VintedEbayCheckResponse['apiErrors']
   >([]);
-  const [salesInfoRow, setSalesInfoRow] = useState<StockRow | null>(null);
-  const [salesInfoAnchor, setSalesInfoAnchor] = useState<HTMLElement | null>(null);
+  const [ebayUnlistLoadingId, setEbayUnlistLoadingId] = useState<number | null>(null);
+  const [ebayUnlistErrorById, setEbayUnlistErrorById] = useState<Record<number, string>>({});
+  const [ebayUnlistedStockIds, setEbayUnlistedStockIds] = useState<number[]>([]);
   const [missingEbayCheckLoading, setMissingEbayCheckLoading] = useState(false);
   const [missingEbayInStock, setMissingEbayInStock] = useState<MissingEbayStockRow[]>([]);
   const [missingEbayCheckError, setMissingEbayCheckError] = useState<string | null>(null);
+  const [salesEbayGridMode, setSalesEbayGridMode] = useState<SalesEbayGridMode>('none');
   const [ebayOAuthStatus, setEbayOAuthStatus] = useState<{
     connected: boolean;
     user_name?: string;
@@ -633,9 +670,17 @@ const Orders: React.FC = () => {
   // Normalize URL: /orders with missing/invalid ?tab= uses last tab from sessionStorage (nav + refresh).
   useEffect(() => {
     const q = searchParams.get('tab');
-    if (q === 'sales' || q === 'to-pack' || q === 'sales-summary') {
+    if (
+      q === 'sales' ||
+      q === 'listing-management' ||
+      q === 'to-pack' ||
+      q === 'sales-summary'
+    ) {
       try {
-        sessionStorage.setItem('ordersTab', q);
+        sessionStorage.setItem(
+          'ordersTab',
+          q === 'sales' ? 'listing-management' : q
+        );
       } catch {
         /* ignore */
       }
@@ -644,7 +689,8 @@ const Orders: React.FC = () => {
     let initial: OrdersTab = 'to-pack';
     try {
       const saved = sessionStorage.getItem('ordersTab');
-      if (saved === 'sales' || saved === 'sales-summary') initial = saved;
+      if (saved === 'sales' || saved === 'listing-management') initial = 'sales';
+      else if (saved === 'sales-summary') initial = saved;
     } catch {
       /* ignore */
     }
@@ -740,6 +786,7 @@ const Orders: React.FC = () => {
       setSalesPlatformFilter('all');
       setSalesBrandFilter('all');
       setSalesDateRangeFilter('all');
+      setSalesEbayGridMode('none');
     }
   }, [ordersTab]);
 
@@ -836,20 +883,56 @@ const Orders: React.FC = () => {
     return soldRowsForPeriod.filter((row) => salesRowListingIssues(row).length > 0);
   }, [soldRowsForPeriod, salesMissingOnlineIdFilter]);
 
+  const vintedEbayViolationIdSet = useMemo(
+    () => new Set(vintedEbayViolations.map((v) => v.id)),
+    [vintedEbayViolations]
+  );
+
+  const ebayUnlistedIdSet = useMemo(() => new Set(ebayUnlistedStockIds), [ebayUnlistedStockIds]);
+
+  const soldRowsUnlistGrid = useMemo(
+    () => soldRows.filter((row) => vintedEbayViolationIdSet.has(row.id)),
+    [soldRows, vintedEbayViolationIdSet]
+  );
+
+  const salesGridStockRows = useMemo(() => {
+    if (salesEbayGridMode === 'unlist-ebay') return soldRowsUnlistGrid;
+    return soldRowsFiltered;
+  }, [salesEbayGridMode, soldRowsUnlistGrid, soldRowsFiltered]);
+
+  const salesGridRowCount =
+    salesEbayGridMode === 'missing-ebay-order'
+      ? missingEbayInStock.length
+      : salesGridStockRows.length;
+
   const salesPageCount = useMemo(
-    () => Math.max(1, Math.ceil(soldRowsFiltered.length / SALES_PAGE_SIZE)),
-    [soldRowsFiltered.length]
+    () => Math.max(1, Math.ceil(salesGridRowCount / SALES_PAGE_SIZE)),
+    [salesGridRowCount]
   );
 
   const soldRowsPaged = useMemo(() => {
     const safePage = Math.min(Math.max(salesPage, 1), salesPageCount);
     const start = (safePage - 1) * SALES_PAGE_SIZE;
-    return soldRowsFiltered.slice(start, start + SALES_PAGE_SIZE);
-  }, [soldRowsFiltered, salesPage, salesPageCount]);
+    return salesGridStockRows.slice(start, start + SALES_PAGE_SIZE);
+  }, [salesGridStockRows, salesPage, salesPageCount]);
+
+  const missingEbayPaged = useMemo(() => {
+    const safePage = Math.min(Math.max(salesPage, 1), salesPageCount);
+    const start = (safePage - 1) * SALES_PAGE_SIZE;
+    return missingEbayInStock.slice(start, start + SALES_PAGE_SIZE);
+  }, [missingEbayInStock, salesPage, salesPageCount]);
 
   useEffect(() => {
     setSalesPage(1);
-  }, [salesPlatformFilter, salesBrandFilter, salesDateRangeFilter, salesMissingOnlineIdFilter]);
+  }, [
+    salesPlatformFilter,
+    salesBrandFilter,
+    salesDateRangeFilter,
+    salesMissingOnlineIdFilter,
+    salesEbayGridMode,
+    vintedEbayViolations.length,
+    missingEbayInStock.length
+  ]);
 
   useEffect(() => {
     if (salesPage > salesPageCount) {
@@ -1107,8 +1190,16 @@ const Orders: React.FC = () => {
 
   const handleVintedEbayCheck = async () => {
     if (!ebaySellerConnected) return;
+    if (salesEbayGridMode === 'unlist-ebay') {
+      setSalesEbayGridMode('none');
+      return;
+    }
+    setSalesEbayGridMode('unlist-ebay');
+    setSalesPlatformFilter('ebay');
     setVintedEbayCheckLoading(true);
     setVintedEbayCheckError(null);
+    setEbayUnlistedStockIds([]);
+    setEbayUnlistErrorById({});
     try {
       const response = await fetch(`${API_BASE}/api/stock/vinted-sold-ebay-active-check`, {
         method: 'POST',
@@ -1141,6 +1232,7 @@ const Orders: React.FC = () => {
       console.error('Vinted / eBay check error:', err);
       setVintedEbayViolations([]);
       setVintedEbayCheckApiErrors([]);
+      setSalesEbayGridMode('none');
       setVintedEbayCheckError(
         err.message === 'Failed to fetch' || err.name === 'TypeError'
           ? 'Unable to connect to server. Is the API running?'
@@ -1151,8 +1243,57 @@ const Orders: React.FC = () => {
     }
   };
 
+  const handleEbayUnlist = async (row: StockRow) => {
+    if (!ebaySellerConnected || ebayUnlistLoadingId != null) return;
+    setEbayUnlistLoadingId(row.id);
+    setEbayUnlistErrorById((prev) => {
+      if (!prev[row.id]) return prev;
+      const next = { ...prev };
+      delete next[row.id];
+      return next;
+    });
+    try {
+      const response = await fetch(`${API_BASE}/api/stock/${row.id}/ebay-unlist`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const text = await response.text();
+      let data: { error?: string; details?: string; code?: string } | null = null;
+      try {
+        data = text ? (JSON.parse(text) as { error?: string; details?: string; code?: string }) : null;
+      } catch {
+        /* not JSON */
+      }
+      if (!response.ok) {
+        const msg =
+          data?.details ||
+          data?.error ||
+          text ||
+          `Unlist failed (${response.status})`;
+        throw new Error(msg);
+      }
+      setEbayUnlistedStockIds((prev) => (prev.includes(row.id) ? prev : [...prev, row.id]));
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message === 'Failed to fetch' || err.name === 'TypeError'
+            ? 'Unable to connect to server. Is the API running?'
+            : err.message
+          : 'Unlist failed';
+      setEbayUnlistErrorById((prev) => ({ ...prev, [row.id]: message }));
+    } finally {
+      setEbayUnlistLoadingId(null);
+    }
+  };
+
   const handleMissingEbayOrderCheck = async () => {
     if (!ebaySellerConnected) return;
+    if (salesEbayGridMode === 'missing-ebay-order') {
+      setSalesEbayGridMode('none');
+      return;
+    }
+    setSalesEbayGridMode('missing-ebay-order');
+    setSalesPlatformFilter('ebay');
     setMissingEbayCheckLoading(true);
     setMissingEbayCheckError(null);
     try {
@@ -1184,6 +1325,7 @@ const Orders: React.FC = () => {
     } catch (err: any) {
       console.error('Missing eBay order check:', err);
       setMissingEbayInStock([]);
+      setSalesEbayGridMode('none');
       setMissingEbayCheckError(
         err.message === 'Failed to fetch' || err.name === 'TypeError'
           ? 'Unable to connect to server. Is the API running?'
@@ -1195,16 +1337,6 @@ const Orders: React.FC = () => {
   };
 
   const ebaySellerConnected = ebayOAuthStatus?.connected === true;
-
-  const vintedEbayViolationIdSet = useMemo(
-    () => new Set(vintedEbayViolations.map((v) => v.id)),
-    [vintedEbayViolations]
-  );
-
-  const dismissSalesInfo = useCallback(() => {
-    setSalesInfoRow(null);
-    setSalesInfoAnchor(null);
-  }, []);
 
   return (
     <div className="orders-container">
@@ -1240,7 +1372,7 @@ const Orders: React.FC = () => {
           className={`orders-tab${ordersTab === 'sales' ? ' orders-tab--active' : ''}`}
           onClick={() => setOrdersTab('sales')}
         >
-          Sales
+          Listing Management
         </button>
       </div>
 
@@ -1674,7 +1806,7 @@ const Orders: React.FC = () => {
                     </span>
                   ) : (
                     <a
-                      href={ebayOAuthStartUrl('/orders?tab=sales')}
+                      href={ebayOAuthStartUrl('/orders?tab=listing-management')}
                       className="orders-vinted-ebay-check-button"
                       title="Connect your eBay seller account"
                     >
@@ -1690,13 +1822,19 @@ const Orders: React.FC = () => {
                   ) : null}
                   <button
                     type="button"
-                    className="orders-vinted-ebay-check-button"
+                    className={`orders-vinted-ebay-check-button${
+                      salesEbayGridMode === 'unlist-ebay'
+                        ? ' orders-vinted-ebay-check-button--active'
+                        : ''
+                    }`}
                     onClick={handleVintedEbayCheck}
                     disabled={vintedEbayCheckLoading || !ebaySellerConnected}
                     title={
                       !ebaySellerConnected
                         ? 'Connect your eBay seller account first'
-                        : undefined
+                        : salesEbayGridMode === 'unlist-ebay'
+                          ? 'Clear Unlist eBay filter'
+                          : 'Scan and show items sold on Vinted that may still be live on eBay'
                     }
                     aria-label={
                       vintedEbayCheckLoading
@@ -1713,13 +1851,19 @@ const Orders: React.FC = () => {
                   </button>
                   <button
                     type="button"
-                    className="orders-vinted-ebay-check-button orders-missing-ebay-order-button"
+                    className={`orders-vinted-ebay-check-button orders-missing-ebay-order-button${
+                      salesEbayGridMode === 'missing-ebay-order'
+                        ? ' orders-vinted-ebay-check-button--active'
+                        : ''
+                    }`}
                     onClick={handleMissingEbayOrderCheck}
                     disabled={missingEbayCheckLoading || !ebaySellerConnected}
                     title={
                       !ebaySellerConnected
                         ? 'Connect your eBay seller account first'
-                        : undefined
+                        : salesEbayGridMode === 'missing-ebay-order'
+                          ? 'Clear Missing eBay order filter'
+                          : 'Compare eBay sold orders to Stock listing IDs'
                     }
                     aria-label={
                       missingEbayCheckLoading
@@ -1776,115 +1920,6 @@ const Orders: React.FC = () => {
                   {missingEbayCheckError}
                 </div>
               )}
-              {(vintedEbayViolations.length > 0 || missingEbayInStock.length > 0) && (
-                <div
-                  className="orders-vinted-ebay-violations-banner"
-                  role="region"
-                  aria-label="Items that may need your attention"
-                >
-                  <h3 className="orders-vinted-ebay-violations-title">Needs fixing</h3>
-                  {vintedEbayViolations.length > 0 && (
-                    <>
-                      <h4 className="orders-needs-fixing-subtitle">eBay still looks live (sold on Vinted)</h4>
-                      <p className="orders-vinted-ebay-violations-intro">
-                        Sold on Vinted but eBay still reports the listing as available to buy. End or remove the
-                        eBay listing.
-                      </p>
-                      <ul className="orders-vinted-ebay-violations-list">
-                        {vintedEbayViolations.map((v) => {
-                          const vintedHref = vintedListingHref(v.vinted_id);
-                          return (
-                            <li key={v.id} className="orders-vinted-ebay-violations-item">
-                              <Link
-                                to={`/stock?editId=${v.id}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="orders-vinted-ebay-violations-sku orders-vinted-ebay-violations-stock-link"
-                                title={`Edit stock SKU ${v.id} (opens in new tab)`}
-                              >
-                                SKU {v.id}
-                              </Link>
-                              {v.item_name?.trim() ? (
-                                <>
-                                  {' — '}
-                                  <Link
-                                    to={`/stock?editId=${v.id}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="orders-vinted-ebay-violations-name orders-vinted-ebay-violations-stock-link"
-                                    title={`Edit stock SKU ${v.id} (opens in new tab)`}
-                                  >
-                                    {v.item_name.trim()}
-                                  </Link>
-                                </>
-                              ) : null}{' '}
-                              <span className="orders-vinted-ebay-violations-platform-links">
-                                <a
-                                  href={v.ebay_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="orders-vinted-ebay-violations-ebay-link"
-                                >
-                                  Open on eBay
-                                </a>
-                                {vintedHref ? (
-                                  <a
-                                    href={vintedHref}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="orders-vinted-ebay-violations-vinted-link"
-                                  >
-                                    Open on Vinted
-                                  </a>
-                                ) : null}
-                              </span>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </>
-                  )}
-                  {missingEbayInStock.length > 0 && (
-                    <>
-                      <h4 className="orders-needs-fixing-subtitle">
-                        eBay sale — listing ID not in Stock
-                      </h4>
-                      <p className="orders-vinted-ebay-violations-intro">
-                        These lines are in your eBay sold orders (Fulfillment API) but no{' '}
-                        <strong>Stock</strong> row stores this eBay item ID. Add the item or correct the eBay ID
-                        in Stock. (The To Pack <strong>orders</strong> list is separate; matching is against
-                        Stock only.)
-                      </p>
-                      <ul className="orders-vinted-ebay-violations-list">
-                        {missingEbayInStock.map((m) => (
-                          <li key={m.legacy_item_id} className="orders-vinted-ebay-violations-item">
-                            <span className="orders-missing-ebay-legacy-id">Item {m.legacy_item_id}</span>
-                            {m.item_title?.trim() ? (
-                              <span className="orders-missing-ebay-title"> — {m.item_title.trim()}</span>
-                            ) : null}{' '}
-                            <span className="orders-vinted-ebay-violations-platform-links">
-                              <a
-                                href={m.ebay_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="orders-vinted-ebay-violations-ebay-link"
-                              >
-                                Open on eBay
-                              </a>
-                            </span>
-                            {m.order_ids?.length ? (
-                              <span className="orders-missing-ebay-order-refs">
-                                {' '}
-                                (eBay order{m.order_ids.length === 1 ? '' : 's'}: {m.order_ids.join(', ')})
-                              </span>
-                            ) : null}
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
-                </div>
-              )}
               {vintedEbayCheckApiErrors.length > 0 && (
                 <p className="orders-vinted-ebay-api-errors" role="status">
                   {vintedEbayCheckApiErrors.length} listing
@@ -1893,6 +1928,18 @@ const Orders: React.FC = () => {
                 </p>
               )}
             </>
+          )}
+          {salesEbayGridMode === 'unlist-ebay' && !vintedEbayCheckLoading && (
+            <p className="orders-sales-grid-mode-hint" role="status">
+              Showing {soldRowsUnlistGrid.length} item{soldRowsUnlistGrid.length === 1 ? '' : 's'} sold on
+              Vinted where eBay still looks live. Unlist ends the eBay listing via the seller API.
+            </p>
+          )}
+          {salesEbayGridMode === 'missing-ebay-order' && !missingEbayCheckLoading && (
+            <p className="orders-sales-grid-mode-hint" role="status">
+              Showing {missingEbayInStock.length} eBay sale
+              {missingEbayInStock.length === 1 ? '' : 's'} with no matching Stock listing ID.
+            </p>
           )}
           {soldLoading ? (
             <div className="orders-empty-state">
@@ -1903,9 +1950,29 @@ const Orders: React.FC = () => {
               <p>No sold items yet.</p>
               <p>Items with a sale date appear here, newest first.</p>
             </div>
-          ) : soldRowsFiltered.length === 0 ? (
+          ) : salesEbayGridMode === 'unlist-ebay' && vintedEbayCheckLoading ? (
+            <div className="orders-sales-grid-loading" role="status" aria-live="polite">
+              <span className="orders-sales-grid-loading__spinner" aria-hidden />
+              <p>Checking which Vinted sales are still live on eBay…</p>
+            </div>
+          ) : salesEbayGridMode === 'missing-ebay-order' && missingEbayCheckLoading ? (
+            <div className="orders-sales-grid-loading" role="status" aria-live="polite">
+              <span className="orders-sales-grid-loading__spinner" aria-hidden />
+              <p>Matching eBay orders to Stock listing IDs…</p>
+            </div>
+          ) : salesGridRowCount === 0 ? (
             <div className="orders-empty-state">
-              {soldByPlatformOnly.length === 0 ? (
+              {salesEbayGridMode === 'unlist-ebay' ? (
+                <>
+                  <p>No items need unlisting on eBay.</p>
+                  <p>Nothing sold on Vinted still looks buyable on eBay for your linked account.</p>
+                </>
+              ) : salesEbayGridMode === 'missing-ebay-order' ? (
+                <>
+                  <p>No missing eBay orders.</p>
+                  <p>Every recent eBay sale matches a Stock listing ID.</p>
+                </>
+              ) : soldByPlatformOnly.length === 0 ? (
                 <>
                   <p>No sold items match this platform filter.</p>
                   <p>Choose &quot;All platforms&quot; or another option above.</p>
@@ -1933,23 +2000,97 @@ const Orders: React.FC = () => {
               <table className="orders-table">
                 <thead>
                   <tr>
-                    <th>ID</th>
+                    <th>{salesEbayGridMode === 'missing-ebay-order' ? 'eBay item' : 'ID'}</th>
                     <th>Name</th>
-                    <th>Sold</th>
+                    <th>{salesEbayGridMode === 'missing-ebay-order' ? 'eBay order' : 'Sold'}</th>
                     <th>eBay link</th>
                     <th>Vinted link</th>
+                    {salesEbayGridMode === 'unlist-ebay' ? <th>Edit</th> : null}
+                    {salesEbayGridMode === 'unlist-ebay' ? <th>Unlist</th> : null}
                     <th className="orders-sales-info-header">Info</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {soldRowsPaged.map((row) => {
+                  {salesEbayGridMode === 'missing-ebay-order'
+                    ? missingEbayPaged.map((m) => {
+                        const missingStockEditId = stockEditIdForMissingEbaySale(m, soldRows);
+                        return (
+                        <tr key={m.legacy_item_id}>
+                          <td>
+                            <span className="orders-missing-ebay-legacy-id">{m.legacy_item_id}</span>
+                          </td>
+                          <td>
+                            {m.item_title?.trim() ? (
+                              missingStockEditId ? (
+                                <Link
+                                  to={`/stock?editId=${missingStockEditId}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="orders-sales-stock-name-link"
+                                  title={`Edit item ${missingStockEditId} in Stock`}
+                                >
+                                  {m.item_title.trim()}
+                                </Link>
+                              ) : (
+                                m.item_title.trim()
+                              )
+                            ) : (
+                              <span className="orders-table-dash">—</span>
+                            )}
+                          </td>
+                          <td>
+                            {m.order_ids?.length ? (
+                              <span className="orders-missing-ebay-order-refs">
+                                {m.order_ids.join(', ')}
+                              </span>
+                            ) : (
+                              <span className="orders-table-dash">—</span>
+                            )}
+                          </td>
+                          <td>
+                            <a
+                              href={m.ebay_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="orders-table-external-link"
+                            >
+                              {m.legacy_item_id}
+                            </a>
+                          </td>
+                          <td>
+                            <span className="orders-table-dash">—</span>
+                          </td>
+                          <td className="orders-sales-info-cell">
+                            {missingStockEditId ? (
+                              <Link
+                                to={`/stock?editId=${missingStockEditId}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="orders-sales-info-button orders-sales-info-button--link"
+                                title={`Edit item ${missingStockEditId} in Stock`}
+                              >
+                                Info
+                              </Link>
+                            ) : (
+                              <span className="orders-table-dash">—</span>
+                            )}
+                          </td>
+                        </tr>
+                        );
+                      })
+                    : soldRowsPaged.map((row) => {
                     const ebayHref = ebayListingHref(row.ebay_id);
+                    const ebayReviseHref = ebayReviseListingHref(row.ebay_id);
                     const vintedHref = vintedListingHref(row.vinted_id);
+                    const unlistError = ebayUnlistErrorById[row.id];
+                    const unlistLoading = ebayUnlistLoadingId === row.id;
+                    const rowUnlisted = ebayUnlistedIdSet.has(row.id);
                     const ebayLabel = row.ebay_id != null ? String(row.ebay_id).trim() : '';
                     const vintedLabel = row.vinted_id != null ? String(row.vinted_id).trim() : '';
-                    const rowNeedsEbayFix = vintedEbayViolationIdSet.has(row.id);
+                    const rowNeedsEbayFix = vintedEbayViolationIdSet.has(row.id) && !rowUnlisted;
                     const rowIsBulky = stockIsBulky(row);
                     const salesRowClass = [
+                      rowUnlisted ? 'orders-sales-row--ebay-unlisted' : '',
                       rowNeedsEbayFix ? 'orders-sales-row--ebay-fix-needed' : '',
                       rowIsBulky ? 'orders-row--bulky' : ''
                     ]
@@ -1972,6 +2113,8 @@ const Orders: React.FC = () => {
                           {row.item_name?.trim() ? (
                             <Link
                               to={`/stock?editId=${row.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
                               className="orders-sales-stock-name-link"
                               title={`Edit item ${row.id} in Stock`}
                             >
@@ -2016,18 +2159,65 @@ const Orders: React.FC = () => {
                             <span className="orders-table-dash">—</span>
                           )}
                         </td>
+                        {salesEbayGridMode === 'unlist-ebay' ? (
+                          <td>
+                            {ebayReviseHref ? (
+                              <a
+                                href={ebayReviseHref}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="orders-sales-edit-button"
+                                title="Edit this listing on eBay"
+                              >
+                                Edit
+                              </a>
+                            ) : (
+                              <span className="orders-table-dash">—</span>
+                            )}
+                          </td>
+                        ) : null}
+                        {salesEbayGridMode === 'unlist-ebay' ? (
+                          <td>
+                            {row.ebay_id != null && String(row.ebay_id).trim() !== '' ? (
+                              <div className="orders-sales-unlist-cell">
+                                {rowUnlisted ? (
+                                  <span className="orders-sales-unlist-done" title="Listing ended on eBay">
+                                    Unlisted
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="orders-sales-unlist-button"
+                                    title="End this listing on eBay via the seller API"
+                                    disabled={
+                                      !ebaySellerConnected || unlistLoading || ebayUnlistLoadingId != null
+                                    }
+                                    onClick={() => handleEbayUnlist(row)}
+                                  >
+                                    {unlistLoading ? 'Ending…' : 'Unlist'}
+                                  </button>
+                                )}
+                                {unlistError ? (
+                                  <span className="orders-sales-unlist-error" title={unlistError}>
+                                    {unlistError}
+                                  </span>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <span className="orders-table-dash">—</span>
+                            )}
+                          </td>
+                        ) : null}
                         <td className="orders-sales-info-cell">
-                          <button
-                            type="button"
-                            className="orders-sales-info-button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setSalesInfoRow(row);
-                              setSalesInfoAnchor(event.currentTarget.closest('tr') as HTMLElement);
-                            }}
+                          <Link
+                            to={`/stock?editId=${row.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="orders-sales-info-button orders-sales-info-button--link"
+                            title={`Edit item ${row.id} in Stock`}
                           >
                             Info
-                          </button>
+                          </Link>
                         </td>
                       </tr>
                     );
@@ -2035,8 +2225,8 @@ const Orders: React.FC = () => {
                 </tbody>
               </table>
             </div>
-            {soldRowsFiltered.length > SALES_PAGE_SIZE ? (
-              <nav className="orders-sales-pagination" aria-label="Sales list pagination">
+            {salesGridRowCount > SALES_PAGE_SIZE ? (
+              <nav className="orders-sales-pagination" aria-label="Listing Management pagination">
                 <button
                   type="button"
                   className="orders-sales-pagination-button"
@@ -2052,9 +2242,9 @@ const Orders: React.FC = () => {
                     · {(Math.min(salesPage, salesPageCount) - 1) * SALES_PAGE_SIZE + 1}–
                     {Math.min(
                       Math.min(salesPage, salesPageCount) * SALES_PAGE_SIZE,
-                      soldRowsFiltered.length
+                      salesGridRowCount
                     )}{' '}
-                    of {soldRowsFiltered.length}
+                    of {salesGridRowCount}
                   </span>
                 </span>
                 <button
@@ -2258,13 +2448,6 @@ const Orders: React.FC = () => {
           )}
         </div>
       )}
-
-      <StockRowInfoOverlay
-        row={salesInfoRow}
-        anchorElement={salesInfoAnchor}
-        formatCurrency={formatCurrency}
-        onDismiss={dismissSalesInfo}
-      />
     </div>
   );
 };

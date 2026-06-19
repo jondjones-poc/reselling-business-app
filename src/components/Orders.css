@@ -342,6 +342,38 @@
   letter-spacing: 0.04rem;
 }
 
+.orders-sales-grid-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 56px 24px;
+  text-align: center;
+  color: rgba(var(--theme-text-rgb), 0.72);
+}
+
+.orders-sales-grid-loading p {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.orders-sales-grid-loading__spinner {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 3px solid rgba(var(--theme-accent-rgb), 0.18);
+  border-top-color: rgba(var(--theme-accent-rgb), 0.85);
+  animation: orders-sales-grid-spin 0.8s linear infinite;
+}
+
+@keyframes orders-sales-grid-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .orders-ebay-toolbar-connect {
   display: inline-flex;
   flex-wrap: wrap;
@@ -631,6 +663,107 @@
   color: rgba(var(--theme-text-rgb), 0.55);
 }
 
+.orders-vinted-ebay-check-button--active {
+  background: rgba(var(--theme-accent-rgb), 0.28);
+  border-color: rgba(var(--theme-accent-rgb), 0.75);
+  box-shadow: 0 0 0 1px rgba(var(--theme-accent-rgb), 0.35);
+}
+
+.orders-sales-grid-mode-hint {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: rgba(var(--theme-accent-rgb), 0.08);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.22);
+  color: rgba(var(--theme-text-rgb), 0.82);
+  font-size: 0.9rem;
+}
+
+.orders-sales-edit-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.35);
+  background: rgba(var(--theme-accent-rgb), 0.1);
+  color: rgba(var(--theme-text-rgb), 0.9);
+  font-weight: 700;
+  font-size: 0.78rem;
+  letter-spacing: 0.04rem;
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.orders-sales-edit-button:hover {
+  background: rgba(var(--theme-accent-rgb), 0.18);
+  border-color: rgba(var(--theme-accent-rgb), 0.55);
+}
+
+.orders-sales-unlist-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  max-width: 220px;
+}
+
+.orders-sales-unlist-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(220, 120, 100, 0.55);
+  background: rgba(220, 80, 60, 0.12);
+  color: rgba(255, 180, 160, 0.95);
+  font-weight: 700;
+  font-size: 0.78rem;
+  letter-spacing: 0.04rem;
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.orders-sales-unlist-button:hover:not(:disabled) {
+  background: rgba(220, 80, 60, 0.22);
+  border-color: rgba(220, 120, 100, 0.85);
+}
+
+.orders-sales-unlist-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.orders-sales-unlist-error {
+  font-size: 0.72rem;
+  line-height: 1.25;
+  color: rgba(255, 140, 120, 0.95);
+}
+
+.orders-sales-unlist-done {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(80, 190, 120, 0.55);
+  background: rgba(80, 190, 120, 0.14);
+  color: rgba(170, 240, 195, 0.98);
+  font-weight: 700;
+  font-size: 0.78rem;
+  letter-spacing: 0.04rem;
+  text-transform: uppercase;
+}
+
+.orders-sales-info-button--link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
 .orders-vinted-ebay-check-button {
   display: inline-flex;
   align-items: center;
@@ -897,6 +1030,14 @@
 
 .orders-sales-table .orders-table tbody tr.orders-sales-row--ebay-fix-needed:hover td {
   background: rgba(255, 100, 70, 0.24) !important;
+}
+
+.orders-sales-table .orders-table tbody tr.orders-sales-row--ebay-unlisted td {
+  background: rgba(80, 190, 120, 0.16) !important;
+}
+
+.orders-sales-table .orders-table tbody tr.orders-sales-row--ebay-unlisted:hover td {
+  background: rgba(80, 190, 120, 0.24) !important;
 }
 
 .orders-sales-table .orders-table {

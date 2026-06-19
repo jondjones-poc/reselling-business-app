@@ -36,15 +36,16 @@ function OrdersNavLink({
   onNavigate,
 }: Pick<NavLinkProps, 'className'> & { onNavigate?: () => void }) {
   const location = useLocation();
-  let tab: 'sales' | 'to-pack' | 'sales-summary' = 'to-pack';
+  let tab: 'listing-management' | 'to-pack' | 'sales-summary' = 'to-pack';
   if (location.pathname === '/orders') {
     const q = new URLSearchParams(location.search).get('tab');
-    if (q === 'sales') tab = 'sales';
+    if (q === 'sales' || q === 'listing-management') tab = 'listing-management';
     else if (q === 'sales-summary') tab = 'sales-summary';
   } else {
     try {
       const saved = sessionStorage.getItem('ordersTab');
-      if (saved === 'sales' || saved === 'sales-summary') tab = saved;
+      if (saved === 'sales' || saved === 'listing-management') tab = 'listing-management';
+      else if (saved === 'sales-summary') tab = saved;
     } catch {
       /* ignore */
     }
