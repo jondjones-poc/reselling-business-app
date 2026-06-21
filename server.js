@@ -16,6 +16,7 @@ process.env.TZ = 'Europe/London';
 const ebaySellerOAuth = require('./ebaySellerOAuth');
 const { normalizeDateOnlyString, serializeStockDateFields } = require('./utils/dateOnly');
 const stockListQuery = require('./utils/stockListQuery');
+const inFashionInsights = require('./utils/inFashionInsights');
 
 const app = express();
 const PORT = process.env.PORT || 5003;
@@ -5461,6 +5462,220 @@ app.delete('/api/research-feed/tags/:id', async (req, res) => {
   } catch (error) {
     console.error('research-feed tag delete failed:', error);
     res.status(500).json({ error: 'Failed to delete tag', details: error.message });
+  }
+});
+
+const IN_FASHION_INSIGHTS_TTL_HOURS = 12;
+
+function mapInFashionInsightsCacheRow(row, tagTerm) {
+  return {
+    tagId: row.tag_id,
+    tagTerm: tagTerm != null ? String(tagTerm) : '',
+    relatedQueries: Array.isArray(row.related_queries) ? row.related_queries : [],
+    risingQueries: Array.isArray(row.rising_queries) ? row.rising_queries : [],
+    photos: Array.isArray(row.photos) ? row.photos : [],
+    trendsError: row.trends_error != null ? String(row.trends_error) : null,
+    pexelsError: row.pexels_error != null ? String(row.pexels_error) : null,
+    fetchedAt: row.fetched_at ? new Date(row.fetched_at).toISOString() : null,
+  };
+}
+
+function inFashionInsightsCacheFresh(fetchedAt) {
+  if (!fetchedAt) return false;
+  const t = new Date(fetchedAt).getTime();
+  if (!Number.isFinite(t)) return false;
+  return Date.now() - t < IN_FASHION_INSIGHTS_TTL_HOURS * 60 * 60 * 1000;
+}
+
+async function upsertInFashionInsightsCache(pool, tagId, insights) {
+  await pool.query(
+    `INSERT INTO research_in_fashion_insights_cache (
+       tag_id, related_queries, rising_queries, photos, trends_error, pexels_error, fetched_at
+     ) VALUES ($1, $2::jsonb, $3::jsonb, $4::jsonb, $5, $6, NOW())
+     ON CONFLICT (tag_id)
+     DO UPDATE SET
+       related_queries = EXCLUDED.related_queries,
+       rising_queries = EXCLUDED.rising_queries,
+       photos = EXCLUDED.photos,
+       trends_error = EXCLUDED.trends_error,
+       pexels_error = EXCLUDED.pexels_error,
+       fetched_at = NOW()`,
+    [
+      tagId,
+      JSON.stringify(insights.relatedQueries ?? []),
+      JSON.stringify(insights.risingQueries ?? []),
+      JSON.stringify(insights.photos ?? []),
+      insights.trendsError ?? null,
+      insights.pexelsError ?? null,
+    ]
+  );
+}
+
+async function fetchAndCacheInFashionInsights(pool, tagId, term) {
+  const pexelsKey = String(process.env.PEXELS_API_KEY || '').trim();
+  const insights = await inFashionInsights.fetchInFashionInsightsForTerm(term, fetch, pexelsKey);
+  await upsertInFashionInsightsCache(pool, tagId, insights);
+  const cached = await pool.query(
+    `SELECT tag_id, related_queries, rising_queries, photos, trends_error, pexels_error, fetched_at
+     FROM research_in_fashion_insights_cache WHERE tag_id = $1`,
+    [tagId]
+  );
+  return cached.rows[0] ?? null;
+}
+
+/** Research → In fashion tags — tables: database/research_in_fashion_tag.sql */
+app.get('/api/research/in-fashion/tags', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const result = await pool.query(
+      `SELECT id, term, created_at FROM research_in_fashion_tag ORDER BY created_at ASC, id ASC`
+    );
+    res.json({ rows: result.rows ?? [] });
+  } catch (error) {
+    console.error('in-fashion tags list failed:', error);
+    res.status(500).json({ error: 'Failed to load tags', details: error.message });
+  }
+});
+
+app.post('/api/research/in-fashion/tags', async (req, res) => {
+  const raw = req.body && typeof req.body.term === 'string' ? req.body.term : '';
+  const term = sanitizeEbayFeedSearchTerm(raw);
+  if (!term) {
+    return res.status(400).json({ error: 'term is required (non-empty string, max 120 characters)' });
+  }
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const dup = await pool.query(
+      `SELECT id, term, created_at FROM research_in_fashion_tag WHERE lower(trim(term)) = lower(trim($1)) LIMIT 1`,
+      [term]
+    );
+    if (dup.rowCount) {
+      return res.json({ row: dup.rows[0], created: false });
+    }
+    const ins = await pool.query(
+      `INSERT INTO research_in_fashion_tag (term) VALUES ($1) RETURNING id, term, created_at`,
+      [term]
+    );
+    res.status(201).json({ row: ins.rows[0], created: true });
+  } catch (error) {
+    console.error('in-fashion tag insert failed:', error);
+    res.status(500).json({ error: 'Failed to save tag', details: error.message });
+  }
+});
+
+app.delete('/api/research/in-fashion/tags/:id', async (req, res) => {
+  const id = parseInt(String(req.params.id ?? ''), 10);
+  if (!Number.isFinite(id) || id < 1) {
+    return res.status(400).json({ error: 'Invalid tag id' });
+  }
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const del = await pool.query(`DELETE FROM research_in_fashion_tag WHERE id = $1 RETURNING id`, [id]);
+    if (!del.rowCount) {
+      return res.status(404).json({ error: 'Tag not found' });
+    }
+    res.json({ ok: true, id: del.rows[0].id });
+  } catch (error) {
+    console.error('in-fashion tag delete failed:', error);
+    res.status(500).json({ error: 'Failed to delete tag', details: error.message });
+  }
+});
+
+app.get('/api/research/in-fashion/insights', async (req, res) => {
+  const refresh = String(req.query.refresh ?? '') === '1' || String(req.query.refresh ?? '') === 'true';
+  const tagIdRaw = req.query.tagId;
+  const tagIdFilter =
+    tagIdRaw != null && String(tagIdRaw).trim() !== ''
+      ? parseInt(String(tagIdRaw), 10)
+      : null;
+  if (tagIdFilter != null && (!Number.isFinite(tagIdFilter) || tagIdFilter < 1)) {
+    return res.status(400).json({ error: 'Invalid tagId' });
+  }
+
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+
+    let tagsResult;
+    if (tagIdFilter != null) {
+      tagsResult = await pool.query(
+        `SELECT id, term, created_at FROM research_in_fashion_tag WHERE id = $1`,
+        [tagIdFilter]
+      );
+      if (!tagsResult.rowCount) {
+        return res.status(404).json({ error: 'Tag not found' });
+      }
+    } else {
+      tagsResult = await pool.query(
+        `SELECT id, term, created_at FROM research_in_fashion_tag ORDER BY created_at ASC, id ASC`
+      );
+    }
+
+    const tags = tagsResult.rows ?? [];
+    const pexelsConfigured = Boolean(String(process.env.PEXELS_API_KEY || '').trim());
+    const sections = [];
+
+    for (const tag of tags) {
+      let cacheRow = null;
+      try {
+        const cached = await pool.query(
+          `SELECT tag_id, related_queries, rising_queries, photos, trends_error, pexels_error, fetched_at
+           FROM research_in_fashion_insights_cache WHERE tag_id = $1`,
+          [tag.id]
+        );
+        cacheRow = cached.rows[0] ?? null;
+      } catch (cacheErr) {
+        if (String(cacheErr.message || '').includes('research_in_fashion_insights_cache')) {
+          return res.status(503).json({
+            error: 'research_in_fashion_insights_cache table missing',
+            details: 'Run database/research_in_fashion_insights_cache.sql in your database.',
+          });
+        }
+        throw cacheErr;
+      }
+
+      const needsFetch = refresh || !cacheRow || !inFashionInsightsCacheFresh(cacheRow.fetched_at);
+      if (needsFetch) {
+        cacheRow = await fetchAndCacheInFashionInsights(pool, tag.id, tag.term);
+      }
+
+      if (cacheRow) {
+        sections.push(mapInFashionInsightsCacheRow(cacheRow, tag.term));
+      } else {
+        sections.push({
+          tagId: tag.id,
+          tagTerm: tag.term,
+          relatedQueries: [],
+          risingQueries: [],
+          photos: [],
+          trendsError: null,
+          pexelsError: null,
+          fetchedAt: null,
+        });
+      }
+    }
+
+    res.json({ sections, pexelsConfigured });
+  } catch (error) {
+    if (String(error.message || '').includes('research_in_fashion_tag')) {
+      return res.status(503).json({
+        error: 'research_in_fashion_tag table missing',
+        details: 'Run database/research_in_fashion_tag.sql in your database.',
+      });
+    }
+    console.error('in-fashion insights failed:', error);
+    res.status(500).json({ error: 'Failed to load in-fashion insights', details: error.message });
   }
 });
 

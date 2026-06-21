@@ -4,14 +4,16 @@ import ResearchEbayFeed from './ResearchEbayFeed';
 import ResearchTagSellThrough from './ResearchTagSellThrough';
 import ResearchSellerSolds from './ResearchSellerSolds';
 import Research from './Research';
+import ResearchInFashion from './ResearchInFashion';
 import './BrandResearch.css';
 
-type HubView = 'feed' | 'tag-sell-through' | 'seller-listings' | 'offline';
+type HubView = 'feed' | 'tag-sell-through' | 'seller-listings' | 'offline' | 'in-fashion';
 
 function normalizeView(raw: string | null): HubView {
   if (raw === 'tag-sell-through') return 'tag-sell-through';
   if (raw === 'seller-listings' || raw === 'seller-solds') return 'seller-listings';
   if (raw === 'offline') return raw;
+  if (raw === 'in-fashion') return 'in-fashion';
   return 'feed';
 }
 
@@ -31,20 +33,28 @@ const ResearchHub: React.FC = () => {
           eBay tag feed
         </NavLink>
         <NavLink
-          to="/research?view=tag-sell-through"
-          role="tab"
-          aria-selected={view === 'tag-sell-through'}
-          className={() => `research-tab${view === 'tag-sell-through' ? ' active' : ''}`}
-        >
-          Tag sell-through rate
-        </NavLink>
-        <NavLink
           to="/research?view=seller-listings"
           role="tab"
           aria-selected={view === 'seller-listings'}
           className={() => `research-tab${view === 'seller-listings' ? ' active' : ''}`}
         >
           Seller Listing
+        </NavLink>
+        <NavLink
+          to="/research?view=in-fashion"
+          role="tab"
+          aria-selected={view === 'in-fashion'}
+          className={() => `research-tab${view === 'in-fashion' ? ' active' : ''}`}
+        >
+          In fashion
+        </NavLink>
+        <NavLink
+          to="/research?view=tag-sell-through"
+          role="tab"
+          aria-selected={view === 'tag-sell-through'}
+          className={() => `research-tab${view === 'tag-sell-through' ? ' active' : ''}`}
+        >
+          Tag sell-through rate
         </NavLink>
         <NavLink
           to="/research?view=offline"
@@ -60,6 +70,7 @@ const ResearchHub: React.FC = () => {
       {view === 'tag-sell-through' && <ResearchTagSellThrough />}
       {view === 'seller-listings' && <ResearchSellerSolds />}
       {view === 'offline' && <Research forcedView="offline" />}
+      {view === 'in-fashion' && <ResearchInFashion />}
     </div>
   );
 };
