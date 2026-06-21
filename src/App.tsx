@@ -24,7 +24,19 @@ const navItems = [
   { to: '/sniping', label: 'Sniping' },
 ] as const;
 
-const mobileDrawerItems = navItems.filter((item) => item.to !== '/');
+function mobileNavLabel(pathname: string): string {
+  if (pathname === '/config') return 'Settings';
+  if (pathname === '/sourcing') return 'Sniping';
+  const match = navItems.find((item) =>
+    'end' in item && item.end ? pathname === '/' : pathname === item.to
+  );
+  return match?.label ?? 'Menu';
+}
+
+function isMobileNavItemActive(pathname: string, item: (typeof navItems)[number]): boolean {
+  if ('end' in item && item.end) return pathname === '/';
+  return pathname === item.to;
+}
 
 function navLinkClassName(isActive: boolean, extra = '') {
   return `nav-button${isActive ? ' active' : ''}${extra ? ` ${extra}` : ''}`;
@@ -116,6 +128,9 @@ function App() {
   }, [mobileNavOpen]);
 
   const closeMobileNav = () => setMobileNavOpen(false);
+  const openMobileNav = () => setMobileNavOpen(true);
+  const mobileBarLabel = mobileNavLabel(location.pathname);
+  const mobileBarActive = navItems.some((item) => isMobileNavItemActive(location.pathname, item));
 
   return (
     <AuthGate>
@@ -143,13 +158,15 @@ function App() {
             </div>
 
             <div className="nav-mobile-bar">
-              <NavLink
-                to="/"
-                end
-                className={({ isActive }) => navLinkClassName(isActive, 'nav-mobile-home')}
+              <button
+                type="button"
+                className={navLinkClassName(mobileBarActive, 'nav-mobile-home')}
+                aria-expanded={mobileNavOpen}
+                aria-controls="mobile-nav-drawer"
+                onClick={openMobileNav}
               >
-                Pricing
-              </NavLink>
+                {mobileBarLabel}
+              </button>
               <button
                 type="button"
                 className={`nav-burger${mobileNavOpen ? ' nav-burger--open' : ''}`}
@@ -171,7 +188,7 @@ function App() {
             aria-hidden={!mobileNavOpen}
           >
             <div className="nav-drawer-body">
-              {mobileDrawerItems.map((item) => (
+              {navItems.map((item) => (
                 <AppNavLink
                   key={item.to}
                   item={item}

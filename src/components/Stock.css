@@ -3923,6 +3923,56 @@ button.stock-close-circle-btn:disabled {
   box-shadow: var(--neon-shadow);
 }
 
+.stock-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px 18px;
+  margin: 18px 0 8px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.18);
+  background: rgba(var(--theme-accent-rgb), 0.06);
+}
+
+.stock-pagination--shared {
+  margin-top: 0;
+}
+
+.stock-pagination-button {
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.35);
+  background: rgba(var(--theme-accent-rgb), 0.12);
+  color: var(--neon-primary-strong);
+  font-weight: 700;
+  letter-spacing: 0.04rem;
+  text-transform: uppercase;
+  cursor: pointer;
+  font-size: 0.78rem;
+}
+
+.stock-pagination-button:hover:not(:disabled) {
+  background: rgba(var(--theme-accent-rgb), 0.22);
+}
+
+.stock-pagination-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.stock-pagination-status {
+  font-size: 0.92rem;
+  color: rgba(var(--theme-text-rgb), 0.82);
+}
+
+.stock-pagination-count {
+  margin-left: 6px;
+  color: rgba(var(--theme-text-rgb), 0.58);
+  font-size: 0.86rem;
+}
+
 .export-section {
   margin-top: 32px;
   display: flex;

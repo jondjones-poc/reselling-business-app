@@ -15,6 +15,7 @@ process.env.TZ = 'Europe/London';
 
 const ebaySellerOAuth = require('./ebaySellerOAuth');
 const { normalizeDateOnlyString, serializeStockDateFields } = require('./utils/dateOnly');
+const stockListQuery = require('./utils/stockListQuery');
 
 const app = express();
 const PORT = process.env.PORT || 5003;
@@ -134,6 +135,8 @@ const ensureIsoDateString = (value) => normalizeDateOnlyString(value);
 const STOCK_DATE_SELECT_SQL = `to_char(purchase_date, 'YYYY-MM-DD') AS purchase_date, to_char(sale_date, 'YYYY-MM-DD') AS sale_date`;
 
 const STOCK_ROW_SELECT_COLUMNS = `id, item_name, purchase_price, ${STOCK_DATE_SELECT_SQL}, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item, is_ebay_draft`;
+
+const STOCK_LIST_SELECT_COLUMNS = `s.id, s.item_name, s.purchase_price, to_char(s.purchase_date, 'YYYY-MM-DD') AS purchase_date, to_char(s.sale_date, 'YYYY-MM-DD') AS sale_date, s.sale_price, s.sold_platform, s.net_profit, s.vinted_id, s.ebay_id, s.depop_id, s.brand_id, s.category_id, s.brand_tag_image_id, s.projected_sale_price, s.category_size_id, s.sourced_location, s.is_inventory_write_off, s.is_bulky_item, s.is_ebay_draft`;
 
 const STOCK_ROW_RETURNING_COLUMNS = `id, item_name, purchase_price, ${STOCK_DATE_SELECT_SQL}, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item, is_ebay_draft`;
 
@@ -6588,17 +6591,167 @@ app.get('/api/stock', async (req, res) => {
       return res.status(500).json({ error: 'Database connection not configured' });
     }
 
-    const result = await pool.query(
-      `SELECT ${STOCK_ROW_SELECT_COLUMNS} FROM stock ORDER BY purchase_date DESC NULLS LAST, item_name ASC`
+    if (req.query.page == null && req.query.export !== '1') {
+      const result = await pool.query(
+        `SELECT ${STOCK_ROW_SELECT_COLUMNS} FROM stock ORDER BY purchase_date DESC NULLS LAST, item_name ASC`
+      );
+
+      return res.json({
+        rows: (result.rows ?? []).map(serializeStockDateFields),
+        count: result.rowCount ?? 0,
+      });
+    }
+
+    const options = stockListQuery.parseStockListOptions(req.query);
+    if (!options.toListCategoryId && options.view === 'to-list') {
+      const toListResult = await pool.query(
+        `SELECT id FROM categories WHERE LOWER(TRIM(category_name)) = 'to list' LIMIT 1`
+      );
+      options.toListCategoryId = toListResult.rows[0]?.id ?? null;
+    }
+
+    const { whereSql, params, needsCategoryJoin } = stockListQuery.buildStockListWhere(options);
+    const orderSql = stockListQuery.buildStockListOrder(options);
+    const joinSql = needsCategoryJoin ? 'LEFT JOIN categories c ON c.id = s.category_id' : '';
+    const fromSql = `FROM stock s ${joinSql}`.trim();
+
+    const countResult = await pool.query(
+      `SELECT COUNT(*)::int AS total ${fromSql} WHERE ${whereSql}`,
+      params
+    );
+    const total = Number(countResult.rows[0]?.total ?? 0);
+    const totalPages = Math.max(1, Math.ceil(total / options.limit));
+    const page = Math.min(options.page, totalPages);
+    const offset = (page - 1) * options.limit;
+
+    const listParams = [...params, options.limit, offset];
+    const limitParam = `$${params.length + 1}`;
+    const offsetParam = `$${params.length + 2}`;
+
+    const listResult = await pool.query(
+      `SELECT ${STOCK_LIST_SELECT_COLUMNS} ${fromSql} WHERE ${whereSql} ORDER BY ${orderSql} LIMIT ${limitParam} OFFSET ${offsetParam}`,
+      listParams
     );
 
+    let editPage = null;
+    if (options.editId && options.sort === 'id') {
+      const rankParams = [...params, options.editId];
+      const idParam = `$${params.length + 1}`;
+      const compareOp = options.order === 'desc' ? '>' : '<';
+      const rankResult = await pool.query(
+        `SELECT COUNT(*)::int AS n ${fromSql} WHERE ${whereSql} AND s.id ${compareOp} ${idParam}`,
+        rankParams
+      );
+      const rank = Number(rankResult.rows[0]?.n ?? 0) + 1;
+      editPage = Math.max(1, Math.ceil(rank / options.limit));
+    }
+
     res.json({
-      rows: (result.rows ?? []).map(serializeStockDateFields),
-      count: result.rowCount ?? 0
+      rows: (listResult.rows ?? []).map(serializeStockDateFields),
+      count: listResult.rowCount ?? 0,
+      total,
+      page,
+      limit: options.limit,
+      total_pages: totalPages,
+      edit_page: editPage,
     });
   } catch (error) {
     console.error('Stock query failed:', error);
     res.status(500).json({ error: 'Failed to load stock data', details: error.message });
+  }
+});
+
+/** Date-filtered purchase/sales totals for Stock summary cards (ignores view/search filters). */
+app.get('/api/stock/summary', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const options = stockListQuery.parseStockListOptions({
+      ...req.query,
+      q: '',
+      unsold: 'off',
+      view: 'all',
+      category_id: '',
+    });
+
+    const purchaseParams = [];
+    const purchaseDateClause = stockListQuery.buildSummaryDatePurchaseClause(options, purchaseParams);
+    const saleDateClause = stockListQuery.buildSummaryDateSaleClause(options, purchaseParams);
+
+    const purchaseCase = purchaseDateClause
+      ? `CASE WHEN ${purchaseDateClause} AND s.purchase_price IS NOT NULL THEN s.purchase_price::numeric ELSE 0 END`
+      : `CASE WHEN s.purchase_price IS NOT NULL THEN s.purchase_price::numeric ELSE 0 END`;
+    const saleCase = saleDateClause
+      ? `CASE WHEN ${saleDateClause} AND s.sale_price IS NOT NULL THEN s.sale_price::numeric ELSE 0 END`
+      : `CASE WHEN s.sale_price IS NOT NULL THEN s.sale_price::numeric ELSE 0 END`;
+
+    const result = await pool.query(
+      `SELECT
+         COALESCE(SUM(${purchaseCase}), 0)::float8 AS total_purchase,
+         COALESCE(SUM(${saleCase}), 0)::float8 AS total_sales
+       FROM stock s`,
+      purchaseParams
+    );
+
+    const row = result.rows[0] ?? {};
+    const totalPurchase = Number(row.total_purchase ?? 0);
+    const totalSales = Number(row.total_sales ?? 0);
+
+    res.json({
+      total_purchase: totalPurchase,
+      total_sales: totalSales,
+      total_profit: totalSales - totalPurchase,
+    });
+  } catch (error) {
+    console.error('Stock summary query failed:', error);
+    res.status(500).json({ error: 'Failed to load stock summary', details: error.message });
+  }
+});
+
+/** Distinct item names for Stock search typeahead. */
+app.get('/api/stock/item-names', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const q = String(req.query.q ?? '').trim();
+    if (!q) {
+      return res.json({ names: [] });
+    }
+
+    const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+    const params = [];
+    const clauses = [];
+    for (const word of words) {
+      params.push(`%${word}%`);
+      clauses.push(`LOWER(COALESCE(item_name, '')) LIKE $${params.length}`);
+    }
+    params.push(10);
+    const limitParam = `$${params.length}`;
+
+    const result = await pool.query(
+      `SELECT DISTINCT item_name
+       FROM stock
+       WHERE TRIM(COALESCE(item_name, '')) <> ''
+         AND ${clauses.join(' AND ')}
+       ORDER BY item_name ASC
+       LIMIT ${limitParam}`,
+      params
+    );
+
+    res.json({
+      names: (result.rows ?? [])
+        .map((row) => String(row.item_name ?? '').trim())
+        .filter(Boolean),
+    });
+  } catch (error) {
+    console.error('Stock item-names query failed:', error);
+    res.status(500).json({ error: 'Failed to load item names', details: error.message });
   }
 });
 
@@ -8230,6 +8383,35 @@ async function migrateStockPrimaryKey(pool, oldId, newId) {
     client.release();
   }
 }
+
+/** Single stock row by id (Stock edit deep-links). */
+app.get('/api/stock/row/:id', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) {
+      return res.status(400).json({ error: 'Invalid stock id' });
+    }
+
+    const result = await pool.query(
+      `SELECT ${STOCK_ROW_SELECT_COLUMNS} FROM stock WHERE id = $1`,
+      [id]
+    );
+
+    if (!result.rows.length) {
+      return res.status(404).json({ error: 'Stock row not found' });
+    }
+
+    res.json({ row: serializeStockDateFields(result.rows[0]) });
+  } catch (error) {
+    console.error('Stock row fetch failed:', error);
+    res.status(500).json({ error: 'Failed to load stock row', details: error.message });
+  }
+});
 
 /** Next unused stock primary key (MAX(id) + 1). */
 app.get('/api/stock/next-id', async (req, res) => {

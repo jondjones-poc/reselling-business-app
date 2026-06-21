@@ -458,6 +458,27 @@ interface ToPackEbayUnlistModalState {
   unlistError: string | null;
 }
 
+const TO_PACK_EBAY_UNLIST_SESSION_KEY = 'toPackEbayUnlistModal';
+
+function serializeToPackEbayUnlistModal(state: ToPackEbayUnlistModalState): string {
+  return JSON.stringify({ item: state.item, violation: state.violation });
+}
+
+function deserializeToPackEbayUnlistModal(raw: string): ToPackEbayUnlistModalState | null {
+  try {
+    const parsed = JSON.parse(raw) as { item: OrderItem; violation: VintedEbayViolation };
+    if (!parsed?.item?.id || !parsed?.violation?.ebay_id) return null;
+    return {
+      item: parsed.item,
+      violation: parsed.violation,
+      unlistLoading: false,
+      unlistError: null
+    };
+  } catch {
+    return null;
+  }
+}
+
 interface VintedEbayViolation {
   id: number;
   item_name: Nullable<string>;
@@ -754,6 +775,10 @@ const Orders: React.FC = () => {
   const [toPackEbayUnlistModal, setToPackEbayUnlistModal] = useState<ToPackEbayUnlistModalState | null>(
     null
   );
+  const [toPackEbayOAuthPending, setToPackEbayOAuthPending] = useState(false);
+  const toPackEbayOAuthPopupRef = useRef<Window | null>(null);
+  const toPackEbayOAuthPollRef = useRef<number | null>(null);
+  const listingManagementEndingWeekLoadedRef = useRef(false);
   const [endingThisWeekRelistModal, setEndingThisWeekRelistModal] =
     useState<EndingThisWeekRelistModalState | null>(null);
   const [salesEbayGridMode, setSalesEbayGridMode] = useState<SalesEbayGridMode>('none');
@@ -960,15 +985,17 @@ const Orders: React.FC = () => {
     };
   }, [ordersTab]);
 
+  const ordersTabUsesEbayOAuth = ordersTab === 'sales' || ordersTab === 'to-pack';
+
   useEffect(() => {
-    if (ordersTab !== 'sales') {
+    if (!ordersTabUsesEbayOAuth) {
       return;
     }
     void refreshEbayOAuthStatus();
-  }, [ordersTab, searchParams, refreshEbayOAuthStatus]);
+  }, [ordersTabUsesEbayOAuth, searchParams, refreshEbayOAuthStatus]);
 
   useEffect(() => {
-    if (ordersTab !== 'sales') return;
+    if (!ordersTabUsesEbayOAuth) return;
     if (searchParams.get('ebay_oauth') !== 'success') return;
     if (ebayOAuthStatus?.connected) return;
     if (ebayOAuthStatus?.reason && ebayOAuthStatus.reason !== 'no_row') return;
@@ -984,20 +1011,108 @@ const Orders: React.FC = () => {
     }, 1500);
 
     return () => window.clearInterval(timer);
-  }, [ordersTab, searchParams, ebayOAuthStatus?.connected, ebayOAuthStatus?.reason, refreshEbayOAuthStatus]);
+  }, [
+    ordersTabUsesEbayOAuth,
+    searchParams,
+    ebayOAuthStatus?.connected,
+    ebayOAuthStatus?.reason,
+    refreshEbayOAuthStatus
+  ]);
 
   useEffect(() => {
-    if (ordersTab !== 'sales') return;
+    if (!ordersTabUsesEbayOAuth) return;
     const flag = searchParams.get('ebay_oauth');
     if (!flag) return;
     const timer = window.setTimeout(() => {
       const next = new URLSearchParams(searchParams);
       next.delete('ebay_oauth');
       next.delete('ebay_oauth_msg');
+      next.delete('popup');
       setSearchParams(next, { replace: true });
     }, 12000);
     return () => window.clearTimeout(timer);
-  }, [ordersTab, searchParams, setSearchParams]);
+  }, [ordersTabUsesEbayOAuth, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (searchParams.get('popup') !== '1') return;
+    const flag = searchParams.get('ebay_oauth');
+    if (!flag) return;
+    if (window.opener && !window.opener.closed) {
+      try {
+        window.opener.postMessage(
+          {
+            type: 'ebay-oauth',
+            status: flag,
+            msg: searchParams.get('ebay_oauth_msg')
+          },
+          window.location.origin
+        );
+      } catch {
+        /* ignore */
+      }
+      window.close();
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type !== 'ebay-oauth') return;
+      setToPackEbayOAuthPending(false);
+      if (event.data.status === 'success') {
+        void refreshEbayOAuthStatus();
+      } else if (event.data.status === 'error') {
+        const msg =
+          typeof event.data.msg === 'string' && event.data.msg.trim()
+            ? event.data.msg
+            : 'eBay connection failed';
+        setToPackEbayUnlistModal((prev) =>
+          prev ? { ...prev, unlistError: msg } : prev
+        );
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [refreshEbayOAuthStatus]);
+
+  useEffect(() => {
+    if (ordersTab !== 'to-pack' || toPackEbayUnlistModal) return;
+    try {
+      const raw = sessionStorage.getItem(TO_PACK_EBAY_UNLIST_SESSION_KEY);
+      if (!raw) return;
+      const restored = deserializeToPackEbayUnlistModal(raw);
+      if (restored) setToPackEbayUnlistModal(restored);
+    } catch {
+      /* ignore */
+    }
+  }, [ordersTab, toPackEbayUnlistModal]);
+
+  useEffect(() => {
+    if (!toPackEbayUnlistModal) {
+      try {
+        sessionStorage.removeItem(TO_PACK_EBAY_UNLIST_SESSION_KEY);
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+    try {
+      sessionStorage.setItem(
+        TO_PACK_EBAY_UNLIST_SESSION_KEY,
+        serializeToPackEbayUnlistModal(toPackEbayUnlistModal)
+      );
+    } catch {
+      /* ignore */
+    }
+  }, [toPackEbayUnlistModal]);
+
+  useEffect(() => {
+    return () => {
+      if (toPackEbayOAuthPollRef.current != null) {
+        window.clearInterval(toPackEbayOAuthPollRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (ordersTab !== 'sales') {
@@ -1005,7 +1120,12 @@ const Orders: React.FC = () => {
       setSalesBrandFilter('all');
       setSalesDateRangeFilter('all');
       setSalesEbayGridMode('none');
+      listingManagementEndingWeekLoadedRef.current = false;
+      return;
     }
+    setSalesEbayGridMode('ending-this-week');
+    setSalesPlatformFilter('ebay');
+    listingManagementEndingWeekLoadedRef.current = false;
   }, [ordersTab]);
 
   useEffect(() => {
@@ -1300,6 +1420,45 @@ const Orders: React.FC = () => {
     };
   }, [salesSummaryRows]);
 
+  const exportSalesSummaryToCSV = useCallback(() => {
+    if (salesSummaryRows.length === 0 || !salesSummaryPeriod) return;
+
+    const headers = ['SKU', 'Products Sold', 'Sale price', 'Buy price', 'Profit', 'Listing'];
+    const csvRows = [
+      headers.join(','),
+      ...salesSummaryRows.map((row) => {
+        const { sale, profit } = computeStockInfoPanelMetrics(row);
+        const listing = soldPlatformListingHref(row);
+        const title = row.item_name?.trim() || '';
+        const purchase =
+          row.purchase_price !== null && row.purchase_price !== undefined
+            ? Number(row.purchase_price)
+            : '';
+        return [
+          row.id,
+          `"${title.replace(/"/g, '""')}"`,
+          Number.isNaN(sale) ? '' : sale,
+          purchase === '' || Number.isNaN(Number(purchase)) ? '' : purchase,
+          Number.isNaN(profit) ? '' : profit,
+          `"${(listing?.platform ?? '').replace(/"/g, '""')}"`,
+        ].join(',');
+      }),
+    ];
+
+    const slug = salesSummaryPeriod.label.replace(/[^\w-]+/g, '-').replace(/-+/g, '-');
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `sales-summary-${slug}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, [salesSummaryRows, salesSummaryPeriod]);
+
   const handleAddItem = async (item: StockRow) => {
     // Check if item is already in the order (client-side check)
     if (orderItems.some((orderItem) => orderItem.id === item.id)) {
@@ -1376,7 +1535,38 @@ const Orders: React.FC = () => {
 
   const closeToPackEbayUnlistModal = useCallback(() => {
     setToPackEbayUnlistModal(null);
+    setToPackEbayOAuthPending(false);
+    try {
+      sessionStorage.removeItem(TO_PACK_EBAY_UNLIST_SESSION_KEY);
+    } catch {
+      /* ignore */
+    }
   }, []);
+
+  const handleToPackConnectEbay = useCallback(() => {
+    const returnPath = '/orders?tab=to-pack&ebay_oauth=success&popup=1';
+    const url = ebayOAuthStartUrl(returnPath);
+    const popup = window.open(url, 'ebay-oauth', 'popup=yes,width=520,height=720');
+    if (!popup) {
+      window.location.href = ebayOAuthStartUrl('/orders?tab=to-pack&ebay_oauth=success');
+      return;
+    }
+    toPackEbayOAuthPopupRef.current = popup;
+    setToPackEbayOAuthPending(true);
+    if (toPackEbayOAuthPollRef.current != null) {
+      window.clearInterval(toPackEbayOAuthPollRef.current);
+    }
+    toPackEbayOAuthPollRef.current = window.setInterval(() => {
+      if (!popup.closed) return;
+      if (toPackEbayOAuthPollRef.current != null) {
+        window.clearInterval(toPackEbayOAuthPollRef.current);
+        toPackEbayOAuthPollRef.current = null;
+      }
+      toPackEbayOAuthPopupRef.current = null;
+      setToPackEbayOAuthPending(false);
+      void refreshEbayOAuthStatus();
+    }, 400);
+  }, [refreshEbayOAuthStatus]);
 
   const handlePostedClick = async (item: OrderItem) => {
     const soldPlatform = String(item.sold_platform ?? '').trim().toLowerCase();
@@ -1670,14 +1860,7 @@ const Orders: React.FC = () => {
     }
   };
 
-  const handleEndingThisWeekCheck = async () => {
-    if (!ebaySellerConnected) return;
-    if (salesEbayGridMode === 'ending-this-week') {
-      setSalesEbayGridMode('none');
-      return;
-    }
-    setSalesEbayGridMode('ending-this-week');
-    setSalesPlatformFilter('ebay');
+  const fetchEndingThisWeekList = useCallback(async () => {
     setEndingThisWeekLoading(true);
     setEndingThisWeekError(null);
     setEndingThisWeekProgress({ checked: 0, total: 0, matchesFound: 0 });
@@ -1756,6 +1939,17 @@ const Orders: React.FC = () => {
       setEndingThisWeekLoading(false);
       setEndingThisWeekProgress(null);
     }
+  }, []);
+
+  const handleEndingThisWeekCheck = async () => {
+    if (!ebaySellerConnected) return;
+    if (salesEbayGridMode === 'ending-this-week') {
+      setSalesEbayGridMode('none');
+      return;
+    }
+    setSalesEbayGridMode('ending-this-week');
+    setSalesPlatformFilter('ebay');
+    await fetchEndingThisWeekList();
   };
 
   const handleEbayRefreshEnd = async (row: EbayEndingThisWeekRow) => {
@@ -1912,6 +2106,14 @@ const Orders: React.FC = () => {
   };
 
   const ebaySellerConnected = ebayOAuthStatus?.connected === true;
+
+  useEffect(() => {
+    if (ordersTab !== 'sales' || salesEbayGridMode !== 'ending-this-week') return;
+    if (listingManagementEndingWeekLoadedRef.current) return;
+    if (!ebaySellerConnected) return;
+    listingManagementEndingWeekLoadedRef.current = true;
+    void fetchEndingThisWeekList();
+  }, [ordersTab, salesEbayGridMode, ebaySellerConnected, fetchEndingThisWeekList]);
 
   const closeEndingThisWeekRelistModal = useCallback(() => {
     setEndingThisWeekRelistModal(null);
@@ -2483,6 +2685,35 @@ const Orders: React.FC = () => {
                 <div className="orders-vinted-ebay-check-bar orders-sales-ebay-actions">
                   <button
                     type="button"
+                    className={`orders-vinted-ebay-check-button orders-ending-this-week-button${
+                      salesEbayGridMode === 'ending-this-week'
+                        ? ' orders-vinted-ebay-check-button--active'
+                        : ''
+                    }`}
+                    onClick={() => void handleEndingThisWeekCheck()}
+                    disabled={endingThisWeekLoading || !ebaySellerConnected}
+                    title={
+                      !ebaySellerConnected
+                        ? 'Connect your eBay seller account first'
+                        : salesEbayGridMode === 'ending-this-week'
+                          ? 'Clear Ending this week filter'
+                          : 'Show unsold Stock listings whose eBay end date is this calendar week'
+                    }
+                    aria-label={
+                      endingThisWeekLoading
+                        ? 'Loading eBay listings ending this week'
+                        : !ebaySellerConnected
+                          ? 'Ending this week (connect eBay seller account first)'
+                          : 'Show active eBay seller listings ending this week (from your account)'
+                    }
+                  >
+                    <EbayLogoIcon className="orders-unlist-ebay-logo" />
+                    <span className="orders-unlist-ebay-label">
+                      {endingThisWeekLoading ? 'Checking…' : 'Ending this week'}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
                     className={`orders-vinted-ebay-check-button${
                       salesEbayGridMode === 'unlist-ebay'
                         ? ' orders-vinted-ebay-check-button--active'
@@ -2537,35 +2768,6 @@ const Orders: React.FC = () => {
                     <EbayLogoIcon className="orders-unlist-ebay-logo" />
                     <span className="orders-unlist-ebay-label">
                       {missingEbayCheckLoading ? 'Checking…' : 'Missing eBay order'}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`orders-vinted-ebay-check-button orders-ending-this-week-button${
-                      salesEbayGridMode === 'ending-this-week'
-                        ? ' orders-vinted-ebay-check-button--active'
-                        : ''
-                    }`}
-                    onClick={handleEndingThisWeekCheck}
-                    disabled={endingThisWeekLoading || !ebaySellerConnected}
-                    title={
-                      !ebaySellerConnected
-                        ? 'Connect your eBay seller account first'
-                        : salesEbayGridMode === 'ending-this-week'
-                          ? 'Clear Ending this week filter'
-                          : 'Show unsold Stock listings whose eBay end date is this calendar week'
-                    }
-                    aria-label={
-                      endingThisWeekLoading
-                        ? 'Loading eBay listings ending this week'
-                        : !ebaySellerConnected
-                          ? 'Ending this week (connect eBay seller account first)'
-                          : 'Show active eBay seller listings ending this week (from your account)'
-                    }
-                  >
-                    <EbayLogoIcon className="orders-unlist-ebay-logo" />
-                    <span className="orders-unlist-ebay-label">
-                      {endingThisWeekLoading ? 'Checking…' : 'Ending this week'}
                     </span>
                   </button>
                 </div>
@@ -3407,6 +3609,7 @@ const Orders: React.FC = () => {
               <table className="orders-table orders-sales-summary-table">
                 <thead>
                   <tr>
+                    <th>SKU</th>
                     <th>Products Sold</th>
                     <th>Sale price</th>
                     <th>Buy price</th>
@@ -3422,19 +3625,22 @@ const Orders: React.FC = () => {
                     const profitClass = salesSummaryProfitClass(row, profit);
                     return (
                       <tr key={row.id}>
+                        <td className="orders-sales-summary-sku-cell">
+                          <span className="orders-sales-id-num">{row.id}</span>
+                        </td>
                         <td>
-                          {listing ? (
-                            <SalesSummaryPlatformLink listing={listing} title={`Open on ${listing.platform}`}>
-                              {title}
-                            </SalesSummaryPlatformLink>
-                          ) : (
+                          {row.item_name?.trim() ? (
                             <Link
                               to={`/stock?editId=${row.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
                               className="orders-sales-stock-name-link"
                               title={`Edit item ${row.id} in Stock`}
                             >
                               {title}
                             </Link>
+                          ) : (
+                            <span className="orders-table-dash">—</span>
                           )}
                         </td>
                         <td>{formatCurrency(Number.isNaN(sale) ? null : sale)}</td>
@@ -3464,6 +3670,18 @@ const Orders: React.FC = () => {
               </table>
             </div>
           )}
+
+          {salesSummaryRows.length > 0 ? (
+            <div className="orders-sales-summary-export">
+              <button
+                type="button"
+                className="orders-sales-summary-export-button"
+                onClick={exportSalesSummaryToCSV}
+              >
+                Export to CSV
+              </button>
+            </div>
+          ) : null}
         </div>
       )}
 
@@ -3526,24 +3744,42 @@ const Orders: React.FC = () => {
                   {toPackEbayUnlistModal.unlistError}
                 </p>
               ) : null}
-              {!ebaySellerConnected ? (
-                <p className="orders-relist-modal-note orders-relist-modal-note--warn">
-                  Connect your eBay seller account on Listing Management to unlist from here.
+              {toPackEbayOAuthPending ? (
+                <p className="orders-relist-modal-note orders-oauth-flash--pending" role="status">
+                  Waiting for eBay sign-in… complete it in the popup, then unlist here.
+                </p>
+              ) : !ebaySellerConnected ? (
+                <p className="orders-relist-modal-note">
+                  Connect your eBay seller account to unlist from here without leaving this dialog.
                 </p>
               ) : null}
               <div className="orders-relist-modal-actions">
-                <button
-                  type="button"
-                  className="orders-sales-unlist-button"
-                  disabled={
-                    !ebaySellerConnected ||
-                    toPackEbayUnlistModal.unlistLoading ||
-                    ebayUnlistLoadingId != null
-                  }
-                  onClick={() => void handleToPackEbayUnlist()}
-                >
-                  {toPackEbayUnlistModal.unlistLoading ? 'Unlisting…' : 'Unlist on eBay'}
-                </button>
+                {!ebaySellerConnected ? (
+                  <button
+                    type="button"
+                    className="orders-vinted-ebay-check-button orders-topack-unlist-connect-ebay"
+                    disabled={toPackEbayOAuthPending || toPackEbayUnlistModal.unlistLoading}
+                    onClick={() => handleToPackConnectEbay()}
+                  >
+                    <EbayLogoIcon className="orders-unlist-ebay-logo" />
+                    <span className="orders-unlist-ebay-label">
+                      {toPackEbayOAuthPending ? 'Connecting…' : 'Connect eBay seller'}
+                    </span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="orders-sales-unlist-button"
+                    disabled={
+                      toPackEbayUnlistModal.unlistLoading ||
+                      ebayUnlistLoadingId != null ||
+                      toPackEbayOAuthPending
+                    }
+                    onClick={() => void handleToPackEbayUnlist()}
+                  >
+                    {toPackEbayUnlistModal.unlistLoading ? 'Unlisting…' : 'Unlist on eBay'}
+                  </button>
+                )}
               </div>
             </div>
           </div>

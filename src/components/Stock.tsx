@@ -7,12 +7,10 @@ import { pingDatabase } from '../utils/dbPing';
 import { getApiBase } from '../utils/apiBase';
 import {
   dateOnlyStringToLocalDate,
-  dateOnlyToLocalDate,
   dateOnlyToTime,
   formatDateOnlyForDisplay,
   localDateToDateOnlyString,
   normalizeDateOnlyString,
-  parseDateOnlyParts,
 } from '../utils/dateOnly';
 import './Stock.css';
 import { StockFormDropdown } from './StockFormDropdown';
@@ -106,7 +104,20 @@ interface CategorySizeRow {
 interface StockApiResponse {
   rows: StockRow[];
   count: number;
+  total?: number;
+  page?: number;
+  limit?: number;
+  total_pages?: number;
+  edit_page?: number | null;
 }
+
+interface StockSummaryResponse {
+  total_purchase: number;
+  total_sales: number;
+  total_profit: number;
+}
+
+const STOCK_PAGE_SIZE = 50;
 
 const MONTHS = [
   { value: '1', label: 'January' },
@@ -452,7 +463,11 @@ const Stock: React.FC = () => {
   const editFormRef = useRef<HTMLDivElement>(null);
   /** Block auto-opening `?editId=` for this SKU until the param changes or is cleared (avoids reopen after save). */
   const suppressAutoOpenEditSkuRef = useRef<number | null>(null);
-  const [visibleItemsCount, setVisibleItemsCount] = useState(20);
+  const [stockPage, setStockPage] = useState(1);
+  const [stockTotalCount, setStockTotalCount] = useState(0);
+  const [stockTotalPages, setStockTotalPages] = useState(1);
+  const [summaryTotals, setSummaryTotals] = useState({ purchase: 0, sale: 0, profit: 0 });
+  const [nextSku, setNextSku] = useState(1);
   const stockFiltersRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     setAddingToOrder(false);
@@ -590,50 +605,181 @@ const Stock: React.FC = () => {
     };
   }, [showNewEntry, editingRowId]);
 
-  const loadStock = async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  const buildStockListQueryParams = useCallback(
+    (page: number, options?: { includeEditId?: boolean }) => {
+      const params = new URLSearchParams();
+      params.set('page', String(page));
+      params.set('limit', String(STOCK_PAGE_SIZE));
 
-      const response = await fetch(`${API_BASE}/api/stock`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-      if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || 'Failed to load stock data');
-      }
-
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const text = await response.text();
-        throw new Error(text || 'Unexpected response format');
-      }
-
-      const data: StockApiResponse = await response.json();
-      const nextRows = (Array.isArray(data.rows) ? data.rows : []).map(normalizeStockRowDates);
-      setRows(nextRows);
-      // Never clear editingRowId on refresh — that left the form open while Save switched to POST (duplicate rows).
-      setEditingRowId((prevId) => {
-        if (prevId === null) return null;
-        const stillThere = nextRows.some((r) => Number(r.id) === Number(prevId));
-        return stillThere ? prevId : null;
-      });
-    } catch (err: any) {
-      console.error('Stock load error:', err);
-      // Provide more helpful error message for network errors
-      if (err.message === 'Failed to fetch' || err.name === 'TypeError') {
-        setError('Unable to connect to server. Please ensure the backend server is running on port 5003.');
+      if (sortConfig) {
+        params.set('sort', String(sortConfig.key));
+        params.set('order', sortConfig.direction);
       } else {
-        setError(err.message || 'Unable to load stock data');
+        params.set('sort', 'id');
+        params.set('order', 'desc');
       }
-      setRows([]);
-    } finally {
-      setLoading(false);
+
+      if (searchTerm.trim()) {
+        params.set('q', searchTerm.trim());
+      }
+
+      if (unsoldFilter !== 'off') {
+        params.set('unsold', unsoldFilter);
+      } else if (!searchTerm.trim()) {
+        params.set('view', viewMode);
+        params.set('year', selectedYear);
+        if (selectedYear !== 'all-time' && selectedYear !== 'last-30-days') {
+          params.set('month', selectedMonth);
+        }
+        if (selectedWeek !== 'off') {
+          params.set('week_start', selectedWeek);
+        }
+      }
+
+      if (selectedCategoryFilter) {
+        const selectedCategory = categories.find(
+          (cat) => cat.category_name === selectedCategoryFilter
+        );
+        if (selectedCategory) {
+          params.set('category_id', String(selectedCategory.id));
+        }
+      }
+
+      const toListCategory = categories.find((cat) => cat.category_name === 'To List');
+      if (toListCategory) {
+        params.set('to_list_category_id', String(toListCategory.id));
+      }
+
+      if (options?.includeEditId) {
+        const editIdParam = searchParams.get('editId');
+        if (editIdParam) {
+          params.set('edit_id', editIdParam);
+        }
+      }
+
+      return params;
+    },
+    [
+      sortConfig,
+      searchTerm,
+      unsoldFilter,
+      viewMode,
+      selectedYear,
+      selectedMonth,
+      selectedWeek,
+      selectedCategoryFilter,
+      categories,
+      searchParams,
+    ]
+  );
+
+  const loadStockSummary = useCallback(async () => {
+    try {
+      const params = new URLSearchParams();
+      params.set('year', selectedYear);
+      if (selectedYear !== 'all-time' && selectedYear !== 'last-30-days') {
+        params.set('month', selectedMonth);
+      }
+      if (selectedWeek !== 'off') {
+        params.set('week_start', selectedWeek);
+      }
+
+      const response = await fetch(`${API_BASE}/api/stock/summary?${params.toString()}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!response.ok) return;
+      const data: StockSummaryResponse = await response.json();
+      setSummaryTotals({
+        purchase: Number(data.total_purchase ?? 0),
+        sale: Number(data.total_sales ?? 0),
+        profit: Number(data.total_profit ?? 0),
+      });
+    } catch (err) {
+      console.error('Stock summary load error:', err);
     }
-  };
+  }, [selectedMonth, selectedYear, selectedWeek]);
+
+  const loadNextSku = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/stock/next-id`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const nextId = Number(data.next_id);
+      if (Number.isFinite(nextId) && nextId >= 1) {
+        setNextSku(nextId);
+      }
+    } catch (err) {
+      console.error('Failed to load next SKU:', err);
+    }
+  }, []);
+
+  const loadStockPage = useCallback(
+    async (page: number, options?: { includeEditId?: boolean }) => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const params = buildStockListQueryParams(page, {
+          includeEditId: options?.includeEditId,
+        });
+        const response = await fetch(`${API_BASE}/api/stock?${params.toString()}`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (!response.ok) {
+          const message = await response.text();
+          throw new Error(message || 'Failed to load stock data');
+        }
+
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          const text = await response.text();
+          throw new Error(text || 'Unexpected response format');
+        }
+
+        const data: StockApiResponse = await response.json();
+        const nextRows = (Array.isArray(data.rows) ? data.rows : []).map(normalizeStockRowDates);
+        const total = Number(data.total ?? data.count ?? nextRows.length);
+        const totalPages = Math.max(1, Number(data.total_pages ?? Math.ceil(total / STOCK_PAGE_SIZE)));
+        const resolvedPage = Number(data.page ?? page);
+
+        if (
+          options?.includeEditId &&
+          data.edit_page != null &&
+          Number(data.edit_page) > 0 &&
+          Number(data.edit_page) !== resolvedPage
+        ) {
+          setStockPage(Number(data.edit_page));
+          return;
+        }
+
+        setRows(nextRows);
+        setStockTotalCount(total);
+        setStockTotalPages(totalPages);
+        setStockPage(resolvedPage);
+      } catch (err: any) {
+        console.error('Stock load error:', err);
+        if (err.message === 'Failed to fetch' || err.name === 'TypeError') {
+          setError('Unable to connect to server. Please ensure the backend server is running on port 5003.');
+        } else {
+          setError(err.message || 'Unable to load stock data');
+        }
+        setRows([]);
+        setStockTotalCount(0);
+        setStockTotalPages(1);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [buildStockListQueryParams]
+  );
+
+  const loadStock = useCallback(() => {
+    void loadStockPage(stockPage);
+    void loadStockSummary();
+    void loadNextSku();
+  }, [loadStockPage, loadStockSummary, loadNextSku, stockPage]);
 
   const loadBrands = async () => {
     try {
@@ -693,11 +839,33 @@ const Stock: React.FC = () => {
   };
 
   useEffect(() => {
-    loadStock();
+    pingDatabase();
     loadCategories();
     loadBrands();
     loadDepartments();
-  }, []);
+    void loadNextSku();
+  }, [loadNextSku]);
+
+  useEffect(() => {
+    void loadStockPage(stockPage, { includeEditId: Boolean(searchParams.get('editId')) });
+  }, [loadStockPage, stockPage, searchParams]);
+
+  useEffect(() => {
+    void loadStockSummary();
+  }, [loadStockSummary]);
+
+  useEffect(() => {
+    setStockPage(1);
+  }, [
+    selectedMonth,
+    selectedYear,
+    selectedWeek,
+    viewMode,
+    searchTerm,
+    unsoldFilter,
+    selectedCategoryFilter,
+    sortConfig,
+  ]);
 
   useEffect(() => {
     pingDatabase();
@@ -705,20 +873,55 @@ const Stock: React.FC = () => {
     return () => window.clearInterval(intervalId);
   }, []);
 
-  // Reset visible items count when filters change
-  useEffect(() => {
-    setVisibleItemsCount(20);
-  }, [selectedMonth, selectedYear, selectedWeek, viewMode, searchTerm, unsoldFilter, selectedCategoryFilter]);
+  const populateEditFormFromRow = useCallback(
+    (rowToEdit: StockRow) => {
+      setFormIntent('edit');
+      setEditingRowId(rowToEdit.id);
+      const deptForRow =
+        rowToEdit.category_id != null
+          ? (() => {
+              const cat = categories.find((c) => Number(c.id) === Number(rowToEdit.category_id));
+              if (cat?.department_id != null) return String(cat.department_id);
+              return defaultDepartmentId;
+            })()
+          : defaultDepartmentId;
+      setCreateForm({
+        item_name: rowToEdit.item_name ?? '',
+        department_id: deptForRow,
+        category_id: rowToEdit.category_id ? String(rowToEdit.category_id) : '',
+        purchase_price: stockDbNumberToFormString(rowToEdit.purchase_price),
+        purchase_date: normalizeDateOnlyString(rowToEdit.purchase_date ?? ''),
+        sale_date: normalizeDateOnlyString(rowToEdit.sale_date ?? ''),
+        sale_price: stockDbNumberToFormString(rowToEdit.sale_price),
+        sold_platform: rowToEdit.sold_platform ?? '',
+        vinted_id: rowToEdit.vinted_id ?? '',
+        ebay_id: rowToEdit.ebay_id ?? '',
+        depop_id: rowToEdit.depop_id ?? '',
+        brand_id: rowToEdit.brand_id ? String(rowToEdit.brand_id) : '',
+        brand_tag_image_id:
+          rowToEdit.brand_tag_image_id != null ? String(rowToEdit.brand_tag_image_id) : '',
+        projected_sale_price: stockDbNumberToFormString(rowToEdit.projected_sale_price),
+        category_size_id:
+          rowToEdit.category_size_id != null ? String(rowToEdit.category_size_id) : '',
+        sourced_location: sourcedLocationFromRow(rowToEdit),
+        inventory_write_off: stockRowWriteOffFromRow(rowToEdit),
+        bulky_item: stockRowBulkyFromRow(rowToEdit),
+        ebay_draft: stockRowEbayDraftFromRow(rowToEdit),
+      });
+      setShowNewEntry(true);
+      setSuccessMessage(null);
+    },
+    [categories, defaultDepartmentId]
+  );
 
   // Open edit form when `?editId=` is present (Orders deep-link, refresh, browser back).
-  // Keep `editId` in the URL while editing so reload/back restores this view.
   useEffect(() => {
     const editIdParam = searchParams.get('editId');
     if (!editIdParam) {
       suppressAutoOpenEditSkuRef.current = null;
       return;
     }
-    if (rows.length === 0 || loading || editingRowId != null || creating) {
+    if (loading || editingRowId != null || creating) {
       return;
     }
     const editId = parseInt(editIdParam, 10);
@@ -735,82 +938,68 @@ const Stock: React.FC = () => {
     if (suppressAutoOpenEditSkuRef.current === editId) {
       return;
     }
-    const rowToEdit = rows.find((row) => Number(row.id) === editId);
-    if (!rowToEdit) {
-      clearStockEditIdFromUrl();
-      return;
-    }
-    setFormIntent('edit');
-    setEditingRowId(rowToEdit.id);
-    const deptForRow =
-      rowToEdit.category_id != null
-        ? (() => {
-            const cat = categories.find((c) => Number(c.id) === Number(rowToEdit.category_id));
-            if (cat?.department_id != null) return String(cat.department_id);
-            return defaultDepartmentId;
-          })()
-        : defaultDepartmentId;
-    setCreateForm({
-      item_name: rowToEdit.item_name ?? '',
-      department_id: deptForRow,
-      category_id: rowToEdit.category_id ? String(rowToEdit.category_id) : '',
-      purchase_price: stockDbNumberToFormString(rowToEdit.purchase_price),
-      purchase_date: normalizeDateOnlyString(rowToEdit.purchase_date ?? ''),
-      sale_date: normalizeDateOnlyString(rowToEdit.sale_date ?? ''),
-      sale_price: stockDbNumberToFormString(rowToEdit.sale_price),
-      sold_platform: rowToEdit.sold_platform ?? '',
-      vinted_id: rowToEdit.vinted_id ?? '',
-      ebay_id: rowToEdit.ebay_id ?? '',
-      depop_id: rowToEdit.depop_id ?? '',
-      brand_id: rowToEdit.brand_id ? String(rowToEdit.brand_id) : '',
-      brand_tag_image_id:
-        rowToEdit.brand_tag_image_id != null ? String(rowToEdit.brand_tag_image_id) : '',
-      projected_sale_price: stockDbNumberToFormString(rowToEdit.projected_sale_price),
-      category_size_id:
-        rowToEdit.category_size_id != null ? String(rowToEdit.category_size_id) : '',
-      sourced_location: sourcedLocationFromRow(rowToEdit),
-      inventory_write_off: stockRowWriteOffFromRow(rowToEdit),
-      bulky_item: stockRowBulkyFromRow(rowToEdit),
-      ebay_draft: stockRowEbayDraftFromRow(rowToEdit),
-    });
-    setShowNewEntry(true);
-    setSuccessMessage(null);
 
-    let innerScrollTimeoutId: ReturnType<typeof setTimeout> | undefined;
-    const outerScrollTimeoutId = setTimeout(() => {
-      if (!editFormRef.current) return;
-      const isMobile = window.innerWidth <= 768;
-      editFormRef.current.scrollIntoView({
-        behavior: 'smooth',
-        block: isMobile ? 'center' : 'start',
-        inline: 'nearest',
-      });
-      if (isMobile) {
-        innerScrollTimeoutId = setTimeout(() => {
-          const rect = editFormRef.current?.getBoundingClientRect();
-          if (rect && rect.top < 120) {
-            window.scrollBy({
-              top: rect.top - 120,
-              behavior: 'smooth',
-            });
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(`${API_BASE}/api/stock/row/${editId}`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (!response.ok) {
+          if (!cancelled) clearStockEditIdFromUrl();
+          return;
+        }
+        const data = await response.json();
+        const rowToEdit = data?.row ? normalizeStockRowDates(data.row as StockRow) : null;
+        if (!rowToEdit || cancelled) {
+          if (!cancelled) clearStockEditIdFromUrl();
+          return;
+        }
+        populateEditFormFromRow(rowToEdit);
+
+        let innerScrollTimeoutId: ReturnType<typeof setTimeout> | undefined;
+        const outerScrollTimeoutId = setTimeout(() => {
+          if (!editFormRef.current) return;
+          const isMobile = window.innerWidth <= 768;
+          editFormRef.current.scrollIntoView({
+            behavior: 'smooth',
+            block: isMobile ? 'center' : 'start',
+            inline: 'nearest',
+          });
+          if (isMobile) {
+            innerScrollTimeoutId = setTimeout(() => {
+              const rect = editFormRef.current?.getBoundingClientRect();
+              if (rect && rect.top < 120) {
+                window.scrollBy({
+                  top: rect.top - 120,
+                  behavior: 'smooth',
+                });
+              }
+            }, 100);
           }
-        }, 100);
+        }, 150);
+
+        return () => {
+          clearTimeout(outerScrollTimeoutId);
+          if (innerScrollTimeoutId != null) clearTimeout(innerScrollTimeoutId);
+        };
+      } catch (err) {
+        console.error('Failed to load stock row for edit:', err);
+        if (!cancelled) clearStockEditIdFromUrl();
       }
-    }, 150);
+    })();
 
     return () => {
-      clearTimeout(outerScrollTimeoutId);
-      if (innerScrollTimeoutId != null) clearTimeout(innerScrollTimeoutId);
+      cancelled = true;
     };
   }, [
-    rows,
     loading,
     searchParams,
     editingRowId,
     creating,
-    categories,
-    defaultDepartmentId,
     clearStockEditIdFromUrl,
+    populateEditFormFromRow,
   ]);
 
   useEffect(() => {
@@ -1125,23 +1314,13 @@ const Stock: React.FC = () => {
   }, [successMessage]);
 
   const availableYears = useMemo(() => {
-    const yearSet = new Set<number>([now.getFullYear()]);
-    rows.forEach((row) => {
-      const purchaseParts = parseDateOnlyParts(row.purchase_date);
-      if (purchaseParts) {
-        yearSet.add(purchaseParts.year);
-      }
-
-      const saleParts = parseDateOnlyParts(row.sale_date);
-      if (saleParts) {
-        yearSet.add(saleParts.year);
-      }
-    });
-
-    return Array.from(yearSet)
-      .sort((a, b) => b - a)
-      .map((year) => String(year));
-  }, [rows, now]);
+    const years: string[] = ['all-time', 'last-30-days'];
+    const current = now.getFullYear();
+    for (let year = current; year >= current - 15; year -= 1) {
+      years.push(String(year));
+    }
+    return years;
+  }, [now]);
 
   useEffect(() => {
     if (availableYears.length === 0) {
@@ -1224,68 +1403,10 @@ const Stock: React.FC = () => {
     return weeks;
   }, [selectedMonth, selectedYear]);
 
-  const matchesMonthYear = (dateValue: Nullable<string>, month: string, year: string) => {
-    const parts = parseDateOnlyParts(dateValue);
-    if (!parts) {
-      return false;
-    }
-
-    return String(parts.month) === month && String(parts.year) === year;
-  };
-
-  // Check if a date falls within the last 30 days
-  const matchesLast30Days = (dateValue: Nullable<string>) => {
-    const date = dateOnlyToLocalDate(dateValue);
-    if (!date) {
-      return false;
-    }
-
-    const today = new Date();
-    today.setHours(23, 59, 59, 999); // End of today
-    const thirtyDaysAgo = new Date(today);
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    thirtyDaysAgo.setHours(0, 0, 0, 0); // Start of 30 days ago
-
-    return date >= thirtyDaysAgo && date <= today;
-  };
-
-  // Check if a date falls within the selected week
-  const matchesWeek = (dateValue: Nullable<string>, weekStartDate: Date, weekEndDate: Date) => {
-    const date = dateOnlyToLocalDate(dateValue);
-    if (!date) {
-      return false;
-    }
-
-    const checkDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    const start = new Date(weekStartDate.getFullYear(), weekStartDate.getMonth(), weekStartDate.getDate());
-    const end = new Date(weekEndDate.getFullYear(), weekEndDate.getMonth(), weekEndDate.getDate());
-
-    return checkDate >= start && checkDate <= end;
-  };
-
-  const uniqueItemNames = useMemo(() => {
-    const items = new Set<string>();
-    rows.forEach((row) => {
-      if (row.item_name && row.item_name.trim()) {
-        items.add(row.item_name.trim());
-      }
-    });
-    return Array.from(items).sort();
-  }, [rows]);
-
-  const uniqueCategories = useMemo(() => {
-    // Get unique category names from the categories list based on category_id in rows
-    const categoryIds = new Set<number>();
-    rows.forEach((row) => {
-      if (row.category_id) {
-        categoryIds.add(row.category_id);
-      }
-    });
-    return categories
-      .filter(cat => categoryIds.has(cat.id))
-      .map(cat => cat.category_name)
-      .sort();
-  }, [rows, categories]);
+  const uniqueCategories = useMemo(
+    () => categories.map((cat) => cat.category_name).filter(Boolean).sort(),
+    [categories]
+  );
 
   useEffect(() => {
     if (!searchTerm.trim()) {
@@ -1294,428 +1415,41 @@ const Stock: React.FC = () => {
       return;
     }
 
-    const term = searchTerm.toLowerCase().trim();
-    const matches = uniqueItemNames
-      .filter((name) => name.toLowerCase().includes(term))
-      .slice(0, 10);
-
-    setTypeaheadSuggestions(matches);
-    setShowTypeahead(matches.length > 0);
-  }, [searchTerm, uniqueItemNames]);
-
-  const filteredRows = useMemo(() => {
-    if (!rows.length) {
-      return [];
-    }
-
-    let filtered = rows;
-
-    // Apply unsold filter if active (overrides other filters)
-    if (unsoldFilter !== 'off') {
-      const today = new Date();
-      
-      filtered = filtered.filter((row) => {
-        // Must not be sold (no sale_date)
-        if (row.sale_date) {
-          return false;
-        }
-
-        // Must have a purchase_date
-        if (!row.purchase_date) {
-          return false;
-        }
-
-        const purchaseDate = dateOnlyToLocalDate(row.purchase_date);
-        if (!purchaseDate) {
-          return false;
-        }
-
-        const daysSincePurchase = Math.floor((today.getTime() - purchaseDate.getTime()) / (1000 * 60 * 60 * 24));
-        
-        if (unsoldFilter === '3') {
-          return daysSincePurchase >= 90; // 3 months = ~90 days
-        } else if (unsoldFilter === '6') {
-          return daysSincePurchase >= 180; // 6 months = ~180 days
-        } else if (unsoldFilter === '12') {
-          return daysSincePurchase >= 365; // 12 months = ~365 days
-        }
-
-        return false;
-      });
-
-      // Apply search globally even with unsold filter
-      if (searchTerm.trim()) {
-        const searchLower = searchTerm.toLowerCase().trim();
-        const searchWords = searchLower.split(/\s+/).filter(word => word.length > 0);
-        filtered = filtered.filter((row) => {
-          const itemName = row.item_name ? String(row.item_name).toLowerCase() : '';
-          const vintedId = row.vinted_id ? String(row.vinted_id).toLowerCase() : '';
-          const ebayId = row.ebay_id ? String(row.ebay_id).toLowerCase() : '';
-          const skuId = String(row.id).toLowerCase();
-          
-          // For item name: match if ALL words are present (AND logic, order doesn't matter)
-          const itemNameMatches = searchWords.length > 0 && searchWords.every(word => itemName.includes(word));
-          
-          // For IDs: exact match (for precise ID searches)
-          const idMatches = vintedId.includes(searchLower) || ebayId.includes(searchLower) || skuId.includes(searchLower);
-          
-          return itemNameMatches || idMatches;
-        });
-      }
-
-      return filtered;
-    }
-
-    // If search term exists, search globally first (ignore date/viewMode filters)
-    // Then apply other filters (category) to narrow down
-    const hasSearchTerm = searchTerm.trim();
-    
-    if (hasSearchTerm) {
-      // First, apply global search across all rows
-      const searchLower = searchTerm.toLowerCase().trim();
-      const searchWords = searchLower.split(/\s+/).filter(word => word.length > 0);
-      filtered = filtered.filter((row) => {
-        const itemName = row.item_name ? String(row.item_name).toLowerCase() : '';
-        const vintedId = row.vinted_id ? String(row.vinted_id).toLowerCase() : '';
-        const ebayId = row.ebay_id ? String(row.ebay_id).toLowerCase() : '';
-        const skuId = String(row.id).toLowerCase();
-        
-        // For item name: match if ALL words are present (AND logic, order doesn't matter)
-        const itemNameMatches = searchWords.length > 0 && searchWords.every(word => itemName.includes(word));
-        
-        // For IDs: exact match (for precise ID searches)
-        const idMatches = vintedId.includes(searchLower) || ebayId.includes(searchLower) || skuId.includes(searchLower);
-
-        return itemNameMatches || idMatches;
-      });
-
-      // Then apply category filter to narrow down search results
-      if (selectedCategoryFilter) {
-        // Find the category_id for the selected category name
-        const selectedCategory = categories.find(cat => cat.category_name === selectedCategoryFilter);
-        if (selectedCategory) {
-          filtered = filtered.filter((row) => row.category_id === selectedCategory.id);
-        }
-      }
-
-      // Search results are global - don't apply date/viewMode filters
-      return filtered;
-    }
-
-    // No search term - apply all filters normally
-    return filtered.filter((row) => {
-      // Handle special view modes for listing filters
-      if (viewMode === 'all') {
-        // Show everything - no filtering by view mode
-      } else if (viewMode === 'active-listing') {
-        // Show items that are actively for sale: have purchase_date but no sale_date
-        if (!row.purchase_date || row.sale_date) {
-          return false;
-        }
-      } else if (viewMode === 'list-on-vinted') {
-        // Only show unsold items (sale_price is null/empty) where vinted_id is null or empty (not listed on Vinted)
-        const isSold = row.sale_price !== null && row.sale_price !== undefined && row.sale_price !== '' && Number(row.sale_price) > 0;
-        if (isSold) {
-          return false;
-        }
-        if (row.vinted_id && row.vinted_id.trim()) {
-          return false;
-        }
-      } else if (viewMode === 'list-on-ebay') {
-        // Only show unsold items (sale_price is null/empty) where ebay_id is null or empty (not listed on eBay)
-        const isSold = row.sale_price !== null && row.sale_price !== undefined && row.sale_price !== '' && Number(row.sale_price) > 0;
-        if (isSold) {
-          return false;
-        }
-        if (row.ebay_id && row.ebay_id.trim()) {
-          return false;
-        }
-      } else if (viewMode === 'to-list') {
-        // Only show unsold items (sale_price is null/empty)
-        const isSold = row.sale_price !== null && row.sale_price !== undefined && row.sale_price !== '' && Number(row.sale_price) > 0;
-        if (isSold) {
-          return false;
-        }
-        
-        // Show items where category is "To List" OR (vinted_id is null/empty AND ebay_id is null/empty)
-        const toListCategory = categories.find(cat => cat.category_name === 'To List');
-        const hasCategoryToList = toListCategory && row.category_id === toListCategory.id;
-        const notListedAnywhere = (!row.vinted_id || !row.vinted_id.trim()) && (!row.ebay_id || !row.ebay_id.trim());
-        
-        if (!hasCategoryToList && !notListedAnywhere) {
-          return false;
-        }
-      } else if (viewMode === 'inventory-write-off') {
-        if (!stockRowWriteOffFromRow(row)) {
-          return false;
-        }
-      }
-
-      let dateMatches = false;
-      
-      // If week filter is active, use week-based filtering
-      if (selectedWeek !== 'off') {
-        const selectedWeekData = availableWeeks.find(w => w.value === selectedWeek);
-        if (selectedWeekData) {
-          const { startDate, endDate } = selectedWeekData;
-          
-          if (viewMode === 'all' || viewMode === 'inventory-write-off') {
-            // Filter by either sold date or purchase date falling within the selected week
-            dateMatches = matchesWeek(row.purchase_date, startDate, endDate) || matchesWeek(row.sale_date, startDate, endDate);
-          } else if (viewMode === 'active-listing') {
-            // Show all items listed (purchased) that week but not sold
-            dateMatches = matchesWeek(row.purchase_date, startDate, endDate);
-          } else if (viewMode === 'sales') {
-            // Filter by sold date only
-            dateMatches = matchesWeek(row.sale_date, startDate, endDate);
-          } else if (viewMode === 'listing' || viewMode === 'list-on-vinted' || viewMode === 'list-on-ebay' || viewMode === 'to-list') {
-            // Filter by purchase date only
-            dateMatches = matchesWeek(row.purchase_date, startDate, endDate);
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const response = await fetch(
+            `${API_BASE}/api/stock/item-names?q=${encodeURIComponent(searchTerm.trim())}`
+          );
+          if (!response.ok || cancelled) return;
+          const data = await response.json();
+          const names = Array.isArray(data.names) ? data.names : [];
+          if (!cancelled) {
+            setTypeaheadSuggestions(names.slice(0, 10));
+            setShowTypeahead(names.length > 0);
+          }
+        } catch {
+          if (!cancelled) {
+            setTypeaheadSuggestions([]);
+            setShowTypeahead(false);
           }
         }
-      } else {
-        // Use month/year filtering when week is not selected
-        if (selectedYear === 'all-time') {
-          // Show all items regardless of year
-          dateMatches = true;
-        } else if (selectedYear === 'last-30-days') {
-          // Show items from last 30 days
-          if (viewMode === 'all' || viewMode === 'inventory-write-off') {
-            // For "all" view, check both purchase_date and sale_date
-            dateMatches = matchesLast30Days(row.purchase_date) || matchesLast30Days(row.sale_date);
-          } else if (viewMode === 'listing' || viewMode === 'list-on-vinted' || viewMode === 'list-on-ebay' || viewMode === 'to-list' || viewMode === 'active-listing') {
-            dateMatches = matchesLast30Days(row.purchase_date);
-          } else {
-            dateMatches = matchesLast30Days(row.sale_date);
-          }
-        } else if (viewMode === 'all' || viewMode === 'inventory-write-off') {
-          // For "all" view, check both purchase_date and sale_date
-          dateMatches = matchesMonthYear(row.purchase_date, selectedMonth, selectedYear) || matchesMonthYear(row.sale_date, selectedMonth, selectedYear);
-        } else if (viewMode === 'listing' || viewMode === 'list-on-vinted' || viewMode === 'list-on-ebay' || viewMode === 'to-list' || viewMode === 'active-listing') {
-          dateMatches = matchesMonthYear(row.purchase_date, selectedMonth, selectedYear);
-        } else {
-          dateMatches = matchesMonthYear(row.sale_date, selectedMonth, selectedYear);
-        }
-      }
+      })();
+    }, 250);
 
-      if (!dateMatches) {
-        return false;
-      }
-
-      // Apply category filter
-      if (selectedCategoryFilter) {
-        const selectedCategory = categories.find(cat => cat.category_name === selectedCategoryFilter);
-        if (selectedCategory && row.category_id !== selectedCategory.id) {
-          return false;
-        }
-      }
-
-      return true;
-    });
-  }, [rows, selectedMonth, selectedYear, selectedWeek, viewMode, searchTerm, unsoldFilter, selectedCategoryFilter, availableWeeks, categories]);
-
-  const nextSku = useMemo(() => {
-    if (rows.length === 0) {
-      return 1;
-    }
-    const maxId = Math.max(...rows.map(row => row.id));
-    return maxId + 1;
-  }, [rows]);
-
-  const totals = useMemo(() => {
-    // Calculate stats based on date filters, not filteredRows
-    // This ensures purchases and sales are calculated independently based on their respective dates
-    
-    let totalPurchase = 0;
-    let totalSales = 0;
-
-    rows.forEach((row) => {
-      // Check if purchase_date matches the current filters
-      let purchaseDateMatches = false;
-      if (selectedYear === 'all-time') {
-        purchaseDateMatches = true; // Show all if "all-time" is selected
-      } else if (selectedYear === 'last-30-days') {
-        purchaseDateMatches = matchesLast30Days(row.purchase_date);
-      } else if (selectedWeek !== 'off') {
-        const selectedWeekData = availableWeeks.find(w => w.value === selectedWeek);
-        if (selectedWeekData) {
-          purchaseDateMatches = matchesWeek(row.purchase_date, selectedWeekData.startDate, selectedWeekData.endDate);
-        }
-      } else {
-        purchaseDateMatches = matchesMonthYear(row.purchase_date, selectedMonth, selectedYear);
-      }
-
-      // Check if sale_date matches the current filters
-      let saleDateMatches = false;
-      if (selectedYear === 'all-time') {
-        saleDateMatches = true; // Show all if "all-time" is selected
-      } else if (selectedYear === 'last-30-days') {
-        saleDateMatches = matchesLast30Days(row.sale_date);
-      } else if (selectedWeek !== 'off') {
-        const selectedWeekData = availableWeeks.find(w => w.value === selectedWeek);
-        if (selectedWeekData) {
-          saleDateMatches = matchesWeek(row.sale_date, selectedWeekData.startDate, selectedWeekData.endDate);
-        }
-      } else {
-        saleDateMatches = matchesMonthYear(row.sale_date, selectedMonth, selectedYear);
-      }
-
-      // Sum purchases based on purchase_date matching filters
-      if (purchaseDateMatches && row.purchase_price) {
-        const purchase = Number(row.purchase_price);
-        if (!Number.isNaN(purchase)) {
-          totalPurchase += purchase;
-        }
-      }
-
-      // Sum sales based on sale_date matching filters
-      if (saleDateMatches && row.sale_price) {
-        const sale = Number(row.sale_price);
-        if (!Number.isNaN(sale)) {
-          totalSales += sale;
-        }
-      }
-    });
-
-    return {
-      purchase: totalPurchase,
-      sale: totalSales,
-      profit: totalSales - totalPurchase
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
     };
-  }, [rows, selectedMonth, selectedYear, selectedWeek, availableWeeks]);
+  }, [searchTerm]);
 
-  const sortedRows = useMemo(() => {
-    const getComparableValue = (row: StockRow, key: keyof StockRow) => {
-      // Special handling for category_id - use category name for sorting
-      if (key === 'category_id') {
-        const category = categories.find(cat => cat.id === row.category_id);
-        return category ? category.category_name.toLowerCase() : '';
-      }
+  const totals = summaryTotals;
 
-      const value = row[key];
-
-      if (value === null || value === undefined) {
-        return '';
-      }
-
-      if (key === 'id') {
-        const numeric = Number(value);
-        return Number.isNaN(numeric) ? Number.NEGATIVE_INFINITY : numeric;
-      }
-
-      if (key === 'purchase_price' || key === 'sale_price') {
-        const numeric = Number(value);
-        return Number.isNaN(numeric) ? Number.NEGATIVE_INFINITY : numeric;
-      }
-
-      if (key === 'purchase_date' || key === 'sale_date') {
-        return dateOnlyToTime(String(value));
-      }
-
-      return String(value).toLowerCase();
-    };
-
-    if (!sortConfig) {
-      // Default sort: by ID descending (highest/newest first)
-      return [...filteredRows].sort((a, b) => {
-        const aValue = getComparableValue(a, 'id');
-        const bValue = getComparableValue(b, 'id');
-        
-        if (aValue === bValue) {
-          return 0;
-        }
-        
-        return aValue > bValue ? -1 : 1; // Descending order
-      });
-    }
-
-    const { key, direction } = sortConfig;
-    const multiplier = direction === 'asc' ? 1 : -1;
-
-    return [...filteredRows].sort((a, b) => {
-      const aValue = getComparableValue(a, key);
-      const bValue = getComparableValue(b, key);
-
-      if (aValue === bValue) {
-        return 0;
-      }
-
-      if (aValue > bValue) {
-        return 1 * multiplier;
-      }
-
-      return -1 * multiplier;
-    });
-  }, [filteredRows, sortConfig, categories]);
-
-  const visibleRows = useMemo(
-    () => sortedRows.slice(0, visibleItemsCount),
-    [sortedRows, visibleItemsCount]
-  );
-
-  const exportToCSV = () => {
-    if (sortedRows.length === 0) {
-      return;
-    }
-
-    const headers = [
-      'Item Name',
-      'Category',
-      'Department',
-      'Purchase Price',
-      'Purchase Date',
-      'Sold',
-      'Sold Platform',
-      'Profit'
-    ];
-
-    const csvRows = [
-      headers.join(','),
-      ...sortedRows.map((row) => {
-        const purchasePrice = row.purchase_price
-          ? (typeof row.purchase_price === 'number' ? row.purchase_price : parseFloat(String(row.purchase_price)) || 0)
-          : '';
-        const salePrice = row.sale_price
-          ? (typeof row.sale_price === 'number' ? row.sale_price : parseFloat(String(row.sale_price)) || 0)
-          : '';
-        const profit = row.purchase_price && row.sale_price
-          ? (typeof salePrice === 'number' && typeof purchasePrice === 'number' ? salePrice - purchasePrice : '')
-          : '';
-        const soldParts = [
-          row.sale_date ? formatDate(row.sale_date) : '',
-          row.sale_price !== null && row.sale_price !== undefined && String(row.sale_price).trim() !== ''
-            ? String(salePrice)
-            : '',
-        ].filter(Boolean);
-        const soldCell = soldParts.length ? soldParts.join(' | ') : '';
-
-        return [
-          `"${(row.item_name || '').replace(/"/g, '""')}"`,
-          `"${(() => {
-            const category = categories.find(cat => cat.id === row.category_id);
-            return category ? category.category_name : '';
-          })().replace(/"/g, '""')}"`,
-          `"${departmentNameForRow(row, categories, departments).replace(/"/g, '""')}"`,
-          purchasePrice,
-          row.purchase_date ? formatDate(row.purchase_date) : '',
-          `"${soldCell.replace(/"/g, '""')}"`,
-          `"${(row.sold_platform || '').replace(/"/g, '""')}"`,
-          profit
-        ].join(',');
-      })
-    ];
-
-    const csvContent = csvRows.join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    
-    link.setAttribute('href', url);
-    link.setAttribute('download', `stock-export-${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const goToStockPage = (nextPage: number) => {
+    const clamped = Math.min(Math.max(1, nextPage), stockTotalPages);
+    setStockPage(clamped);
+    stockFiltersRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   const startEditingRow = (row: StockRow) => {
@@ -1731,39 +1465,7 @@ const Stock: React.FC = () => {
       return;
     }
 
-    setFormIntent('edit');
-    setEditingRowId(Number(row.id));
-    const deptForRow =
-      row.category_id != null
-        ? (() => {
-            const cat = categories.find((c) => Number(c.id) === Number(row.category_id));
-            if (cat?.department_id != null) return String(cat.department_id);
-            return defaultDepartmentId;
-          })()
-        : defaultDepartmentId;
-    setCreateForm({
-      item_name: row.item_name ?? '',
-      department_id: deptForRow,
-      category_id: row.category_id ? String(row.category_id) : '',
-      purchase_price: stockDbNumberToFormString(row.purchase_price),
-      purchase_date: normalizeDateOnlyString(row.purchase_date ?? ''),
-      sale_date: normalizeDateOnlyString(row.sale_date ?? ''),
-      sale_price: stockDbNumberToFormString(row.sale_price),
-      sold_platform: row.sold_platform ?? '',
-      vinted_id: row.vinted_id ?? '',
-      ebay_id: row.ebay_id ?? '',
-      depop_id: row.depop_id ?? '',
-      brand_id: row.brand_id ? String(row.brand_id) : '',
-      brand_tag_image_id: row.brand_tag_image_id != null ? String(row.brand_tag_image_id) : '',
-      projected_sale_price: stockDbNumberToFormString(row.projected_sale_price),
-      category_size_id: row.category_size_id != null ? String(row.category_size_id) : '',
-      sourced_location: sourcedLocationFromRow(row),
-      inventory_write_off: stockRowWriteOffFromRow(row),
-      bulky_item: stockRowBulkyFromRow(row),
-      ebay_draft: stockRowEbayDraftFromRow(row),
-    });
-    setShowNewEntry(true);
-    setSuccessMessage(null);
+    populateEditFormFromRow(row);
     setStockEditIdInUrl(Number(row.id));
 
     // Scroll to edit form after DOM updates - with better mobile support
@@ -1984,7 +1686,7 @@ const Stock: React.FC = () => {
         );
         setSuccessMessage('Stock record updated successfully.');
       } else {
-        setRows((prev) => [updatedRow, ...prev]);
+        setStockPage(1);
         setSuccessMessage('Stock record created successfully.');
       }
 
@@ -1992,6 +1694,10 @@ const Stock: React.FC = () => {
       suppressAutoOpenEditSkuRef.current = Number(updatedRow.id);
       closeStockEntryPanel();
       setSortConfig(null);
+
+      void loadStockPage(isEditing ? stockPage : 1);
+      void loadStockSummary();
+      void loadNextSku();
 
       window.setTimeout(() => {
         stockFiltersRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -2084,6 +1790,9 @@ const Stock: React.FC = () => {
       setSuccessMessage('Stock record deleted successfully.');
 
       closeStockEntryPanel();
+      void loadStockPage(stockPage);
+      void loadStockSummary();
+      void loadNextSku();
     } catch (err: any) {
       console.error('Stock delete error:', err);
       setError(err.message || 'Unable to delete stock record');
@@ -3838,7 +3547,7 @@ const Stock: React.FC = () => {
           <button
             type="button"
             className="stock-refresh-icon-button"
-            onClick={loadStock}
+            onClick={() => loadStock()}
             title="Refresh stock list"
             aria-label="Refresh stock list"
           >
@@ -3894,7 +3603,7 @@ const Stock: React.FC = () => {
         </div>
         <div className="summary-card">
           <span className="summary-label">Records</span>
-          <span className="summary-value">{sortedRows.length.toLocaleString()}</span>
+          <span className="summary-value">{stockTotalCount.toLocaleString()}</span>
         </div>
       </section>
 
@@ -3968,14 +3677,14 @@ const Stock: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {!loading && sortedRows.length === 0 && (
+            {!loading && rows.length === 0 && (
               <tr>
                 <td colSpan={7} className="empty-state">
                   No stock records found.
                 </td>
               </tr>
             )}
-            {visibleRows.map((row) => {
+            {rows.map((row) => {
               return (
                 <tr key={row.id}>
                   <td>{row.id}</td>
@@ -4043,14 +3752,41 @@ const Stock: React.FC = () => {
         </table>
       </div>
 
+      {stockTotalPages > 1 ? (
+        <div className="stock-pagination stock-pagination--shared" aria-label="Stock list pagination">
+          <button
+            type="button"
+            className="stock-pagination-button"
+            disabled={loading || stockPage <= 1}
+            onClick={() => goToStockPage(stockPage - 1)}
+          >
+            Previous
+          </button>
+          <span className="stock-pagination-status">
+            Page {stockPage} of {stockTotalPages}
+            <span className="stock-pagination-count">
+              ({stockTotalCount.toLocaleString()} records)
+            </span>
+          </span>
+          <button
+            type="button"
+            className="stock-pagination-button"
+            disabled={loading || stockPage >= stockTotalPages}
+            onClick={() => goToStockPage(stockPage + 1)}
+          >
+            Next
+          </button>
+        </div>
+      ) : null}
+
       {/* Mobile Card View */}
       <div className="stock-cards-wrapper">
-        {!loading && sortedRows.length === 0 && (
+        {!loading && rows.length === 0 && (
           <div className="stock-empty-state">
             No stock records found.
           </div>
         )}
-        {visibleRows.map((row) => {
+        {rows.map((row) => {
           const categoryName = categories.find(c => c.id === row.category_id)?.category_name || '—';
           const brandName = brands.find(b => b.id === row.brand_id)?.brand_name || '—';
           const deptName = departmentNameForRow(row, categories, departments);
@@ -4114,31 +3850,9 @@ const Stock: React.FC = () => {
             </div>
           );
         })}
-        {visibleItemsCount < sortedRows.length && (
-          <div className="stock-cards-load-more">
-            <button
-              type="button"
-              className="stock-load-more-button"
-              onClick={() => setVisibleItemsCount(prev => Math.min(prev + 20, sortedRows.length))}
-            >
-              Load More ({sortedRows.length - visibleItemsCount} remaining)
-            </button>
-          </div>
-        )}
       </div>
         </>
       )}
-
-      <div className="export-section">
-        <button
-          type="button"
-          className="export-button"
-          onClick={exportToCSV}
-          disabled={sortedRows.length === 0}
-        >
-          Export to CSV
-        </button>
-      </div>
     </div>
   );
 };

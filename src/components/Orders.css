@@ -195,6 +195,13 @@
   vertical-align: middle;
 }
 
+.orders-sales-summary-table th:first-child,
+.orders-sales-summary-table td.orders-sales-summary-sku-cell {
+  width: 4.5rem;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 .orders-platform-link {
   display: inline;
   font-weight: 600;
@@ -226,6 +233,35 @@
 
 .orders-sales-summary-table td:last-child .orders-platform-link {
   white-space: nowrap;
+}
+
+.orders-sales-summary-export {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20px;
+  padding-top: 4px;
+}
+
+.orders-sales-summary-export-button {
+  padding: 12px 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.35);
+  background: rgba(var(--theme-accent-rgb), 0.12);
+  color: var(--neon-primary-strong);
+  font-weight: 700;
+  font-size: 0.82rem;
+  letter-spacing: 0.05rem;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.orders-sales-summary-export-button:hover:not(:disabled) {
+  background: rgba(var(--theme-accent-rgb), 0.22);
+}
+
+.orders-sales-summary-export-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 [data-theme='minimal'] .orders-sales-summary-table th {
@@ -1451,6 +1487,15 @@
 
 .orders-topack-unlist-modal-detail--wide {
   grid-column: 1 / -1;
+}
+
+.orders-topack-unlist-connect-ebay {
+  padding: 10px 18px 10px 12px;
+  font-size: 0.82rem;
+}
+
+.orders-topack-unlist-connect-ebay .orders-unlist-ebay-logo {
+  width: 36px;
 }
 
 @media (max-width: 720px) {
