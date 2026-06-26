@@ -33,9 +33,9 @@ function friendlyApiError(err: unknown): string {
   return 'Could not load weekly top categories';
 }
 
-function formatWeeklyCategorySoldLabel(name: string, count: number): string {
+function formatWeeklyCategorySoldCount(count: number): string {
   const unit = count === 1 ? 'pair' : 'pairs';
-  return `${name} ${count} ${unit}`;
+  return `${count} ${unit}`;
 }
 
 type SeasonalWeeklyTopItemsProps = {
@@ -151,8 +151,9 @@ const SeasonalWeeklyTopItems: React.FC<SeasonalWeeklyTopItemsProps> = ({ departm
                         <span className="research-seasonal-weekly-item-rank" aria-hidden>
                           {idx + 1}
                         </span>
-                        <span className="research-seasonal-weekly-item-label">
-                          {formatWeeklyCategorySoldLabel(row.name, row.count)}
+                        <span className="research-seasonal-weekly-item-label">{row.name}</span>
+                        <span className="research-seasonal-weekly-item-count">
+                          {formatWeeklyCategorySoldCount(row.count)}
                         </span>
                       </li>
                     ))}

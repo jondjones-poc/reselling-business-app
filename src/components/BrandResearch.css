@@ -804,6 +804,7 @@
 
 .research-seasonal-weekly-head {
   margin-bottom: 1.35rem;
+  text-align: center;
 }
 
 .research-seasonal-weekly-title {
@@ -830,21 +831,29 @@
 
 .research-seasonal-weekly-month {
   margin-bottom: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .research-seasonal-weekly-month-title {
   margin: 0 0 0.75rem;
+  width: 100%;
+  max-width: 100%;
   font-size: 0.82rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: rgba(var(--theme-text-rgb), 0.55);
+  text-align: center;
 }
 
 .research-seasonal-weekly-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 0.75rem;
+  width: 100%;
 }
 
 .research-seasonal-weekly-cell {
@@ -853,8 +862,13 @@
   background: rgba(var(--theme-text-rgb), 0.03);
   padding: 0.65rem 0.7rem 0.75rem;
   min-height: 7.5rem;
+  width: 220px;
+  max-width: 100%;
+  box-sizing: border-box;
+  flex: 0 0 220px;
   display: flex;
   flex-direction: column;
+  align-items: stretch;
   gap: 0.5rem;
 }
 
@@ -866,9 +880,11 @@
 
 .research-seasonal-weekly-cell-head {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.4rem;
+  justify-content: center;
+  gap: 0.35rem;
+  width: 100%;
 }
 
 .research-seasonal-weekly-cell-label {
@@ -896,13 +912,15 @@
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
+  width: 100%;
 }
 
 .research-seasonal-weekly-item {
   display: grid;
-  grid-template-columns: 1.1rem minmax(0, 1fr);
+  grid-template-columns: 1.1rem minmax(0, 1fr) auto;
   gap: 0.35rem 0.45rem;
-  align-items: start;
+  align-items: baseline;
+  width: 100%;
   font-size: 0.78rem;
 }
 
@@ -917,6 +935,18 @@
   font-weight: 600;
   line-height: 1.35;
   min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.research-seasonal-weekly-item-count {
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .research-seasonal-weekly-item-body {
@@ -961,6 +991,8 @@
 
 .research-seasonal-weekly-empty {
   margin: auto 0 0;
+  width: 100%;
+  text-align: center;
   font-size: 0.75rem;
   color: rgba(var(--theme-text-rgb), 0.45);
   font-style: italic;
