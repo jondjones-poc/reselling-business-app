@@ -257,6 +257,12 @@ function soldPlatformIsVinted(p: string | null | undefined): boolean {
   return t === 'Vinted' || t?.toLowerCase() === 'vinted';
 }
 
+/** Brand colours for platform charts (eBay logo yellow, Vinted teal). */
+const CHART_EBAY_YELLOW = '#F5AF02';
+const CHART_EBAY_YELLOW_FILL = 'rgba(245, 175, 2, 0.65)';
+const CHART_VINTED_BLUE = '#09B1BA';
+const CHART_VINTED_BLUE_FILL = 'rgba(9, 177, 186, 0.65)';
+
 function normalizeCashFlowSource(raw: string | null | undefined): CashFlowPurchasedItem['sourceKey'] {
   const v = String(raw ?? '').trim().toLowerCase();
   if (v === 'bootsale') return 'bootsale';
@@ -1968,16 +1974,16 @@ const Reporting: React.FC = () => {
           {
             label: 'eBay',
             data: ebayValues.slice(t),
-            backgroundColor: 'rgba(140, 195, 255, 0.55)',
-            borderColor: 'rgba(140, 195, 255, 0.9)',
+            backgroundColor: CHART_EBAY_YELLOW_FILL,
+            borderColor: CHART_EBAY_YELLOW,
             borderWidth: 1,
             borderRadius: 4,
           },
           {
             label: 'Vinted',
             data: vintedValues.slice(t),
-            backgroundColor: 'rgba(180, 140, 255, 0.5)',
-            borderColor: 'rgba(200, 170, 255, 0.9)',
+            backgroundColor: CHART_VINTED_BLUE_FILL,
+            borderColor: CHART_VINTED_BLUE,
             borderWidth: 1,
             borderRadius: 4,
           },

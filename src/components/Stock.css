@@ -486,7 +486,7 @@
   vertical-align: middle;
 }
 
-/* Row 3: marketplace IDs + projected + save (add). Edit: marketplace row, then sale price / date / platform + save on the next row */
+/* Row 3: marketplace IDs + save (add). Edit: marketplace row, then sale price / date / platform + save on the next row */
 .stock-new-entry-row-ids {
   flex: 1 1 100%;
   width: 100%;
@@ -498,26 +498,26 @@
 }
 
 /*
- * Create only: Vinted / eBay / Depop / Bulky / Projected; save spans projected + save track.
+ * Create only: Vinted / eBay / draft / Depop / Bulky / write-off / save.
  */
 .stock-new-entry-row-ids:not(.stock-new-entry-row-ids--edit-marketplace) {
   grid-template-columns:
     minmax(0, 1fr)
     minmax(0, 1fr)
     minmax(0, 1fr)
-    minmax(104px, 132px)
     minmax(0, 1fr)
-    minmax(120px, 170px)
+    minmax(104px, 132px)
+    minmax(128px, 160px)
     168px;
 }
 
 .stock-new-entry-row-ids:not(.stock-new-entry-row-ids--edit-marketplace) > .stock-new-entry-row3-save {
-  grid-column: 6 / -1;
+  grid-column: 7 / -1;
   justify-self: end;
   align-self: end;
 }
 
-/* Edit: first row — Vinted / eBay / Depop / Bulky / Projected */
+/* Edit: first row — Vinted / eBay / draft / Depop / Bulky */
 .stock-new-entry-row-ids--edit-marketplace {
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
@@ -2206,11 +2206,72 @@ button.stock-close-circle-btn:disabled {
 
 .stock-edit-save-in-row4-label-spacer {
   min-height: 32px;
-  width: 48px;
+  width: 106px;
   max-width: 100%;
   box-sizing: border-box;
   display: block;
   flex-shrink: 0;
+}
+
+.stock-edit-bottom-action-buttons {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.stock-edit-order-save-close-btn {
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  padding: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(120, 200, 255, 0.42);
+  background: rgba(56, 132, 210, 0.22);
+  color: rgba(186, 224, 255, 0.98);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  box-sizing: border-box;
+}
+
+.stock-edit-order-save-close-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: rgba(56, 132, 210, 0.32);
+  border-color: rgba(140, 210, 255, 0.55);
+  box-shadow: 0 4px 14px rgba(56, 132, 210, 0.28);
+}
+
+.stock-edit-order-save-close-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.stock-edit-order-save-close-btn--busy:disabled {
+  opacity: 1;
+  cursor: wait;
+}
+
+.stock-edit-order-save-close-icon {
+  display: block;
+  flex-shrink: 0;
+}
+
+.stock-edit-order-save-close-spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid rgba(120, 200, 255, 0.22);
+  border-top-color: rgba(186, 224, 255, 0.98);
+  border-radius: 50%;
+  animation: stock-edit-save-disk-spin 0.65s linear infinite;
 }
 
 .stock-edit-save-in-row4 .save-button.stock-edit-save-disk {

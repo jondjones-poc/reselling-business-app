@@ -5684,8 +5684,16 @@ const RESEARCH_FEED_TAG_STATS_TTL_HOURS = 24;
 
 function normalizeResearchFeedPriceBand(rawMin, rawMax) {
   const rawMinP = parseInt(String(rawMin ?? '50'), 10);
-  const rawMaxP = parseInt(String(rawMax ?? '200'), 10);
   const minSel = Math.min(200, Math.max(20, Number.isFinite(rawMinP) ? rawMinP : 50));
+  const maxUnset =
+    rawMax === null ||
+    rawMax === undefined ||
+    String(rawMax).trim() === '' ||
+    String(rawMax).trim().toLowerCase() === 'none';
+  if (maxUnset) {
+    return { priceLo: minSel, priceHi: null };
+  }
+  const rawMaxP = parseInt(String(rawMax), 10);
   const maxSel = Math.min(200, Math.max(20, Number.isFinite(rawMaxP) ? rawMaxP : 200));
   let priceLo = Math.min(minSel, maxSel);
   let priceHi = Math.max(minSel, maxSel);
@@ -6119,7 +6127,7 @@ app.get('/api/research-feed/tags/:id/stats', async (req, res) => {
 /**
  * Sold comps on eBay UK (GBP price band, UK-sited listings), newest listed first.
  * GET /api/research-feed/items?page=0&pageSize=12&minPriceGbp=50&maxPriceGbp=200
- * min/max clamped to 20–200; defaults min 50, max 200. Range is normalized so max > min.
+ * min clamped to 20–200 (default 50). Omit maxPriceGbp for no upper cap.
  */
 app.get('/api/research-feed/items', async (req, res) => {
   const page = Math.max(0, parseInt(String(req.query.page ?? '0'), 10) || 0);
@@ -7106,6 +7114,221 @@ function meteorologicalSeasonDisplayLabel(spec) {
   }
   return `${cap} ${spec.refYear}`;
 }
+
+function parseDateOnlyUtc(iso) {
+  const m = String(iso ?? '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return null;
+  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+}
+
+function formatDateOnlyUtc(d) {
+  const y = d.getUTCFullYear();
+  const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const da = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${mo}-${da}`;
+}
+
+function addDaysUtc(d, days) {
+  const out = new Date(d.getTime());
+  out.setUTCDate(out.getUTCDate() + days);
+  return out;
+}
+
+function mondayOfWeekUtc(d) {
+  const day = d.getUTCDay();
+  const offset = day === 0 ? -6 : 1 - day;
+  return addDaysUtc(d, offset);
+}
+
+function enumerateMondayWeeksInRange(startIso, endIso) {
+  const start = parseDateOnlyUtc(startIso);
+  const end = parseDateOnlyUtc(endIso);
+  if (!start || !end || start.getTime() > end.getTime()) return [];
+  let mon = mondayOfWeekUtc(start);
+  const weeks = [];
+  while (mon.getTime() <= end.getTime()) {
+    const weekStart = formatDateOnlyUtc(mon);
+    const weekEnd = formatDateOnlyUtc(addDaysUtc(mon, 6));
+    weeks.push({ weekStart, weekEnd, weekKey: weekStart });
+    mon = addDaysUtc(mon, 7);
+  }
+  return weeks;
+}
+
+function formatSeasonalWeekLabel(weekStartIso, weekEndIso) {
+  const start = parseDateOnlyUtc(weekStartIso);
+  const end = parseDateOnlyUtc(weekEndIso);
+  if (!start || !end) return `${weekStartIso} – ${weekEndIso}`;
+  const startDay = start.getUTCDate();
+  const endDay = end.getUTCDate();
+  const startMonth = start.toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' });
+  const endMonth = end.toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' });
+  if (startMonth === endMonth) {
+    return `${startDay}–${endDay} ${startMonth}`;
+  }
+  return `${startDay} ${startMonth} – ${endDay} ${endMonth}`;
+}
+
+function meteorologicalSeasonMonthSpecs(spec) {
+  const y = spec.refYear;
+  switch (spec.type) {
+    case 'spring':
+      return [
+        { year: y, month: 3 },
+        { year: y, month: 4 },
+        { year: y, month: 5 },
+      ];
+    case 'summer':
+      return [
+        { year: y, month: 6 },
+        { year: y, month: 7 },
+        { year: y, month: 8 },
+      ];
+    case 'autumn':
+      return [
+        { year: y, month: 9 },
+        { year: y, month: 10 },
+        { year: y, month: 11 },
+      ];
+    case 'winter':
+      return [
+        { year: y, month: 12 },
+        { year: y + 1, month: 1 },
+        { year: y + 1, month: 2 },
+      ];
+    default:
+      return [];
+  }
+}
+
+function calendarMonthSpecsInRange(startIso, endIso) {
+  const start = parseDateOnlyUtc(startIso);
+  const end = parseDateOnlyUtc(endIso);
+  if (!start || !end || start.getTime() > end.getTime()) return [];
+  const specs = [];
+  let y = start.getUTCFullYear();
+  let m = start.getUTCMonth() + 1;
+  const endY = end.getUTCFullYear();
+  const endM = end.getUTCMonth() + 1;
+  while (y < endY || (y === endY && m <= endM)) {
+    specs.push({ year: y, month: m });
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+  }
+  return specs;
+}
+
+/** This week (Mon–Sun) back 6 calendar months, inclusive. */
+function seasonalWeeklyRollingRange(ref = new Date()) {
+  const todayUtc = new Date(Date.UTC(ref.getFullYear(), ref.getMonth(), ref.getDate()));
+  const currentWeekMon = mondayOfWeekUtc(todayUtc);
+  const rangeEnd = formatDateOnlyUtc(addDaysUtc(currentWeekMon, 6));
+  const sixMonthsBack = new Date(todayUtc.getTime());
+  sixMonthsBack.setUTCMonth(sixMonthsBack.getUTCMonth() - 6);
+  const rangeStart = formatDateOnlyUtc(mondayOfWeekUtc(sixMonthsBack));
+  const todayIso = formatDateOnlyUtc(todayUtc);
+  return { rangeStart, rangeEnd, todayIso };
+}
+
+/**
+ * Rolling 6 months of Monday–Sunday weeks with top 3 sold categories per week (by count).
+ * Weeks are returned newest first (this week at the top). Optional `department_id` filter.
+ */
+app.get('/api/stock/seasonal-weekly-top-items', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const filterDeptId = parseOptionalBrandDepartmentFilter(req);
+    const { rangeStart, rangeEnd, todayIso } = seasonalWeeklyRollingRange(new Date());
+
+    const salesRes = await pool.query(
+      `SELECT
+         COALESCE(NULLIF(TRIM(cat.category_name), ''), 'Uncategorized') AS category_name,
+         s.sale_date::date AS sale_date
+       FROM stock s
+       LEFT JOIN brand b ON b.id = s.brand_id
+       LEFT JOIN category cat ON cat.id = s.category_id
+       WHERE s.sale_date IS NOT NULL
+         AND s.sale_date::date >= $1::date
+         AND s.sale_date::date <= $2::date
+         AND ($3::int IS NULL OR b.department_id = $3::int)
+         AND ($3::int IS NULL OR s.category_id IS NULL OR cat.department_id = $3::int)
+         AND NOT COALESCE(s.is_inventory_write_off, false)
+       ORDER BY s.sale_date DESC`,
+      [rangeStart, rangeEnd, filterDeptId]
+    );
+
+    const weekSpecs = enumerateMondayWeeksInRange(rangeStart, rangeEnd);
+    const salesByWeek = new Map();
+    for (const w of weekSpecs) {
+      salesByWeek.set(w.weekKey, new Map());
+    }
+
+    for (const row of salesRes.rows ?? []) {
+      const saleDate = normalizeDateOnlyString(row.sale_date);
+      if (!saleDate) continue;
+      const saleDay = parseDateOnlyUtc(saleDate);
+      if (!saleDay) continue;
+      const weekKey = formatDateOnlyUtc(mondayOfWeekUtc(saleDay));
+      const bucket = salesByWeek.get(weekKey);
+      if (!bucket) continue;
+      const categoryName = String(row.category_name ?? 'Uncategorized');
+      bucket.set(categoryName, (bucket.get(categoryName) ?? 0) + 1);
+    }
+
+    const monthShort = new Intl.DateTimeFormat('en-GB', { month: 'long' });
+    const months = calendarMonthSpecsInRange(rangeStart, rangeEnd)
+      .map(({ year, month }) => {
+        const weeks = weekSpecs
+          .filter((w) => {
+            const mon = parseDateOnlyUtc(w.weekStart);
+            if (!mon) return false;
+            return mon.getUTCFullYear() === year && mon.getUTCMonth() + 1 === month;
+          })
+          .map((w) => {
+            const topCategories = [...(salesByWeek.get(w.weekKey) ?? new Map()).entries()]
+              .map(([name, count]) => ({ name, count }))
+              .sort((a, b) => {
+                if (b.count !== a.count) return b.count - a.count;
+                return a.name.localeCompare(b.name);
+              })
+              .slice(0, 3);
+            return {
+              weekStart: w.weekStart,
+              weekEnd: w.weekEnd,
+              label: formatSeasonalWeekLabel(w.weekStart, w.weekEnd),
+              isCurrentWeek: todayIso >= w.weekStart && todayIso <= w.weekEnd,
+              topCategories,
+            };
+          })
+          .sort((a, b) => b.weekStart.localeCompare(a.weekStart));
+        return {
+          year,
+          month,
+          label: monthShort.format(new Date(Date.UTC(year, month - 1, 1))),
+          weeks,
+        };
+      })
+      .filter((m) => m.weeks.length > 0)
+      .sort((a, b) => b.year - a.year || b.month - a.month);
+
+    res.json({
+      displayLabel: 'Last 6 months',
+      rangeStart,
+      rangeEnd,
+      months,
+    });
+  } catch (error) {
+    console.error('seasonal-weekly-top-items failed:', error);
+    res.status(500).json({ error: 'Failed to load weekly top categories', details: error.message });
+  }
+});
 
 /**
  * Four consecutive meteorological seasons: current first, then each prior season

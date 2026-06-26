@@ -258,6 +258,44 @@ function AddToOrdersIcon({ className }: { className?: string }) {
   );
 }
 
+/** Envelope + check — save, add to orders, and close. */
+function SaveAddToOrderCloseIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden
+    >
+      <path
+        d="M3 7.5 12 13l9-5.5"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M5 5h14a2 2 0 0 1 2 2v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="17.5" cy="17.5" r="4.25" fill="currentColor" opacity="0.92" />
+      <path
+        d="M15.75 17.5 16.85 18.65 19.35 16.1"
+        stroke="#0f172a"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 
 function buildStockInstagramAskAiPrompt(input: {
   itemName: string;
@@ -1592,10 +1630,16 @@ const Stock: React.FC = () => {
     });
   };
 
-  const handleCreateSubmit = async (allowCreateDespiteEditIntent?: boolean) => {
+  const handleCreateSubmit = async (
+    options?: boolean | { allowCreateDespiteEditIntent?: boolean; addToOrdersAfterSave?: boolean }
+  ) => {
+    const opts =
+      typeof options === 'boolean'
+        ? { allowCreateDespiteEditIntent: options }
+        : options ?? {};
     const currentEditingId = editingRowId;
-    const forceCreate =
-      allowCreateDespiteEditIntent === true;
+    const forceCreate = opts.allowCreateDespiteEditIntent === true;
+    const addToOrdersAfterSave = opts.addToOrdersAfterSave === true;
 
     if (currentEditingId === null && formIntent === 'edit' && !forceCreate) {
       setShowCreateInsteadOfEditConfirm(true);
@@ -1684,7 +1728,42 @@ const Stock: React.FC = () => {
             Number(row.id) === Number(updatedRow.id) ? updatedRow : row
           )
         );
-        setSuccessMessage('Stock record updated successfully.');
+        if (addToOrdersAfterSave) {
+          setAddingToOrder(true);
+          try {
+            const orderResponse = await fetch(`${API_BASE}/api/orders`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ stock_id: updatedRow.id }),
+            });
+            if (orderResponse.status === 409) {
+              setSuccessMessage('Saved and closed — item was already in orders.');
+            } else if (!orderResponse.ok) {
+              let message = 'Saved, but could not add item to orders';
+              try {
+                const errorBody = await orderResponse.json();
+                message = errorBody?.error || message;
+              } catch {
+                const text = await orderResponse.text();
+                message = text || message;
+              }
+              throw new Error(message);
+            } else {
+              setEditingRowInOrders(true);
+              setSuccessMessage('Saved, added to orders, and closed.');
+            }
+          } catch (orderErr: any) {
+            console.error('Add to orders after save error:', orderErr);
+            setError(orderErr.message || 'Saved, but unable to add item to orders');
+            setCreating(false);
+            setAddingToOrder(false);
+            return;
+          } finally {
+            setAddingToOrder(false);
+          }
+        } else {
+          setSuccessMessage('Stock record updated successfully.');
+        }
       } else {
         setStockPage(1);
         setSuccessMessage('Stock record created successfully.');
@@ -1992,6 +2071,32 @@ const Stock: React.FC = () => {
       setAddingToOrder(false);
     }
   };
+
+  const renderInventoryWriteOffField = (fieldId: string) => (
+    <div className="new-entry-field stock-edit-write-off-field">
+      <span className="stock-edit-write-off-field-label" id={`stock-write-off-field-label-${fieldId}`}>
+        Inventory write-off
+        <span className="stock-edit-write-off-muted"> (unsellable)</span>
+      </span>
+      <div className="stock-edit-write-off-box">
+        <label className="stock-edit-write-off-checkbox-label" htmlFor={`stock-inv-write-off-${fieldId}`}>
+          <input
+            id={`stock-inv-write-off-${fieldId}`}
+            type="checkbox"
+            checked={createForm.inventory_write_off}
+            onChange={(e) => {
+              if (e.target.checked) {
+                setShowWriteOffConfirm(true);
+              } else {
+                setCreateForm((prev) => ({ ...prev, inventory_write_off: false }));
+              }
+            }}
+            aria-labelledby={`stock-write-off-field-label-${fieldId}`}
+          />
+        </label>
+      </div>
+    </div>
+  );
 
   const stockEntryFormEl = showNewEntry ? (
         <div className="new-entry-card" ref={editFormRef}>
@@ -2688,7 +2793,7 @@ const Stock: React.FC = () => {
                 </div>
               </div>
             </div>
-            {/* Row 3: marketplace IDs + projected; add-new also has save here. Edit: sale fields + platform + write-off + save on next row. */}
+            {/* Row 3: marketplace IDs; add-new also has write-off + save here. Edit: sale fields + platform + write-off + save on next row. */}
             <div
               className={
                 editingRowId
@@ -2749,17 +2854,7 @@ const Stock: React.FC = () => {
                   />
                 </div>
               </label>
-              <label className="new-entry-field stock-new-entry-id-field stock-new-entry-id-field--projected">
-                <span className="stock-new-entry-row3-projected-label">Projected Price (£)</span>
-                <input
-                  type="text"
-                  className="stock-edit-projected-price-input"
-                  value={createForm.projected_sale_price}
-                  onChange={(event) => handleCreateChange('projected_sale_price', event.target.value)}
-                  placeholder="0.00"
-                  aria-label="Projected price (£)"
-                />
-              </label>
+              {!editingRowId && renderInventoryWriteOffField('new')}
               {!editingRowId && (
                 <div className="stock-new-entry-row3-save">
                   <span className="stock-new-entry-row3-save-label-spacer" aria-hidden>
@@ -2989,65 +3084,69 @@ const Stock: React.FC = () => {
                       aria-orientation="vertical"
                       aria-hidden
                     />
-                    <div className="new-entry-field stock-edit-write-off-field">
-                      <span className="stock-edit-write-off-field-label" id="stock-write-off-field-label">
-                        Inventory write-off
-                        <span className="stock-edit-write-off-muted"> (unsellable)</span>
-                      </span>
-                      <div className="stock-edit-write-off-box">
-                        <label className="stock-edit-write-off-checkbox-label" htmlFor={`stock-inv-write-off-${editingRowId}`}>
-                          <input
-                            id={`stock-inv-write-off-${editingRowId}`}
-                            type="checkbox"
-                            checked={createForm.inventory_write_off}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setShowWriteOffConfirm(true);
-                              } else {
-                                setCreateForm((prev) => ({ ...prev, inventory_write_off: false }));
-                              }
-                            }}
-                            aria-labelledby="stock-write-off-field-label"
-                          />
-                        </label>
-                      </div>
-                    </div>
+                    {renderInventoryWriteOffField(String(editingRowId))}
                     <div className="stock-edit-save-in-row4">
                       <span className="stock-edit-save-in-row4-label-spacer" aria-hidden>
                         &nbsp;
                       </span>
-                      <button
-                        type="button"
-                        className="save-button stock-edit-save-disk"
-                        onClick={() => {
-                          void handleCreateSubmit();
-                        }}
-                        disabled={creating || deleting}
-                        aria-label={creating ? 'Saving changes' : 'Save changes'}
-                        title={creating ? 'Saving…' : 'Save changes'}
-                      >
-                        {creating ? (
-                          <span className="stock-edit-save-disk-spinner" aria-hidden />
-                        ) : (
-                          <svg
-                            className="stock-edit-save-disk-icon"
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="22"
-                            height="22"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.75"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden
-                          >
-                            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                            <polyline points="17 21 17 13 7 13 7 21" />
-                            <polyline points="7 3 7 8 15 8" />
-                          </svg>
-                        )}
-                      </button>
+                      <div className="stock-edit-bottom-action-buttons">
+                        <button
+                          type="button"
+                          className={`stock-edit-order-save-close-btn${addingToOrder ? ' stock-edit-order-save-close-btn--busy' : ''}`}
+                          onClick={() => {
+                            void handleCreateSubmit({ addToOrdersAfterSave: true });
+                          }}
+                          disabled={creating || deleting || addingToOrder}
+                          aria-label={
+                            creating || addingToOrder
+                              ? 'Saving and adding to orders'
+                              : 'Add to order, save and close'
+                          }
+                          title={
+                            creating || addingToOrder
+                              ? 'Saving…'
+                              : 'Add to order, save & close'
+                          }
+                        >
+                          {creating || addingToOrder ? (
+                            <span className="stock-edit-order-save-close-spinner" aria-hidden />
+                          ) : (
+                            <SaveAddToOrderCloseIcon className="stock-edit-order-save-close-icon" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          className="save-button stock-edit-save-disk"
+                          onClick={() => {
+                            void handleCreateSubmit();
+                          }}
+                          disabled={creating || deleting || addingToOrder}
+                          aria-label={creating ? 'Saving changes' : 'Save changes'}
+                          title={creating ? 'Saving…' : 'Save changes'}
+                        >
+                          {creating && !addingToOrder ? (
+                            <span className="stock-edit-save-disk-spinner" aria-hidden />
+                          ) : (
+                            <svg
+                              className="stock-edit-save-disk-icon"
+                              xmlns="http://www.w3.org/2000/svg"
+                              width="22"
+                              height="22"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1.75"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden
+                            >
+                              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                              <polyline points="17 21 17 13 7 13 7 21" />
+                              <polyline points="7 3 7 8 15 8" />
+                            </svg>
+                          )}
+                        </button>
+                      </div>
                     </div>
               </div>
             )}

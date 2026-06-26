@@ -14,6 +14,7 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { getApiBase } from '../utils/apiBase';
 import { themeAccentRgba, themeTextRgba } from '../utils/themeColors';
 import ResearchItemViews from './ResearchItemViews';
+import SeasonalWeeklyTopItems from './SeasonalWeeklyTopItems';
 import EbayNicheExplorer from './EbayNicheExplorer';
 import './BrandResearch.css';
 
@@ -12872,6 +12873,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                 })()}
               </>
             )}
+            <SeasonalWeeklyTopItems departmentId={seasonalDepartmentIdForApi} />
           </div>
         </div>
       )}

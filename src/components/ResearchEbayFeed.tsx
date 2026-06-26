@@ -103,7 +103,7 @@ const ResearchEbayFeed: React.FC = () => {
   const [feedWarn, setFeedWarn] = useState<string | null>(null);
 
   const [minPriceGbp, setMinPriceGbp] = useState(50);
-  const [maxPriceGbp, setMaxPriceGbp] = useState(200);
+  const [maxPriceGbp, setMaxPriceGbp] = useState<number | null>(null);
 
   const loadInFlight = useRef(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -157,11 +157,15 @@ const ResearchEbayFeed: React.FC = () => {
     setFeedError(null);
     if (!append) setFeedWarn(null);
     try {
-      const res = await fetch(
-        apiUrl(
-          `/api/research-feed/items?page=${page}&pageSize=12&minPriceGbp=${minPriceGbp}&maxPriceGbp=${maxPriceGbp}`
-        )
-      );
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: '12',
+        minPriceGbp: String(minPriceGbp),
+      });
+      if (maxPriceGbp != null) {
+        params.set('maxPriceGbp', String(maxPriceGbp));
+      }
+      const res = await fetch(apiUrl(`/api/research-feed/items?${params.toString()}`));
       const data = await readJson<{
         items?: FeedItem[];
         hasMore?: boolean;
@@ -312,7 +316,7 @@ const ResearchEbayFeed: React.FC = () => {
             onChange={(ev) => {
               const v = Number(ev.target.value);
               setMinPriceGbp(v);
-              setMaxPriceGbp((prev) => (prev < v ? v : prev));
+              setMaxPriceGbp((prev) => (prev != null && prev < v ? v : prev));
             }}
             title="Minimum sold price in GBP"
           >
@@ -330,16 +334,22 @@ const ResearchEbayFeed: React.FC = () => {
           <select
             id="research-ebay-feed-max-price"
             className="filter-select research-ebay-feed-filter-select"
-            value={maxPriceGbp}
+            value={maxPriceGbp ?? ''}
             onChange={(ev) => {
-              const v = Number(ev.target.value);
+              const raw = ev.target.value;
+              if (raw === '') {
+                setMaxPriceGbp(null);
+                return;
+              }
+              const v = Number(raw);
               setMaxPriceGbp(v);
               setMinPriceGbp((prev) => (prev > v ? v : prev));
             }}
-            title="Maximum sold price in GBP"
+            title="Maximum sold price in GBP (optional)"
           >
+            <option value="">No max</option>
             {FEED_PRICE_OPTIONS.map((p) => (
-              <option key={`max-${p}`} value={p}>
+              <option key={`max-${p}`} value={p} disabled={p < minPriceGbp}>
                 £{p}
               </option>
             ))}
