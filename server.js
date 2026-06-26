@@ -7221,21 +7221,44 @@ function calendarMonthSpecsInRange(startIso, endIso) {
   return specs;
 }
 
-/** This week (Mon–Sun) back 6 calendar months, inclusive. */
-function seasonalWeeklyRollingRange(ref = new Date()) {
+/** Monday–Sunday window of `page` × 6 calendar months (page 0 = through this week). */
+function seasonalWeeklyRollingRange(ref = new Date(), page = 0) {
+  const pageIndex = Math.max(0, Math.floor(Number(page) || 0));
   const todayUtc = new Date(Date.UTC(ref.getFullYear(), ref.getMonth(), ref.getDate()));
-  const currentWeekMon = mondayOfWeekUtc(todayUtc);
-  const rangeEnd = formatDateOnlyUtc(addDaysUtc(currentWeekMon, 6));
-  const sixMonthsBack = new Date(todayUtc.getTime());
+  const todayIso = formatDateOnlyUtc(todayUtc);
+
+  let rangeEndIso;
+  if (pageIndex === 0) {
+    const currentWeekMon = mondayOfWeekUtc(todayUtc);
+    rangeEndIso = formatDateOnlyUtc(addDaysUtc(currentWeekMon, 6));
+  } else {
+    let end = parseDateOnlyUtc(formatDateOnlyUtc(addDaysUtc(mondayOfWeekUtc(todayUtc), 6)));
+    for (let p = 0; p < pageIndex; p += 1) {
+      const sixMonthsBack = new Date(end.getTime());
+      sixMonthsBack.setUTCMonth(sixMonthsBack.getUTCMonth() - 6);
+      const start = parseDateOnlyUtc(formatDateOnlyUtc(mondayOfWeekUtc(sixMonthsBack)));
+      end = addDaysUtc(start, -1);
+    }
+    rangeEndIso = formatDateOnlyUtc(end);
+  }
+
+  const endDate = parseDateOnlyUtc(rangeEndIso);
+  const sixMonthsBack = new Date(endDate.getTime());
   sixMonthsBack.setUTCMonth(sixMonthsBack.getUTCMonth() - 6);
   const rangeStart = formatDateOnlyUtc(mondayOfWeekUtc(sixMonthsBack));
-  const todayIso = formatDateOnlyUtc(todayUtc);
-  return { rangeStart, rangeEnd, todayIso };
+
+  return { rangeStart, rangeEnd: rangeEndIso, todayIso, page: pageIndex };
+}
+
+function seasonalWeeklyDisplayLabel(rangeStart, rangeEnd, page) {
+  if (page === 0) return 'Last 6 months';
+  return `${rangeStart} – ${rangeEnd}`;
 }
 
 /**
- * Rolling 6 months of Monday–Sunday weeks with top 3 sold categories per week (by count).
- * Weeks are returned newest first (this week at the top). Optional `department_id` filter.
+ * Rolling 6-month windows of Monday–Sunday weeks with top 3 sold categories per week (by count).
+ * Weeks are returned newest first. Query `page` (0 = current 6 months, 1 = prior 6 months, …).
+ * Optional `department_id` filter.
  */
 app.get('/api/stock/seasonal-weekly-top-items', async (req, res) => {
   try {
@@ -7245,7 +7268,9 @@ app.get('/api/stock/seasonal-weekly-top-items', async (req, res) => {
     }
 
     const filterDeptId = parseOptionalBrandDepartmentFilter(req);
-    const { rangeStart, rangeEnd, todayIso } = seasonalWeeklyRollingRange(new Date());
+    const pageRaw = parseInt(String(req.query.page ?? '0'), 10);
+    const page = Number.isFinite(pageRaw) && pageRaw >= 0 ? pageRaw : 0;
+    const { rangeStart, rangeEnd, todayIso } = seasonalWeeklyRollingRange(new Date(), page);
 
     const salesRes = await pool.query(
       `SELECT
@@ -7318,10 +7343,27 @@ app.get('/api/stock/seasonal-weekly-top-items', async (req, res) => {
       .filter((m) => m.weeks.length > 0)
       .sort((a, b) => b.year - a.year || b.month - a.month);
 
+    const hasMoreRes = await pool.query(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM stock s
+         LEFT JOIN brand b ON b.id = s.brand_id
+         WHERE s.sale_date IS NOT NULL
+           AND s.sale_date::date < $1::date
+           AND ($2::int IS NULL OR b.department_id = $2::int)
+           AND NOT COALESCE(s.is_inventory_write_off, false)
+       ) AS has_more`,
+      [rangeStart, filterDeptId]
+    );
+    const hasNextPage = Boolean(hasMoreRes.rows[0]?.has_more);
+
     res.json({
-      displayLabel: 'Last 6 months',
+      displayLabel: seasonalWeeklyDisplayLabel(rangeStart, rangeEnd, page),
       rangeStart,
       rangeEnd,
+      page,
+      hasPreviousPage: page > 0,
+      hasNextPage,
       months,
     });
   } catch (error) {
