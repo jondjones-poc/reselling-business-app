@@ -443,7 +443,8 @@
 }
 
 /* Match row-3 text field chrome (height aligns with projected price input) */
-.stock-new-entry-row-ids .stock-new-entry-id-field--bulky .stock-new-entry-bulky-input-skin {
+.stock-new-entry-row-ids .stock-new-entry-id-field--bulky .stock-new-entry-bulky-input-skin,
+.stock-new-entry-row-ids .stock-new-entry-id-field--ebay-draft .stock-new-entry-bulky-input-skin {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -461,14 +462,16 @@
     background 0.3s ease;
 }
 
-.stock-new-entry-row-ids .stock-new-entry-id-field--bulky .stock-new-entry-bulky-input-skin:focus-within {
+.stock-new-entry-row-ids .stock-new-entry-id-field--bulky .stock-new-entry-bulky-input-skin:focus-within,
+.stock-new-entry-row-ids .stock-new-entry-id-field--ebay-draft .stock-new-entry-bulky-input-skin:focus-within {
   border-color: var(--neon-border-strong);
   box-shadow: var(--neon-shadow);
   background: var(--theme-form-input-focus-bg);
 }
 
 /* Reset global .new-entry-field input text-field sizing so the control reads as one band */
-.stock-new-entry-row-ids .stock-new-entry-id-field--bulky .stock-new-entry-bulky-input-skin input[type='checkbox'] {
+.stock-new-entry-row-ids .stock-new-entry-id-field--bulky .stock-new-entry-bulky-input-skin input[type='checkbox'],
+.stock-new-entry-row-ids .stock-new-entry-id-field--ebay-draft .stock-new-entry-bulky-input-skin input[type='checkbox'] {
   width: 1.35rem;
   height: 1.35rem;
   min-width: 1.35rem;
@@ -1102,16 +1105,12 @@
     white-space: normal;
   }
 
-  .stock-new-entry-row-ids {
-    grid-template-columns: 1fr;
-  }
-
   .stock-new-entry-row-ids .stock-new-entry-row3-save {
-    grid-column: 1;
+    grid-column: 1 / -1;
   }
 
   .stock-new-entry-row-ids .stock-new-entry-row3-save-label-spacer {
-    display: block;
+    display: none;
   }
 
   .stock-new-entry-row-edit-sale-platform-row {
@@ -2357,10 +2356,228 @@ button.stock-close-circle-btn:disabled {
   cursor: pointer;
 }
 
+.stock-mobile-action-btn-label {
+  display: none;
+}
+
 @media (max-width: 768px) {
   .new-entry-field--actions {
     margin-left: 0;
     flex: 1 1 100%;
+  }
+
+  /* Add / edit form: text IDs full width; toggle checkboxes two per row */
+  .stock-new-entry-top-bar {
+    gap: 18px;
+  }
+
+  .stock-new-entry-row-ids,
+  .stock-new-entry-row-ids:not(.stock-new-entry-row-ids--edit-marketplace),
+  .stock-new-entry-row-ids.stock-new-entry-row-ids--edit-marketplace {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 18px 14px;
+  }
+
+  .stock-new-entry-row-ids > .stock-new-entry-id-field--vinted,
+  .stock-new-entry-row-ids > .stock-new-entry-id-field--ebay,
+  .stock-new-entry-row-ids > .stock-edit-write-off-field.stock-new-entry-toggle-field {
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .stock-new-entry-row-ids > .stock-new-entry-id-field--vinted input,
+  .stock-new-entry-row-ids > .stock-new-entry-id-field--ebay input,
+  .stock-new-entry-row-ids > .stock-new-entry-id-field--depop input {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .stock-new-entry-row-ids > .new-entry-field,
+  .stock-new-entry-row-ids > .stock-new-entry-id-field,
+  .stock-new-entry-row-ids > .stock-edit-write-off-field.new-entry-field {
+    flex: 1 1 100%;
+    max-width: 100%;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .stock-new-entry-row-ids > .stock-new-entry-toggle-field,
+  .stock-new-entry-row-ids > .stock-new-entry-id-field--ebay-draft,
+  .stock-new-entry-row-ids > .stock-new-entry-id-field--bulky {
+    flex: 1 1 calc(50% - 7px);
+    width: calc(50% - 7px);
+    max-width: calc(50% - 7px);
+    min-width: 0;
+  }
+
+  /* Text marketplace IDs — each on its own row (override global .new-entry-field max-width) */
+  .stock-new-entry-row-ids > .stock-new-entry-id-field--vinted,
+  .stock-new-entry-row-ids > .stock-new-entry-id-field--ebay,
+  .stock-new-entry-row-ids > .stock-new-entry-id-field--depop {
+    flex: 0 0 100%;
+    width: 100%;
+    max-width: 100%;
+    min-width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* Save — own row below marketplace fields (add mode) */
+  .stock-new-entry-row-ids > .stock-new-entry-row3-save.stock-entry-mobile-save-bar,
+  .stock-new-entry-row-ids > .stock-entry-mobile-save-bar {
+    flex: 0 0 100%;
+    width: 100%;
+    max-width: 100%;
+    min-width: 100%;
+    order: 99;
+    box-sizing: border-box;
+  }
+
+  .stock-new-entry-row-edit-sale-platform-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 18px;
+  }
+
+  .stock-new-entry-row-edit-sale-platform-row .new-entry-field--stock-compact-price,
+  .stock-new-entry-row-edit-sale-platform-row .new-entry-field--stock-compact-date,
+  .stock-new-entry-row-edit-sale-platform-row .stock-edit-sold-platform-field,
+  .stock-new-entry-row-edit-sale-platform-row .stock-edit-write-off-field.new-entry-field {
+    flex: 1 1 100%;
+    max-width: 100%;
+    width: 100%;
+    align-self: stretch;
+  }
+
+  .stock-new-entry-row-edit-sale-platform-row .stock-edit-platform-write-off-divider {
+    flex: 0 0 auto;
+    width: 100%;
+    max-width: 100%;
+    height: 1px;
+    min-height: 1px;
+    max-height: 1px;
+    margin: 4px 0;
+    align-self: stretch;
+  }
+
+  .stock-new-entry-row-edit-sale-platform-row .stock-edit-platform-write-off-divider::after {
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: auto;
+    height: 1px;
+    transform: none;
+    border-radius: 1px;
+  }
+
+  .stock-entry-mobile-save-bar {
+    margin-top: 8px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(var(--theme-text-rgb), 0.12);
+  }
+
+  .stock-new-entry-row3-save,
+  .stock-new-entry-row3-save.stock-entry-mobile-save-bar,
+  .stock-edit-save-in-row4 {
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: 100%;
+    margin-left: 0;
+    align-items: stretch;
+    justify-content: stretch;
+  }
+
+  .stock-new-entry-row3-save .stock-new-entry-save-circle,
+  .stock-new-entry-row3-save .stock-mobile-action-btn,
+  .stock-new-entry-save-circle.stock-mobile-action-btn {
+    width: 100%;
+    max-width: 100%;
+    flex: 1 1 100%;
+    align-self: stretch;
+    display: flex;
+  }
+
+  .stock-new-entry-row3-save-label-spacer,
+  .stock-edit-save-in-row4-label-spacer {
+    display: none;
+  }
+
+  .stock-edit-bottom-action-buttons {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    gap: 10px;
+  }
+
+  .stock-mobile-action-btn {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    min-height: 48px;
+    height: auto;
+    padding: 12px 16px;
+    border-radius: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    box-sizing: border-box;
+  }
+
+  .stock-new-entry-save-circle.stock-mobile-action-btn {
+    width: 100%;
+    max-width: 100%;
+    border-radius: 14px;
+    background: rgba(140, 255, 195, 0.18);
+    border: 1px solid rgba(140, 255, 195, 0.32);
+    color: var(--color-positive-text);
+  }
+
+  .stock-edit-order-save-close-btn.stock-mobile-action-btn {
+    width: 100%;
+    max-width: 100%;
+    border-radius: 14px;
+  }
+
+  .save-button.stock-edit-save-disk.stock-mobile-action-btn {
+    width: 100%;
+    max-width: 100%;
+    border-radius: 14px;
+  }
+
+  .stock-mobile-action-btn-label {
+    display: inline;
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.04rem;
+    text-transform: uppercase;
+    line-height: 1.2;
+    text-align: center;
+  }
+
+  .stock-mobile-action-btn-icon {
+    flex-shrink: 0;
+  }
+
+  .new-entry-card {
+    padding-bottom: 24px;
+  }
+
+  .stock-new-entry-row-prices {
+    gap: 18px;
+  }
+
+  .stock-new-entry-row-ids .stock-new-entry-toggle-field > span:first-child,
+  .stock-new-entry-row-ids .stock-new-entry-id-field--ebay-draft > span:first-child,
+  .stock-new-entry-row-ids .stock-new-entry-id-field--bulky > span:first-child {
+    font-size: 0.72rem;
+    line-height: 1.25;
+    min-height: 28px;
   }
 }
 
@@ -3187,6 +3404,12 @@ button.stock-close-circle-btn:disabled {
   margin-bottom: 32px;
 }
 
+.stock-entry-form-top {
+  width: 100%;
+  margin: 0 0 24px;
+  box-sizing: border-box;
+}
+
 .stock-add-form-below-summary {
   margin: -12px 0 28px;
   width: 100%;
@@ -3679,7 +3902,7 @@ button.stock-close-circle-btn:disabled {
     min-width: 44px;
   }
 
-  .save-button.stock-edit-save-disk {
+  .save-button.stock-edit-save-disk:not(.stock-mobile-action-btn) {
     width: 48px;
     max-width: 48px;
   }

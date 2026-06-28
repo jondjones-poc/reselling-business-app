@@ -17,6 +17,18 @@ import { StockFormDropdown } from './StockFormDropdown';
 
 const API_BASE = getApiBase();
 
+function scrollStockEntryFormIntoView(formEl: HTMLDivElement | null) {
+  if (!formEl) return;
+  const navOffset = window.innerWidth <= 768 ? 100 : 90;
+  formEl.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });
+  window.setTimeout(() => {
+    const rect = formEl.getBoundingClientRect();
+    if (rect.top < navOffset + 8) {
+      window.scrollBy({ top: rect.top - navOffset - 8, behavior: 'smooth' });
+    }
+  }, 100);
+}
+
 type Nullable<T> = T | null | undefined;
 
 interface StockRow {
@@ -611,35 +623,16 @@ const Stock: React.FC = () => {
     });
   }, [defaultDepartmentId]);
 
-  // Scroll to entry form when it opens (edit at top, add below Next SKU)
+  // Scroll entry form to top of page when add/edit opens
   useEffect(() => {
     if (!showNewEntry || !editFormRef.current) return undefined;
 
-    const isMobile = window.innerWidth <= 768;
-    let innerScrollTimeoutId: ReturnType<typeof setTimeout> | undefined;
-    const outerScrollTimeoutId = setTimeout(() => {
-      if (!editFormRef.current) return;
-      editFormRef.current.scrollIntoView({
-        behavior: 'smooth',
-        block: isMobile ? 'center' : 'start',
-        inline: 'nearest',
-      });
-      if (isMobile) {
-        innerScrollTimeoutId = setTimeout(() => {
-          const rect = editFormRef.current?.getBoundingClientRect();
-          if (rect && rect.top < 120) {
-            window.scrollBy({
-              top: rect.top - 120,
-              behavior: 'smooth',
-            });
-          }
-        }, 100);
-      }
+    const timeoutId = window.setTimeout(() => {
+      scrollStockEntryFormIntoView(editFormRef.current);
     }, 200);
 
     return () => {
-      clearTimeout(outerScrollTimeoutId);
-      if (innerScrollTimeoutId != null) clearTimeout(innerScrollTimeoutId);
+      window.clearTimeout(timeoutId);
     };
   }, [showNewEntry, editingRowId]);
 
@@ -996,31 +989,13 @@ const Stock: React.FC = () => {
         }
         populateEditFormFromRow(rowToEdit);
 
-        let innerScrollTimeoutId: ReturnType<typeof setTimeout> | undefined;
-        const outerScrollTimeoutId = setTimeout(() => {
-          if (!editFormRef.current) return;
-          const isMobile = window.innerWidth <= 768;
-          editFormRef.current.scrollIntoView({
-            behavior: 'smooth',
-            block: isMobile ? 'center' : 'start',
-            inline: 'nearest',
-          });
-          if (isMobile) {
-            innerScrollTimeoutId = setTimeout(() => {
-              const rect = editFormRef.current?.getBoundingClientRect();
-              if (rect && rect.top < 120) {
-                window.scrollBy({
-                  top: rect.top - 120,
-                  behavior: 'smooth',
-                });
-              }
-            }, 100);
-          }
+        let scrollTimeoutId: ReturnType<typeof setTimeout> | undefined;
+        scrollTimeoutId = setTimeout(() => {
+          scrollStockEntryFormIntoView(editFormRef.current);
         }, 150);
 
         return () => {
-          clearTimeout(outerScrollTimeoutId);
-          if (innerScrollTimeoutId != null) clearTimeout(innerScrollTimeoutId);
+          if (scrollTimeoutId != null) clearTimeout(scrollTimeoutId);
         };
       } catch (err) {
         console.error('Failed to load stock row for edit:', err);
@@ -1506,29 +1481,8 @@ const Stock: React.FC = () => {
     populateEditFormFromRow(row);
     setStockEditIdInUrl(Number(row.id));
 
-    // Scroll to edit form after DOM updates - with better mobile support
     setTimeout(() => {
-      if (editFormRef.current) {
-        // Use 'center' for mobile to ensure form is fully visible
-        const isMobile = window.innerWidth <= 768;
-        editFormRef.current.scrollIntoView({
-          behavior: 'smooth',
-          block: isMobile ? 'center' : 'start',
-          inline: 'nearest',
-        });
-        // Additional scroll adjustment for mobile to account for fixed headers
-        if (isMobile) {
-          setTimeout(() => {
-            const rect = editFormRef.current?.getBoundingClientRect();
-            if (rect && rect.top < 120) {
-              window.scrollBy({
-                top: rect.top - 120,
-                behavior: 'smooth',
-              });
-            }
-          }, 100);
-        }
-      }
+      scrollStockEntryFormIntoView(editFormRef.current);
     }, 150);
   };
 
@@ -2073,7 +2027,7 @@ const Stock: React.FC = () => {
   };
 
   const renderInventoryWriteOffField = (fieldId: string) => (
-    <div className="new-entry-field stock-edit-write-off-field">
+    <div className="new-entry-field stock-edit-write-off-field stock-new-entry-toggle-field">
       <span className="stock-edit-write-off-field-label" id={`stock-write-off-field-label-${fieldId}`}>
         Inventory write-off
         <span className="stock-edit-write-off-muted"> (unsellable)</span>
@@ -2819,7 +2773,16 @@ const Stock: React.FC = () => {
                   placeholder="Optional"
                 />
               </label>
-              <label className="new-entry-field stock-new-entry-id-field stock-new-entry-id-field--ebay-draft">
+              <label className="new-entry-field stock-new-entry-id-field stock-new-entry-id-field--depop">
+                <span>Depop ID</span>
+                <input
+                  type="text"
+                  value={createForm.depop_id}
+                  onChange={(event) => handleCreateChange('depop_id', event.target.value)}
+                  placeholder="Optional"
+                />
+              </label>
+              <label className="new-entry-field stock-new-entry-id-field stock-new-entry-id-field--ebay-draft stock-new-entry-toggle-field">
                 <span>eBay draft</span>
                 <div className="stock-new-entry-bulky-input-skin">
                   <input
@@ -2832,16 +2795,7 @@ const Stock: React.FC = () => {
                   />
                 </div>
               </label>
-              <label className="new-entry-field stock-new-entry-id-field stock-new-entry-id-field--depop">
-                <span>Depop ID</span>
-                <input
-                  type="text"
-                  value={createForm.depop_id}
-                  onChange={(event) => handleCreateChange('depop_id', event.target.value)}
-                  placeholder="Optional"
-                />
-              </label>
-              <label className="new-entry-field stock-new-entry-id-field stock-new-entry-id-field--bulky">
+              <label className="new-entry-field stock-new-entry-id-field stock-new-entry-id-field--bulky stock-new-entry-toggle-field">
                 <span>Bulky item</span>
                 <div className="stock-new-entry-bulky-input-skin">
                   <input
@@ -2856,13 +2810,13 @@ const Stock: React.FC = () => {
               </label>
               {!editingRowId && renderInventoryWriteOffField('new')}
               {!editingRowId && (
-                <div className="stock-new-entry-row3-save">
+                <div className="stock-new-entry-row3-save stock-entry-mobile-save-bar">
                   <span className="stock-new-entry-row3-save-label-spacer" aria-hidden>
                     &nbsp;
                   </span>
                   <button
                     type="button"
-                    className="stock-new-entry-save-circle"
+                    className="stock-new-entry-save-circle stock-mobile-action-btn"
                     onClick={() => {
                       void handleCreateSubmit();
                     }}
@@ -2874,7 +2828,7 @@ const Stock: React.FC = () => {
                       <span className="stock-new-entry-save-spinner" aria-hidden />
                     ) : (
                       <svg
-                        className="stock-new-entry-save-icon"
+                        className="stock-new-entry-save-icon stock-mobile-action-btn-icon"
                         xmlns="http://www.w3.org/2000/svg"
                         width="18"
                         height="18"
@@ -2891,6 +2845,9 @@ const Stock: React.FC = () => {
                         <polyline points="7 3 7 8 15 8" />
                       </svg>
                     )}
+                    <span className="stock-mobile-action-btn-label">
+                      {creating ? 'Saving…' : 'Save item'}
+                    </span>
                   </button>
                 </div>
               )}
@@ -3085,14 +3042,14 @@ const Stock: React.FC = () => {
                       aria-hidden
                     />
                     {renderInventoryWriteOffField(String(editingRowId))}
-                    <div className="stock-edit-save-in-row4">
+                    <div className="stock-edit-save-in-row4 stock-entry-mobile-save-bar">
                       <span className="stock-edit-save-in-row4-label-spacer" aria-hidden>
                         &nbsp;
                       </span>
                       <div className="stock-edit-bottom-action-buttons">
                         <button
                           type="button"
-                          className={`stock-edit-order-save-close-btn${addingToOrder ? ' stock-edit-order-save-close-btn--busy' : ''}`}
+                          className={`stock-edit-order-save-close-btn stock-mobile-action-btn${addingToOrder ? ' stock-edit-order-save-close-btn--busy' : ''}`}
                           onClick={() => {
                             void handleCreateSubmit({ addToOrdersAfterSave: true });
                           }}
@@ -3111,12 +3068,17 @@ const Stock: React.FC = () => {
                           {creating || addingToOrder ? (
                             <span className="stock-edit-order-save-close-spinner" aria-hidden />
                           ) : (
-                            <SaveAddToOrderCloseIcon className="stock-edit-order-save-close-icon" />
+                            <SaveAddToOrderCloseIcon className="stock-edit-order-save-close-icon stock-mobile-action-btn-icon" />
                           )}
+                          <span className="stock-mobile-action-btn-label">
+                            {creating || addingToOrder
+                              ? 'Saving…'
+                              : 'Add to order, save & close'}
+                          </span>
                         </button>
                         <button
                           type="button"
-                          className="save-button stock-edit-save-disk"
+                          className="save-button stock-edit-save-disk stock-mobile-action-btn"
                           onClick={() => {
                             void handleCreateSubmit();
                           }}
@@ -3128,7 +3090,7 @@ const Stock: React.FC = () => {
                             <span className="stock-edit-save-disk-spinner" aria-hidden />
                           ) : (
                             <svg
-                              className="stock-edit-save-disk-icon"
+                              className="stock-edit-save-disk-icon stock-mobile-action-btn-icon"
                               xmlns="http://www.w3.org/2000/svg"
                               width="22"
                               height="22"
@@ -3145,6 +3107,9 @@ const Stock: React.FC = () => {
                               <polyline points="7 3 7 8 15 8" />
                             </svg>
                           )}
+                          <span className="stock-mobile-action-btn-label">
+                            {creating && !addingToOrder ? 'Saving…' : 'Save changes'}
+                          </span>
                         </button>
                       </div>
                     </div>
@@ -3159,7 +3124,9 @@ const Stock: React.FC = () => {
       {error && <div className="stock-error">{error}</div>}
       {successMessage && <div className="stock-success">{successMessage}</div>}
 
-      {editingRowId != null && stockEntryFormEl}
+      {showNewEntry && (
+        <div className="stock-entry-form-top">{stockEntryFormEl}</div>
+      )}
 
       {showCreateInsteadOfEditConfirm && (
         <div
@@ -3443,13 +3410,7 @@ const Stock: React.FC = () => {
               setSuccessMessage(null);
               clearStockEditIdFromUrl();
               setTimeout(() => {
-                if (!editFormRef.current) return;
-                const isMobile = window.innerWidth <= 768;
-                editFormRef.current.scrollIntoView({
-                  behavior: 'smooth',
-                  block: isMobile ? 'center' : 'start',
-                  inline: 'nearest',
-                });
+                scrollStockEntryFormIntoView(editFormRef.current);
               }, 200);
             }}
             disabled={showNewEntry || creating}
@@ -3705,10 +3666,6 @@ const Stock: React.FC = () => {
           <span className="summary-value">{stockTotalCount.toLocaleString()}</span>
         </div>
       </section>
-
-      {editingRowId == null && stockEntryFormEl && (
-        <div className="stock-add-form-below-summary">{stockEntryFormEl}</div>
-      )}
 
       {/* Desktop Table View + mobile cards — unmount while editing to avoid re-rendering thousands of rows on each keystroke */}
       {!showNewEntry && (

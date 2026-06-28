@@ -4042,6 +4042,11 @@ a.research-tab {
   line-height: 1.25;
 }
 
+.research-menswear-departments-mobile-trigger,
+.research-menswear-departments-backdrop {
+  display: none;
+}
+
 .research-menswear-department-box-meta {
   font-size: 0.68rem;
   font-weight: 500;
@@ -4052,6 +4057,115 @@ a.research-tab {
 .research-menswear-department-box--active .research-menswear-department-box-meta {
   color: var(--text-muted);
   opacity: 1;
+}
+
+@media (max-width: 768px) {
+  .research-menswear-departments {
+    position: relative;
+    padding: 0;
+    margin: 0 0 14px;
+    border-bottom: none;
+  }
+
+  .research-menswear-departments-mobile-trigger {
+    display: flex;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    justify-content: center;
+    text-transform: none;
+    font-size: 0.92rem;
+    letter-spacing: 0.02rem;
+    border-radius: 12px;
+    padding: 12px 14px;
+  }
+
+  .research-menswear-departments-drawer {
+    display: flex;
+    flex-direction: column;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    width: 100%;
+    max-width: 100%;
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    pointer-events: none;
+    background: var(--theme-nav-bg, var(--theme-dept-box-bg));
+    border: 1px solid rgba(var(--theme-accent-rgb), 0.28);
+    border-top: none;
+    border-radius: 0 0 12px 12px;
+    box-shadow: 0 14px 28px rgba(0, 0, 0, 0.35);
+    box-sizing: border-box;
+    transition: max-height 0.28s ease, opacity 0.2s ease;
+  }
+
+  .research-menswear-departments-drawer--open {
+    max-height: min(60dvh, 420px);
+    opacity: 1;
+    overflow-x: clip;
+    overflow-y: auto;
+    pointer-events: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .research-menswear-departments--menu-open .research-menswear-departments-mobile-trigger {
+    border-radius: 12px 12px 0 0;
+    border-bottom-color: transparent;
+  }
+
+  .research-menswear-departments-list {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    overflow-x: hidden;
+    overflow-y: visible;
+    gap: 8px;
+    padding: 10px;
+    justify-content: flex-start;
+  }
+
+  .research-menswear-departments--centered .research-menswear-departments-list {
+    justify-content: flex-start;
+  }
+
+  .research-menswear-departments-item {
+    width: 100%;
+  }
+
+  .research-menswear-department-box {
+    width: 100%;
+    max-width: 100%;
+    min-height: 44px;
+    justify-content: flex-start;
+    text-align: left;
+    white-space: normal;
+  }
+
+  .research-menswear-departments-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 999;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: rgba(0, 0, 0, 0.45);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    cursor: pointer;
+  }
+
+  .research-menswear-departments-backdrop--open {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 /* Sales by category overview: full-width link grid above charts (nothing can overlap the list). */

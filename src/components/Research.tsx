@@ -2121,6 +2121,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
   const [researchDepartments, setResearchDepartments] = useState<ResearchDepartmentRow[]>([]);
   const [researchDepartmentsLoading, setResearchDepartmentsLoading] = useState(false);
   const [researchDepartmentsError, setResearchDepartmentsError] = useState<string | null>(null);
+  const [researchDeptMenuOpen, setResearchDeptMenuOpen] = useState(false);
 
   /** Valid department for Sales by type tab: URL if known, else Menswear by name, else first department. */
   const resolvedClothingTypesDepartmentId = useMemo(() => {
@@ -7346,6 +7347,55 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     return 'automated';
   }, [searchParams]);
 
+  const researchActiveDepartmentLabel = useMemo((): string => {
+    if (researchTab === 'brand') {
+      if (brandResearchDepartmentFilterSelection === 'all') return 'All';
+      const id =
+        typeof brandResearchDepartmentFilterSelection === 'number'
+          ? brandResearchDepartmentFilterSelection
+          : brandResearchDepartmentFilterEffective;
+      if (id == null) return 'All';
+      return researchDepartments.find((d) => d.id === id)?.department_name ?? 'Department';
+    }
+    if (researchTab === 'menswear-categories' && menswearCategoryViewMode === 'ebay-niches') {
+      return 'All Categories';
+    }
+    if (researchTab === 'seasonal' && researchScopedDepartmentIdFromUrl == null) {
+      return 'All';
+    }
+    const activeId =
+      researchTab === 'clothing-types'
+        ? clothingTypesListDepartmentIdForApi
+        : researchTab === 'menswear-categories'
+          ? menswearCategoriesListDepartmentIdForApi
+          : researchTab === 'seasonal'
+            ? seasonalDepartmentIdForApi
+            : null;
+    if (activeId == null) {
+      return researchDepartments[0]?.department_name ?? 'Department';
+    }
+    return researchDepartments.find((d) => d.id === activeId)?.department_name ?? 'Department';
+  }, [
+    researchTab,
+    brandResearchDepartmentFilterSelection,
+    brandResearchDepartmentFilterEffective,
+    menswearCategoryViewMode,
+    researchScopedDepartmentIdFromUrl,
+    clothingTypesListDepartmentIdForApi,
+    menswearCategoriesListDepartmentIdForApi,
+    seasonalDepartmentIdForApi,
+    researchDepartments,
+  ]);
+
+  useEffect(() => {
+    setResearchDeptMenuOpen(false);
+  }, [
+    researchTab,
+    researchScopedDepartmentIdFromUrl,
+    brandResearchDepartmentFilterSelection,
+    menswearCategoryViewMode,
+  ]);
+
   const goToEbayNichesView = useCallback(() => {
     setSearchParams(
       (prev) => {
@@ -7963,7 +8013,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
               researchTab === 'brand' ||
               researchTab === 'menswear-categories'
                 ? ' research-menswear-departments--centered'
-                : '')
+                : '') +
+              (researchDeptMenuOpen ? ' research-menswear-departments--menu-open' : '')
             }
             role="navigation"
             aria-label={
@@ -7972,6 +8023,28 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                 : 'Filter research by business department'
             }
           >
+            <button
+              type="button"
+              className="research-menswear-departments-mobile-trigger nav-button"
+              aria-expanded={researchDeptMenuOpen}
+              aria-controls="research-dept-drawer"
+              aria-label={
+                researchDeptMenuOpen
+                  ? 'Close department menu'
+                  : `Open department menu — ${researchActiveDepartmentLabel}`
+              }
+              onClick={() => setResearchDeptMenuOpen((open) => !open)}
+            >
+              {researchActiveDepartmentLabel}
+            </button>
+            <div
+              id="research-dept-drawer"
+              className={
+                'research-menswear-departments-drawer' +
+                (researchDeptMenuOpen ? ' research-menswear-departments-drawer--open' : '')
+              }
+              aria-hidden={!researchDeptMenuOpen}
+            >
             <ul className="research-menswear-departments-list">
               {researchTab === 'seasonal' ? (
                 <li key="seasonal-department-all" className="research-menswear-departments-item">
@@ -7985,6 +8058,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                     }
                     aria-pressed={researchScopedDepartmentIdFromUrl == null}
                     onClick={() => {
+                      setResearchDeptMenuOpen(false);
                       setSearchParams((prev) => {
                         const next = new URLSearchParams(prev);
                         next.set('tab', 'seasonal');
@@ -8008,7 +8082,10 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                         : '')
                     }
                     aria-pressed={brandResearchDepartmentFilterSelection === 'all'}
-                    onClick={() => setBrandResearchDepartmentFilterSelection('all')}
+                    onClick={() => {
+                      setResearchDeptMenuOpen(false);
+                      setBrandResearchDepartmentFilterSelection('all');
+                    }}
                   >
                     <span className="research-menswear-department-box-name">All</span>
                   </button>
@@ -8025,7 +8102,10 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                         : '')
                     }
                     aria-pressed={menswearCategoryViewMode === 'ebay-niches'}
-                    onClick={goToEbayNichesView}
+                    onClick={() => {
+                      setResearchDeptMenuOpen(false);
+                      goToEbayNichesView();
+                    }}
                   >
                     <span className="research-menswear-department-box-name">All Categories</span>
                   </button>
@@ -8060,6 +8140,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                       }
                       aria-pressed={active}
                       onClick={() => {
+                        setResearchDeptMenuOpen(false);
                         if (researchTab === 'brand') {
                           setBrandResearchDepartmentFilterSelection(d.id);
                           return;
@@ -8088,6 +8169,17 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                 );
               })}
             </ul>
+            </div>
+            <button
+              type="button"
+              className={
+                'research-menswear-departments-backdrop' +
+                (researchDeptMenuOpen ? ' research-menswear-departments-backdrop--open' : '')
+              }
+              aria-label="Close department menu"
+              tabIndex={researchDeptMenuOpen ? 0 : -1}
+              onClick={() => setResearchDeptMenuOpen(false)}
+            />
           </nav>
         )}
       {researchTab === 'brand' && (

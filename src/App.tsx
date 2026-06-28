@@ -128,7 +128,6 @@ function App() {
   }, [mobileNavOpen]);
 
   const closeMobileNav = () => setMobileNavOpen(false);
-  const openMobileNav = () => setMobileNavOpen(true);
   const mobileBarLabel = mobileNavLabel(location.pathname);
   const mobileBarActive = navItems.some((item) => isMobileNavItemActive(location.pathname, item));
 
@@ -163,21 +162,10 @@ function App() {
                 className={navLinkClassName(mobileBarActive, 'nav-mobile-home')}
                 aria-expanded={mobileNavOpen}
                 aria-controls="mobile-nav-drawer"
-                onClick={openMobileNav}
-              >
-                {mobileBarLabel}
-              </button>
-              <button
-                type="button"
-                className={`nav-burger${mobileNavOpen ? ' nav-burger--open' : ''}`}
-                aria-label={mobileNavOpen ? 'Close menu' : 'Open menu'}
-                aria-expanded={mobileNavOpen}
-                aria-controls="mobile-nav-drawer"
+                aria-label={mobileNavOpen ? 'Close menu' : `Open menu — ${mobileBarLabel}`}
                 onClick={() => setMobileNavOpen((open) => !open)}
               >
-                <span className="nav-burger-line" aria-hidden />
-                <span className="nav-burger-line" aria-hidden />
-                <span className="nav-burger-line" aria-hidden />
+                {mobileBarLabel}
               </button>
             </div>
           </div>

@@ -195,6 +195,35 @@
   vertical-align: middle;
 }
 
+.orders-sales-summary-sortable {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.orders-sales-summary-sortable:hover {
+  color: var(--text-strong);
+}
+
+.orders-sales-summary-sort-indicator {
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+
+.orders-sales-summary-sortable.sorted-asc .orders-sales-summary-sort-indicator,
+.orders-sales-summary-sortable.sorted-desc .orders-sales-summary-sort-indicator {
+  color: var(--neon-primary-strong);
+  opacity: 1;
+}
+
 .orders-sales-summary-table th:first-child,
 .orders-sales-summary-table td.orders-sales-summary-sku-cell {
   width: 4.5rem;

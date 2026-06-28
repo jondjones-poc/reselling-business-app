@@ -710,6 +710,12 @@ body {
 
   .nav-mobile-bar {
     display: flex;
+    justify-content: stretch;
+  }
+
+  .nav-mobile-home {
+    width: 100%;
+    max-width: 100%;
   }
 
   .nav-drawer-backdrop {

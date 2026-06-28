@@ -53,6 +53,8 @@ function stockIsBulky(row: StockRow | OrderItem): boolean {
 
 type OrdersTab = 'to-pack' | 'sales' | 'sales-summary';
 type SalesSummaryPeriodMode = 'week' | 'month';
+type SalesSummarySortKey = 'sale_price' | 'buy_price' | 'profit';
+type SalesSummarySortConfig = { key: SalesSummarySortKey; direction: 'asc' | 'desc' };
 
 const SALES_SUMMARY_WEEKS_BACK = 9;
 const SALES_SUMMARY_MONTHS_BACK = 12;
@@ -215,6 +217,43 @@ function soldPlatformListingHref(row: StockRow): { href: string; platform: strin
   const vinted = vintedListingHref(row.vinted_id);
   if (vinted) return { href: vinted, platform: 'Vinted' };
   return null;
+}
+
+function toPackSoldPlatformListingHref(
+  item: Pick<OrderItem, 'sold_platform' | 'ebay_id' | 'vinted_id'>
+): { href: string; platform: string } | null {
+  const platformRaw = item.sold_platform?.trim() ?? '';
+  if (!platformRaw) return null;
+  const pl = platformRaw.toLowerCase();
+  if (pl.includes('ebay') || platformRaw === 'eBay') {
+    const href = ebayListingHref(item.ebay_id);
+    if (href) return { href, platform: 'eBay' };
+  }
+  if (pl.includes('vinted') || platformRaw === 'Vinted') {
+    const href = vintedListingHref(item.vinted_id);
+    if (href) return { href, platform: 'Vinted' };
+  }
+  return null;
+}
+
+function ToPackPlatformCell({
+  item,
+  getListingPlatform,
+}: {
+  item: OrderItem;
+  getListingPlatform: (vinted_id: Nullable<string>, ebay_id: Nullable<string>) => string;
+}): React.ReactElement {
+  const listing = toPackSoldPlatformListingHref(item);
+  if (listing) {
+    return (
+      <SalesSummaryPlatformLink listing={listing}>
+        {listing.platform}
+      </SalesSummaryPlatformLink>
+    );
+  }
+  const soldPlatform = item.sold_platform?.trim();
+  if (soldPlatform) return <>{soldPlatform}</>;
+  return <>{getListingPlatform(item.vinted_id, item.ebay_id)}</>;
 }
 
 /** Compact eBay wordmark (brand colors) for buttons — not an official asset; typographic approximation. */
@@ -736,6 +775,8 @@ const Orders: React.FC = () => {
   const [salesSummaryMonthKey, setSalesSummaryMonthKey] = useState(() => monthKey(new Date()));
   const [salesSummaryPeriodMode, setSalesSummaryPeriodMode] =
     useState<SalesSummaryPeriodMode>('week');
+  const [salesSummarySortConfig, setSalesSummarySortConfig] =
+    useState<SalesSummarySortConfig | null>(null);
   const [vintedEbayCheckLoading, setVintedEbayCheckLoading] = useState(false);
   const [vintedEbayViolations, setVintedEbayViolations] = useState<VintedEbayViolation[]>([]);
   const [vintedEbayCheckError, setVintedEbayCheckError] = useState<string | null>(null);
@@ -1371,14 +1412,48 @@ const Orders: React.FC = () => {
   const salesSummaryRows = useMemo(() => {
     if (!salesSummaryPeriod) return [];
     const { rangeStart, rangeEnd } = salesSummaryPeriod;
-    return soldRows
-      .filter((r) => soldRowInDateRange(r, rangeStart, rangeEnd))
-      .sort((a, b) => {
-        const da = parseSoldRowDate(a)?.getTime() ?? 0;
-        const db = parseSoldRowDate(b)?.getTime() ?? 0;
-        return db - da;
-      });
-  }, [soldRows, salesSummaryPeriod]);
+    const rows = soldRows.filter((r) => soldRowInDateRange(r, rangeStart, rangeEnd));
+
+    const compareBySaleDateDesc = (a: StockRow, b: StockRow) => {
+      const da = parseSoldRowDate(a)?.getTime() ?? 0;
+      const db = parseSoldRowDate(b)?.getTime() ?? 0;
+      return db - da;
+    };
+
+    const numericSortValue = (row: StockRow, key: SalesSummarySortKey): number | null => {
+      if (key === 'sale_price') {
+        const { sale } = computeStockInfoPanelMetrics(row);
+        return Number.isNaN(sale) ? null : sale;
+      }
+      if (key === 'buy_price') {
+        const purchase =
+          row.purchase_price !== null && row.purchase_price !== undefined
+            ? Number(row.purchase_price)
+            : NaN;
+        return Number.isNaN(purchase) ? null : purchase;
+      }
+      const { profit } = computeStockInfoPanelMetrics(row);
+      return Number.isNaN(profit) ? null : profit;
+    };
+
+    if (!salesSummarySortConfig) {
+      return [...rows].sort(compareBySaleDateDesc);
+    }
+
+    const { key, direction } = salesSummarySortConfig;
+    const multiplier = direction === 'asc' ? 1 : -1;
+
+    return [...rows].sort((a, b) => {
+      const aValue = numericSortValue(a, key);
+      const bValue = numericSortValue(b, key);
+
+      if (aValue === null && bValue === null) return compareBySaleDateDesc(a, b);
+      if (aValue === null) return 1;
+      if (bValue === null) return -1;
+      if (aValue === bValue) return compareBySaleDateDesc(a, b);
+      return (aValue - bValue) * multiplier;
+    });
+  }, [soldRows, salesSummaryPeriod, salesSummarySortConfig]);
 
   const salesSummaryTotals = useMemo(() => {
     let totalSales = 0;
@@ -1419,6 +1494,29 @@ const Orders: React.FC = () => {
       ),
     };
   }, [salesSummaryRows]);
+
+  useEffect(() => {
+    setSalesSummarySortConfig(null);
+  }, [salesSummaryWeekKey, salesSummaryMonthKey, salesSummaryPeriodMode]);
+
+  const handleSalesSummarySort = (key: SalesSummarySortKey) => {
+    setSalesSummarySortConfig((current) => {
+      if (!current || current.key !== key) {
+        return { key, direction: 'asc' };
+      }
+      if (current.direction === 'asc') {
+        return { key, direction: 'desc' };
+      }
+      return null;
+    });
+  };
+
+  const salesSummarySortIndicator = (key: SalesSummarySortKey) => {
+    if (!salesSummarySortConfig || salesSummarySortConfig.key !== key) {
+      return '⇅';
+    }
+    return salesSummarySortConfig.direction === 'asc' ? '↑' : '↓';
+  };
 
   const exportSalesSummaryToCSV = useCallback(() => {
     if (salesSummaryRows.length === 0 || !salesSummaryPeriod) return;
@@ -2357,8 +2455,6 @@ const Orders: React.FC = () => {
               </thead>
               <tbody>
                 {orderItems.map((item) => {
-                  const isEbaySold = item.sold_platform === 'eBay' && item.ebay_id;
-                  const isVintedSold = item.sold_platform === 'Vinted' && item.vinted_id;
                   const itemName = item.item_name || '—';
                   const packBulky = stockIsBulky(item);
                   const packRowClass = packBulky ? 'orders-row--bulky' : undefined;
@@ -2372,36 +2468,24 @@ const Orders: React.FC = () => {
                         </div>
                       </td>
                       <td>
-                        {isEbaySold ? (
-                          <a
-                            href={`https://www.ebay.co.uk/itm/${item.ebay_id}`}
+                        {item.item_name?.trim() ? (
+                          <Link
+                            to={`/stock?editId=${item.id}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            style={{
-                              color: 'var(--neon-primary-strong)',
-                              cursor: 'pointer'
-                            }}
+                            className="orders-sales-stock-name-link"
+                            title={`Edit item ${item.id} in Stock`}
                           >
                             {itemName}
-                          </a>
-                        ) : isVintedSold ? (
-                          <a
-                            href={`https://www.vinted.co.uk/items/${item.vinted_id}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                              color: 'var(--neon-primary-strong)',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            {itemName}
-                          </a>
+                          </Link>
                         ) : (
-                          itemName
+                          <span className="orders-table-dash">—</span>
                         )}
                       </td>
                       <td>{formatCurrency(item.purchase_price)}</td>
-                      <td>{getListingPlatform(item.vinted_id, item.ebay_id)}</td>
+                      <td>
+                        <ToPackPlatformCell item={item} getListingPlatform={getListingPlatform} />
+                      </td>
                       <td>
                         <div style={{ display: 'flex', gap: '8px' }}>
                           <button
@@ -2434,8 +2518,6 @@ const Orders: React.FC = () => {
           {/* Mobile Card View */}
           <div className="orders-cards-wrapper">
             {orderItems.map((item) => {
-              const isEbaySold = item.sold_platform === 'eBay' && item.ebay_id;
-              const isVintedSold = item.sold_platform === 'Vinted' && item.vinted_id;
               const itemName = item.item_name || '—';
               const packBulky = stockIsBulky(item);
 
@@ -2461,24 +2543,16 @@ const Orders: React.FC = () => {
                     <div className="orders-card-field">
                       <span className="orders-card-label">Item Name:</span>
                       <span className="orders-card-value">
-                        {isEbaySold ? (
-                          <a
-                            href={`https://www.ebay.co.uk/itm/${item.ebay_id}`}
+                        {item.item_name?.trim() ? (
+                          <Link
+                            to={`/stock?editId=${item.id}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="orders-card-link"
+                            className="orders-sales-stock-name-link"
+                            title={`Edit item ${item.id} in Stock`}
                           >
                             {itemName}
-                          </a>
-                        ) : isVintedSold ? (
-                          <a
-                            href={`https://www.vinted.co.uk/items/${item.vinted_id}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="orders-card-link"
-                          >
-                            {itemName}
-                          </a>
+                          </Link>
                         ) : (
                           itemName
                         )}
@@ -2490,7 +2564,9 @@ const Orders: React.FC = () => {
                     </div>
                     <div className="orders-card-field">
                       <span className="orders-card-label">Platform:</span>
-                      <span className="orders-card-value">{getListingPlatform(item.vinted_id, item.ebay_id)}</span>
+                      <span className="orders-card-value">
+                        <ToPackPlatformCell item={item} getListingPlatform={getListingPlatform} />
+                      </span>
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
@@ -3611,9 +3687,78 @@ const Orders: React.FC = () => {
                   <tr>
                     <th>SKU</th>
                     <th>Products Sold</th>
-                    <th>Sale price</th>
-                    <th>Buy price</th>
-                    <th>Profit</th>
+                    <th
+                      aria-sort={
+                        salesSummarySortConfig?.key === 'sale_price'
+                          ? salesSummarySortConfig.direction === 'asc'
+                            ? 'ascending'
+                            : 'descending'
+                          : 'none'
+                      }
+                    >
+                      <button
+                        type="button"
+                        className={`orders-sales-summary-sortable${
+                          salesSummarySortConfig?.key === 'sale_price'
+                            ? ` sorted-${salesSummarySortConfig.direction}`
+                            : ''
+                        }`}
+                        onClick={() => handleSalesSummarySort('sale_price')}
+                      >
+                        Sale price
+                        <span className="orders-sales-summary-sort-indicator">
+                          {salesSummarySortIndicator('sale_price')}
+                        </span>
+                      </button>
+                    </th>
+                    <th
+                      aria-sort={
+                        salesSummarySortConfig?.key === 'buy_price'
+                          ? salesSummarySortConfig.direction === 'asc'
+                            ? 'ascending'
+                            : 'descending'
+                          : 'none'
+                      }
+                    >
+                      <button
+                        type="button"
+                        className={`orders-sales-summary-sortable${
+                          salesSummarySortConfig?.key === 'buy_price'
+                            ? ` sorted-${salesSummarySortConfig.direction}`
+                            : ''
+                        }`}
+                        onClick={() => handleSalesSummarySort('buy_price')}
+                      >
+                        Buy price
+                        <span className="orders-sales-summary-sort-indicator">
+                          {salesSummarySortIndicator('buy_price')}
+                        </span>
+                      </button>
+                    </th>
+                    <th
+                      aria-sort={
+                        salesSummarySortConfig?.key === 'profit'
+                          ? salesSummarySortConfig.direction === 'asc'
+                            ? 'ascending'
+                            : 'descending'
+                          : 'none'
+                      }
+                    >
+                      <button
+                        type="button"
+                        className={`orders-sales-summary-sortable${
+                          salesSummarySortConfig?.key === 'profit'
+                            ? ` sorted-${salesSummarySortConfig.direction}`
+                            : ''
+                        }`}
+                        onClick={() => handleSalesSummarySort('profit')}
+                      >
+                        Profit
+                        <span className="orders-sales-summary-sort-indicator">
+                          {salesSummarySortIndicator('profit')}
+                        </span>
+                      </button>
+                    </th>
                     <th>Listing</th>
                   </tr>
                 </thead>
