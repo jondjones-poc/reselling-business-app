@@ -2852,7 +2852,9 @@ const Stock: React.FC = () => {
                 </div>
               )}
             </div>
-            {editingRowId && (
+          </div>
+          {editingRowId && (
+            <div className="stock-new-entry-edit-sale-section">
               <div className="stock-new-entry-row-edit-sale-platform-row">
                   <label className="new-entry-field new-entry-field--stock-compact-price">
                     <span>My Sales Price (£)</span>
@@ -3114,8 +3116,8 @@ const Stock: React.FC = () => {
                       </div>
                     </div>
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
   ) : null;
 

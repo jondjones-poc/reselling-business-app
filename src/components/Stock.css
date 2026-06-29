@@ -581,29 +581,56 @@
   margin-left: auto;
 }
 
-/* Narrow edit card: stack sold platform, keep write-off + save on one logical line */
+/* Edit sale fields sit below marketplace IDs — own block, not inside .new-entry-grid flex */
+.stock-new-entry-edit-sale-section {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin-top: 4px;
+}
+
+/* Narrow edit card: stack all sale fields vertically */
 @container stock-edit-card (max-width: 720px) {
   .stock-new-entry-row-edit-sale-platform-row {
-    flex-wrap: wrap;
-    row-gap: 10px;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    row-gap: 12px;
   }
 
-  .stock-new-entry-row-edit-sale-platform-row .stock-edit-sold-platform-field {
+  .stock-new-entry-row-edit-sale-platform-row .new-entry-field--stock-compact-price,
+  .stock-new-entry-row-edit-sale-platform-row .new-entry-field--stock-compact-date,
+  .stock-new-entry-row-edit-sale-platform-row .stock-edit-sold-platform-field,
+  .stock-new-entry-row-edit-sale-platform-row .stock-edit-write-off-field.new-entry-field,
+  .stock-new-entry-row-edit-sale-platform-row .stock-edit-save-in-row4 {
     flex: 1 1 100%;
+    width: 100%;
     max-width: 100%;
-  }
-
-  .stock-new-entry-row-edit-sale-platform-row .stock-edit-write-off-field.new-entry-field {
-    flex: 1 1 auto;
     min-width: 0;
-    max-width: calc(100% - 64px);
+    margin-left: 0;
     align-self: stretch;
   }
 
-  .stock-new-entry-row-edit-sale-platform-row .stock-edit-save-in-row4 {
+  .stock-new-entry-row-edit-sale-platform-row .stock-edit-platform-write-off-divider {
     flex: 0 0 auto;
-    margin-left: auto;
-    align-self: flex-end;
+    width: 100%;
+    max-width: 100%;
+    height: 1px;
+    min-height: 1px;
+    max-height: 1px;
+    margin: 4px 0;
+    align-self: stretch;
+  }
+
+  .stock-new-entry-row-edit-sale-platform-row .stock-edit-platform-write-off-divider::after {
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: auto;
+    height: 1px;
+    transform: none;
+    border-radius: 1px;
   }
 }
 
@@ -2371,6 +2398,53 @@ button.stock-close-circle-btn:disabled {
     gap: 18px;
   }
 
+  /* Edit row 1: Add to orders, Image Prompt, Instagram Prompt — one per row, full width */
+  .stock-new-entry-top-bar-row-1--edit {
+    flex-wrap: wrap;
+    overflow-x: visible;
+    align-items: stretch;
+    row-gap: 12px;
+  }
+
+  .stock-new-entry-top-bar-edit-actions {
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    order: 2;
+  }
+
+  .stock-new-entry-top-bar-row-1--edit .stock-new-entry-top-bar-left {
+    order: 1;
+  }
+
+  .stock-new-entry-top-bar-row-1--edit .stock-new-entry-top-bar-metrics {
+    order: 3;
+    flex: 1 1 100%;
+    max-width: 100%;
+    justify-items: stretch;
+  }
+
+  .stock-new-entry-top-bar-row-1--edit .stock-new-entry-top-bar-edit-end {
+    order: 4;
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .stock-new-entry-top-bar-edit-actions .stock-add-to-order-btn.stock-edit-row-1-add-to-order,
+  .stock-new-entry-top-bar-edit-actions .stock-image-prompt-btn.stock-edit-row-1-image-prompt,
+  .stock-new-entry-top-bar-edit-actions .stock-instagram-ai-button.stock-edit-row-1-instagram {
+    width: 100%;
+    max-width: 100%;
+    flex: 0 0 auto;
+    align-self: stretch;
+    box-sizing: border-box;
+  }
+
   .stock-new-entry-row-ids,
   .stock-new-entry-row-ids:not(.stock-new-entry-row-ids--edit-marketplace),
   .stock-new-entry-row-ids.stock-new-entry-row-ids--edit-marketplace {
@@ -2441,15 +2515,36 @@ button.stock-close-circle-btn:disabled {
     flex-direction: column;
     align-items: stretch;
     gap: 18px;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .stock-new-entry-edit-sale-section {
+    margin-top: 10px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(var(--theme-text-rgb), 0.12);
+    position: relative;
+    z-index: 2;
+  }
+
+  .stock-new-entry-row-ids.stock-new-entry-row-ids--edit-marketplace {
+    position: relative;
+    z-index: 1;
+    margin-bottom: 2px;
   }
 
   .stock-new-entry-row-edit-sale-platform-row .new-entry-field--stock-compact-price,
   .stock-new-entry-row-edit-sale-platform-row .new-entry-field--stock-compact-date,
   .stock-new-entry-row-edit-sale-platform-row .stock-edit-sold-platform-field,
-  .stock-new-entry-row-edit-sale-platform-row .stock-edit-write-off-field.new-entry-field {
+  .stock-new-entry-row-edit-sale-platform-row .stock-edit-write-off-field.new-entry-field,
+  .stock-new-entry-row-edit-sale-platform-row .stock-edit-save-in-row4 {
     flex: 1 1 100%;
     max-width: 100%;
     width: 100%;
+    min-width: 0;
+    margin-left: 0;
     align-self: stretch;
   }
 

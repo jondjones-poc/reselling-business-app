@@ -8333,6 +8333,114 @@ app.post('/api/stock/:id/ebay-relist/confirm', async (req, res) => {
   }
 });
 
+function vintedPublicItemUrl(vintedIdRaw) {
+  if (vintedIdRaw == null || vintedIdRaw === '') return null;
+  const s = String(vintedIdRaw).trim();
+  if (!s) return null;
+  if (/^https?:\/\//i.test(s)) return s;
+  return `https://www.vinted.co.uk/items/${encodeURIComponent(s.replace(/^\/+/, ''))}`;
+}
+
+/** True when the Vinted item page responds (not HTTP 404). */
+async function fetchVintedItemPageStillExists(vintedIdRaw) {
+  const url = vintedPublicItemUrl(vintedIdRaw);
+  if (!url) {
+    return { ok: false, stillListed: null, url: null, httpStatus: null, error: 'invalid_vinted_id' };
+  }
+  const response = await fetch(url, {
+    method: 'GET',
+    redirect: 'follow',
+    headers: {
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'User-Agent':
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+    }
+  });
+  if (response.status === 404) {
+    return { ok: true, stillListed: false, url, httpStatus: 404, error: null };
+  }
+  if (!response.ok) {
+    return {
+      ok: false,
+      stillListed: null,
+      url,
+      httpStatus: response.status,
+      error: `Vinted HTTP ${response.status}`
+    };
+  }
+  return { ok: true, stillListed: true, url, httpStatus: response.status, error: null };
+}
+
+/**
+ * POST — Check one eBay-sold stock row: does its Vinted listing page still exist (not HTTP 404)?
+ */
+app.post('/api/stock/:id/ebay-sold-vinted-active-check', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const stockId = Number.parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(stockId) || stockId <= 0) {
+      return res.status(400).json({ error: 'Invalid stock id' });
+    }
+
+    const stockResult = await pool.query(
+      `SELECT id, item_name, ebay_id, vinted_id, sold_platform, sale_date
+       FROM stock
+       WHERE id = $1`,
+      [stockId]
+    );
+    const row = stockResult.rows?.[0];
+    if (!row) {
+      return res.status(404).json({ error: 'Stock row not found' });
+    }
+
+    const soldPlatform = String(row.sold_platform ?? '').trim().toLowerCase();
+    const isEbaySold = soldPlatform === 'ebay' || soldPlatform.includes('ebay');
+    const hasVintedId = row.vinted_id != null && String(row.vinted_id).trim() !== '';
+
+    if (!isEbaySold || !hasVintedId) {
+      return res.json({ still_on_vinted: false, reason: 'not_applicable' });
+    }
+
+    const outcome = await fetchVintedItemPageStillExists(row.vinted_id);
+    if (!outcome.ok) {
+      return res.status(502).json({
+        error: 'Vinted check failed',
+        details: outcome.error || 'Vinted request failed',
+        still_on_vinted: false,
+        httpStatus: outcome.httpStatus ?? null
+      });
+    }
+
+    if (outcome.stillListed !== true) {
+      return res.json({
+        still_on_vinted: false,
+        reason: 'vinted_not_found',
+        vinted_url: outcome.url
+      });
+    }
+
+    res.json({
+      still_on_vinted: true,
+      id: row.id,
+      item_name: row.item_name ?? null,
+      ebay_id: row.ebay_id ?? null,
+      vinted_id: row.vinted_id ?? null,
+      vinted_url: outcome.url
+    });
+  } catch (error) {
+    console.error('ebay-sold-vinted-active-check (single) failed:', error);
+    res.status(500).json({
+      error: 'Check failed',
+      details: error instanceof Error ? error.message : String(error),
+      still_on_vinted: false
+    });
+  }
+});
+
 /**
  * POST — Check one Vinted-sold stock row: is its eBay listing still buyable (duplicate listing)?
  */

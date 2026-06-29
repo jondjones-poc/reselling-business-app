@@ -757,6 +757,10 @@
   border-color: var(--theme-action-btn-border, rgba(var(--theme-accent-rgb), 0.4));
 }
 
+.orders-sales-grid-progress__bar--vinted {
+  background: linear-gradient(90deg, rgba(9, 177, 186, 0.88), rgba(94, 234, 212, 0.95));
+}
+
 /* Match Stock edit / new-entry selects (.new-entry-field select + .new-entry-select) */
 .orders-sales-platform-select {
   appearance: none;
@@ -960,8 +964,22 @@
   display: block;
 }
 
+.orders-vinted-check-logo {
+  width: 44px;
+  height: auto;
+  flex-shrink: 0;
+  display: block;
+}
+
 .orders-unlist-ebay-label {
   line-height: 1.2;
+}
+
+.orders-gents-rail-logo {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  display: block;
 }
 
 .orders-ebay-oauth-row {
@@ -1197,6 +1215,14 @@
 
 .orders-sales-table .orders-table tbody tr.orders-sales-row--ebay-fix-needed:hover td {
   background: rgba(255, 100, 70, 0.24) !important;
+}
+
+.orders-sales-table .orders-table tbody tr.orders-sales-row--vinted-still-listed td {
+  background: rgba(45, 212, 191, 0.14) !important;
+}
+
+.orders-sales-table .orders-table tbody tr.orders-sales-row--vinted-still-listed:hover td {
+  background: rgba(45, 212, 191, 0.22) !important;
 }
 
 .orders-sales-table .orders-table tbody tr.orders-sales-row--ebay-unlisted td {
@@ -1527,6 +1553,52 @@
   width: 36px;
 }
 
+.orders-topack-vinted-still-flag {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(9, 177, 186, 0.45);
+  background: rgba(9, 177, 186, 0.1);
+  box-shadow: 0 0 18px rgba(9, 177, 186, 0.12);
+}
+
+.orders-topack-vinted-still-flag__title {
+  margin: 0 0 6px;
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0.04rem;
+  text-transform: uppercase;
+  color: #5eead4;
+}
+
+.orders-topack-vinted-still-flag__text {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: rgba(var(--theme-text-rgb), 0.82);
+}
+
+.orders-topack-open-vinted-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  border-color: rgba(9, 177, 186, 0.48);
+  background: rgba(9, 177, 186, 0.12);
+  color: #5eead4;
+}
+
+.orders-topack-open-vinted-button:hover {
+  border-color: rgba(9, 177, 186, 0.72);
+  background: rgba(9, 177, 186, 0.2);
+  box-shadow: 0 0 18px rgba(9, 177, 186, 0.22);
+  color: #99f6e4;
+}
+
+.orders-topack-open-vinted-button .orders-vinted-check-logo {
+  width: 46px;
+}
+
 @media (max-width: 720px) {
   .orders-relist-modal-layout {
     grid-template-columns: 1fr;
@@ -1718,93 +1790,6 @@
 
 .orders-sales-table--ending-this-week .orders-sales-relist-edit-link {
   font-size: 0.72rem;
-}
-
-.orders-sales-missing-online-id-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-  padding: 4px 2px;
-}
-
-.orders-sales-missing-online-id-toggle-label {
-  font-size: 0.88rem;
-  font-weight: 600;
-  color: rgba(var(--theme-text-rgb), 0.78);
-  white-space: nowrap;
-}
-
-.orders-sales-missing-online-id-switch {
-  position: relative;
-  width: 46px;
-  height: 26px;
-  border-radius: 999px;
-  border: 1px solid rgba(var(--theme-text-rgb), 0.28);
-  background: rgba(var(--theme-text-rgb), 0.1);
-  padding: 0;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition:
-    background 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
-}
-
-.orders-sales-missing-online-id-switch:hover {
-  border-color: rgba(var(--theme-text-rgb), 0.42);
-  background: rgba(var(--theme-text-rgb), 0.16);
-}
-
-.orders-sales-missing-online-id-switch--on {
-  background: rgba(255, 100, 70, 0.55);
-  border-color: rgba(255, 160, 120, 0.75);
-  box-shadow:
-    inset 0 0 10px rgba(255, 100, 70, 0.25),
-    0 0 12px rgba(255, 100, 70, 0.2);
-}
-
-.orders-sales-missing-online-id-switch--on:hover {
-  background: rgba(255, 100, 70, 0.65);
-  border-color: rgba(255, 160, 120, 0.85);
-}
-
-.orders-sales-missing-online-id-switch-thumb {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: rgba(var(--theme-text-rgb), 0.92);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
-  transition: transform 0.2s ease;
-}
-
-.orders-sales-missing-online-id-switch--on .orders-sales-missing-online-id-switch-thumb {
-  transform: translateX(20px);
-}
-
-.orders-sales-missing-online-id-toggle-state {
-  min-width: 1.6rem;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: rgba(var(--theme-text-rgb), 0.42);
-}
-
-.orders-sales-missing-online-id-toggle-state--on {
-  color: #ffb89a;
-}
-
-.orders-sales-missing-online-id-switch:focus {
-  outline: none;
-}
-
-.orders-sales-missing-online-id-switch:focus-visible {
-  outline: 2px solid rgba(var(--theme-accent-rgb), 0.65);
-  outline-offset: 2px;
 }
 
 .orders-sales-info-button {

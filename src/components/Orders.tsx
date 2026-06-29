@@ -21,7 +21,7 @@ interface StockRow {
   vinted_id: Nullable<string>;
   ebay_id: Nullable<string>;
   depop_id: Nullable<string>;
-  brand_id: Nullable<number>;
+  brand_id: Nullable<number | string>;
   category_id: Nullable<number>;
   is_bulky_item?: Nullable<boolean>;
   is_ebay_draft?: Nullable<boolean>;
@@ -40,7 +40,7 @@ interface OrderItem {
   ebay_id: Nullable<string>;
   depop_id: Nullable<string>;
   sold_platform: Nullable<string>;
-  brand_id: Nullable<number>;
+  brand_id: Nullable<number | string>;
   category_id: Nullable<number>;
   is_bulky_item?: Nullable<boolean>;
 }
@@ -58,6 +58,7 @@ type SalesSummarySortConfig = { key: SalesSummarySortKey; direction: 'asc' | 'de
 
 const SALES_SUMMARY_WEEKS_BACK = 9;
 const SALES_SUMMARY_MONTHS_BACK = 12;
+const SALES_LISTING_DATE_MONTHS_BACK = 12;
 const SALES_PAGE_SIZE = 40;
 
 function parseOrdersTabParam(raw: string | null): OrdersTab {
@@ -66,7 +67,14 @@ function parseOrdersTabParam(raw: string | null): OrdersTab {
   return 'to-pack';
 }
 
-type SalesEbayGridMode = 'none' | 'unlist-ebay' | 'missing-ebay-order' | 'ending-this-week';
+type SalesEbayGridMode = 'none' | 'unlist-ebay' | 'missing-ebay-order' | 'ending-this-week' | 'vinted-check';
+
+const VINTED_CHECK_BASE_DELAY_MS = 2500;
+const VINTED_CHECK_JITTER_MS = 1500;
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
 
 function weekMondayKey(d: Date): string {
   const { weekStart } = getMondayToSundayBounds(d);
@@ -285,6 +293,64 @@ function EbayLogoIcon({ className }: { className?: string }) {
   );
 }
 
+/** Vinted badge + wordmark for toolbar actions — typographic approximation of brand styling. */
+function VintedLogoIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 74 18"
+      width={74}
+      height={18}
+      aria-hidden
+      focusable="false"
+    >
+      <rect x="0" y="1" width="16" height="16" rx="3.5" fill="#09B1BA" />
+      <path d="M8 4.2 5.9 8.5 8 12.8 10.1 8.5 8 4.2Z" fill="#fff" />
+      <circle cx="8" cy="8.5" r="1.15" fill="#09B1BA" />
+      <text
+        x="20"
+        y="13.6"
+        fontFamily="Arial, Helvetica, sans-serif"
+        fontSize="13.5"
+        fontWeight="700"
+        letterSpacing="-0.03em"
+        fill="#09B1BA"
+      >
+        Vinted
+      </text>
+    </svg>
+  );
+}
+
+function GentsRailLogoIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 32 32"
+      width={28}
+      height={28}
+      aria-hidden
+      focusable="false"
+    >
+      <defs>
+        <linearGradient id="gents-rail-gold" x1="6" y1="6" x2="26" y2="26" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#ffe48c" />
+          <stop offset="100%" stopColor="#ffd65b" />
+        </linearGradient>
+      </defs>
+      <rect width="32" height="32" rx="8" fill="#050403" />
+      <rect x="5" y="13.25" width="22" height="1.1" rx="0.55" fill="#ffd65b" opacity="0.32" />
+      <rect x="5" y="17.65" width="22" height="1.1" rx="0.55" fill="#ffd65b" opacity="0.32" />
+      <path
+        fill="url(#gents-rail-gold)"
+        d="M16 7.5c-4.69 0-8.5 3.81-8.5 8.5s3.81 8.5 8.5 8.5c2.73 0 5.15-1.29 6.72-3.29l-2.35-1.95C19.58 21.16 17.89 21.8 16 21.8c-3.2 0-5.8-2.6-5.8-5.8S12.8 10.2 16 10.2c2.02 0 3.79 1.03 4.84 2.6h-3.34v2.35h7.5V7.5H16z"
+      />
+    </svg>
+  );
+}
+
 function EbaySellerProfileIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -330,31 +396,6 @@ const vintedListingHref = (vintedId: Nullable<string>): string | null => {
   if (/^https?:\/\//i.test(s)) return s;
   return `https://www.vinted.co.uk/items/${encodeURIComponent(s)}`;
 };
-
-function stockEbayIsDraft(row: Pick<StockRow, 'ebay_id' | 'is_ebay_draft'>): boolean {
-  const flag = row.is_ebay_draft as unknown;
-  if (flag === true || flag === 't' || flag === 'true' || flag === 1 || flag === '1') {
-    return true;
-  }
-  const s = row.ebay_id?.trim() ?? '';
-  if (!s) return false;
-  const lower = s.toLowerCase();
-  return lower === 'draft' || /draftid|\/lstng/i.test(s);
-}
-
-function salesRowListingIssues(row: StockRow): string[] {
-  const issues: string[] = [];
-  const platform = row.sold_platform?.trim().toLowerCase() ?? '';
-
-  if (platform.includes('ebay')) {
-    if (!ebayListingHref(row.ebay_id)) issues.push('No eBay');
-    if (stockEbayIsDraft(row)) issues.push('eBay draft');
-  } else if (platform.includes('vinted')) {
-    if (!vintedListingHref(row.vinted_id)) issues.push('No Vinted');
-  }
-
-  return issues;
-}
 
 /** Current calendar week Monday 00:00:00 – Sunday 23:59:59.999 (local time). */
 function getMondayToSundayBounds(ref: Date): { weekStart: Date; weekEnd: Date } {
@@ -408,7 +449,17 @@ function formatSalesSoldDateDisplay(row: StockRow): string | null {
 
 type SalesPlatformFilter = 'all' | 'ebay' | 'vinted';
 
-type SalesDateRangeFilter = 'all' | 'current-month' | 'last-month';
+/** `YYYY-MM` month key for listing-management date filter. */
+type SalesDateRangeFilter = string;
+
+function parseSalesMonthFilterKey(filter: SalesDateRangeFilter): { start: Date; end: Date } | null {
+  const match = /^(\d{4})-(\d{2})$/.exec(filter.trim());
+  if (!match) return null;
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  if (!Number.isFinite(year) || monthIndex < 0 || monthIndex > 11) return null;
+  return getLocalMonthStartEnd(year, monthIndex);
+}
 
 function getLocalMonthStartEnd(year: number, monthIndex: number): { start: Date; end: Date } {
   const start = new Date(year, monthIndex, 1, 0, 0, 0, 0);
@@ -417,23 +468,11 @@ function getLocalMonthStartEnd(year: number, monthIndex: number): { start: Date;
 }
 
 function soldRowMatchesDateRange(row: StockRow, filter: SalesDateRangeFilter): boolean {
-  if (filter === 'all') return true;
+  const range = parseSalesMonthFilterKey(filter);
+  if (!range) return true;
   const d = parseSoldRowDate(row);
   if (!d) return false;
-  const ref = new Date();
-  const y = ref.getFullYear();
-  const m = ref.getMonth();
-  if (filter === 'current-month') {
-    const { start, end } = getLocalMonthStartEnd(y, m);
-    return d >= start && d <= end;
-  }
-  if (filter === 'last-month') {
-    const lm = m === 0 ? 11 : m - 1;
-    const ly = m === 0 ? y - 1 : y;
-    const { start, end } = getLocalMonthStartEnd(ly, lm);
-    return d >= start && d <= end;
-  }
-  return true;
+  return d >= range.start && d <= range.end;
 }
 
 function soldRowMatchesPlatformFilter(row: StockRow, filter: SalesPlatformFilter): boolean {
@@ -452,13 +491,47 @@ function soldRowMatchesPlatformFilter(row: StockRow, filter: SalesPlatformFilter
   return true;
 }
 
+/** Normalize brand id from API (number, numeric string, or empty). */
+function normalizeBrandId(value: Nullable<number | string>): number | null {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 1 ? n : null;
+}
+
+/** Resolve brand id from the sold row or full stock lookup by SKU id. */
+function resolveRowBrandId(
+  row: Pick<StockRow, 'id' | 'brand_id'>,
+  brandIdByStockId: ReadonlyMap<number, number>
+): number | null {
+  const direct = normalizeBrandId(row.brand_id);
+  if (direct != null) return direct;
+  const fromStock = brandIdByStockId.get(row.id);
+  return fromStock != null && Number.isFinite(fromStock) && fromStock >= 1 ? fromStock : null;
+}
+
 /** `filterBrandId` is numeric string for a brand row id, or `'all'`. */
-function soldRowMatchesBrandFilter(row: StockRow, filterBrandId: string): boolean {
+function soldRowMatchesBrandFilter(
+  row: StockRow,
+  filterBrandId: string,
+  brandIdByStockId: ReadonlyMap<number, number>
+): boolean {
   if (filterBrandId === 'all') return true;
-  const id = parseInt(filterBrandId, 10);
-  if (!Number.isFinite(id)) return true;
-  const bid = row.brand_id;
-  return bid != null && Number(bid) === id;
+  const filterId = parseInt(filterBrandId, 10);
+  if (!Number.isFinite(filterId)) return true;
+  return resolveRowBrandId(row, brandIdByStockId) === filterId;
+}
+
+function stockIdMatchesSalesBrandFilter(
+  stockId: number | null | undefined,
+  filterBrandId: string,
+  brandIdByStockId: ReadonlyMap<number, number>
+): boolean {
+  if (filterBrandId === 'all') return true;
+  const filterId = parseInt(filterBrandId, 10);
+  if (!Number.isFinite(filterId)) return true;
+  if (stockId == null) return false;
+  const brandId = brandIdByStockId.get(stockId);
+  return brandId != null && brandId === filterId;
 }
 
 const formatCurrency = (value: Nullable<string | number>) => {
@@ -492,7 +565,8 @@ interface VintedEbaySingleCheckResponse {
 
 interface ToPackEbayUnlistModalState {
   item: OrderItem;
-  violation: VintedEbayViolation;
+  violation: VintedEbayViolation | null;
+  vintedStillListed: { vinted_id: string; vinted_url: string } | null;
   unlistLoading: boolean;
   unlistError: string | null;
 }
@@ -505,13 +579,25 @@ function serializeToPackEbayUnlistModal(state: ToPackEbayUnlistModalState): stri
 
 function deserializeToPackEbayUnlistModal(raw: string): ToPackEbayUnlistModalState | null {
   try {
-    const parsed = JSON.parse(raw) as { item: OrderItem; violation: VintedEbayViolation };
-    if (!parsed?.item?.id || !parsed?.violation?.ebay_id) return null;
+    const parsed = JSON.parse(raw) as {
+      item: OrderItem;
+      violation?: VintedEbayViolation | null;
+      vintedStillListed?: { vinted_id: string; vinted_url: string } | null;
+    };
+    if (!parsed?.item?.id) return null;
+    const violation = parsed.violation?.ebay_id ? parsed.violation : null;
+    const vintedStillListed =
+      parsed.vintedStillListed?.vinted_url?.trim() &&
+      parsed.vintedStillListed?.vinted_id?.trim()
+        ? parsed.vintedStillListed
+        : null;
+    if (!violation && !vintedStillListed) return null;
     return {
       item: parsed.item,
-      violation: parsed.violation,
+      violation,
+      vintedStillListed,
       unlistLoading: false,
-      unlistError: null
+      unlistError: null,
     };
   } catch {
     return null;
@@ -530,6 +616,27 @@ interface VintedEbayCheckResponse {
   checked: number;
   violations: VintedEbayViolation[];
   apiErrors: Array<{ stock_id: number; message: string; httpStatus: number | null }>;
+}
+
+interface EbaySoldVintedCheckResponse {
+  still_on_vinted: boolean;
+  reason?: string;
+  id?: number;
+  item_name?: Nullable<string>;
+  ebay_id?: Nullable<string>;
+  vinted_id?: Nullable<string>;
+  vinted_url?: string;
+  error?: string;
+  details?: string;
+  httpStatus?: number | null;
+}
+
+interface VintedCheckViolation {
+  id: number;
+  item_name: Nullable<string>;
+  ebay_id: Nullable<string>;
+  vinted_id: Nullable<string>;
+  vinted_url: string;
 }
 
 interface MissingEbayStockRow {
@@ -766,10 +873,10 @@ const Orders: React.FC = () => {
   const [soldError, setSoldError] = useState<string | null>(null);
   const [salesPlatformFilter, setSalesPlatformFilter] = useState<SalesPlatformFilter>('all');
   const [salesBrandFilter, setSalesBrandFilter] = useState<string>('all');
-  const [salesMissingOnlineIdFilter, setSalesMissingOnlineIdFilter] = useState(false);
   const [salesBrands, setSalesBrands] = useState<Array<{ id: number; brand_name: string }>>([]);
-  const [salesBrandsLoading, setSalesBrandsLoading] = useState(false);
-  const [salesDateRangeFilter, setSalesDateRangeFilter] = useState<SalesDateRangeFilter>('all');
+  const [salesDateRangeFilter, setSalesDateRangeFilter] = useState<SalesDateRangeFilter>(() =>
+    monthKey(new Date())
+  );
   const [salesPage, setSalesPage] = useState(1);
   const [salesSummaryWeekKey, setSalesSummaryWeekKey] = useState(() => weekMondayKey(new Date()));
   const [salesSummaryMonthKey, setSalesSummaryMonthKey] = useState(() => monthKey(new Date()));
@@ -789,6 +896,19 @@ const Orders: React.FC = () => {
   const [missingEbayCheckLoading, setMissingEbayCheckLoading] = useState(false);
   const [missingEbayInStock, setMissingEbayInStock] = useState<MissingEbayStockRow[]>([]);
   const [missingEbayCheckError, setMissingEbayCheckError] = useState<string | null>(null);
+  const [vintedCheckLoading, setVintedCheckLoading] = useState(false);
+  const [vintedCheckError, setVintedCheckError] = useState<string | null>(null);
+  const [vintedCheckViolations, setVintedCheckViolations] = useState<VintedCheckViolation[]>([]);
+  const [vintedCheckApiErrors, setVintedCheckApiErrors] = useState<
+    Array<{ stock_id: number; message: string; httpStatus: number | null }>
+  >([]);
+  const [vintedCheckProgress, setVintedCheckProgress] = useState<{
+    checked: number;
+    total: number;
+    matchesFound: number;
+  } | null>(null);
+  const [vintedCheckScannedIds, setVintedCheckScannedIds] = useState<number[]>([]);
+  const vintedCheckAbortRef = useRef(false);
   const [endingThisWeekLoading, setEndingThisWeekLoading] = useState(false);
   const [endingThisWeekRows, setEndingThisWeekRows] = useState<EbayEndingThisWeekRow[]>([]);
   const [endingThisWeekError, setEndingThisWeekError] = useState<string | null>(null);
@@ -1159,7 +1279,7 @@ const Orders: React.FC = () => {
     if (ordersTab !== 'sales') {
       setSalesPlatformFilter('all');
       setSalesBrandFilter('all');
-      setSalesDateRangeFilter('all');
+      setSalesDateRangeFilter(monthKey(new Date()));
       setSalesEbayGridMode('none');
       listingManagementEndingWeekLoadedRef.current = false;
       return;
@@ -1174,7 +1294,6 @@ const Orders: React.FC = () => {
     let cancelled = false;
     (async () => {
       try {
-        setSalesBrandsLoading(true);
         const response = await fetch(`${API_BASE}/api/brands`, {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' },
@@ -1197,22 +1316,12 @@ const Orders: React.FC = () => {
       } catch (e) {
         console.error('Sales tab brands load error:', e);
         if (!cancelled) setSalesBrands([]);
-      } finally {
-        if (!cancelled) setSalesBrandsLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [ordersTab]);
-
-  useEffect(() => {
-    if (salesBrandFilter === 'all' || salesBrands.length === 0) return;
-    const id = parseInt(salesBrandFilter, 10);
-    if (!Number.isFinite(id) || !salesBrands.some((b) => b.id === id)) {
-      setSalesBrandFilter('all');
-    }
-  }, [salesBrands, salesBrandFilter]);
 
   // Search results - search all items
   // Uses AND logic: all words must match (order doesn't matter)
@@ -1247,9 +1356,57 @@ const Orders: React.FC = () => {
     [soldRows, salesPlatformFilter]
   );
 
+  const stockBrandIdByStockId = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const row of allStock) {
+      const brandId = normalizeBrandId(row.brand_id);
+      if (brandId == null) continue;
+      map.set(row.id, brandId);
+    }
+    for (const row of soldRows) {
+      const brandId = normalizeBrandId(row.brand_id);
+      if (brandId == null) continue;
+      map.set(row.id, brandId);
+    }
+    return map;
+  }, [allStock, soldRows]);
+
+  const salesBrandOptions = useMemo(() => {
+    const brandIdsInData = new Set<number>();
+    for (const row of soldRows) {
+      if (!soldRowMatchesPlatformFilter(row, salesPlatformFilter)) continue;
+      if (!soldRowMatchesDateRange(row, salesDateRangeFilter)) continue;
+      const brandId = resolveRowBrandId(row, stockBrandIdByStockId);
+      if (brandId == null) continue;
+      brandIdsInData.add(brandId);
+    }
+    const nameById = new Map(salesBrands.map((b) => [b.id, b.brand_name]));
+    return Array.from(brandIdsInData)
+      .map((id) => ({
+        id,
+        brand_name: nameById.get(id) ?? '',
+      }))
+      .sort((a, b) => {
+        const labelA = a.brand_name || `Brand #${a.id}`;
+        const labelB = b.brand_name || `Brand #${b.id}`;
+        return labelA.localeCompare(labelB, 'en-GB', { sensitivity: 'base' });
+      });
+  }, [soldRows, salesPlatformFilter, salesDateRangeFilter, salesBrands, stockBrandIdByStockId]);
+
+  useEffect(() => {
+    if (salesBrandFilter === 'all' || salesBrandOptions.length === 0) return;
+    const id = parseInt(salesBrandFilter, 10);
+    if (!Number.isFinite(id) || !salesBrandOptions.some((b) => b.id === id)) {
+      setSalesBrandFilter('all');
+    }
+  }, [salesBrandOptions, salesBrandFilter]);
+
   const soldByPlatformAndBrand = useMemo(
-    () => soldByPlatformOnly.filter((r) => soldRowMatchesBrandFilter(r, salesBrandFilter)),
-    [soldByPlatformOnly, salesBrandFilter]
+    () =>
+      soldByPlatformOnly.filter((r) =>
+        soldRowMatchesBrandFilter(r, salesBrandFilter, stockBrandIdByStockId)
+      ),
+    [soldByPlatformOnly, salesBrandFilter, stockBrandIdByStockId]
   );
 
   const soldRowsForPeriod = useMemo(
@@ -1257,10 +1414,7 @@ const Orders: React.FC = () => {
     [soldByPlatformAndBrand, salesDateRangeFilter]
   );
 
-  const soldRowsFiltered = useMemo(() => {
-    if (!salesMissingOnlineIdFilter) return soldRowsForPeriod;
-    return soldRowsForPeriod.filter((row) => salesRowListingIssues(row).length > 0);
-  }, [soldRowsForPeriod, salesMissingOnlineIdFilter]);
+  const soldRowsFiltered = soldRowsForPeriod;
 
   const vintedEbayViolationIdSet = useMemo(
     () => new Set(vintedEbayViolations.map((v) => v.id)),
@@ -1270,20 +1424,133 @@ const Orders: React.FC = () => {
   const ebayUnlistedIdSet = useMemo(() => new Set(ebayUnlistedStockIds), [ebayUnlistedStockIds]);
 
   const soldRowsUnlistGrid = useMemo(
-    () => soldRows.filter((row) => vintedEbayViolationIdSet.has(row.id)),
-    [soldRows, vintedEbayViolationIdSet]
+    () =>
+      soldRows.filter(
+        (row) =>
+          vintedEbayViolationIdSet.has(row.id) &&
+          soldRowMatchesBrandFilter(row, salesBrandFilter, stockBrandIdByStockId)
+      ),
+    [soldRows, vintedEbayViolationIdSet, salesBrandFilter, stockBrandIdByStockId]
+  );
+
+  const vintedCheckViolationIdSet = useMemo(
+    () => new Set(vintedCheckViolations.map((v) => v.id)),
+    [vintedCheckViolations]
+  );
+
+  const soldRowsVintedCheckGrid = useMemo(
+    () =>
+      soldRows.filter(
+        (row) =>
+          vintedCheckViolationIdSet.has(row.id) &&
+          soldRowMatchesPlatformFilter(row, 'ebay') &&
+          soldRowMatchesDateRange(row, salesDateRangeFilter) &&
+          soldRowMatchesBrandFilter(row, salesBrandFilter, stockBrandIdByStockId)
+      ),
+    [soldRows, vintedCheckViolationIdSet, salesDateRangeFilter, salesBrandFilter, stockBrandIdByStockId]
+  );
+
+  const salesDateMonthOptions = useMemo(
+    () => buildSalesSummaryMonthOptions(new Date(), SALES_LISTING_DATE_MONTHS_BACK),
+    []
+  );
+
+  const salesDateRangeLabel = useMemo(() => {
+    const hit = salesDateMonthOptions.find((m) => m.value === salesDateRangeFilter);
+    return hit?.label ?? salesDateRangeFilter;
+  }, [salesDateMonthOptions, salesDateRangeFilter]);
+
+  const vintedCheckCandidateRows = useMemo(
+    () =>
+      soldRows.filter(
+        (row) =>
+          soldRowMatchesPlatformFilter(row, 'ebay') &&
+          soldRowMatchesDateRange(row, salesDateRangeFilter) &&
+          soldRowMatchesBrandFilter(row, salesBrandFilter, stockBrandIdByStockId) &&
+          Boolean(row.ebay_id?.trim()) &&
+          Boolean(row.vinted_id?.trim())
+      ),
+    [soldRows, salesDateRangeFilter, salesBrandFilter, stockBrandIdByStockId]
+  );
+
+  const endingThisWeekRowsFiltered = useMemo(
+    () =>
+      endingThisWeekRows.filter((row) =>
+        stockIdMatchesSalesBrandFilter(row.id, salesBrandFilter, stockBrandIdByStockId)
+      ),
+    [endingThisWeekRows, salesBrandFilter, stockBrandIdByStockId]
+  );
+
+  const vintedCheckCandidateCount = vintedCheckCandidateRows.length;
+
+  const vintedCheckScannedIdSet = useMemo(
+    () => new Set(vintedCheckScannedIds),
+    [vintedCheckScannedIds]
+  );
+
+  const vintedCheckScannedInPeriodCount = useMemo(
+    () => vintedCheckCandidateRows.filter((row) => vintedCheckScannedIdSet.has(row.id)).length,
+    [vintedCheckCandidateRows, vintedCheckScannedIdSet]
+  );
+
+  const vintedCheckClearedInPeriodCount = useMemo(
+    () =>
+      vintedCheckCandidateRows.filter(
+        (row) => vintedCheckScannedIdSet.has(row.id) && !vintedCheckViolationIdSet.has(row.id)
+      ).length,
+    [vintedCheckCandidateRows, vintedCheckScannedIdSet, vintedCheckViolationIdSet]
+  );
+
+  const vintedCheckHintText = useMemo((): string => {
+    const total = vintedCheckCandidateCount;
+    if (total === 0) {
+      return 'No items with eBay and Vinted ID in this month';
+    }
+    const stillOn = soldRowsVintedCheckGrid.length;
+    if (vintedCheckScannedInPeriodCount === 0) {
+      return `${total} item${total === 1 ? '' : 's'} with eBay and Vinted ID`;
+    }
+    if (stillOn === 0 && vintedCheckClearedInPeriodCount === total) {
+      return `${total} of ${total} items have been ended correctly`;
+    }
+    if (stillOn > 0) {
+      return `${stillOn} item${stillOn === 1 ? '' : 's'} still on Vinted`;
+    }
+    if (vintedCheckClearedInPeriodCount > 0) {
+      return `${vintedCheckClearedInPeriodCount} of ${total} items have been ended correctly`;
+    }
+    return `${total} item${total === 1 ? '' : 's'} with eBay and Vinted ID`;
+  }, [
+    vintedCheckCandidateCount,
+    vintedCheckScannedInPeriodCount,
+    vintedCheckClearedInPeriodCount,
+    soldRowsVintedCheckGrid.length,
+  ]);
+
+  const vintedCheckApiErrorsForPeriod = useMemo(
+    () =>
+      vintedCheckApiErrors.filter((entry) => {
+        const row = soldRows.find((r) => r.id === entry.stock_id);
+        return (
+          row != null &&
+          soldRowMatchesPlatformFilter(row, 'ebay') &&
+          soldRowMatchesDateRange(row, salesDateRangeFilter)
+        );
+      }),
+    [vintedCheckApiErrors, soldRows, salesDateRangeFilter]
   );
 
   const salesGridStockRows = useMemo(() => {
     if (salesEbayGridMode === 'unlist-ebay') return soldRowsUnlistGrid;
+    if (salesEbayGridMode === 'vinted-check') return soldRowsVintedCheckGrid;
     return soldRowsFiltered;
-  }, [salesEbayGridMode, soldRowsUnlistGrid, soldRowsFiltered]);
+  }, [salesEbayGridMode, soldRowsUnlistGrid, soldRowsVintedCheckGrid, soldRowsFiltered]);
 
   const salesGridRowCount =
     salesEbayGridMode === 'missing-ebay-order'
       ? missingEbayInStock.length
       : salesEbayGridMode === 'ending-this-week'
-        ? endingThisWeekRows.length
+        ? endingThisWeekRowsFiltered.length
         : salesGridStockRows.length;
 
   const salesPageCount = useMemo(
@@ -1306,8 +1573,8 @@ const Orders: React.FC = () => {
   const endingThisWeekPaged = useMemo(() => {
     const safePage = Math.min(Math.max(salesPage, 1), salesPageCount);
     const start = (safePage - 1) * SALES_PAGE_SIZE;
-    return endingThisWeekRows.slice(start, start + SALES_PAGE_SIZE);
-  }, [endingThisWeekRows, salesPage, salesPageCount]);
+    return endingThisWeekRowsFiltered.slice(start, start + SALES_PAGE_SIZE);
+  }, [endingThisWeekRowsFiltered, salesPage, salesPageCount]);
 
   const ebayRefreshEndedIdSet = useMemo(
     () => new Set(endingThisWeekEndedRowKeys),
@@ -1324,11 +1591,11 @@ const Orders: React.FC = () => {
     salesPlatformFilter,
     salesBrandFilter,
     salesDateRangeFilter,
-    salesMissingOnlineIdFilter,
     salesEbayGridMode,
     vintedEbayViolations.length,
     missingEbayInStock.length,
-    endingThisWeekRows.length
+    endingThisWeekRowsFiltered.length,
+    vintedCheckViolations.length,
   ]);
 
   useEffect(() => {
@@ -1344,29 +1611,22 @@ const Orders: React.FC = () => {
     const { weekStart, weekEnd } = getMondayToSundayBounds(now);
     let thisMonth = 0;
     let thisWeekMonSun = 0;
-    for (const row of soldRowsFiltered) {
+    for (const row of soldByPlatformAndBrand) {
       const d = parseSoldRowDate(row);
       if (!d) continue;
       if (d.getFullYear() === y && d.getMonth() === mo) thisMonth += 1;
       if (d >= weekStart && d <= weekEnd) thisWeekMonSun += 1;
     }
     const currentMonthName = now.toLocaleString('en-GB', { month: 'long' });
-    let periodLabel: string | null = null;
-    if (salesDateRangeFilter === 'current-month') {
-      periodLabel = now.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
-    } else if (salesDateRangeFilter === 'last-month') {
-      const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      periodLabel = d.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
-    }
     return {
       total: soldRowsFiltered.length,
       thisMonth,
       thisWeekMonSun,
       currentMonthName,
       dateRangeFilter: salesDateRangeFilter,
-      periodLabel,
+      periodLabel: salesDateRangeLabel,
     };
-  }, [soldRowsFiltered, salesDateRangeFilter]);
+  }, [soldRowsFiltered, soldByPlatformAndBrand, salesDateRangeFilter, salesDateRangeLabel]);
 
   const salesSummaryWeekOptions = useMemo(
     () => buildSalesSummaryWeekOptions(new Date(), SALES_SUMMARY_WEEKS_BACK),
@@ -1668,45 +1928,98 @@ const Orders: React.FC = () => {
 
   const handlePostedClick = async (item: OrderItem) => {
     const soldPlatform = String(item.sold_platform ?? '').trim().toLowerCase();
-    const isVintedSold =
-      soldPlatform === 'vinted' || (item.vinted_id != null && String(item.vinted_id).trim() !== '');
     const hasEbayId = item.ebay_id != null && String(item.ebay_id).trim() !== '';
+    const hasVintedId = item.vinted_id != null && String(item.vinted_id).trim() !== '';
+    const isEbaySold =
+      soldPlatform === 'ebay' ||
+      soldPlatform.includes('ebay') ||
+      (!soldPlatform && hasEbayId && !hasVintedId);
+    const isVintedSold =
+      soldPlatform === 'vinted' ||
+      soldPlatform.includes('vinted') ||
+      (!soldPlatform && hasVintedId && !hasEbayId);
 
-    if (isVintedSold && hasEbayId) {
-      setOrdersLoading(true);
-      setError(null);
-      try {
-        const response = await fetch(`${API_BASE}/api/stock/${item.id}/vinted-ebay-active-check`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        });
-        const text = await response.text();
-        let data: VintedEbaySingleCheckResponse | null = null;
+    const needsListingCheck =
+      (isVintedSold && hasEbayId) || (isEbaySold && hasVintedId);
+
+    if (!needsListingCheck) {
+      await handleRemoveItem(item.id);
+      return;
+    }
+
+    setOrdersLoading(true);
+    setError(null);
+
+    let violation: VintedEbayViolation | null = null;
+    let vintedStillListed: { vinted_id: string; vinted_url: string } | null = null;
+
+    try {
+      if (isVintedSold && hasEbayId) {
         try {
-          data = text ? (JSON.parse(text) as VintedEbaySingleCheckResponse) : null;
-        } catch {
-          /* not JSON */
-        }
-        if (response.ok && data?.needs_unlist && data.ebay_id && data.ebay_url) {
-          setToPackEbayUnlistModal({
-            item,
-            violation: {
+          const response = await fetch(`${API_BASE}/api/stock/${item.id}/vinted-ebay-active-check`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          });
+          const text = await response.text();
+          let data: VintedEbaySingleCheckResponse | null = null;
+          try {
+            data = text ? (JSON.parse(text) as VintedEbaySingleCheckResponse) : null;
+          } catch {
+            /* not JSON */
+          }
+          if (response.ok && data?.needs_unlist && data.ebay_id && data.ebay_url) {
+            violation = {
               id: data.id ?? item.id,
               item_name: data.item_name ?? item.item_name,
               ebay_id: data.ebay_id,
               ebay_url: data.ebay_url,
-              vinted_id: data.vinted_id ?? item.vinted_id ?? null
-            },
-            unlistLoading: false,
-            unlistError: null
-          });
-          return;
+              vinted_id: data.vinted_id ?? item.vinted_id ?? null,
+            };
+          }
+        } catch (err: unknown) {
+          console.warn('Posted eBay duplicate check failed:', err);
         }
-      } catch (err: unknown) {
-        console.warn('Posted eBay duplicate check failed:', err);
-      } finally {
-        setOrdersLoading(false);
       }
+
+      if (isEbaySold && hasVintedId) {
+        try {
+          const response = await fetch(`${API_BASE}/api/stock/${item.id}/ebay-sold-vinted-active-check`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          });
+          const text = await response.text();
+          let data: EbaySoldVintedCheckResponse | null = null;
+          try {
+            data = text ? (JSON.parse(text) as EbaySoldVintedCheckResponse) : null;
+          } catch {
+            /* not JSON */
+          }
+          if (response.ok && data?.still_on_vinted && data.vinted_url) {
+            const vintedId = String(data.vinted_id ?? item.vinted_id ?? '').trim();
+            if (vintedId) {
+              vintedStillListed = {
+                vinted_id: vintedId,
+                vinted_url: data.vinted_url,
+              };
+            }
+          }
+        } catch (err: unknown) {
+          console.warn('Posted Vinted duplicate check failed:', err);
+        }
+      }
+
+      if (violation || vintedStillListed) {
+        setToPackEbayUnlistModal({
+          item,
+          violation,
+          vintedStillListed,
+          unlistLoading: false,
+          unlistError: null,
+        });
+        return;
+      }
+    } finally {
+      setOrdersLoading(false);
     }
 
     await handleRemoveItem(item.id);
@@ -1723,6 +2036,7 @@ const Orders: React.FC = () => {
   const handleToPackEbayUnlist = async () => {
     if (
       !toPackEbayUnlistModal ||
+      !toPackEbayUnlistModal.violation ||
       ebayOAuthStatus?.connected !== true ||
       toPackEbayUnlistModal.unlistLoading
     ) {
@@ -1812,6 +2126,9 @@ const Orders: React.FC = () => {
 
   const handleVintedEbayCheck = async () => {
     if (!ebaySellerConnected) return;
+    vintedCheckAbortRef.current = true;
+    setVintedCheckLoading(false);
+    setVintedCheckProgress(null);
     if (salesEbayGridMode === 'unlist-ebay') {
       setSalesEbayGridMode('none');
       return;
@@ -1910,6 +2227,9 @@ const Orders: React.FC = () => {
 
   const handleMissingEbayOrderCheck = async () => {
     if (!ebaySellerConnected) return;
+    vintedCheckAbortRef.current = true;
+    setVintedCheckLoading(false);
+    setVintedCheckProgress(null);
     if (salesEbayGridMode === 'missing-ebay-order') {
       setSalesEbayGridMode('none');
       return;
@@ -1955,6 +2275,129 @@ const Orders: React.FC = () => {
       );
     } finally {
       setMissingEbayCheckLoading(false);
+    }
+  };
+
+  const handleVintedCheck = async () => {
+    if (vintedCheckLoading) {
+      vintedCheckAbortRef.current = true;
+      return;
+    }
+
+    if (salesEbayGridMode !== 'vinted-check') {
+      setSalesEbayGridMode('vinted-check');
+      setSalesPlatformFilter('ebay');
+    }
+
+    const candidates = vintedCheckCandidateRows;
+
+    if (candidates.length === 0) {
+      setVintedCheckProgress(null);
+      return;
+    }
+
+    vintedCheckAbortRef.current = false;
+    setVintedCheckLoading(true);
+    setVintedCheckError(null);
+
+    const candidateIds = new Set(candidates.map((row) => row.id));
+    setVintedCheckViolations((prev) => prev.filter((v) => !candidateIds.has(v.id)));
+    setVintedCheckApiErrors((prev) => prev.filter((e) => !candidateIds.has(e.stock_id)));
+    setVintedCheckScannedIds((prev) => prev.filter((id) => !candidateIds.has(id)));
+
+    setVintedCheckProgress({ checked: 0, total: candidates.length, matchesFound: 0 });
+    const violations: VintedCheckViolation[] = [];
+    const apiErrors: Array<{ stock_id: number; message: string; httpStatus: number | null }> = [];
+
+    try {
+      for (let i = 0; i < candidates.length; i++) {
+        if (vintedCheckAbortRef.current) break;
+        const row = candidates[i];
+
+        try {
+          const response = await fetch(`${API_BASE}/api/stock/${row.id}/ebay-sold-vinted-active-check`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          });
+          const text = await response.text();
+          let data: EbaySoldVintedCheckResponse | null = null;
+          try {
+            data = text ? (JSON.parse(text) as EbaySoldVintedCheckResponse) : null;
+          } catch {
+            /* not JSON */
+          }
+          if (!response.ok) {
+            const msg =
+              data?.details ||
+              data?.error ||
+              text ||
+              `Check failed (${response.status})`;
+            apiErrors.push({
+              stock_id: row.id,
+              message: msg,
+              httpStatus: data?.httpStatus ?? response.status,
+            });
+          } else {
+            setVintedCheckScannedIds((prev) =>
+              prev.includes(row.id) ? prev : [...prev, row.id]
+            );
+            if (data?.still_on_vinted && data.vinted_url) {
+              violations.push({
+                id: row.id,
+                item_name: row.item_name ?? data.item_name ?? null,
+                ebay_id: row.ebay_id ?? data.ebay_id ?? null,
+                vinted_id: row.vinted_id ?? data.vinted_id ?? null,
+                vinted_url: data.vinted_url,
+              });
+            }
+          }
+        } catch (err: unknown) {
+          apiErrors.push({
+            stock_id: row.id,
+            message:
+              err instanceof Error
+                ? err.message === 'Failed to fetch' || err.name === 'TypeError'
+                  ? 'Unable to connect to server'
+                  : err.message
+                : 'Check failed',
+            httpStatus: null,
+          });
+        }
+
+        setVintedCheckProgress({
+          checked: i + 1,
+          total: candidates.length,
+          matchesFound: violations.length,
+        });
+        setVintedCheckViolations((prev) => {
+          const kept = prev.filter((v) => !candidateIds.has(v.id));
+          return [...kept, ...violations];
+        });
+        setVintedCheckApiErrors((prev) => {
+          const kept = prev.filter((e) => !candidateIds.has(e.stock_id));
+          return [...kept, ...apiErrors];
+        });
+
+        if (i < candidates.length - 1 && !vintedCheckAbortRef.current) {
+          const delay =
+            VINTED_CHECK_BASE_DELAY_MS + Math.floor(Math.random() * VINTED_CHECK_JITTER_MS);
+          await sleepMs(delay);
+        }
+      }
+    } catch (err: unknown) {
+      console.error('Vinted check error:', err);
+      setVintedCheckError(
+        err instanceof Error
+          ? err.message === 'Failed to fetch' || err.name === 'TypeError'
+            ? 'Unable to connect to server. Is the API running?'
+            : err.message
+          : 'Check failed'
+      );
+    } finally {
+      setVintedCheckLoading(false);
+      if (!vintedCheckAbortRef.current) {
+        setVintedCheckProgress(null);
+      }
     }
   };
 
@@ -2041,6 +2484,9 @@ const Orders: React.FC = () => {
 
   const handleEndingThisWeekCheck = async () => {
     if (!ebaySellerConnected) return;
+    vintedCheckAbortRef.current = true;
+    setVintedCheckLoading(false);
+    setVintedCheckProgress(null);
     if (salesEbayGridMode === 'ending-this-week') {
       setSalesEbayGridMode('none');
       return;
@@ -2048,6 +2494,21 @@ const Orders: React.FC = () => {
     setSalesEbayGridMode('ending-this-week');
     setSalesPlatformFilter('ebay');
     await fetchEndingThisWeekList();
+  };
+
+  const handleShowAllSales = () => {
+    vintedCheckAbortRef.current = true;
+    setVintedCheckLoading(false);
+    setVintedCheckProgress(null);
+    setSalesEbayGridMode('none');
+    setSalesPlatformFilter('all');
+  };
+
+  const handleSalesBrandFilterChange = (value: string) => {
+    setSalesBrandFilter(value);
+    if (value !== 'all') {
+      setSalesEbayGridMode('none');
+    }
   };
 
   const handleEbayRefreshEnd = async (row: EbayEndingThisWeekRow) => {
@@ -2618,27 +3079,12 @@ const Orders: React.FC = () => {
               <div className="orders-sales-stats" aria-live="polite">
                 {soldLoading ? (
                   <span className="orders-sales-stats-loading">Updating sold counts…</span>
-                ) : salesStats.dateRangeFilter === 'all' ? (
-                  <>
-                    <span className="orders-sales-stat">
-                      <strong>{salesStats.total}</strong>
-                      <span className="orders-sales-stat-label"> total items sold</span>
-                    </span>
-                    <span className="orders-sales-stat">
-                      <strong>{salesStats.thisMonth}</strong>
-                      <span className="orders-sales-stat-label"> in {salesStats.currentMonthName}</span>
-                    </span>
-                    <span className="orders-sales-stat">
-                      <strong>{salesStats.thisWeekMonSun}</strong>
-                      <span className="orders-sales-stat-label"> this week (Mon–Sun)</span>
-                    </span>
-                  </>
                 ) : (
                   <span className="orders-sales-stat">
                     <strong>{salesStats.total}</strong>
                     <span className="orders-sales-stat-label">
                       {' '}
-                      in {salesStats.periodLabel ?? 'selected period'}
+                      in {salesStats.periodLabel ?? 'selected month'}
                     </span>
                   </span>
                 )}
@@ -2680,12 +3126,15 @@ const Orders: React.FC = () => {
                     id="orders-sales-date-filter"
                     className="orders-sales-platform-select orders-sales-date-filter-select"
                     value={salesDateRangeFilter}
-                    onChange={(e) => setSalesDateRangeFilter(e.target.value as SalesDateRangeFilter)}
-                    aria-label="Filter sold items by sale date (all time, current month, or last month)"
+                    onChange={(e) => setSalesDateRangeFilter(e.target.value)}
+                    aria-label="Filter sold items by sale month"
                   >
-                    <option value="all">All time</option>
-                    <option value="current-month">Current month</option>
-                    <option value="last-month">Last month</option>
+                    {salesDateMonthOptions.map((m) => (
+                      <option key={m.value} value={m.value}>
+                        {m.label}
+                        {m.value === monthKey(new Date()) ? ' (Current)' : ''}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="orders-sales-platform-filter-wrap">
@@ -2706,55 +3155,17 @@ const Orders: React.FC = () => {
                     id="orders-sales-brand-filter"
                     className="orders-sales-platform-select orders-sales-brand-filter-select"
                     value={salesBrandFilter}
-                    onChange={(e) => setSalesBrandFilter(e.target.value)}
-                    disabled={salesBrandsLoading && salesBrands.length === 0}
+                    onChange={(e) => handleSalesBrandFilterChange(e.target.value)}
+                    disabled={soldLoading && soldRows.length === 0}
                     aria-label="Filter sold items by brand"
                   >
                     <option value="all">All brands</option>
-                    {salesBrands.map((b) => (
+                    {salesBrandOptions.map((b) => (
                       <option key={b.id} value={String(b.id)}>
                         {b.brand_name || `Brand #${b.id}`}
                       </option>
                     ))}
                   </select>
-                </div>
-                <div className="orders-sales-missing-online-id-toggle">
-                  <span
-                    className="orders-sales-missing-online-id-toggle-label"
-                    id="orders-sales-missing-online-id-label"
-                  >
-                    Missing Online ID
-                  </span>
-                  <button
-                    type="button"
-                    role="switch"
-                    className={`orders-sales-missing-online-id-switch${
-                      salesMissingOnlineIdFilter
-                        ? ' orders-sales-missing-online-id-switch--on'
-                        : ''
-                    }`}
-                    aria-checked={salesMissingOnlineIdFilter}
-                    aria-labelledby="orders-sales-missing-online-id-label orders-sales-missing-online-id-state"
-                    onClick={() => setSalesMissingOnlineIdFilter((active) => !active)}
-                    title={
-                      salesMissingOnlineIdFilter
-                        ? 'Filter on — show all sold items'
-                        : 'Filter off — show only items missing an online ID for their sold platform'
-                    }
-                  >
-                    <span className="orders-sales-missing-online-id-switch-thumb" aria-hidden="true" />
-                  </button>
-                  <span
-                    id="orders-sales-missing-online-id-state"
-                    className={`orders-sales-missing-online-id-toggle-state${
-                      salesMissingOnlineIdFilter
-                        ? ' orders-sales-missing-online-id-toggle-state--on'
-                        : ''
-                    }`}
-                    aria-hidden="true"
-                  >
-                    {salesMissingOnlineIdFilter ? 'On' : 'Off'}
-                  </span>
                 </div>
               </div>
               <div className="orders-sales-toolbar-right">
@@ -2790,35 +3201,6 @@ const Orders: React.FC = () => {
                   </button>
                   <button
                     type="button"
-                    className={`orders-vinted-ebay-check-button${
-                      salesEbayGridMode === 'unlist-ebay'
-                        ? ' orders-vinted-ebay-check-button--active'
-                        : ''
-                    }`}
-                    onClick={handleVintedEbayCheck}
-                    disabled={vintedEbayCheckLoading || !ebaySellerConnected}
-                    title={
-                      !ebaySellerConnected
-                        ? 'Connect your eBay seller account first'
-                        : salesEbayGridMode === 'unlist-ebay'
-                          ? 'Clear Unlist eBay filter'
-                          : 'Scan and show items sold on Vinted that may still be live on eBay'
-                    }
-                    aria-label={
-                      vintedEbayCheckLoading
-                        ? 'Checking eBay listings for items sold on Vinted'
-                        : !ebaySellerConnected
-                          ? 'Unlist eBay (connect eBay seller account first)'
-                          : 'Scan eBay listings for items already sold on Vinted that may still be live'
-                    }
-                  >
-                    <EbayLogoIcon className="orders-unlist-ebay-logo" />
-                    <span className="orders-unlist-ebay-label">
-                      {vintedEbayCheckLoading ? 'Checking…' : 'Unlist eBay'}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
                     className={`orders-vinted-ebay-check-button orders-missing-ebay-order-button${
                       salesEbayGridMode === 'missing-ebay-order'
                         ? ' orders-vinted-ebay-check-button--active'
@@ -2830,21 +3212,91 @@ const Orders: React.FC = () => {
                       !ebaySellerConnected
                         ? 'Connect your eBay seller account first'
                         : salesEbayGridMode === 'missing-ebay-order'
-                          ? 'Clear Missing eBay order filter'
+                          ? 'Clear Stock Data Reconcilation filter'
                           : 'Compare eBay sold orders to Stock listing IDs'
                     }
                     aria-label={
                       missingEbayCheckLoading
                         ? 'Loading eBay sold orders from your account'
                         : !ebaySellerConnected
-                          ? 'Missing eBay order (connect eBay seller account first)'
+                          ? 'Stock Data Reconcilation (connect eBay seller account first)'
                           : 'Compare eBay sold orders to Stock listing IDs'
                     }
                   >
                     <EbayLogoIcon className="orders-unlist-ebay-logo" />
                     <span className="orders-unlist-ebay-label">
-                      {missingEbayCheckLoading ? 'Checking…' : 'Missing eBay order'}
+                      {missingEbayCheckLoading ? 'Reconciling…' : 'Stock Data Reconcilation'}
                     </span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`orders-vinted-ebay-check-button${
+                      salesEbayGridMode === 'unlist-ebay'
+                        ? ' orders-vinted-ebay-check-button--active'
+                        : ''
+                    }`}
+                    onClick={handleVintedEbayCheck}
+                    disabled={vintedEbayCheckLoading || !ebaySellerConnected}
+                    title={
+                      !ebaySellerConnected
+                        ? 'Connect your eBay seller account first'
+                        : salesEbayGridMode === 'unlist-ebay'
+                          ? 'Clear Dedupe eBay filter'
+                          : 'Scan and show items sold on Vinted that may still be live on eBay'
+                    }
+                    aria-label={
+                      vintedEbayCheckLoading
+                        ? 'Deduping eBay listings for items sold on Vinted'
+                        : !ebaySellerConnected
+                          ? 'Dedupe eBay (connect eBay seller account first)'
+                          : 'Scan eBay listings for items already sold on Vinted that may still be live'
+                    }
+                  >
+                    <EbayLogoIcon className="orders-unlist-ebay-logo" />
+                    <span className="orders-unlist-ebay-label">
+                      {vintedEbayCheckLoading ? 'Deduping…' : 'Dedupe eBay'}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`orders-vinted-ebay-check-button${
+                      salesEbayGridMode === 'vinted-check'
+                        ? ' orders-vinted-ebay-check-button--active'
+                        : ''
+                    }`}
+                    onClick={() => void handleVintedCheck()}
+                    disabled={vintedCheckLoading}
+                    title={
+                      salesEbayGridMode === 'vinted-check'
+                        ? `Re-run Dedupe Vinted for ${salesDateRangeLabel}`
+                        : `Find eBay sales in ${salesDateRangeLabel} still live on Vinted`
+                    }
+                    aria-label={
+                      vintedCheckLoading
+                        ? `Dedupe Vinted — scanning ${salesDateRangeLabel}`
+                        : salesEbayGridMode === 'vinted-check'
+                          ? `Re-run Dedupe Vinted for ${salesDateRangeLabel}`
+                          : `Dedupe Vinted — scan ${salesDateRangeLabel} eBay sales still live on Vinted`
+                    }
+                  >
+                    <VintedLogoIcon className="orders-unlist-ebay-logo" />
+                    <span className="orders-unlist-ebay-label">
+                      {vintedCheckLoading ? 'Deduping…' : 'Dedupe Vinted'}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`orders-vinted-ebay-check-button orders-show-all-button${
+                      salesEbayGridMode === 'none'
+                        ? ' orders-vinted-ebay-check-button--active'
+                        : ''
+                    }`}
+                    onClick={handleShowAllSales}
+                    title={`Show all sold items in ${salesDateRangeLabel}`}
+                    aria-label={`Show all sold items in ${salesDateRangeLabel}`}
+                  >
+                    <GentsRailLogoIcon className="orders-gents-rail-logo" />
+                    <span className="orders-unlist-ebay-label">Show all</span>
                   </button>
                 </div>
               </div>
@@ -2860,7 +3312,7 @@ const Orders: React.FC = () => {
                   </div>
                 ) : ebayOAuthStatus.connected ? (
                   <div className="orders-oauth-flash orders-oauth-flash--ok" role="status">
-                    eBay seller account linked. You can run Missing eBay order.
+                    eBay seller account linked. You can run Stock Data Reconcilation.
                   </div>
                 ) : (
                   <div className="orders-oauth-flash orders-oauth-flash--warn" role="alert">
@@ -2893,6 +3345,11 @@ const Orders: React.FC = () => {
                   {endingThisWeekError}
                 </div>
               )}
+              {vintedCheckError && (
+                <div className="orders-error orders-vinted-ebay-check-error" role="alert">
+                  {vintedCheckError}
+                </div>
+              )}
               {vintedEbayCheckApiErrors.length > 0 && (
                 <p className="orders-vinted-ebay-api-errors" role="status">
                   {vintedEbayCheckApiErrors.length} listing
@@ -2905,6 +3362,13 @@ const Orders: React.FC = () => {
                   {endingThisWeekApiErrors.length} listing
                   {endingThisWeekApiErrors.length === 1 ? '' : 's'} could not be checked for end date. Try
                   again later.
+                </p>
+              )}
+              {vintedCheckApiErrorsForPeriod.length > 0 && (
+                <p className="orders-vinted-ebay-api-errors" role="status">
+                  {vintedCheckApiErrorsForPeriod.length} item
+                  {vintedCheckApiErrorsForPeriod.length === 1 ? '' : 's'} could not be checked on Vinted
+                  for {salesDateRangeLabel}. Try again later.
                 </p>
               )}
             </>
@@ -2921,11 +3385,16 @@ const Orders: React.FC = () => {
               {missingEbayInStock.length === 1 ? '' : 's'} with no matching Stock listing ID.
             </p>
           )}
-          {salesEbayGridMode === 'ending-this-week' &&
-          (endingThisWeekRows.length > 0 || !endingThisWeekLoading) ? (
+          {salesEbayGridMode === 'vinted-check' && !vintedCheckLoading && (
             <p className="orders-sales-grid-mode-hint" role="status">
-              Showing {endingThisWeekRows.length} active eBay listing
-              {endingThisWeekRows.length === 1 ? '' : 's'} ending
+              {vintedCheckHintText}
+            </p>
+          )}
+          {salesEbayGridMode === 'ending-this-week' &&
+          (endingThisWeekRowsFiltered.length > 0 || !endingThisWeekLoading) ? (
+            <p className="orders-sales-grid-mode-hint" role="status">
+              Showing {endingThisWeekRowsFiltered.length} active eBay listing
+              {endingThisWeekRowsFiltered.length === 1 ? '' : 's'} ending
               {endingThisWeekWeekLabel ? ` (${endingThisWeekWeekLabel})` : ' this week'}
               {endingThisWeekLoading && endingThisWeekProgress
                 ? ` — still scanning ${endingThisWeekProgress.checked.toLocaleString()} of ${endingThisWeekProgress.total.toLocaleString()}`
@@ -2937,7 +3406,7 @@ const Orders: React.FC = () => {
           {salesEbayGridMode === 'ending-this-week' && endingThisWeekLoading ? (
             <div
               className={`orders-sales-grid-progress${
-                endingThisWeekRows.length > 0 ? ' orders-sales-grid-progress--compact' : ''
+                endingThisWeekRowsFiltered.length > 0 ? ' orders-sales-grid-progress--compact' : ''
               }`}
               role="status"
               aria-live="polite"
@@ -2973,6 +3442,54 @@ const Orders: React.FC = () => {
               </p>
             </div>
           ) : null}
+          {salesEbayGridMode === 'vinted-check' && vintedCheckLoading ? (
+            <div
+              className="orders-sales-grid-progress"
+              role="status"
+              aria-live="polite"
+              aria-label={
+                vintedCheckProgress
+                  ? `${vintedCheckProgress.checked} scanned, ${Math.max(
+                      0,
+                      vintedCheckProgress.total - vintedCheckProgress.checked
+                    )} left`
+                  : 'Dedupe Vinted in progress'
+              }
+            >
+              <div className="orders-sales-grid-progress__track" aria-hidden="true">
+                <div
+                  className="orders-sales-grid-progress__bar orders-sales-grid-progress__bar--vinted"
+                  style={{
+                    width:
+                      vintedCheckProgress && vintedCheckProgress.total > 0
+                        ? `${Math.min(
+                            100,
+                            Math.round(
+                              (vintedCheckProgress.checked / vintedCheckProgress.total) * 100
+                            )
+                          )}%`
+                        : vintedCheckProgress
+                          ? '8%'
+                          : '0%',
+                  }}
+                />
+              </div>
+              <p>
+                {vintedCheckProgress ? (
+                  <>
+                    {vintedCheckProgress.checked.toLocaleString()} scanned ·{' '}
+                    {Math.max(
+                      0,
+                      vintedCheckProgress.total - vintedCheckProgress.checked
+                    ).toLocaleString()}{' '}
+                    left
+                  </>
+                ) : (
+                  'Starting…'
+                )}
+              </p>
+            </div>
+          ) : null}
           {salesEbayGridMode === 'unlist-ebay' && vintedEbayCheckLoading ? (
             <div className="orders-sales-grid-loading" role="status" aria-live="polite">
               <span className="orders-sales-grid-loading__spinner" aria-hidden />
@@ -2999,12 +3516,14 @@ const Orders: React.FC = () => {
             </div>
           ) : soldLoading &&
             salesEbayGridMode !== 'ending-this-week' &&
-            salesEbayGridMode !== 'missing-ebay-order' ? (
+            salesEbayGridMode !== 'missing-ebay-order' &&
+            salesEbayGridMode !== 'vinted-check' ? (
             <div className="orders-empty-state">
               <p>Loading sold items…</p>
             </div>
           ) : salesEbayGridMode !== 'ending-this-week' &&
             salesEbayGridMode !== 'missing-ebay-order' &&
+            salesEbayGridMode !== 'vinted-check' &&
             soldRows.length === 0 ? (
             <div className="orders-empty-state">
               <p>No sold items yet.</p>
@@ -3019,13 +3538,29 @@ const Orders: React.FC = () => {
                 </>
               ) : salesEbayGridMode === 'missing-ebay-order' ? (
                 <>
-                  <p>No missing eBay orders.</p>
+                  <p>No stock data reconciliation issues.</p>
                   <p>Every recent eBay sale matches a Stock listing ID.</p>
                 </>
+              ) : salesEbayGridMode === 'vinted-check' ? (
+                vintedCheckCandidateCount === 0 ? (
+                  <>
+                    <p>No items to check.</p>
+                    <p>No eBay sales in {salesDateRangeLabel} have both an eBay and Vinted listing ID.</p>
+                  </>
+                ) : vintedCheckClearedInPeriodCount === vintedCheckCandidateCount ? null : (
+                  <p>No duplicate Vinted listings found.</p>
+                )
               ) : salesEbayGridMode === 'ending-this-week' ? (
-                <>
-                  <p>No active eBay listings ending this week on your seller account.</p>
-                </>
+                endingThisWeekRows.length === 0 ? (
+                  <>
+                    <p>No active eBay listings ending this week on your seller account.</p>
+                  </>
+                ) : (
+                  <>
+                    <p>No listings ending this week match this brand filter.</p>
+                    <p>Choose &quot;All brands&quot; or a different brand above.</p>
+                  </>
+                )
               ) : soldByPlatformOnly.length === 0 ? (
                 <>
                   <p>No sold items match this platform filter.</p>
@@ -3038,15 +3573,10 @@ const Orders: React.FC = () => {
                 </>
               ) : soldRowsForPeriod.length === 0 ? (
                 <>
-                  <p>No sold items in this period for the selected filters.</p>
-                  <p>Try &quot;All time&quot; or adjust platform, brand, or month.</p>
+                  <p>No sold items in this month for the selected filters.</p>
+                  <p>Choose another month or adjust platform or brand.</p>
                 </>
-              ) : (
-                <>
-                  <p>No sold items with a missing online ID for these filters.</p>
-                  <p>Turn off Missing Online ID to show all sales.</p>
-                </>
-              )}
+              ) : null}
             </div>
           ) : (
             <>
@@ -3384,10 +3914,12 @@ const Orders: React.FC = () => {
                     const ebayLabel = row.ebay_id != null ? String(row.ebay_id).trim() : '';
                     const vintedLabel = row.vinted_id != null ? String(row.vinted_id).trim() : '';
                     const rowNeedsEbayFix = vintedEbayViolationIdSet.has(row.id) && !rowUnlisted;
+                    const rowStillOnVinted = vintedCheckViolationIdSet.has(row.id);
                     const rowIsBulky = stockIsBulky(row);
                     const salesRowClass = [
                       rowUnlisted ? 'orders-sales-row--ebay-unlisted' : '',
                       rowNeedsEbayFix ? 'orders-sales-row--ebay-fix-needed' : '',
+                      rowStillOnVinted ? 'orders-sales-row--vinted-still-listed' : '',
                       rowIsBulky ? 'orders-row--bulky' : ''
                     ]
                       .filter(Boolean)
@@ -3857,72 +4389,142 @@ const Orders: React.FC = () => {
               ×
             </button>
             <div className="orders-topack-unlist-modal-body">
-              <p className="orders-relist-modal-eyebrow">Sold on Vinted</p>
-              <h2 id="orders-topack-unlist-modal-title" className="orders-relist-modal-title">
-                Still live on eBay
-              </h2>
-              <p className="orders-topack-unlist-modal-lead">
-                This item sold on Vinted but the eBay listing is still active. End it before marking
-                posted.
+              <p className="orders-relist-modal-eyebrow">
+                {toPackEbayUnlistModal.violation
+                  ? 'Sold on Vinted'
+                  : toPackEbayUnlistModal.vintedStillListed
+                    ? 'Sold on eBay'
+                    : 'Before marking posted'}
               </p>
+              <h2 id="orders-topack-unlist-modal-title" className="orders-relist-modal-title">
+                {toPackEbayUnlistModal.violation && toPackEbayUnlistModal.vintedStillListed
+                  ? 'Listings still active'
+                  : toPackEbayUnlistModal.violation
+                    ? 'Still live on eBay'
+                    : 'Still live on Vinted'}
+              </h2>
+              {toPackEbayUnlistModal.violation ? (
+                <p className="orders-topack-unlist-modal-lead">
+                  This item sold on Vinted but the eBay listing is still active. End it before marking
+                  posted.
+                </p>
+              ) : null}
+              {toPackEbayUnlistModal.vintedStillListed ? (
+                <div
+                  className="orders-topack-vinted-still-flag"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <p className="orders-topack-vinted-still-flag__title">Still on Vinted</p>
+                  <p className="orders-topack-vinted-still-flag__text">
+                    This item sold on eBay but the Vinted listing page is still live. End or remove it
+                    on Vinted before marking posted.
+                  </p>
+                </div>
+              ) : null}
               <dl className="orders-relist-modal-details orders-topack-unlist-modal-details">
                 <div className="orders-relist-modal-detail orders-topack-unlist-modal-detail--wide">
                   <dt>Item</dt>
-                  <dd>{toPackEbayUnlistModal.violation.item_name?.trim() || '—'}</dd>
-                </div>
-                <div className="orders-relist-modal-detail">
-                  <dt>eBay item</dt>
                   <dd>
-                    <a
-                      href={toPackEbayUnlistModal.violation.ebay_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="orders-table-external-link"
-                    >
-                      {toPackEbayUnlistModal.violation.ebay_id}
-                    </a>
+                    {toPackEbayUnlistModal.violation?.item_name?.trim() ||
+                      toPackEbayUnlistModal.item.item_name?.trim() ||
+                      '—'}
                   </dd>
                 </div>
+                {toPackEbayUnlistModal.violation ? (
+                  <div className="orders-relist-modal-detail">
+                    <dt>eBay item</dt>
+                    <dd>
+                      <a
+                        href={toPackEbayUnlistModal.violation.ebay_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="orders-table-external-link"
+                      >
+                        {toPackEbayUnlistModal.violation.ebay_id}
+                      </a>
+                    </dd>
+                  </div>
+                ) : null}
+                {toPackEbayUnlistModal.vintedStillListed ? (
+                  <div className="orders-relist-modal-detail">
+                    <dt>Vinted item</dt>
+                    <dd>
+                      <SalesSummaryPlatformLink
+                        listing={{
+                          href: toPackEbayUnlistModal.vintedStillListed.vinted_url,
+                          platform: 'Vinted',
+                        }}
+                      >
+                        {toPackEbayUnlistModal.vintedStillListed.vinted_id}
+                      </SalesSummaryPlatformLink>
+                    </dd>
+                  </div>
+                ) : null}
               </dl>
               {toPackEbayUnlistModal.unlistError ? (
                 <p className="orders-relist-modal-note orders-relist-modal-note--warn" role="alert">
                   {toPackEbayUnlistModal.unlistError}
                 </p>
               ) : null}
-              {toPackEbayOAuthPending ? (
+              {toPackEbayUnlistModal.violation && toPackEbayOAuthPending ? (
                 <p className="orders-relist-modal-note orders-oauth-flash--pending" role="status">
                   Waiting for eBay sign-in… complete it in the popup, then unlist here.
                 </p>
-              ) : !ebaySellerConnected ? (
+              ) : toPackEbayUnlistModal.violation && !ebaySellerConnected ? (
                 <p className="orders-relist-modal-note">
                   Connect your eBay seller account to unlist from here without leaving this dialog.
                 </p>
               ) : null}
               <div className="orders-relist-modal-actions">
-                {!ebaySellerConnected ? (
-                  <button
-                    type="button"
-                    className="orders-vinted-ebay-check-button orders-topack-unlist-connect-ebay"
-                    disabled={toPackEbayOAuthPending || toPackEbayUnlistModal.unlistLoading}
-                    onClick={() => handleToPackConnectEbay()}
+                {toPackEbayUnlistModal.vintedStillListed ? (
+                  <SalesSummaryPlatformLink
+                    listing={{
+                      href: toPackEbayUnlistModal.vintedStillListed.vinted_url,
+                      platform: 'Vinted',
+                    }}
+                    className="orders-vinted-ebay-check-button orders-topack-open-vinted-button"
+                    title="Open this listing on Vinted"
                   >
-                    <EbayLogoIcon className="orders-unlist-ebay-logo" />
-                    <span className="orders-unlist-ebay-label">
-                      {toPackEbayOAuthPending ? 'Connecting…' : 'Connect eBay seller'}
-                    </span>
-                  </button>
+                    <VintedLogoIcon className="orders-vinted-check-logo" />
+                    <span className="orders-unlist-ebay-label">Open on Vinted</span>
+                  </SalesSummaryPlatformLink>
+                ) : null}
+                {toPackEbayUnlistModal.violation ? (
+                  !ebaySellerConnected ? (
+                    <button
+                      type="button"
+                      className="orders-vinted-ebay-check-button orders-topack-unlist-connect-ebay"
+                      disabled={toPackEbayOAuthPending || toPackEbayUnlistModal.unlistLoading}
+                      onClick={() => handleToPackConnectEbay()}
+                    >
+                      <EbayLogoIcon className="orders-unlist-ebay-logo" />
+                      <span className="orders-unlist-ebay-label">
+                        {toPackEbayOAuthPending ? 'Connecting…' : 'Connect eBay seller'}
+                      </span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="orders-sales-unlist-button"
+                      disabled={
+                        toPackEbayUnlistModal.unlistLoading ||
+                        ebayUnlistLoadingId != null ||
+                        toPackEbayOAuthPending
+                      }
+                      onClick={() => void handleToPackEbayUnlist()}
+                    >
+                      {toPackEbayUnlistModal.unlistLoading ? 'Unlisting…' : 'Unlist on eBay'}
+                    </button>
+                  )
                 ) : (
                   <button
                     type="button"
-                    className="orders-sales-unlist-button"
-                    disabled={
-                      toPackEbayUnlistModal.unlistLoading ||
-                      ebayUnlistLoadingId != null ||
-                      toPackEbayOAuthPending
-                    }
-                    onClick={() => void handleToPackEbayUnlist()}
+                    className="orders-posted-button"
+                    disabled={toPackEbayUnlistModal.unlistLoading}
+                    onClick={() => void finishPostedAfterUnlistModal(toPackEbayUnlistModal.item.id)}
                   >
-                    {toPackEbayUnlistModal.unlistLoading ? 'Unlisting…' : 'Unlist on eBay'}
+                    Mark posted
                   </button>
                 )}
               </div>
