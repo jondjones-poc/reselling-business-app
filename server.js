@@ -1312,22 +1312,42 @@ async function fetchEbayListingViewsForLegacyIds(accessToken, legacyIds, startYm
 }
 
 function extractBrowseItemImageUrl(item) {
-  if (!item || typeof item !== 'object') return null;
-  if (item.image && typeof item.image.imageUrl === 'string' && item.image.imageUrl.trim()) {
-    return item.image.imageUrl.trim().replace(/^http:\/\//i, 'https://');
-  }
+  const urls = extractBrowseItemImageUrls(item);
+  return urls.length > 0 ? urls[0] : null;
+}
+
+/** All listing image URLs from Buy Browse (primary + additional; thumbnails only if nothing else). */
+function extractBrowseItemImageUrls(item) {
+  if (!item || typeof item !== 'object') return [];
+  const urls = [];
+  const seen = new Set();
+  const add = (raw) => {
+    if (raw == null) return;
+    const url = String(raw).trim().replace(/^http:\/\//i, 'https://');
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    urls.push(url);
+  };
+  if (item.image && typeof item.image.imageUrl === 'string') add(item.image.imageUrl);
   if (Array.isArray(item.additionalImages)) {
     for (const img of item.additionalImages) {
-      if (img && typeof img.imageUrl === 'string' && img.imageUrl.trim()) {
-        return img.imageUrl.trim().replace(/^http:\/\//i, 'https://');
-      }
+      if (img && typeof img.imageUrl === 'string') add(img.imageUrl);
     }
   }
-  if (Array.isArray(item.thumbnailImages)) {
+  if (!urls.length && Array.isArray(item.thumbnailImages)) {
     for (const img of item.thumbnailImages) {
-      if (img && typeof img.imageUrl === 'string' && img.imageUrl.trim()) {
-        return img.imageUrl.trim().replace(/^http:\/\//i, 'https://');
-      }
+      if (img && typeof img.imageUrl === 'string') add(img.imageUrl);
+    }
+  }
+  return urls;
+}
+
+function extractBrowseItemDescription(item) {
+  if (!item || typeof item !== 'object') return null;
+  for (const key of ['description', 'shortDescription']) {
+    const raw = item[key];
+    if (raw != null && String(raw).trim() !== '') {
+      return htmlToPlainListingText(String(raw));
     }
   }
   return null;
@@ -7824,6 +7844,345 @@ function decodeBasicXmlEntities(value) {
     .replace(/&#39;/g, "'");
 }
 
+function htmlToPlainListingText(html) {
+  let text = String(html);
+  text = text.replace(/<br\s*\/?>/gi, '\n');
+  text = text.replace(/<\/p>/gi, '\n\n');
+  text = text.replace(/<\/div>/gi, '\n');
+  text = text.replace(/<\/li>/gi, '\n');
+  text = text.replace(/<li[^>]*>/gi, '• ');
+  text = text.replace(/<[^>]+>/g, '');
+  text = decodeBasicXmlEntities(text)
+    .replace(/\u00a0/g, ' ')
+    .replace(/\r\n/g, '\n');
+  text = text
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return text || null;
+}
+
+function extractGetItemDescription(xmlText) {
+  const text = String(xmlText);
+  const cdata = text.match(/<Description>\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*<\/Description>/i);
+  if (cdata) return cdata[1];
+  const plain = text.match(/<Description>([^<]*)<\/Description>/i);
+  if (plain) return decodeBasicXmlEntities(plain[1]);
+  return null;
+}
+
+function extractGetItemPrice(xmlText) {
+  const text = String(xmlText);
+  const patterns = [
+    /<StartPrice[^>]*currencyID="([^"]*)"[^>]*>([^<]+)<\/StartPrice>/i,
+    /<StartPrice[^>]*>([^<]+)<\/StartPrice>/i,
+    /<CurrentPrice[^>]*currencyID="([^"]*)"[^>]*>([^<]+)<\/CurrentPrice>/i,
+    /<CurrentPrice[^>]*>([^<]+)<\/CurrentPrice>/i,
+    /<BuyItNowPrice[^>]*currencyID="([^"]*)"[^>]*>([^<]+)<\/BuyItNowPrice>/i,
+    /<BuyItNowPrice[^>]*>([^<]+)<\/BuyItNowPrice>/i
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (!match) continue;
+    if (match.length >= 3) {
+      return { currency: match[1] || 'GBP', value: match[2].trim() };
+    }
+    return { currency: 'GBP', value: match[1].trim() };
+  }
+  return null;
+}
+
+function extractGetItemPictureUrls(xmlText) {
+  const text = String(xmlText);
+  const urls = [];
+  const seen = new Set();
+  const add = (raw) => {
+    if (raw == null) return;
+    const url = decodeBasicXmlEntities(String(raw).trim()).replace(/^http:\/\//i, 'https://');
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    urls.push(url);
+  };
+  const pictureSection = text.match(/<PictureDetails>([\s\S]*?)<\/PictureDetails>/i)?.[1];
+  if (pictureSection) {
+    for (const match of pictureSection.matchAll(/<PictureURL>([^<]+)<\/PictureURL>/gi)) {
+      add(match[1]);
+    }
+  }
+  if (!urls.length) {
+    for (const match of text.matchAll(/<PictureURL>([^<]+)<\/PictureURL>/gi)) {
+      add(match[1]);
+    }
+  }
+  const gallery = text.match(/<GalleryURL>([^<]+)<\/GalleryURL>/i)?.[1];
+  if (gallery && !urls.length) add(gallery);
+  return urls;
+}
+
+function extractGetItemSpecifics(xmlText) {
+  const text = String(xmlText);
+  const specifics = [];
+  for (const block of text.matchAll(/<NameValueList>([\s\S]*?)<\/NameValueList>/gi)) {
+    const inner = block[1];
+    const name = inner.match(/<Name>([^<]*)<\/Name>/i)?.[1];
+    const value = inner.match(/<Value>([^<]*)<\/Value>/i)?.[1];
+    if (!name) continue;
+    specifics.push({
+      name: decodeBasicXmlEntities(name.trim()),
+      value: value != null ? decodeBasicXmlEntities(String(value).trim()) : ''
+    });
+  }
+  return specifics;
+}
+
+function parseGetItemResponse(xmlText) {
+  const text = String(xmlText);
+  const itemId = text.match(/<ItemID>(\d+)<\/ItemID>/i)?.[1] ?? null;
+  const titleRaw = text.match(/<Title>([^<]*)<\/Title>/i)?.[1];
+  const title = titleRaw ? decodeBasicXmlEntities(titleRaw) : null;
+  const descriptionHtml = extractGetItemDescription(text);
+  const description = descriptionHtml ? htmlToPlainListingText(descriptionHtml) : null;
+  const priceParts = extractGetItemPrice(text);
+  const pictureUrls = extractGetItemPictureUrls(text);
+  const specifics = extractGetItemSpecifics(text);
+  return { itemId, title, description, priceParts, pictureUrls, specifics };
+}
+
+async function fetchEbayTradingGetItem(userAccessToken, legacyItemId) {
+  const itemId = extractEbayLegacyItemId(legacyItemId);
+  if (!itemId) {
+    const err = new Error('Invalid eBay item id');
+    err.code = 'INVALID_EBAY_ID';
+    throw err;
+  }
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+<GetItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <ErrorLanguage>en_US</ErrorLanguage>
+  <WarningLevel>High</WarningLevel>
+  <ItemID>${itemId}</ItemID>
+  <DetailLevel>ReturnAll</DetailLevel>
+  <IncludeItemSpecifics>true</IncludeItemSpecifics>
+</GetItemRequest>`;
+  const { text, parsed } = await callEbayTradingApi(userAccessToken, 'GetItem', xml);
+  if (parsed.ack !== 'Success' && parsed.ack !== 'Warning') {
+    const err = new Error('GetItem failed');
+    err.code = 'EBAY_GET_ITEM_FAILED';
+    err.ebayErrors = parsed.errors;
+    throw err;
+  }
+  return parseGetItemResponse(text);
+}
+
+function formatListingPriceLabel(priceParts, fallbackValue) {
+  if (priceParts && priceParts.value != null && String(priceParts.value).trim() !== '') {
+    const cur = (priceParts.currency && String(priceParts.currency)) || 'GBP';
+    const value = Number(priceParts.value);
+    if (cur === 'GBP' && Number.isFinite(value)) {
+      return new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(value);
+    }
+    return `${priceParts.value} ${cur}`;
+  }
+  if (fallbackValue != null && String(fallbackValue).trim() !== '') {
+    const value = Number(fallbackValue);
+    if (Number.isFinite(value)) {
+      return new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(value);
+    }
+  }
+  return null;
+}
+
+function buildVintedListingTextFile({
+  title,
+  priceLabel,
+  description,
+  ebayId,
+  ebayUrl,
+  specifics,
+  stockId
+}) {
+  const lines = [];
+  lines.push('LISTING EXPORT');
+  lines.push('Generated from your eBay listing — photos and text for relisting elsewhere.');
+  lines.push('');
+  lines.push('TITLE:');
+  lines.push(title?.trim() || '(no title found)');
+  lines.push('');
+  lines.push('PRICE:');
+  lines.push(priceLabel?.trim() || '(no price found — set manually on Vinted)');
+  lines.push('');
+  lines.push('DESCRIPTION:');
+  lines.push(description?.trim() || '(no description found — copy from eBay listing page if needed)');
+  if (Array.isArray(specifics) && specifics.length > 0) {
+    lines.push('');
+    lines.push('ITEM DETAILS (from eBay):');
+    for (const row of specifics) {
+      if (!row.name) continue;
+      lines.push(`${row.name}: ${row.value || '—'}`);
+    }
+  }
+  lines.push('');
+  lines.push('SOURCE:');
+  lines.push(`eBay item ID: ${ebayId}`);
+  if (stockId != null) lines.push(`Stock SKU: ${stockId}`);
+  lines.push(`eBay URL: ${ebayUrl}`);
+  lines.push('');
+  lines.push('IMAGES:');
+  lines.push('See the images/ folder in this zip (use in order when relisting).');
+  return `${lines.join('\n')}\n`;
+}
+
+function sanitizeVintedPackFilenamePart(raw, fallback = 'item') {
+  const slug = String(raw ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  return slug || fallback;
+}
+
+function buildVintedPackZipFilename({ stockId, ebayId, itemName }) {
+  const idPart =
+    stockId != null && String(stockId).trim() !== '' ? String(stockId).trim() : String(ebayId).trim();
+  const namePart = sanitizeVintedPackFilenamePart(itemName, 'listing');
+  return `${idPart}-${namePart}.zip`;
+}
+
+function imageExtensionFromUrlOrType(url, contentType) {
+  const pathPart = String(url).split('?')[0].toLowerCase();
+  if (pathPart.endsWith('.png')) return '.png';
+  if (pathPart.endsWith('.webp')) return '.webp';
+  if (pathPart.endsWith('.gif')) return '.gif';
+  if (contentType && String(contentType).toLowerCase().includes('png')) return '.png';
+  if (contentType && String(contentType).toLowerCase().includes('webp')) return '.webp';
+  return '.jpg';
+}
+
+async function fetchImageBufferForZip(url) {
+  const response = await fetch(url, {
+    method: 'GET',
+    redirect: 'follow',
+    headers: {
+      Accept: 'image/*,*/*;q=0.8',
+      'User-Agent':
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+    }
+  });
+  if (!response.ok) {
+    throw new Error(`Image HTTP ${response.status}`);
+  }
+  const contentType = response.headers.get('content-type');
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (!buffer.length) {
+    throw new Error('Empty image response');
+  }
+  return { buffer, contentType };
+}
+
+async function buildVintedListingPackFromEbay({ pool, userAccessToken, ebayIdRaw, stockIdRaw }) {
+  const legacy = extractEbayLegacyItemId(ebayIdRaw);
+  if (!legacy) {
+    const err = new Error('Invalid eBay item id');
+    err.code = 'INVALID_EBAY_ID';
+    throw err;
+  }
+
+  let stockFallback = null;
+  const stockId = stockIdRaw != null ? Number.parseInt(String(stockIdRaw), 10) : NaN;
+  if (Number.isFinite(stockId) && stockId > 0 && pool) {
+    const stockResult = await pool.query(
+      `SELECT id, item_name, projected_sale_price, sale_price FROM stock WHERE id = $1`,
+      [stockId]
+    );
+    stockFallback = stockResult.rows?.[0] ?? null;
+  }
+
+  let title = stockFallback?.item_name ?? null;
+  let description = null;
+  let priceLabel = formatListingPriceLabel(
+    null,
+    stockFallback?.projected_sale_price ?? stockFallback?.sale_price
+  );
+  let pictureUrls = [];
+  let specifics = [];
+  let source = 'ebay_trading_get_item';
+
+  try {
+    const tradingItem = await fetchEbayTradingGetItem(userAccessToken, legacy);
+    title = tradingItem.title || title;
+    description = tradingItem.description || description;
+    priceLabel =
+      formatListingPriceLabel(tradingItem.priceParts, stockFallback?.projected_sale_price) ||
+      priceLabel;
+    pictureUrls = tradingItem.pictureUrls;
+    specifics = tradingItem.specifics;
+  } catch (tradingErr) {
+    console.warn('Vinted pack: GetItem failed, falling back to Browse API:', tradingErr?.message || tradingErr);
+    source = 'ebay_browse_fallback';
+    const appId = process.env.REACT_APP_EBAY_APP_ID || process.env.EBAY_APP;
+    const certId = process.env.REACT_APP_EBAY_CERT_ID;
+    if (!appId || !certId) throw tradingErr;
+    const browseToken = await getAccessToken(appId, certId);
+    const browseItem = await fetchBrowseListingItemWithRetry(browseToken, legacy);
+    if (!browseItem) throw tradingErr;
+    title = browseItem.title?.trim() || title;
+    description = extractBrowseItemDescription(browseItem) || description;
+    priceLabel = formatBrowseListingPrice(browseItem, stockFallback?.projected_sale_price) || priceLabel;
+    pictureUrls = extractBrowseItemImageUrls(browseItem);
+    if (Array.isArray(browseItem.localizedAspects)) {
+      specifics = browseItem.localizedAspects
+        .filter((a) => a?.name && a?.value)
+        .map((a) => ({ name: String(a.name), value: String(a.value) }));
+    }
+  }
+
+  const listingText = buildVintedListingTextFile({
+    title,
+    priceLabel,
+    description,
+    ebayId: legacy,
+    ebayUrl: `https://www.ebay.co.uk/itm/${legacy}`,
+    specifics,
+    stockId: stockFallback?.id ?? (Number.isFinite(stockId) ? stockId : null)
+  });
+
+  const imageEntries = [];
+  const imageErrors = [];
+  for (let i = 0; i < pictureUrls.length; i++) {
+    try {
+      const { buffer, contentType } = await fetchImageBufferForZip(pictureUrls[i]);
+      const ext = imageExtensionFromUrlOrType(pictureUrls[i], contentType);
+      imageEntries.push({
+        name: `images/${String(i + 1).padStart(2, '0')}${ext}`,
+        buffer
+      });
+    } catch (imgErr) {
+      imageErrors.push({
+        url: pictureUrls[i],
+        message: imgErr instanceof Error ? imgErr.message : String(imgErr)
+      });
+    }
+  }
+
+  if (!imageEntries.length && !description && !title) {
+    const err = new Error('Could not load listing details or images from eBay');
+    err.code = 'VINTED_PACK_EMPTY';
+    throw err;
+  }
+
+  return {
+    legacy,
+    listingText,
+    imageEntries,
+    imageErrors,
+    source,
+    title,
+    stockId: stockFallback?.id ?? (Number.isFinite(stockId) ? stockId : null)
+  };
+}
+
 function formatEbayTradingUtcIso(date) {
   return new Date(date).toISOString().replace(/\.\d{3}Z$/, '.000Z');
 }
@@ -7940,7 +8299,8 @@ async function callEbayTradingApi(userAccessToken, callName, xmlBody) {
     const codeMap = {
       EndItem: 'EBAY_END_ITEM_FAILED',
       RelistItem: 'EBAY_RELIST_ITEM_FAILED',
-      GetSellerList: 'EBAY_GET_SELLER_LIST_FAILED'
+      GetSellerList: 'EBAY_GET_SELLER_LIST_FAILED',
+      GetItem: 'EBAY_GET_ITEM_FAILED'
     };
     const err = new Error(parsed.errors[0] || `${callName} failed (Ack=${parsed.ack || 'unknown'})`);
     err.code = codeMap[callName] || `EBAY_${callName.toUpperCase()}_FAILED`;
@@ -8289,6 +8649,102 @@ app.get('/api/ebay/listing-preview', async (req, res) => {
 });
 
 /**
+ * GET — Zip download for Vinted relist: listing.txt (title, price, description) + all eBay photos.
+ */
+app.get('/api/ebay/listing-vinted-pack', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const ebayIdRaw = req.query.ebay_id ?? req.query.ebayId;
+    const legacy = extractEbayLegacyItemId(ebayIdRaw);
+    if (!legacy) {
+      return res.status(400).json({ error: 'ebay_id query parameter is required' });
+    }
+
+    let userToken;
+    try {
+      userToken = await ebaySellerOAuth.getFulfillmentUserAccessToken(pool);
+    } catch (tokErr) {
+      if (tokErr.code === 'EBAY_USER_TOKEN_MISSING') {
+        return res.status(503).json({
+          error: 'eBay seller not connected',
+          code: 'EBAY_USER_TOKEN_MISSING',
+          details: tokErr.message
+        });
+      }
+      throw tokErr;
+    }
+
+    const pack = await buildVintedListingPackFromEbay({
+      pool,
+      userAccessToken: userToken,
+      ebayIdRaw: legacy,
+      stockIdRaw: req.query.stock_id ?? req.query.stockId
+    });
+
+    const zipName = buildVintedPackZipFilename({
+      stockId: pack.stockId,
+      ebayId: pack.legacy,
+      itemName: pack.title
+    });
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${zipName}"`);
+
+    const { ZipArchive } = await import('archiver');
+    const archive = new ZipArchive({ zlib: { level: 9 } });
+    archive.on('error', (err) => {
+      console.error('listing-vinted-pack archive error:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Zip failed', details: err.message });
+      } else {
+        res.end();
+      }
+    });
+    archive.pipe(res);
+
+    archive.append(pack.listingText, { name: 'listing.txt' });
+    if (pack.imageErrors.length > 0) {
+      const errLines = pack.imageErrors.map(
+        (e, idx) => `${idx + 1}. ${e.url}\n   ${e.message}`
+      );
+      archive.append(
+        `Some images could not be downloaded:\n\n${errLines.join('\n\n')}\n`,
+        { name: 'images-errors.txt' }
+      );
+    }
+    for (const img of pack.imageEntries) {
+      archive.append(img.buffer, { name: img.name });
+    }
+
+    await archive.finalize();
+  } catch (error) {
+    console.error('listing-vinted-pack failed:', error);
+    if (res.headersSent) {
+      res.end();
+      return;
+    }
+    const code = error.code || 'VINTED_PACK_FAILED';
+    const status =
+      code === 'INVALID_EBAY_ID'
+        ? 400
+        : code === 'EBAY_USER_TOKEN_MISSING'
+          ? 503
+          : code === 'VINTED_PACK_EMPTY'
+            ? 422
+            : 500;
+    res.status(status).json({
+      error: 'Export failed',
+      code,
+      details: error instanceof Error ? error.message : String(error),
+      ebay_errors: error.ebayErrors ?? undefined
+    });
+  }
+});
+
+/**
  * POST — Save the new eBay listing id on a stock row after reviewing the relisted item.
  */
 app.post('/api/stock/:id/ebay-relist/confirm', async (req, res) => {
@@ -8411,7 +8867,12 @@ app.post('/api/stock/:id/ebay-sold-vinted-active-check', async (req, res) => {
         error: 'Vinted check failed',
         details: outcome.error || 'Vinted request failed',
         still_on_vinted: false,
-        httpStatus: outcome.httpStatus ?? null
+        httpStatus: outcome.httpStatus ?? null,
+        id: row.id,
+        item_name: row.item_name ?? null,
+        ebay_id: row.ebay_id ?? null,
+        vinted_id: row.vinted_id ?? null,
+        vinted_url: outcome.url
       });
     }
 
@@ -8436,7 +8897,8 @@ app.post('/api/stock/:id/ebay-sold-vinted-active-check', async (req, res) => {
     res.status(500).json({
       error: 'Check failed',
       details: error instanceof Error ? error.message : String(error),
-      still_on_vinted: false
+      still_on_vinted: false,
+      id: stockId
     });
   }
 });

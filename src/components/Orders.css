@@ -848,6 +848,7 @@
   border: 1px solid rgba(var(--theme-accent-rgb), 0.22);
   color: rgba(var(--theme-text-rgb), 0.82);
   font-size: 0.9rem;
+  text-align: center;
 }
 
 .orders-sales-edit-button {
@@ -1022,6 +1023,19 @@
   border-radius: 12px;
   font-size: 0.88rem;
   letter-spacing: 0.02rem;
+  text-align: center;
+  animation: orders-oauth-flash-in 0.25s ease;
+}
+
+@keyframes orders-oauth-flash-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .orders-oauth-flash--ok {
@@ -1172,6 +1186,52 @@
   color: rgba(255, 200, 120, 0.85);
 }
 
+.orders-vinted-check-api-errors-panel {
+  margin: 0 0 16px 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 180, 80, 0.28);
+  background: rgba(255, 160, 60, 0.08);
+}
+
+.orders-vinted-check-api-errors-panel .orders-vinted-ebay-api-errors {
+  margin: 0 0 10px 0;
+}
+
+.orders-vinted-check-api-errors-list {
+  margin: 0;
+  padding: 0 0 0 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.84rem;
+  color: rgba(255, 220, 170, 0.92);
+}
+
+.orders-vinted-check-api-errors-item {
+  line-height: 1.45;
+}
+
+.orders-vinted-check-api-errors-sku {
+  color: rgba(186, 230, 255, 0.95);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.orders-vinted-check-api-errors-sku:hover {
+  text-decoration: underline;
+}
+
+.orders-vinted-check-api-errors-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.82rem;
+}
+
+.orders-vinted-check-api-errors-reason {
+  color: rgba(255, 200, 120, 0.78);
+  font-size: 0.8rem;
+}
+
 /* Bulky rows: Sales tab table + To-pack queue table */
 .orders-sales-table .orders-table tbody tr.orders-row--bulky td,
 .orders-list-section .orders-table tbody tr.orders-row--bulky td {
@@ -1215,6 +1275,22 @@
 
 .orders-sales-table .orders-table tbody tr.orders-sales-row--ebay-fix-needed:hover td {
   background: rgba(255, 100, 70, 0.24) !important;
+}
+
+/* Ending this week: eBay listing not matched to any Stock row (data entry gap) */
+.orders-sales-table .orders-table tbody tr.orders-sales-row--ebay-not-in-stock td {
+  background: rgba(255, 176, 60, 0.2) !important;
+}
+
+.orders-sales-table .orders-table tbody tr.orders-sales-row--ebay-not-in-stock:hover td {
+  background: rgba(255, 176, 60, 0.3) !important;
+  cursor: help;
+}
+
+.orders-ending-week-unlinked-marker,
+.orders-ending-week-unlinked-name {
+  color: rgba(255, 200, 120, 0.95);
+  cursor: help;
 }
 
 .orders-sales-table .orders-table tbody tr.orders-sales-row--vinted-still-listed td {
@@ -1739,6 +1815,7 @@
 .orders-sales-table--ending-this-week .orders-ew-col--id,
 .orders-sales-table--ending-this-week .orders-ew-col--ebay,
 .orders-sales-table--ending-this-week .orders-ew-col--edit,
+.orders-sales-table--ending-this-week .orders-ew-col--vinted-pack,
 .orders-sales-table--ending-this-week .orders-ew-col--end,
 .orders-sales-table--ending-this-week .orders-ew-col--relist {
   width: 1%;
@@ -1770,6 +1847,37 @@
   min-width: 7rem;
 }
 
+.orders-sales-table--ending-this-week .orders-ew-col--vinted-pack {
+  min-width: 6.5rem;
+}
+
+.orders-vinted-pack-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(45, 212, 191, 0.45);
+  background: rgba(45, 212, 191, 0.14);
+  color: rgba(210, 255, 245, 0.95);
+  font-weight: 700;
+  font-size: 0.72rem;
+  letter-spacing: 0.04rem;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.orders-vinted-pack-button:hover:not(:disabled) {
+  background: rgba(45, 212, 191, 0.24);
+  border-color: rgba(45, 212, 191, 0.65);
+}
+
+.orders-vinted-pack-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .orders-sales-table--ending-this-week .orders-sales-unlist-cell {
   display: inline-flex;
   flex-direction: column;
@@ -1781,6 +1889,7 @@
 .orders-sales-table--ending-this-week .orders-sales-unlist-button,
 .orders-sales-table--ending-this-week .orders-sales-unlist-done,
 .orders-sales-table--ending-this-week .orders-sales-relist-button,
+.orders-sales-table--ending-this-week .orders-vinted-pack-button,
 .orders-sales-table--ending-this-week .orders-sales-relist-confirm-button,
 .orders-sales-table--ending-this-week .orders-sales-edit-button {
   padding: 5px 8px;

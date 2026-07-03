@@ -639,6 +639,27 @@ interface VintedCheckViolation {
   vinted_url: string;
 }
 
+interface VintedCheckApiError {
+  stock_id: number;
+  message: string;
+  httpStatus: number | null;
+  item_name?: Nullable<string>;
+  ebay_id?: Nullable<string>;
+  vinted_id?: Nullable<string>;
+}
+
+function formatVintedCheckApiErrorMessage(entry: VintedCheckApiError): string {
+  const parts: string[] = [];
+  if (entry.httpStatus != null) parts.push(`HTTP ${entry.httpStatus}`);
+  const detail = entry.message?.trim();
+  if (detail && !parts.some((p) => detail.includes(p))) {
+    parts.push(detail);
+  } else if (detail && parts.length === 0) {
+    parts.push(detail);
+  }
+  return parts.join(' · ') || 'Check failed';
+}
+
 interface MissingEbayStockRow {
   legacy_item_id: string;
   item_title: Nullable<string>;
@@ -703,6 +724,27 @@ interface EbayEndingThisWeekResponse {
 
 function endingThisWeekRowKey(row: Pick<EbayEndingThisWeekRow, 'id' | 'ebay_id'>): string {
   return row.id != null ? `stock-${row.id}` : `ebay-${row.ebay_id}`;
+}
+
+/** Why an Ending this week row has no Stock SKU / edit link. */
+function endingThisWeekUnlinkedTooltip(row: EbayEndingThisWeekRow): string {
+  const ebayId = row.ebay_id?.trim() || 'unknown';
+  return (
+    `Not linked to Stock — no Stock row has eBay ID ${ebayId}. ` +
+    'This listing is on your eBay account but missing from Stock (or the Stock eBay ID is wrong). ' +
+    'Add or correct the eBay ID on the matching Stock item to enable Stock edit, End, and Recreate here.'
+  );
+}
+
+function vintedPackDownloadFilename(row: EbayEndingThisWeekRow): string {
+  const idPart = row.id != null ? String(row.id) : String(row.ebay_id).trim();
+  const slug =
+    (row.item_name?.trim() || 'listing')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80) || 'listing';
+  return `${idPart}-${slug}.zip`;
 }
 
 interface EbayRelistPending {
@@ -899,9 +941,7 @@ const Orders: React.FC = () => {
   const [vintedCheckLoading, setVintedCheckLoading] = useState(false);
   const [vintedCheckError, setVintedCheckError] = useState<string | null>(null);
   const [vintedCheckViolations, setVintedCheckViolations] = useState<VintedCheckViolation[]>([]);
-  const [vintedCheckApiErrors, setVintedCheckApiErrors] = useState<
-    Array<{ stock_id: number; message: string; httpStatus: number | null }>
-  >([]);
+  const [vintedCheckApiErrors, setVintedCheckApiErrors] = useState<VintedCheckApiError[]>([]);
   const [vintedCheckProgress, setVintedCheckProgress] = useState<{
     checked: number;
     total: number;
@@ -933,6 +973,8 @@ const Orders: React.FC = () => {
     string[]
   >([]);
   const [ebayRelistConfirmLoadingId, setEbayRelistConfirmLoadingId] = useState<string | null>(null);
+  const [vintedPackLoadingKey, setVintedPackLoadingKey] = useState<string | null>(null);
+  const [vintedPackErrorByKey, setVintedPackErrorByKey] = useState<Record<string, string>>({});
   const [toPackEbayUnlistModal, setToPackEbayUnlistModal] = useState<ToPackEbayUnlistModalState | null>(
     null
   );
@@ -1190,7 +1232,7 @@ const Orders: React.FC = () => {
       next.delete('ebay_oauth_msg');
       next.delete('popup');
       setSearchParams(next, { replace: true });
-    }, 12000);
+    }, 5000);
     return () => window.clearTimeout(timer);
   }, [ordersTabUsesEbayOAuth, searchParams, setSearchParams]);
 
@@ -1527,18 +1569,26 @@ const Orders: React.FC = () => {
     soldRowsVintedCheckGrid.length,
   ]);
 
-  const vintedCheckApiErrorsForPeriod = useMemo(
-    () =>
-      vintedCheckApiErrors.filter((entry) => {
+  const vintedCheckApiErrorsForPeriod = useMemo((): VintedCheckApiError[] => {
+    return vintedCheckApiErrors
+      .filter((entry) => {
         const row = soldRows.find((r) => r.id === entry.stock_id);
         return (
           row != null &&
           soldRowMatchesPlatformFilter(row, 'ebay') &&
           soldRowMatchesDateRange(row, salesDateRangeFilter)
         );
-      }),
-    [vintedCheckApiErrors, soldRows, salesDateRangeFilter]
-  );
+      })
+      .map((entry) => {
+        const row = soldRows.find((r) => r.id === entry.stock_id);
+        return {
+          ...entry,
+          item_name: entry.item_name ?? row?.item_name ?? null,
+          ebay_id: entry.ebay_id ?? row?.ebay_id ?? null,
+          vinted_id: entry.vinted_id ?? row?.vinted_id ?? null,
+        };
+      });
+  }, [vintedCheckApiErrors, soldRows, salesDateRangeFilter]);
 
   const salesGridStockRows = useMemo(() => {
     if (salesEbayGridMode === 'unlist-ebay') return soldRowsUnlistGrid;
@@ -2307,7 +2357,7 @@ const Orders: React.FC = () => {
 
     setVintedCheckProgress({ checked: 0, total: candidates.length, matchesFound: 0 });
     const violations: VintedCheckViolation[] = [];
-    const apiErrors: Array<{ stock_id: number; message: string; httpStatus: number | null }> = [];
+    const apiErrors: VintedCheckApiError[] = [];
 
     try {
       for (let i = 0; i < candidates.length; i++) {
@@ -2336,6 +2386,9 @@ const Orders: React.FC = () => {
               stock_id: row.id,
               message: msg,
               httpStatus: data?.httpStatus ?? response.status,
+              item_name: row.item_name ?? data?.item_name ?? null,
+              ebay_id: row.ebay_id ?? data?.ebay_id ?? null,
+              vinted_id: row.vinted_id ?? data?.vinted_id ?? null,
             });
           } else {
             setVintedCheckScannedIds((prev) =>
@@ -2361,6 +2414,9 @@ const Orders: React.FC = () => {
                   : err.message
                 : 'Check failed',
             httpStatus: null,
+            item_name: row.item_name ?? null,
+            ebay_id: row.ebay_id ?? null,
+            vinted_id: row.vinted_id ?? null,
           });
         }
 
@@ -2610,6 +2666,52 @@ const Orders: React.FC = () => {
       setEbayRelistErrorById((prev) => ({ ...prev, [rowKey]: message }));
     } finally {
       setEbayRelistLoadingId(null);
+    }
+  };
+
+  const handleDownloadVintedPack = async (row: EbayEndingThisWeekRow) => {
+    const rowKey = endingThisWeekRowKey(row);
+    setVintedPackLoadingKey(rowKey);
+    setVintedPackErrorByKey((prev) => {
+      const next = { ...prev };
+      delete next[rowKey];
+      return next;
+    });
+    try {
+      const params = new URLSearchParams({ ebay_id: row.ebay_id });
+      if (row.id != null) params.set('stock_id', String(row.id));
+      const response = await fetch(`${API_BASE}/api/ebay/listing-vinted-pack?${params.toString()}`);
+      if (!response.ok) {
+        const text = await response.text();
+        let msg = 'Download failed';
+        try {
+          const data = JSON.parse(text) as { error?: string; details?: string };
+          msg = data.details || data.error || msg;
+        } catch {
+          msg = text || msg;
+        }
+        throw new Error(msg);
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get('Content-Disposition');
+      let downloadName = vintedPackDownloadFilename(row);
+      const filenameMatch = disposition?.match(/filename="([^"]+)"/i);
+      if (filenameMatch?.[1]) downloadName = filenameMatch[1];
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = downloadName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (err: unknown) {
+      setVintedPackErrorByKey((prev) => ({
+        ...prev,
+        [rowKey]: err instanceof Error ? err.message : 'Download failed',
+      }));
+    } finally {
+      setVintedPackLoadingKey(null);
     }
   };
 
@@ -3365,11 +3467,78 @@ const Orders: React.FC = () => {
                 </p>
               )}
               {vintedCheckApiErrorsForPeriod.length > 0 && (
-                <p className="orders-vinted-ebay-api-errors" role="status">
-                  {vintedCheckApiErrorsForPeriod.length} item
-                  {vintedCheckApiErrorsForPeriod.length === 1 ? '' : 's'} could not be checked on Vinted
-                  for {salesDateRangeLabel}. Try again later.
-                </p>
+                <div className="orders-vinted-check-api-errors-panel" role="alert">
+                  <p className="orders-vinted-ebay-api-errors">
+                    {vintedCheckApiErrorsForPeriod.length} item
+                    {vintedCheckApiErrorsForPeriod.length === 1 ? '' : 's'} could not be checked on Vinted
+                    for {salesDateRangeLabel}. Check these manually:
+                  </p>
+                  <ul className="orders-vinted-check-api-errors-list">
+                    {vintedCheckApiErrorsForPeriod.map((entry) => {
+                      const vintedHref = vintedListingHref(entry.vinted_id ?? null);
+                      const ebayHref = ebayListingHref(entry.ebay_id ?? null);
+                      const vintedLabel = entry.vinted_id?.trim() ?? '';
+                      const ebayLabel = entry.ebay_id?.trim() ?? '';
+                      const itemLabel = entry.item_name?.trim();
+                      return (
+                        <li key={entry.stock_id} className="orders-vinted-check-api-errors-item">
+                          <Link
+                            to={`/stock?editId=${entry.stock_id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="orders-vinted-check-api-errors-sku"
+                            title={itemLabel ? `Edit ${itemLabel} in Stock` : `Edit SKU ${entry.stock_id} in Stock`}
+                          >
+                            SKU {entry.stock_id}
+                          </Link>
+                          {vintedLabel ? (
+                            <>
+                              {' · Vinted '}
+                              {vintedHref ? (
+                                <a
+                                  href={vintedHref}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="orders-table-external-link"
+                                  title={`Open Vinted listing ${vintedLabel}`}
+                                >
+                                  {vintedLabel}
+                                </a>
+                              ) : (
+                                <span className="orders-vinted-check-api-errors-id">{vintedLabel}</span>
+                              )}
+                            </>
+                          ) : null}
+                          {ebayLabel ? (
+                            <>
+                              {' · eBay '}
+                              {ebayHref ? (
+                                <a
+                                  href={ebayHref}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="orders-table-external-link"
+                                  title={`Open eBay listing ${ebayLabel}`}
+                                >
+                                  {ebayLabel}
+                                </a>
+                              ) : (
+                                <span className="orders-vinted-check-api-errors-id">{ebayLabel}</span>
+                              )}
+                            </>
+                          ) : null}
+                          <span
+                            className="orders-vinted-check-api-errors-reason"
+                            title={entry.message}
+                          >
+                            {' — '}
+                            {formatVintedCheckApiErrorMessage(entry)}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
               )}
             </>
           )}
@@ -3399,8 +3568,6 @@ const Orders: React.FC = () => {
               {endingThisWeekLoading && endingThisWeekProgress
                 ? ` — still scanning ${endingThisWeekProgress.checked.toLocaleString()} of ${endingThisWeekProgress.total.toLocaleString()}`
                 : ''}
-              . End the listing, relist via API for a new eBay item id, review the link, then confirm to
-              update Stock.
             </p>
           ) : null}
           {salesEbayGridMode === 'ending-this-week' && endingThisWeekLoading ? (
@@ -3635,6 +3802,9 @@ const Orders: React.FC = () => {
                     {salesEbayGridMode === 'ending-this-week' ? (
                       <th className="orders-ew-col orders-ew-col--relist">Relist</th>
                     ) : null}
+                    {salesEbayGridMode === 'ending-this-week' ? (
+                      <th className="orders-ew-col orders-ew-col--vinted-pack">Export Listing Data</th>
+                    ) : null}
                     {salesEbayGridMode !== 'ending-this-week' ? (
                       <th className="orders-sales-info-header">Info</th>
                     ) : null}
@@ -3720,6 +3890,8 @@ const Orders: React.FC = () => {
                         const pending = ebayRelistPendingByStockId[rowKey];
                         const endError = ebayRefreshEndErrorById[rowKey];
                         const relistError = ebayRelistErrorById[rowKey];
+                        const vintedPackLoading = vintedPackLoadingKey === rowKey;
+                        const vintedPackError = vintedPackErrorByKey[rowKey];
                         const timeRemaining = formatEbayTimeRemaining(
                           row.item_end_date,
                           ended || confirmed
@@ -3729,12 +3901,18 @@ const Orders: React.FC = () => {
                         const rowClass = [
                           confirmed ? 'orders-sales-row--ebay-unlisted' : '',
                           ended && !confirmed ? 'orders-sales-row--ebay-ended' : '',
-                          !ended && !confirmed ? 'orders-sales-row--ebay-fix-needed' : ''
+                          !hasStock ? 'orders-sales-row--ebay-not-in-stock' : '',
+                          hasStock && !ended && !confirmed ? 'orders-sales-row--ebay-fix-needed' : ''
                         ]
                           .filter(Boolean)
                           .join(' ');
+                        const unlinkedTooltip = !hasStock ? endingThisWeekUnlinkedTooltip(row) : undefined;
                         return (
-                          <tr key={rowKey} className={rowClass || undefined}>
+                          <tr
+                            key={rowKey}
+                            className={rowClass || undefined}
+                            title={unlinkedTooltip}
+                          >
                             <td className="orders-ew-col orders-ew-col--time">
                               {timeRemaining ? (
                                 <span
@@ -3757,7 +3935,10 @@ const Orders: React.FC = () => {
                               {hasStock ? (
                                 <span className="orders-sales-id-num">{row.id}</span>
                               ) : (
-                                <span className="orders-table-dash" title="Not linked to a Stock row">
+                                <span
+                                  className="orders-ending-week-unlinked-marker"
+                                  title={unlinkedTooltip}
+                                >
                                   —
                                 </span>
                               )}
@@ -3775,10 +3956,17 @@ const Orders: React.FC = () => {
                                     {row.item_name.trim()}
                                   </Link>
                                 ) : (
-                                  row.item_name.trim()
+                                  <span
+                                    className="orders-ending-week-unlinked-name"
+                                    title={unlinkedTooltip}
+                                  >
+                                    {row.item_name.trim()}
+                                  </span>
                                 )
                               ) : (
-                                <span className="orders-table-dash">—</span>
+                                <span className="orders-table-dash" title={unlinkedTooltip}>
+                                  —
+                                </span>
                               )}
                             </td>
                             <td className="orders-ew-col orders-ew-col--time-in-stock">
@@ -3897,6 +4085,24 @@ const Orders: React.FC = () => {
                                 {relistError ? (
                                   <span className="orders-sales-unlist-error" title={relistError}>
                                     {relistError}
+                                  </span>
+                                ) : null}
+                              </div>
+                            </td>
+                            <td className="orders-ew-col orders-ew-col--vinted-pack">
+                              <div className="orders-sales-unlist-cell">
+                                <button
+                                  type="button"
+                                  className="orders-vinted-pack-button"
+                                  disabled={!ebaySellerConnected || vintedPackLoading || vintedPackLoadingKey != null}
+                                  title="Export listing data as zip: photos + listing.txt (title, price, description)"
+                                  onClick={() => void handleDownloadVintedPack(row)}
+                                >
+                                  {vintedPackLoading ? 'Exporting…' : 'Download'}
+                                </button>
+                                {vintedPackError ? (
+                                  <span className="orders-sales-unlist-error" title={vintedPackError}>
+                                    {vintedPackError}
                                   </span>
                                 ) : null}
                               </div>
