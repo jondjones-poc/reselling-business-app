@@ -67,7 +67,13 @@ function parseOrdersTabParam(raw: string | null): OrdersTab {
   return 'to-pack';
 }
 
-type SalesEbayGridMode = 'none' | 'unlist-ebay' | 'missing-ebay-order' | 'ending-this-week' | 'vinted-check';
+type SalesEbayGridMode =
+  | 'none'
+  | 'unlist-ebay'
+  | 'missing-ebay-order'
+  | 'ending-this-week'
+  | 'vinted-check'
+  | 'vinted-for-sale';
 
 const VINTED_CHECK_BASE_DELAY_MS = 2500;
 const VINTED_CHECK_JITTER_MS = 1500;
@@ -262,6 +268,95 @@ function ToPackPlatformCell({
   const soldPlatform = item.sold_platform?.trim();
   if (soldPlatform) return <>{soldPlatform}</>;
   return <>{getListingPlatform(item.vinted_id, item.ebay_id)}</>;
+}
+
+interface EbayShippingDetails {
+  order_id: Nullable<string>;
+  buyer_name: Nullable<string>;
+  address_line1: Nullable<string>;
+  address_line2: Nullable<string>;
+  city: Nullable<string>;
+  county: Nullable<string>;
+  postal_code: Nullable<string>;
+  country_code: Nullable<string>;
+  ebay_order_url: Nullable<string>;
+}
+
+function toPackItemIsEbaySale(item: Pick<OrderItem, 'sold_platform' | 'ebay_id'>): boolean {
+  const platformRaw = item.sold_platform?.trim() ?? '';
+  if (!platformRaw) return false;
+  const pl = platformRaw.toLowerCase();
+  const isEbay = pl.includes('ebay') || platformRaw === 'eBay';
+  return isEbay && Boolean(item.ebay_id?.trim());
+}
+
+function formatEbayShippingAddressLines(details: EbayShippingDetails): string[] {
+  const lines: string[] = [];
+  if (details.buyer_name?.trim()) lines.push(details.buyer_name.trim());
+  if (details.address_line1?.trim()) lines.push(details.address_line1.trim());
+  if (details.address_line2?.trim()) lines.push(details.address_line2.trim());
+  const cityLine = [details.city, details.county, details.postal_code]
+    .map((p) => p?.trim())
+    .filter(Boolean)
+    .join(', ');
+  if (cityLine) lines.push(cityLine);
+  const country = details.country_code?.trim();
+  if (country && country.toUpperCase() !== 'GB') lines.push(country);
+  return lines;
+}
+
+function ToPackEbayShippingCell({
+  item,
+  details,
+  loading,
+  sellerConnected,
+}: {
+  item: OrderItem;
+  details: EbayShippingDetails | null | undefined;
+  loading: boolean;
+  sellerConnected: boolean;
+}): React.ReactElement {
+  if (!toPackItemIsEbaySale(item)) {
+    return <span className="orders-table-dash">—</span>;
+  }
+
+  if (!sellerConnected) {
+    return (
+      <span className="orders-topack-shipping-muted" title="Connect eBay seller to load buyer address">
+        Connect eBay
+      </span>
+    );
+  }
+
+  if (loading && !details) {
+    return <span className="orders-topack-shipping-muted">Loading…</span>;
+  }
+
+  if (!details) {
+    return (
+      <span
+        className="orders-topack-shipping-muted"
+        title="No matching eBay order in the last 60 days — check sold platform and eBay ID in Stock"
+      >
+        Not found
+      </span>
+    );
+  }
+
+  const lines = formatEbayShippingAddressLines(details);
+
+  return (
+    <div className="orders-topack-shipping">
+      {details.buyer_name?.trim() ? (
+        <div className="orders-topack-shipping-name">{details.buyer_name.trim()}</div>
+      ) : null}
+      <div className="orders-topack-shipping-address">
+        {lines.slice(details.buyer_name?.trim() ? 1 : 0).map((line) => (
+          <div key={line}>{line}</div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 /** Compact eBay wordmark (brand colors) for buttons — not an official asset; typographic approximation. */
@@ -736,8 +831,16 @@ function endingThisWeekUnlinkedTooltip(row: EbayEndingThisWeekRow): string {
   );
 }
 
-function vintedPackDownloadFilename(row: EbayEndingThisWeekRow): string {
-  const idPart = row.id != null ? String(row.id) : String(row.ebay_id).trim();
+function listingExportDownloadFilename(row: {
+  id?: number | null;
+  item_name?: Nullable<string>;
+  ebay_id?: Nullable<string>;
+  vinted_id?: Nullable<string>;
+}): string {
+  const idPart =
+    row.id != null
+      ? String(row.id)
+      : String(row.ebay_id ?? row.vinted_id ?? 'listing').trim();
   const slug =
     (row.item_name?.trim() || 'listing')
       .toLowerCase()
@@ -745,6 +848,19 @@ function vintedPackDownloadFilename(row: EbayEndingThisWeekRow): string {
       .replace(/^-+|-+$/g, '')
       .slice(0, 80) || 'listing';
   return `${idPart}-${slug}.zip`;
+}
+
+function stockRowIsUnsold(row: StockRow): boolean {
+  const saleDate = row.sale_date != null ? String(row.sale_date).trim() : '';
+  return saleDate === '';
+}
+
+function purchaseDateSortKey(purchaseDate: Nullable<string>): number {
+  if (purchaseDate == null || String(purchaseDate).trim() === '') return Number.POSITIVE_INFINITY;
+  const match = String(purchaseDate).trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return Number.POSITIVE_INFINITY;
+  const t = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return Number.isFinite(t) ? t : Number.POSITIVE_INFINITY;
 }
 
 interface EbayRelistPending {
@@ -981,6 +1097,11 @@ const Orders: React.FC = () => {
   const [toPackEbayOAuthPending, setToPackEbayOAuthPending] = useState(false);
   const toPackEbayOAuthPopupRef = useRef<Window | null>(null);
   const toPackEbayOAuthPollRef = useRef<number | null>(null);
+  const [toPackEbayShippingByStockId, setToPackEbayShippingByStockId] = useState<
+    Record<number, EbayShippingDetails>
+  >({});
+  const [toPackEbayShippingLoading, setToPackEbayShippingLoading] = useState(false);
+  const [toPackEbayShippingError, setToPackEbayShippingError] = useState<string | null>(null);
   const listingManagementEndingWeekLoadedRef = useRef(false);
   const [endingThisWeekRelistModal, setEndingThisWeekRelistModal] =
     useState<EndingThisWeekRelistModalState | null>(null);
@@ -1515,6 +1636,23 @@ const Orders: React.FC = () => {
     [soldRows, salesDateRangeFilter, salesBrandFilter, stockBrandIdByStockId]
   );
 
+  /** Unsold stock listed on Vinted, longest in stock first (oldest purchase date). */
+  const vintedForSaleRows = useMemo(() => {
+    return allStock
+      .filter(
+        (row) =>
+          stockRowIsUnsold(row) &&
+          Boolean(row.vinted_id?.trim()) &&
+          soldRowMatchesBrandFilter(row, salesBrandFilter, stockBrandIdByStockId)
+      )
+      .slice()
+      .sort((a, b) => {
+        const byDate = purchaseDateSortKey(a.purchase_date) - purchaseDateSortKey(b.purchase_date);
+        if (byDate !== 0) return byDate;
+        return a.id - b.id;
+      });
+  }, [allStock, salesBrandFilter, stockBrandIdByStockId]);
+
   const endingThisWeekRowsFiltered = useMemo(
     () =>
       endingThisWeekRows.filter((row) =>
@@ -1593,8 +1731,15 @@ const Orders: React.FC = () => {
   const salesGridStockRows = useMemo(() => {
     if (salesEbayGridMode === 'unlist-ebay') return soldRowsUnlistGrid;
     if (salesEbayGridMode === 'vinted-check') return soldRowsVintedCheckGrid;
+    if (salesEbayGridMode === 'vinted-for-sale') return vintedForSaleRows;
     return soldRowsFiltered;
-  }, [salesEbayGridMode, soldRowsUnlistGrid, soldRowsVintedCheckGrid, soldRowsFiltered]);
+  }, [
+    salesEbayGridMode,
+    soldRowsUnlistGrid,
+    soldRowsVintedCheckGrid,
+    vintedForSaleRows,
+    soldRowsFiltered,
+  ]);
 
   const salesGridRowCount =
     salesEbayGridMode === 'missing-ebay-order'
@@ -2126,7 +2271,13 @@ const Orders: React.FC = () => {
   };
 
   const handleEditItem = (item: OrderItem) => {
-    // Navigate to Stock page with editId query parameter
+    if (toPackItemIsEbaySale(item)) {
+      const orderUrl = toPackEbayShippingByStockId[item.id]?.ebay_order_url?.trim();
+      if (orderUrl) {
+        window.open(orderUrl, '_blank', 'noopener,noreferrer');
+        return;
+      }
+    }
     navigate(`/stock?editId=${item.id}`);
   };
 
@@ -2694,7 +2845,7 @@ const Orders: React.FC = () => {
       }
       const blob = await response.blob();
       const disposition = response.headers.get('Content-Disposition');
-      let downloadName = vintedPackDownloadFilename(row);
+      let downloadName = listingExportDownloadFilename(row);
       const filenameMatch = disposition?.match(/filename="([^"]+)"/i);
       if (filenameMatch?.[1]) downloadName = filenameMatch[1];
       const objectUrl = URL.createObjectURL(blob);
@@ -2709,6 +2860,74 @@ const Orders: React.FC = () => {
       setVintedPackErrorByKey((prev) => ({
         ...prev,
         [rowKey]: err instanceof Error ? err.message : 'Download failed',
+      }));
+    } finally {
+      setVintedPackLoadingKey(null);
+    }
+  };
+
+  const handleShowVintedForSale = () => {
+    vintedCheckAbortRef.current = true;
+    setVintedCheckLoading(false);
+    setVintedCheckProgress(null);
+    setVintedPackErrorByKey({});
+    if (salesEbayGridMode === 'vinted-for-sale') {
+      setSalesEbayGridMode('none');
+      return;
+    }
+    setSalesEbayGridMode('vinted-for-sale');
+  };
+
+  const handleDownloadVintedListingExport = async (row: StockRow) => {
+    const rowKey = `stock-${row.id}`;
+    const vintedId = row.vinted_id?.trim();
+    if (!vintedId) {
+      setVintedPackErrorByKey((prev) => ({
+        ...prev,
+        [rowKey]: 'No Vinted ID on this stock row',
+      }));
+      return;
+    }
+    setVintedPackLoadingKey(rowKey);
+    setVintedPackErrorByKey((prev) => {
+      const next = { ...prev };
+      delete next[rowKey];
+      return next;
+    });
+    try {
+      const params = new URLSearchParams({
+        vinted_id: vintedId,
+        stock_id: String(row.id),
+      });
+      const response = await fetch(`${API_BASE}/api/vinted/listing-export-pack?${params.toString()}`);
+      if (!response.ok) {
+        const text = await response.text();
+        let msg = 'Export failed';
+        try {
+          const data = JSON.parse(text) as { error?: string; details?: string };
+          msg = data.details || data.error || msg;
+        } catch {
+          msg = text || msg;
+        }
+        throw new Error(msg);
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get('Content-Disposition');
+      let downloadName = listingExportDownloadFilename(row);
+      const filenameMatch = disposition?.match(/filename="([^"]+)"/i);
+      if (filenameMatch?.[1]) downloadName = filenameMatch[1];
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = downloadName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (err: unknown) {
+      setVintedPackErrorByKey((prev) => ({
+        ...prev,
+        [rowKey]: err instanceof Error ? err.message : 'Export failed',
       }));
     } finally {
       setVintedPackLoadingKey(null);
@@ -2767,6 +2986,65 @@ const Orders: React.FC = () => {
   };
 
   const ebaySellerConnected = ebayOAuthStatus?.connected === true;
+
+  const toPackEbayStockIdsKey = useMemo(() => {
+    const ids = orderItems.filter(toPackItemIsEbaySale).map((item) => item.id);
+    return ids.length > 0 ? ids.sort((a, b) => a - b).join(',') : '';
+  }, [orderItems]);
+
+  useEffect(() => {
+    if (ordersTab !== 'to-pack' || !toPackEbayStockIdsKey) {
+      setToPackEbayShippingByStockId({});
+      setToPackEbayShippingError(null);
+      setToPackEbayShippingLoading(false);
+      return;
+    }
+    if (!ebaySellerConnected) {
+      setToPackEbayShippingByStockId({});
+      setToPackEbayShippingError(null);
+      setToPackEbayShippingLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      setToPackEbayShippingLoading(true);
+      setToPackEbayShippingError(null);
+      try {
+        const response = await fetch(
+          `${API_BASE}/api/orders/ebay-shipping-details?stock_ids=${encodeURIComponent(toPackEbayStockIdsKey)}`,
+          { method: 'GET', headers: { 'Content-Type': 'application/json' } }
+        );
+        if (!response.ok) {
+          const message = await response.text();
+          throw new Error(message || 'Failed to load eBay shipping details');
+        }
+        const data: {
+          by_stock_id?: Record<string, EbayShippingDetails>;
+        } = await response.json();
+        if (cancelled) return;
+        const mapped: Record<number, EbayShippingDetails> = {};
+        for (const [key, value] of Object.entries(data.by_stock_id ?? {})) {
+          const id = Number.parseInt(key, 10);
+          if (Number.isFinite(id) && value) mapped[id] = value;
+        }
+        setToPackEbayShippingByStockId(mapped);
+      } catch (err: unknown) {
+        if (cancelled) return;
+        console.error('To Pack eBay shipping load error:', err);
+        setToPackEbayShippingByStockId({});
+        setToPackEbayShippingError(
+          err instanceof Error ? err.message : 'Unable to load eBay buyer addresses'
+        );
+      } finally {
+        if (!cancelled) setToPackEbayShippingLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ordersTab, toPackEbayStockIdsKey, ebaySellerConnected]);
 
   useEffect(() => {
     if (ordersTab !== 'sales' || salesEbayGridMode !== 'ending-this-week') return;
@@ -2897,6 +3175,9 @@ const Orders: React.FC = () => {
       </div>
 
       {ordersTab === 'to-pack' && error && <div className="orders-error">{error}</div>}
+      {ordersTab === 'to-pack' && toPackEbayShippingError && (
+        <div className="orders-error">{toPackEbayShippingError}</div>
+      )}
       {ordersTab === 'sales' && soldError && <div className="orders-error">{soldError}</div>}
       {ordersTab === 'sales-summary' && soldError && (
         <div className="orders-error">{soldError}</div>
@@ -3011,7 +3292,7 @@ const Orders: React.FC = () => {
                 <tr>
                   <th>SKU</th>
                   <th>Item Name</th>
-                  <th>Price</th>
+                  <th>Buyer / Ship to</th>
                   <th>Platform</th>
                   <th>Actions</th>
                 </tr>
@@ -3045,7 +3326,14 @@ const Orders: React.FC = () => {
                           <span className="orders-table-dash">—</span>
                         )}
                       </td>
-                      <td>{formatCurrency(item.purchase_price)}</td>
+                      <td>
+                        <ToPackEbayShippingCell
+                          item={item}
+                          details={toPackEbayShippingByStockId[item.id]}
+                          loading={toPackEbayShippingLoading}
+                          sellerConnected={ebaySellerConnected}
+                        />
+                      </td>
                       <td>
                         <ToPackPlatformCell item={item} getListingPlatform={getListingPlatform} />
                       </td>
@@ -3057,6 +3345,12 @@ const Orders: React.FC = () => {
                             onClick={() => handleEditItem(item)}
                             disabled={ordersLoading}
                             style={{ marginRight: '8px' }}
+                            title={
+                              toPackItemIsEbaySale(item) &&
+                              toPackEbayShippingByStockId[item.id]?.ebay_order_url
+                                ? 'Open eBay order'
+                                : 'Edit in Stock'
+                            }
                           >
                             Edit
                           </button>
@@ -3121,10 +3415,19 @@ const Orders: React.FC = () => {
                         )}
                       </span>
                     </div>
-                    <div className="orders-card-field">
-                      <span className="orders-card-label">Price:</span>
-                      <span className="orders-card-value">{formatCurrency(item.purchase_price)}</span>
-                    </div>
+                    {toPackItemIsEbaySale(item) ? (
+                      <div className="orders-card-field orders-card-field--shipping">
+                        <span className="orders-card-label">Buyer / Ship to:</span>
+                        <span className="orders-card-value">
+                          <ToPackEbayShippingCell
+                            item={item}
+                            details={toPackEbayShippingByStockId[item.id]}
+                            loading={toPackEbayShippingLoading}
+                            sellerConnected={ebaySellerConnected}
+                          />
+                        </span>
+                      </div>
+                    ) : null}
                     <div className="orders-card-field">
                       <span className="orders-card-label">Platform:</span>
                       <span className="orders-card-value">
@@ -3138,6 +3441,12 @@ const Orders: React.FC = () => {
                       className="orders-remove-button"
                       onClick={() => handleEditItem(item)}
                       disabled={ordersLoading}
+                      title={
+                        toPackItemIsEbaySale(item) &&
+                        toPackEbayShippingByStockId[item.id]?.ebay_order_url
+                          ? 'Open eBay order'
+                          : 'Edit in Stock'
+                      }
                     >
                       Edit
                     </button>
@@ -3388,6 +3697,28 @@ const Orders: React.FC = () => {
                   </button>
                   <button
                     type="button"
+                    className={`orders-vinted-ebay-check-button${
+                      salesEbayGridMode === 'vinted-for-sale'
+                        ? ' orders-vinted-ebay-check-button--active'
+                        : ''
+                    }`}
+                    onClick={handleShowVintedForSale}
+                    title={
+                      salesEbayGridMode === 'vinted-for-sale'
+                        ? 'Hide Vinted for-sale list'
+                        : 'Show unsold Stock items listed on Vinted, longest in stock first — export photos and listing text'
+                    }
+                    aria-label={
+                      salesEbayGridMode === 'vinted-for-sale'
+                        ? 'Hide Vinted for-sale list'
+                        : 'Show Vinted for-sale items by longest time in stock'
+                    }
+                  >
+                    <VintedLogoIcon className="orders-unlist-ebay-logo" />
+                    <span className="orders-unlist-ebay-label">Vinted for sale</span>
+                  </button>
+                  <button
+                    type="button"
                     className={`orders-vinted-ebay-check-button orders-show-all-button${
                       salesEbayGridMode === 'none'
                         ? ' orders-vinted-ebay-check-button--active'
@@ -3559,6 +3890,13 @@ const Orders: React.FC = () => {
               {vintedCheckHintText}
             </p>
           )}
+          {salesEbayGridMode === 'vinted-for-sale' ? (
+            <p className="orders-sales-grid-mode-hint" role="status">
+              Showing {vintedForSaleRows.length} unsold item
+              {vintedForSaleRows.length === 1 ? '' : 's'} with a Vinted ID, longest in stock first.
+              Export scrapes the public Vinted page (photos, title, description) into a zip.
+            </p>
+          ) : null}
           {salesEbayGridMode === 'ending-this-week' &&
           (endingThisWeekRowsFiltered.length > 0 || !endingThisWeekLoading) ? (
             <p className="orders-sales-grid-mode-hint" role="status">
@@ -3684,13 +4022,19 @@ const Orders: React.FC = () => {
           ) : soldLoading &&
             salesEbayGridMode !== 'ending-this-week' &&
             salesEbayGridMode !== 'missing-ebay-order' &&
-            salesEbayGridMode !== 'vinted-check' ? (
+            salesEbayGridMode !== 'vinted-check' &&
+            salesEbayGridMode !== 'vinted-for-sale' ? (
             <div className="orders-empty-state">
               <p>Loading sold items…</p>
+            </div>
+          ) : salesEbayGridMode === 'vinted-for-sale' && loading ? (
+            <div className="orders-empty-state">
+              <p>Loading stock…</p>
             </div>
           ) : salesEbayGridMode !== 'ending-this-week' &&
             salesEbayGridMode !== 'missing-ebay-order' &&
             salesEbayGridMode !== 'vinted-check' &&
+            salesEbayGridMode !== 'vinted-for-sale' &&
             soldRows.length === 0 ? (
             <div className="orders-empty-state">
               <p>No sold items yet.</p>
@@ -3707,6 +4051,11 @@ const Orders: React.FC = () => {
                 <>
                   <p>No stock data reconciliation issues.</p>
                   <p>Every recent eBay sale matches a Stock listing ID.</p>
+                </>
+              ) : salesEbayGridMode === 'vinted-for-sale' ? (
+                <>
+                  <p>No unsold items with a Vinted ID.</p>
+                  <p>Add a Vinted ID on Stock for live listings, or clear the brand filter.</p>
                 </>
               ) : salesEbayGridMode === 'vinted-check' ? (
                 vintedCheckCandidateCount === 0 ? (
@@ -3750,6 +4099,8 @@ const Orders: React.FC = () => {
             <div
               className={`table-wrapper orders-sales-table${
                 salesEbayGridMode === 'ending-this-week' ? ' orders-sales-table--ending-this-week' : ''
+              }${
+                salesEbayGridMode === 'vinted-for-sale' ? ' orders-sales-table--vinted-for-sale' : ''
               }`}
             >
               <table className="orders-table">
@@ -3760,40 +4111,59 @@ const Orders: React.FC = () => {
                     ) : null}
                     <th
                       className={
-                        salesEbayGridMode === 'ending-this-week' ? 'orders-ew-col orders-ew-col--id' : undefined
+                        salesEbayGridMode === 'ending-this-week' ||
+                        salesEbayGridMode === 'vinted-for-sale'
+                          ? 'orders-ew-col orders-ew-col--id'
+                          : undefined
                       }
                     >
                       {salesEbayGridMode === 'missing-ebay-order' ? 'eBay item' : 'ID'}
                     </th>
                     <th
                       className={
-                        salesEbayGridMode === 'ending-this-week' ? 'orders-ew-col orders-ew-col--name' : undefined
+                        salesEbayGridMode === 'ending-this-week' ||
+                        salesEbayGridMode === 'vinted-for-sale'
+                          ? 'orders-ew-col orders-ew-col--name'
+                          : undefined
                       }
                     >
                       Name
                     </th>
                     <th
                       className={
-                        salesEbayGridMode === 'ending-this-week' ? 'orders-ew-col orders-ew-col--time-in-stock' : undefined
+                        salesEbayGridMode === 'ending-this-week' ||
+                        salesEbayGridMode === 'vinted-for-sale'
+                          ? 'orders-ew-col orders-ew-col--time-in-stock'
+                          : undefined
                       }
                     >
                       {salesEbayGridMode === 'missing-ebay-order'
                         ? 'eBay order'
-                        : salesEbayGridMode === 'ending-this-week'
+                        : salesEbayGridMode === 'ending-this-week' ||
+                            salesEbayGridMode === 'vinted-for-sale'
                           ? 'Time In Stock'
                           : 'Sold'}
                     </th>
-                    <th
-                      className={
-                        salesEbayGridMode === 'ending-this-week' ? 'orders-ew-col orders-ew-col--ebay' : undefined
-                      }
-                    >
-                      {salesEbayGridMode === 'ending-this-week' ? 'Item' : 'eBay link'}
-                    </th>
+                    {salesEbayGridMode === 'vinted-for-sale' ? (
+                      <th className="orders-ew-col orders-ew-col--ebay">Vinted link</th>
+                    ) : (
+                      <th
+                        className={
+                          salesEbayGridMode === 'ending-this-week'
+                            ? 'orders-ew-col orders-ew-col--ebay'
+                            : undefined
+                        }
+                      >
+                        {salesEbayGridMode === 'ending-this-week' ? 'Item' : 'eBay link'}
+                      </th>
+                    )}
                     {salesEbayGridMode === 'ending-this-week' ? (
                       <th className="orders-ew-col orders-ew-col--edit">Edit</th>
                     ) : null}
-                    {salesEbayGridMode !== 'ending-this-week' ? <th>Vinted link</th> : null}
+                    {salesEbayGridMode !== 'ending-this-week' &&
+                    salesEbayGridMode !== 'vinted-for-sale' ? (
+                      <th>Vinted link</th>
+                    ) : null}
                     {salesEbayGridMode === 'unlist-ebay' ? <th>Edit</th> : null}
                     {salesEbayGridMode === 'unlist-ebay' ? <th>Unlist</th> : null}
                     {salesEbayGridMode === 'ending-this-week' ? (
@@ -3802,10 +4172,12 @@ const Orders: React.FC = () => {
                     {salesEbayGridMode === 'ending-this-week' ? (
                       <th className="orders-ew-col orders-ew-col--relist">Relist</th>
                     ) : null}
-                    {salesEbayGridMode === 'ending-this-week' ? (
+                    {salesEbayGridMode === 'ending-this-week' ||
+                    salesEbayGridMode === 'vinted-for-sale' ? (
                       <th className="orders-ew-col orders-ew-col--vinted-pack">Export Listing Data</th>
                     ) : null}
-                    {salesEbayGridMode !== 'ending-this-week' ? (
+                    {salesEbayGridMode !== 'ending-this-week' &&
+                    salesEbayGridMode !== 'vinted-for-sale' ? (
                       <th className="orders-sales-info-header">Info</th>
                     ) : null}
                   </tr>
@@ -4103,6 +4475,96 @@ const Orders: React.FC = () => {
                                 {vintedPackError ? (
                                   <span className="orders-sales-unlist-error" title={vintedPackError}>
                                     {vintedPackError}
+                                  </span>
+                                ) : null}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    : salesEbayGridMode === 'vinted-for-sale'
+                    ? soldRowsPaged.map((row) => {
+                        const rowKey = `stock-${row.id}`;
+                        const vintedHref = vintedListingHref(row.vinted_id);
+                        const vintedLabel = row.vinted_id != null ? String(row.vinted_id).trim() : '';
+                        const exportLoading = vintedPackLoadingKey === rowKey;
+                        const exportError = vintedPackErrorByKey[rowKey];
+                        const rowIsBulky = stockIsBulky(row);
+                        return (
+                          <tr
+                            key={row.id}
+                            className={rowIsBulky ? 'orders-row--bulky' : undefined}
+                          >
+                            <td className="orders-ew-col orders-ew-col--id">
+                              <div className="orders-sales-id-cell">
+                                <span className="orders-sales-id-num">{row.id}</span>
+                                {rowIsBulky ? (
+                                  <span className="orders-sales-bulk-badge">BULK</span>
+                                ) : null}
+                              </div>
+                            </td>
+                            <td className="orders-ew-col orders-ew-col--name">
+                              {row.item_name?.trim() ? (
+                                <Link
+                                  to={`/stock?editId=${row.id}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="orders-sales-stock-name-link"
+                                  title={`Edit item ${row.id} in Stock`}
+                                >
+                                  {row.item_name.trim()}
+                                </Link>
+                              ) : (
+                                <span className="orders-table-dash">—</span>
+                              )}
+                            </td>
+                            <td className="orders-ew-col orders-ew-col--time-in-stock">
+                              {formatTimeInStock(row.purchase_date) ? (
+                                <span
+                                  className="orders-time-in-stock"
+                                  title={
+                                    formatPurchaseDateLabel(row.purchase_date)
+                                      ? `Purchased ${formatPurchaseDateLabel(row.purchase_date)}`
+                                      : undefined
+                                  }
+                                >
+                                  {formatTimeInStock(row.purchase_date)}
+                                </span>
+                              ) : (
+                                <span className="orders-table-dash" title="No purchase date in Stock">
+                                  —
+                                </span>
+                              )}
+                            </td>
+                            <td className="orders-ew-col orders-ew-col--ebay">
+                              {vintedHref ? (
+                                <a
+                                  href={vintedHref}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="orders-table-external-link"
+                                  title={vintedLabel || undefined}
+                                >
+                                  {vintedLabel}
+                                </a>
+                              ) : (
+                                <span className="orders-table-dash">—</span>
+                              )}
+                            </td>
+                            <td className="orders-ew-col orders-ew-col--vinted-pack">
+                              <div className="orders-sales-unlist-cell">
+                                <button
+                                  type="button"
+                                  className="orders-vinted-pack-button"
+                                  disabled={exportLoading || vintedPackLoadingKey != null}
+                                  title="Scrape Vinted listing and download zip (photos + listing.txt)"
+                                  onClick={() => void handleDownloadVintedListingExport(row)}
+                                >
+                                  {exportLoading ? 'Exporting…' : 'Download'}
+                                </button>
+                                {exportError ? (
+                                  <span className="orders-sales-unlist-error" title={exportError}>
+                                    {exportError}
                                   </span>
                                 ) : null}
                               </div>

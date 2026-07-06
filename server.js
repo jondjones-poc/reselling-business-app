@@ -7993,30 +7993,35 @@ function formatListingPriceLabel(priceParts, fallbackValue) {
   return null;
 }
 
-function buildVintedListingTextFile({
+function buildListingExportTextFile({
   title,
   priceLabel,
   description,
-  ebayId,
-  ebayUrl,
+  platformLabel,
+  platformIdLabel,
+  platformId,
+  platformUrl,
   specifics,
-  stockId
+  stockId,
+  specificsLabel
 }) {
   const lines = [];
   lines.push('LISTING EXPORT');
-  lines.push('Generated from your eBay listing — photos and text for relisting elsewhere.');
+  lines.push(
+    `Generated from your ${platformLabel || 'listing'} — photos and text for relisting elsewhere.`
+  );
   lines.push('');
   lines.push('TITLE:');
   lines.push(title?.trim() || '(no title found)');
   lines.push('');
   lines.push('PRICE:');
-  lines.push(priceLabel?.trim() || '(no price found — set manually on Vinted)');
+  lines.push(priceLabel?.trim() || '(no price found — set manually when relisting)');
   lines.push('');
   lines.push('DESCRIPTION:');
-  lines.push(description?.trim() || '(no description found — copy from eBay listing page if needed)');
+  lines.push(description?.trim() || '(no description found — copy from the listing page if needed)');
   if (Array.isArray(specifics) && specifics.length > 0) {
     lines.push('');
-    lines.push('ITEM DETAILS (from eBay):');
+    lines.push(specificsLabel || 'ITEM DETAILS:');
     for (const row of specifics) {
       if (!row.name) continue;
       lines.push(`${row.name}: ${row.value || '—'}`);
@@ -8024,13 +8029,31 @@ function buildVintedListingTextFile({
   }
   lines.push('');
   lines.push('SOURCE:');
-  lines.push(`eBay item ID: ${ebayId}`);
+  if (platformId != null && String(platformId).trim() !== '') {
+    lines.push(`${platformIdLabel || 'Listing ID'}: ${platformId}`);
+  }
   if (stockId != null) lines.push(`Stock SKU: ${stockId}`);
-  lines.push(`eBay URL: ${ebayUrl}`);
+  if (platformUrl) lines.push(`${platformLabel || 'Listing'} URL: ${platformUrl}`);
   lines.push('');
   lines.push('IMAGES:');
   lines.push('See the images/ folder in this zip (use in order when relisting).');
   return `${lines.join('\n')}\n`;
+}
+
+/** @deprecated use buildListingExportTextFile */
+function buildVintedListingTextFile(opts) {
+  return buildListingExportTextFile({
+    title: opts.title,
+    priceLabel: opts.priceLabel,
+    description: opts.description,
+    platformLabel: 'eBay listing',
+    platformIdLabel: 'eBay item ID',
+    platformId: opts.ebayId,
+    platformUrl: opts.ebayUrl,
+    specifics: opts.specifics,
+    stockId: opts.stockId,
+    specificsLabel: 'ITEM DETAILS (from eBay):'
+  });
 }
 
 function sanitizeVintedPackFilenamePart(raw, fallback = 'item') {
@@ -8690,36 +8713,13 @@ app.get('/api/ebay/listing-vinted-pack', async (req, res) => {
       ebayId: pack.legacy,
       itemName: pack.title
     });
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="${zipName}"`);
-
-    const { ZipArchive } = await import('archiver');
-    const archive = new ZipArchive({ zlib: { level: 9 } });
-    archive.on('error', (err) => {
-      console.error('listing-vinted-pack archive error:', err);
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Zip failed', details: err.message });
-      } else {
-        res.end();
-      }
+    await streamListingExportZip(res, {
+      zipName,
+      listingText: pack.listingText,
+      imageEntries: pack.imageEntries,
+      imageErrors: pack.imageErrors,
+      logLabel: 'listing-vinted-pack'
     });
-    archive.pipe(res);
-
-    archive.append(pack.listingText, { name: 'listing.txt' });
-    if (pack.imageErrors.length > 0) {
-      const errLines = pack.imageErrors.map(
-        (e, idx) => `${idx + 1}. ${e.url}\n   ${e.message}`
-      );
-      archive.append(
-        `Some images could not be downloaded:\n\n${errLines.join('\n\n')}\n`,
-        { name: 'images-errors.txt' }
-      );
-    }
-    for (const img of pack.imageEntries) {
-      archive.append(img.buffer, { name: img.name });
-    }
-
-    await archive.finalize();
   } catch (error) {
     console.error('listing-vinted-pack failed:', error);
     if (res.headersSent) {
@@ -8740,6 +8740,76 @@ app.get('/api/ebay/listing-vinted-pack', async (req, res) => {
       code,
       details: error instanceof Error ? error.message : String(error),
       ebay_errors: error.ebayErrors ?? undefined
+    });
+  }
+});
+
+/**
+ * GET — Zip download by scraping a public Vinted item page (title, price, description, photos).
+ * For a few listings a day only — no Vinted API.
+ */
+app.get('/api/vinted/listing-export-pack', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    let vintedIdRaw = req.query.vinted_id ?? req.query.vintedId ?? null;
+    const stockIdRaw = req.query.stock_id ?? req.query.stockId ?? null;
+
+    if ((!vintedIdRaw || String(vintedIdRaw).trim() === '') && stockIdRaw != null) {
+      const stockId = Number.parseInt(String(stockIdRaw), 10);
+      if (Number.isFinite(stockId) && stockId > 0) {
+        const stockResult = await pool.query(`SELECT vinted_id FROM stock WHERE id = $1`, [stockId]);
+        vintedIdRaw = stockResult.rows?.[0]?.vinted_id ?? null;
+      }
+    }
+
+    if (!vintedIdRaw || String(vintedIdRaw).trim() === '') {
+      return res.status(400).json({ error: 'vinted_id (or stock_id with a Vinted ID) is required' });
+    }
+
+    const pack = await buildListingPackFromVintedPage({
+      pool,
+      vintedIdRaw,
+      stockIdRaw
+    });
+
+    const zipName = buildVintedPackZipFilename({
+      stockId: pack.stockId,
+      ebayId: pack.vintedId,
+      itemName: pack.title
+    });
+    await streamListingExportZip(res, {
+      zipName,
+      listingText: pack.listingText,
+      imageEntries: pack.imageEntries,
+      imageErrors: pack.imageErrors,
+      logLabel: 'vinted-listing-export-pack'
+    });
+  } catch (error) {
+    console.error('vinted listing-export-pack failed:', error);
+    if (res.headersSent) {
+      res.end();
+      return;
+    }
+    const code = error.code || 'VINTED_EXPORT_FAILED';
+    const status =
+      code === 'INVALID_VINTED_ID'
+        ? 400
+        : code === 'VINTED_NOT_FOUND'
+          ? 404
+          : code === 'VINTED_FETCH_FAILED'
+            ? 502
+            : code === 'VINTED_PACK_EMPTY'
+              ? 422
+              : 500;
+    res.status(status).json({
+      error: 'Export failed',
+      code,
+      details: error instanceof Error ? error.message : String(error),
+      httpStatus: error.httpStatus ?? null
     });
   }
 });
@@ -8797,34 +8867,544 @@ function vintedPublicItemUrl(vintedIdRaw) {
   return `https://www.vinted.co.uk/items/${encodeURIComponent(s.replace(/^\/+/, ''))}`;
 }
 
-/** True when the Vinted item page responds (not HTTP 404). */
-async function fetchVintedItemPageStillExists(vintedIdRaw) {
+const VINTED_PAGE_FETCH_HEADERS = {
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'en-GB,en;q=0.9',
+  'User-Agent':
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+};
+
+async function fetchVintedItemPageHtml(vintedIdRaw) {
   const url = vintedPublicItemUrl(vintedIdRaw);
   if (!url) {
-    return { ok: false, stillListed: null, url: null, httpStatus: null, error: 'invalid_vinted_id' };
+    return { ok: false, url: null, httpStatus: null, html: null, error: 'invalid_vinted_id' };
   }
   const response = await fetch(url, {
     method: 'GET',
     redirect: 'follow',
-    headers: {
-      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'User-Agent':
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-    }
+    headers: VINTED_PAGE_FETCH_HEADERS
   });
+  const html = await response.text();
   if (response.status === 404) {
-    return { ok: true, stillListed: false, url, httpStatus: 404, error: null };
+    return { ok: false, url, httpStatus: 404, html, error: 'Vinted listing not found (404)' };
   }
   if (!response.ok) {
     return {
       ok: false,
-      stillListed: null,
       url,
       httpStatus: response.status,
+      html,
       error: `Vinted HTTP ${response.status}`
     };
   }
-  return { ok: true, stillListed: true, url, httpStatus: response.status, error: null };
+  return { ok: true, url, httpStatus: response.status, html, error: null };
+}
+
+/** True when the Vinted item page responds (not HTTP 404). */
+async function fetchVintedItemPageStillExists(vintedIdRaw) {
+  const page = await fetchVintedItemPageHtml(vintedIdRaw);
+  if (!page.url) {
+    return { ok: false, stillListed: null, url: null, httpStatus: null, error: page.error };
+  }
+  if (page.httpStatus === 404) {
+    return { ok: true, stillListed: false, url: page.url, httpStatus: 404, error: null };
+  }
+  if (!page.ok) {
+    return {
+      ok: false,
+      stillListed: null,
+      url: page.url,
+      httpStatus: page.httpStatus,
+      error: page.error
+    };
+  }
+  return { ok: true, stillListed: true, url: page.url, httpStatus: page.httpStatus, error: null };
+}
+
+function metaContentFromHtml(html, propertyOrName) {
+  const patterns = [
+    new RegExp(
+      `<meta[^>]+(?:property|name)=["']${propertyOrName}["'][^>]+content=["']([^"']+)["']`,
+      'i'
+    ),
+    new RegExp(
+      `<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${propertyOrName}["']`,
+      'i'
+    )
+  ];
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match?.[1]) return decodeBasicXmlEntities(match[1].trim());
+  }
+  return null;
+}
+
+function normalizeVintedPhotoUrl(raw) {
+  if (raw == null || typeof raw !== 'string') return null;
+  const s = raw.trim().replace(/^http:\/\//i, 'https://').replace(/\\u002F/g, '/');
+  if (!s) return null;
+  return s;
+}
+
+/** Listing gallery only — excludes avatars, member pics, and other page chrome. */
+function isVintedListingPhotoUrl(url) {
+  if (!url) return false;
+  if (!/^https:\/\/(images\d*\.)?vinted\.(net|com|co\.uk)\//i.test(url)) return false;
+  if (
+    /\/(avatar|avatars|member|members|user|users|profile|profiles|icon|logo|banner|badge|sprites)\//i.test(
+      url
+    )
+  ) {
+    return false;
+  }
+  return /\/photos\//i.test(url) || /\/t\//.test(url) || /\/f\d+\//.test(url);
+}
+
+function vintedPhotoDedupeKey(url) {
+  if (!url) return '';
+  const match = url.match(/\/t(?:c)?\/([^/]+)\//i);
+  return match ? match[1] : url;
+}
+
+function preferVintedFullSizePhotoUrl(url) {
+  const normalized = normalizeVintedPhotoUrl(url);
+  if (!normalized) return null;
+  if (/\/f\d+\//.test(normalized)) return normalized;
+  return normalized.replace(/\/\d+x\d+\//, '/f800/');
+}
+
+/** Vinted item pages embed gallery JSON in Next.js RSC flight chunks (not __NEXT_DATA__). */
+function parseVintedPhotoObjectsFromRscHtml(html, vintedIdRaw) {
+  const vintedId = vintedIdRaw != null ? String(vintedIdRaw).trim() : '';
+  const idPos = vintedId ? html.indexOf(vintedId) : -1;
+  let start = html.indexOf('\\"photos\\":[');
+  if (idPos >= 0) {
+    const near = html.lastIndexOf('\\"photos\\":[', idPos + 80000);
+    if (near >= 0 && idPos - near < 200000) start = near;
+  }
+  if (start < 0) return [];
+
+  const slice = html.slice(start, start + 120000);
+  const photos = [];
+  const re =
+    /\{\\"id\\":(\d+),\\"image_no\\":(\d+),[\s\S]*?\\"url\\":\\"(https:\/\/images[^\\"]+)\\"/g;
+  let match;
+  while ((match = re.exec(slice))) {
+    const url = preferVintedFullSizePhotoUrl(match[3]);
+    if (!url) continue;
+    if (!/^https:\/\/(images\d*\.)?vinted\.(net|com|co\.uk)\//i.test(url)) continue;
+    if (
+      /\/(avatar|avatars|member|members|user|users|profile|profiles|icon|logo|banner|badge|sprites)\//i.test(
+        url
+      )
+    ) {
+      continue;
+    }
+    photos.push({ imageNo: Number(match[2]), url });
+  }
+  return photos;
+}
+
+/** First carousel only — stop when a second listing's image_no 1 appears (related items). */
+function pickFirstListingPhotoGroup(photos) {
+  const out = [];
+  const seen = new Set();
+  for (const photo of photos) {
+    if (photo.imageNo === 1 && out.length > 0) break;
+    const key = vintedPhotoDedupeKey(photo.url);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(photo);
+  }
+  return out.sort((a, b) => a.imageNo - b.imageNo);
+}
+
+function extractListingPhotoUrlsFromRscHtml(html, vintedIdRaw) {
+  return pickFirstListingPhotoGroup(parseVintedPhotoObjectsFromRscHtml(html, vintedIdRaw)).map(
+    (p) => p.url
+  );
+}
+
+function extractListingPhotoUrlsFromVintedItem(item) {
+  const urls = [];
+  const seen = new Set();
+  if (!item || !Array.isArray(item.photos)) return urls;
+
+  for (const photo of item.photos) {
+    if (!photo || typeof photo !== 'object') continue;
+    const candidates = [
+      photo.url,
+      photo.full_size_url,
+      photo.fullSizeUrl,
+      photo.high_resolution?.url,
+      photo.highResolution?.url
+    ];
+    if (Array.isArray(photo.thumbnails) && photo.thumbnails.length > 0) {
+      const largest = photo.thumbnails[photo.thumbnails.length - 1];
+      if (largest?.url) candidates.push(largest.url);
+    }
+    for (const raw of candidates) {
+      const url = preferVintedFullSizePhotoUrl(raw);
+      if (!url || seen.has(url)) continue;
+      if (!/^https:\/\/(images\d*\.)?vinted\.(net|com|co\.uk)\//i.test(url)) continue;
+      if (
+        /\/(avatar|avatars|member|members|user|users|profile|profiles|icon|logo|banner|badge|sprites)\//i.test(
+          url
+        )
+      ) {
+        continue;
+      }
+      const key = vintedPhotoDedupeKey(url);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      seen.add(url);
+      urls.push(url);
+      break;
+    }
+  }
+  return urls;
+}
+
+function findVintedItemNodeById(node, targetId, depth = 0) {
+  if (!node || typeof node !== 'object' || depth > 18) return null;
+  const target = String(targetId).trim();
+
+  if (!Array.isArray(node)) {
+    const id = node.id ?? node.item_id ?? node.itemId;
+    if (id != null && String(id) === target) {
+      const hasPhotos = Array.isArray(node.photos) && node.photos.length > 0;
+      const hasTitle = typeof node.title === 'string' && node.title.trim();
+      if (hasPhotos || hasTitle) return node;
+    }
+  }
+
+  const entries = Array.isArray(node) ? node : Object.values(node);
+  for (const entry of entries) {
+    if (entry && typeof entry === 'object') {
+      const hit = findVintedItemNodeById(entry, targetId, depth + 1);
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+
+function collectVintedPhotoUrlsFromValue(value, urls, seen) {
+  if (value == null) return;
+  if (typeof value === 'string') {
+    const url = normalizeVintedPhotoUrl(value);
+    if (!url || !isVintedListingPhotoUrl(url)) return;
+    if (seen.has(url)) return;
+    seen.add(url);
+    urls.push(url);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) collectVintedPhotoUrlsFromValue(entry, urls, seen);
+    return;
+  }
+  if (typeof value === 'object') {
+    for (const key of [
+      'full_size_url',
+      'url',
+      'high_resolution',
+      'image',
+      'photo',
+      'photos',
+      'thumbnails'
+    ]) {
+      if (key in value) collectVintedPhotoUrlsFromValue(value[key], urls, seen);
+    }
+    if (value.high_resolution && typeof value.high_resolution === 'object') {
+      collectVintedPhotoUrlsFromValue(value.high_resolution.url, urls, seen);
+    }
+  }
+}
+
+function walkJsonForVintedItem(node, depth = 0) {
+  if (!node || typeof node !== 'object' || depth > 12) return null;
+  if (Array.isArray(node)) {
+    for (const entry of node) {
+      const hit = walkJsonForVintedItem(entry, depth + 1);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  const title =
+    (typeof node.title === 'string' && node.title.trim()) ||
+    (typeof node.name === 'string' && node.name.trim()) ||
+    null;
+  const description =
+    (typeof node.description === 'string' && node.description.trim()) ||
+    (typeof node.description_html === 'string' && node.description_html.trim()) ||
+    null;
+  const hasPhotos = Array.isArray(node.photos) && node.photos.length > 0;
+  const priceRaw =
+    node.price_numeric ??
+    node.price ??
+    node.total_item_price ??
+    (node.price && typeof node.price === 'object' ? node.price.amount : null);
+  if (title && (description || hasPhotos || priceRaw != null)) {
+    return node;
+  }
+  for (const key of ['item', 'itemDto', 'listing', 'product', 'data', 'pageProps', 'props']) {
+    if (node[key]) {
+      const hit = walkJsonForVintedItem(node[key], depth + 1);
+      if (hit) return hit;
+    }
+  }
+  for (const value of Object.values(node)) {
+    if (value && typeof value === 'object') {
+      const hit = walkJsonForVintedItem(value, depth + 1);
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+
+function formatVintedScrapedPrice(item) {
+  if (!item || typeof item !== 'object') return null;
+  const currency =
+    (typeof item.currency === 'string' && item.currency) ||
+    (item.price && typeof item.price === 'object' && item.price.currency_code) ||
+    'GBP';
+  let amount = null;
+  if (item.price_numeric != null) amount = Number(item.price_numeric);
+  else if (typeof item.price === 'string' || typeof item.price === 'number') amount = Number(item.price);
+  else if (item.price && typeof item.price === 'object' && item.price.amount != null) {
+    amount = Number(item.price.amount);
+  } else if (item.total_item_price != null) amount = Number(item.total_item_price);
+  if (!Number.isFinite(amount)) return null;
+  if (String(currency).toUpperCase() === 'GBP') {
+    return new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(amount);
+  }
+  return `${amount} ${currency}`;
+}
+
+function parseVintedListingFromHtml(html, pageUrl, vintedIdRaw) {
+  let title = metaContentFromHtml(html, 'og:title');
+  let description = metaContentFromHtml(html, 'og:description');
+  let priceLabel = null;
+  let pictureUrls = [];
+  const specifics = [];
+  const vintedId = vintedIdRaw != null ? String(vintedIdRaw).trim().replace(/^\/+/, '') : '';
+
+  const nextDataMatch = html.match(
+    /<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i
+  );
+  if (nextDataMatch?.[1]) {
+    try {
+      const nextData = JSON.parse(nextDataMatch[1]);
+      const item =
+        (vintedId ? findVintedItemNodeById(nextData, vintedId) : null) ||
+        walkJsonForVintedItem(nextData);
+      if (item) {
+        if (typeof item.title === 'string' && item.title.trim()) title = item.title.trim();
+        const descRaw =
+          (typeof item.description === 'string' && item.description) ||
+          (typeof item.description_html === 'string' && item.description_html) ||
+          '';
+        if (descRaw.trim()) {
+          description = htmlToPlainListingText(descRaw) || descRaw.trim();
+        }
+        priceLabel = formatVintedScrapedPrice(item);
+        pictureUrls = extractListingPhotoUrlsFromVintedItem(item);
+        if (item.brand_dto?.title || item.brand_title) {
+          specifics.push({
+            name: 'Brand',
+            value: String(item.brand_dto?.title || item.brand_title)
+          });
+        }
+        if (item.size_title || item.size) {
+          specifics.push({ name: 'Size', value: String(item.size_title || item.size) });
+        }
+        if (item.status || item.status_id) {
+          specifics.push({ name: 'Condition', value: String(item.status || item.status_id) });
+        }
+      }
+    } catch {
+      /* ignore malformed NEXT_DATA */
+    }
+  }
+
+  const rscPictureUrls = extractListingPhotoUrlsFromRscHtml(html, vintedId);
+  if (rscPictureUrls.length > pictureUrls.length) {
+    pictureUrls = rscPictureUrls;
+  }
+
+  if (pictureUrls.length === 0) {
+    const seen = new Set();
+    pictureUrls = [];
+    const ogImage = metaContentFromHtml(html, 'og:image');
+    if (ogImage) {
+      const url = normalizeVintedPhotoUrl(ogImage);
+      if (url && isVintedListingPhotoUrl(url)) {
+        seen.add(url);
+        pictureUrls.push(url);
+      }
+    }
+
+    for (const ldMatch of html.matchAll(
+      /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi
+    )) {
+      try {
+        const data = JSON.parse(ldMatch[1]);
+        const nodes = Array.isArray(data) ? data : [data];
+        for (const node of nodes) {
+          if (!node || typeof node !== 'object') continue;
+          if (!title && typeof node.name === 'string') title = node.name.trim();
+          if (!description && typeof node.description === 'string') {
+            description = htmlToPlainListingText(node.description) || node.description.trim();
+          }
+          if (node['@type'] === 'Product' && node.image) {
+            collectVintedPhotoUrlsFromValue(node.image, pictureUrls, seen);
+          }
+          if (!priceLabel && node.offers?.price != null) {
+            const cur = node.offers.priceCurrency || 'GBP';
+            const amount = Number(node.offers.price);
+            if (Number.isFinite(amount) && String(cur).toUpperCase() === 'GBP') {
+              priceLabel = new Intl.NumberFormat('en-GB', {
+                style: 'currency',
+                currency: 'GBP'
+              }).format(amount);
+            } else if (Number.isFinite(amount)) {
+              priceLabel = `${amount} ${cur}`;
+            }
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    pictureUrls = pictureUrls.filter(isVintedListingPhotoUrl);
+  }
+
+  if (title) {
+    title = title.replace(/\s*[|\-–—]\s*Vinted\s*$/i, '').trim();
+  }
+  if (description) {
+    description = htmlToPlainListingText(description) || description;
+  }
+
+  return {
+    title: title || null,
+    description: description || null,
+    priceLabel: priceLabel || null,
+    pictureUrls,
+    specifics,
+    pageUrl
+  };
+}
+
+async function buildListingPackFromVintedPage({ pool, vintedIdRaw, stockIdRaw }) {
+  const vintedId = String(vintedIdRaw ?? '').trim().replace(/^\/+/, '');
+  if (!vintedId) {
+    const err = new Error('Invalid Vinted item id');
+    err.code = 'INVALID_VINTED_ID';
+    throw err;
+  }
+
+  let stockFallback = null;
+  const stockId = stockIdRaw != null ? Number.parseInt(String(stockIdRaw), 10) : NaN;
+  if (Number.isFinite(stockId) && stockId > 0 && pool) {
+    const stockResult = await pool.query(
+      `SELECT id, item_name, projected_sale_price, sale_price, vinted_id
+       FROM stock WHERE id = $1`,
+      [stockId]
+    );
+    stockFallback = stockResult.rows?.[0] ?? null;
+  }
+
+  const page = await fetchVintedItemPageHtml(vintedId);
+  if (!page.ok) {
+    const err = new Error(page.error || 'Vinted page fetch failed');
+    err.code = page.httpStatus === 404 ? 'VINTED_NOT_FOUND' : 'VINTED_FETCH_FAILED';
+    err.httpStatus = page.httpStatus;
+    throw err;
+  }
+
+  const scraped = parseVintedListingFromHtml(page.html, page.url, vintedId);
+  const title = scraped.title || stockFallback?.item_name || null;
+  const description = scraped.description || null;
+  const priceLabel =
+    scraped.priceLabel ||
+    formatListingPriceLabel(null, stockFallback?.projected_sale_price ?? stockFallback?.sale_price);
+  const pictureUrls = scraped.pictureUrls;
+
+  const listingText = buildListingExportTextFile({
+    title,
+    priceLabel,
+    description,
+    platformLabel: 'Vinted listing',
+    platformIdLabel: 'Vinted item ID',
+    platformId: vintedId,
+    platformUrl: page.url,
+    specifics: scraped.specifics,
+    stockId: stockFallback?.id ?? (Number.isFinite(stockId) ? stockId : null),
+    specificsLabel: 'ITEM DETAILS (from Vinted):'
+  });
+
+  const imageEntries = [];
+  const imageErrors = [];
+  for (let i = 0; i < pictureUrls.length; i++) {
+    try {
+      const { buffer, contentType } = await fetchImageBufferForZip(pictureUrls[i]);
+      const ext = imageExtensionFromUrlOrType(pictureUrls[i], contentType);
+      imageEntries.push({
+        name: `images/${String(i + 1).padStart(2, '0')}${ext}`,
+        buffer
+      });
+    } catch (imgErr) {
+      imageErrors.push({
+        url: pictureUrls[i],
+        message: imgErr instanceof Error ? imgErr.message : String(imgErr)
+      });
+    }
+  }
+
+  if (!imageEntries.length && !description && !title) {
+    const err = new Error('Could not load listing details or images from Vinted');
+    err.code = 'VINTED_PACK_EMPTY';
+    throw err;
+  }
+
+  return {
+    vintedId,
+    listingText,
+    imageEntries,
+    imageErrors,
+    title,
+    stockId: stockFallback?.id ?? (Number.isFinite(stockId) ? stockId : null)
+  };
+}
+
+async function streamListingExportZip(res, { zipName, listingText, imageEntries, imageErrors, logLabel }) {
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="${zipName}"`);
+
+  const { ZipArchive } = await import('archiver');
+  const archive = new ZipArchive({ zlib: { level: 9 } });
+  archive.on('error', (err) => {
+    console.error(`${logLabel} archive error:`, err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Zip failed', details: err.message });
+    } else {
+      res.end();
+    }
+  });
+  archive.pipe(res);
+
+  archive.append(listingText, { name: 'listing.txt' });
+  if (imageErrors.length > 0) {
+    const errLines = imageErrors.map((e, idx) => `${idx + 1}. ${e.url}\n   ${e.message}`);
+    archive.append(
+      `Some images could not be downloaded:\n\n${errLines.join('\n\n')}\n`,
+      { name: 'images-errors.txt' }
+    );
+  }
+  for (const img of imageEntries) {
+    archive.append(img.buffer, { name: img.name });
+  }
+  await archive.finalize();
 }
 
 /**
@@ -9076,6 +9656,111 @@ app.post('/api/stock/vinted-sold-ebay-active-check', async (req, res) => {
     });
   }
 });
+
+function extractFulfillmentShipTo(order) {
+  const instructions = Array.isArray(order?.fulfillmentStartInstructions)
+    ? order.fulfillmentStartInstructions
+    : [];
+  for (const inst of instructions) {
+    const shipTo = inst?.shippingStep?.shipTo;
+    if (shipTo && (shipTo.fullName || shipTo.contactAddress)) return shipTo;
+  }
+  const buyerReg = order?.buyer?.buyerRegistrationAddress;
+  if (buyerReg) {
+    return {
+      fullName: buyerReg.fullName ?? null,
+      contactAddress: buyerReg.contactAddress ?? buyerReg
+    };
+  }
+  return null;
+}
+
+function formatEbayShippingDetailsFromOrder(order) {
+  const orderId = order?.orderId != null ? String(order.orderId) : null;
+  const shipTo = extractFulfillmentShipTo(order);
+  if (!shipTo) return null;
+  const addr = shipTo.contactAddress || {};
+  const buyerName = shipTo.fullName != null ? String(shipTo.fullName).trim() : '';
+  const addressLine1 = addr.addressLine1 != null ? String(addr.addressLine1).trim() : '';
+  if (!buyerName && !addressLine1) return null;
+  return {
+    order_id: orderId,
+    buyer_name: buyerName || null,
+    address_line1: addressLine1 || null,
+    address_line2: addr.addressLine2 != null ? String(addr.addressLine2).trim() || null : null,
+    city: addr.city != null ? String(addr.city).trim() || null : null,
+    county: addr.stateOrProvince != null ? String(addr.stateOrProvince).trim() || null : null,
+    postal_code: addr.postalCode != null ? String(addr.postalCode).trim() || null : null,
+    country_code: addr.countryCode != null ? String(addr.countryCode).trim() || null : null,
+    ebay_order_url: orderId
+      ? `https://www.ebay.co.uk/mesh/ord/details?orderid=${encodeURIComponent(orderId)}`
+      : null
+  };
+}
+
+/**
+ * Map eBay legacy listing id → buyer ship-to from recent Fulfillment orders.
+ * When multiple orders reference the same listing, keep the most recent by creationDate.
+ */
+async function fetchEbayShippingDetailsByLegacyId(userAccessToken, windowDays = 60) {
+  const days = Math.min(730, Math.max(7, Number(windowDays) || 60));
+  const end = new Date();
+  const start = new Date(end.getTime() - days * 86400000);
+  const filter = `creationdate:[${start.toISOString()}..${end.toISOString()}]`;
+  const base = 'https://api.ebay.com/sell/fulfillment/v1/order';
+  const byLegacy = new Map();
+  let offset = 0;
+  const limit = 50;
+  const delayMs = Math.min(500, Math.max(80, Number(process.env.EBAY_FULFILLMENT_PAGE_DELAY_MS) || 130));
+
+  for (;;) {
+    const params = new URLSearchParams({
+      limit: String(limit),
+      offset: String(offset),
+      filter
+    });
+    const url = `${base}?${params.toString()}`;
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${userAccessToken}`,
+        'Content-Type': 'application/json',
+        'X-EBAY-C-MARKETPLACE-ID': 'EBAY_GB'
+      }
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      const err = new Error(`Fulfillment getOrders ${res.status}: ${text.slice(0, 700)}`);
+      err.httpStatus = res.status;
+      throw err;
+    }
+    const data = await res.json();
+    const orders = Array.isArray(data.orders) ? data.orders : [];
+    for (const order of orders) {
+      const details = formatEbayShippingDetailsFromOrder(order);
+      if (!details) continue;
+      const createdMs = order.creationDate ? Date.parse(order.creationDate) : 0;
+      for (const li of order.lineItems || []) {
+        const leg = extractEbayLegacyItemId(li.legacyItemId);
+        if (!leg) continue;
+        const existing = byLegacy.get(leg);
+        if (!existing || createdMs >= existing._creationMs) {
+          byLegacy.set(leg, { ...details, _creationMs: createdMs });
+        }
+      }
+    }
+    if (orders.length < limit) break;
+    offset += limit;
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+
+  const out = {};
+  for (const [leg, row] of byLegacy) {
+    const { _creationMs, ...payload } = row;
+    out[leg] = payload;
+  }
+  return out;
+}
 
 /**
  * Paginate Sell Fulfillment getOrders — seller's eBay orders (needs User access token, not client credentials).
@@ -14997,6 +15682,101 @@ app.get('/api/orders', async (req, res) => {
   } catch (error) {
     console.error('Orders query failed:', error);
     res.status(500).json({ error: 'Failed to load orders data', details: error.message });
+  }
+});
+
+/**
+ * GET — Buyer name + ship-to address for To Pack eBay sales (Fulfillment API, matched by stock.ebay_id).
+ * Query: stock_ids=1,2,3 (optional — defaults to all rows in orders queue).
+ */
+app.get('/api/orders/ebay-shipping-details', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    let userToken;
+    try {
+      userToken = await ebaySellerOAuth.getFulfillmentUserAccessToken(pool);
+    } catch (tokErr) {
+      if (tokErr.code === 'EBAY_USER_TOKEN_MISSING') {
+        return res.status(503).json({
+          error: 'eBay seller not connected',
+          code: 'EBAY_USER_TOKEN_MISSING',
+          details: tokErr.message
+        });
+      }
+      throw tokErr;
+    }
+
+    const rawIds = req.query.stock_ids ?? req.query.stockIds;
+    let stockIds = [];
+    if (rawIds != null && String(rawIds).trim() !== '') {
+      stockIds = String(rawIds)
+        .split(',')
+        .map((s) => Number.parseInt(s.trim(), 10))
+        .filter((n) => Number.isFinite(n) && n > 0);
+    }
+
+    let rows;
+    if (stockIds.length > 0) {
+      const result = await pool.query(
+        `SELECT s.id, s.ebay_id, s.sold_platform
+         FROM stock s
+         WHERE s.id = ANY($1::int[])`,
+        [stockIds]
+      );
+      rows = result.rows ?? [];
+    } else {
+      const result = await pool.query(
+        `SELECT s.id, s.ebay_id, s.sold_platform
+         FROM orders o
+         INNER JOIN stock s ON s.id = o.stock_id`
+      );
+      rows = result.rows ?? [];
+    }
+
+    const ebayRows = rows.filter((row) => {
+      const platform = String(row.sold_platform ?? '').trim().toLowerCase();
+      const isEbaySale = platform.includes('ebay') || String(row.sold_platform ?? '').trim() === 'eBay';
+      const leg = extractEbayLegacyItemId(row.ebay_id);
+      return isEbaySale && leg;
+    });
+
+    if (ebayRows.length === 0) {
+      return res.json({ window_days: 60, by_stock_id: {}, unmatched_stock_ids: [] });
+    }
+
+    const windowDays = Math.min(
+      730,
+      Math.max(7, Number(req.query.days) || Number(req.query.window_days) || 60)
+    );
+    const byLegacy = await fetchEbayShippingDetailsByLegacyId(userToken, windowDays);
+
+    const byStockId = {};
+    const unmatched = [];
+    for (const row of ebayRows) {
+      const leg = extractEbayLegacyItemId(row.ebay_id);
+      const details = leg ? byLegacy[leg] : null;
+      if (details) {
+        byStockId[String(row.id)] = details;
+      } else {
+        unmatched.push(row.id);
+      }
+    }
+
+    res.json({
+      window_days: windowDays,
+      by_stock_id: byStockId,
+      unmatched_stock_ids: unmatched
+    });
+  } catch (error) {
+    console.error('ebay-shipping-details failed:', error);
+    res.status(500).json({
+      error: 'Failed to load eBay shipping details',
+      details: error instanceof Error ? error.message : String(error)
+    });
   }
 });
 

@@ -1851,6 +1851,57 @@
   min-width: 6.5rem;
 }
 
+/* Vinted for sale — unsold stock with Vinted ID, longest in stock first */
+.orders-sales-table--vinted-for-sale .orders-table {
+  table-layout: auto;
+}
+
+.orders-sales-table--vinted-for-sale .orders-ew-col {
+  overflow: visible;
+  max-width: none;
+  text-overflow: clip;
+  vertical-align: middle;
+  padding: 12px 10px;
+}
+
+.orders-sales-table--vinted-for-sale .orders-ew-col--id,
+.orders-sales-table--vinted-for-sale .orders-ew-col--ebay,
+.orders-sales-table--vinted-for-sale .orders-ew-col--vinted-pack {
+  width: 1%;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.orders-sales-table--vinted-for-sale .orders-ew-col--name {
+  min-width: 14rem;
+  text-align: left;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.orders-sales-table--vinted-for-sale .orders-ew-col--time-in-stock {
+  font-variant-numeric: tabular-nums;
+  min-width: 7.5rem;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.orders-sales-table--vinted-for-sale .orders-ew-col--vinted-pack {
+  min-width: 6.5rem;
+}
+
+.orders-sales-table--vinted-for-sale .orders-sales-unlist-cell {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  max-width: none;
+}
+
+.orders-sales-table--vinted-for-sale .orders-vinted-pack-button {
+  min-width: 5.5rem;
+}
+
 .orders-vinted-pack-button {
   display: inline-flex;
   align-items: center;
@@ -2217,6 +2268,43 @@
 .orders-posted-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* To Pack — eBay buyer / ship-to from Fulfillment API */
+.orders-topack-shipping {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 10rem;
+  max-width: 22rem;
+  font-size: 1.35rem;
+  line-height: 1.35;
+}
+
+.orders-topack-shipping-name {
+  font-weight: 700;
+  color: var(--text-strong);
+}
+
+.orders-topack-shipping-address {
+  color: var(--text-strong);
+  opacity: 0.92;
+}
+
+.orders-topack-shipping-muted {
+  font-size: 1.25rem;
+  color: rgba(var(--theme-text-rgb), 0.55);
+  font-style: italic;
+}
+
+.orders-card-field--shipping .orders-topack-shipping {
+  max-width: 100%;
+}
+
+.orders-list-section .orders-table th:nth-child(3),
+.orders-list-section .orders-table td:nth-child(3) {
+  min-width: 11rem;
+  max-width: 24rem;
 }
 
 .orders-sales-pagination {
