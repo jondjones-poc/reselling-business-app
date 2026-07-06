@@ -37,7 +37,7 @@ const ResearchRoute: React.FC = () => {
   if (tab === 'offline') {
     const next = new URLSearchParams(searchParams);
     next.delete('tab');
-    next.set('view', 'offline');
+    next.set('view', 'reseller-videos');
     return <Navigate to={`/research?${next.toString()}`} replace />;
   }
   if (tab === 'ai' || searchParams.get('view') === 'ai') {

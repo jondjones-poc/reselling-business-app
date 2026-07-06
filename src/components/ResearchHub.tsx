@@ -3,17 +3,22 @@ import { NavLink, useSearchParams } from 'react-router-dom';
 import ResearchEbayFeed from './ResearchEbayFeed';
 import ResearchTagSellThrough from './ResearchTagSellThrough';
 import ResearchSellerSolds from './ResearchSellerSolds';
-import Research from './Research';
 import ResearchInFashion from './ResearchInFashion';
+import ResearchResellerVideos from './ResearchResellerVideos';
 import './BrandResearch.css';
 
-type HubView = 'feed' | 'tag-sell-through' | 'seller-listings' | 'offline' | 'in-fashion';
+type HubView =
+  | 'feed'
+  | 'tag-sell-through'
+  | 'seller-listings'
+  | 'in-fashion'
+  | 'reseller-videos';
 
 function normalizeView(raw: string | null): HubView {
   if (raw === 'tag-sell-through') return 'tag-sell-through';
   if (raw === 'seller-listings' || raw === 'seller-solds') return 'seller-listings';
-  if (raw === 'offline') return raw;
   if (raw === 'in-fashion') return 'in-fashion';
+  if (raw === 'reseller-videos') return 'reseller-videos';
   return 'feed';
 }
 
@@ -49,6 +54,14 @@ const ResearchHub: React.FC = () => {
           In fashion
         </NavLink>
         <NavLink
+          to="/research?view=reseller-videos"
+          role="tab"
+          aria-selected={view === 'reseller-videos'}
+          className={() => `research-tab${view === 'reseller-videos' ? ' active' : ''}`}
+        >
+          Reseller Videos
+        </NavLink>
+        <NavLink
           to="/research?view=tag-sell-through"
           role="tab"
           aria-selected={view === 'tag-sell-through'}
@@ -56,21 +69,13 @@ const ResearchHub: React.FC = () => {
         >
           Tag sell-through rate
         </NavLink>
-        <NavLink
-          to="/research?view=offline"
-          role="tab"
-          aria-selected={view === 'offline'}
-          className={() => `research-tab${view === 'offline' ? ' active' : ''}`}
-        >
-          Brand offline research
-        </NavLink>
       </nav>
 
       {view === 'feed' && <ResearchEbayFeed />}
       {view === 'tag-sell-through' && <ResearchTagSellThrough />}
       {view === 'seller-listings' && <ResearchSellerSolds />}
-      {view === 'offline' && <Research forcedView="offline" />}
       {view === 'in-fashion' && <ResearchInFashion />}
+      {view === 'reseller-videos' && <ResearchResellerVideos />}
     </div>
   );
 };

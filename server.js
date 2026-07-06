@@ -5485,6 +5485,382 @@ app.delete('/api/research-feed/tags/:id', async (req, res) => {
   }
 });
 
+const YOUTUBE_PUBLIC_FETCH_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  'Accept-Language': 'en-GB,en;q=0.9'
+};
+
+function decodeYoutubeXmlText(raw) {
+  if (raw == null) return '';
+  return String(raw)
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .trim();
+}
+
+function youtubeChannelRssUrl(channelId) {
+  return `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`;
+}
+
+function youtubeVideoThumbnailUrl(videoId) {
+  return `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/hqdefault.jpg`;
+}
+
+function extractYoutubeChannelIdFromHtml(html) {
+  if (!html) return null;
+  const rssMatch = html.match(/feeds\/videos\.xml\?channel_id=(UC[\w-]+)/i);
+  if (rssMatch) return rssMatch[1];
+  const canonicalMatch = html.match(/youtube\.com\/channel\/(UC[\w-]+)/i);
+  if (canonicalMatch) return canonicalMatch[1];
+  return null;
+}
+
+async function fetchYoutubePublicPageHtml(pageUrl) {
+  const res = await fetch(pageUrl, {
+    method: 'GET',
+    redirect: 'follow',
+    headers: { ...YOUTUBE_PUBLIC_FETCH_HEADERS, Accept: 'text/html,application/xhtml+xml' }
+  });
+  const html = await res.text();
+  if (!res.ok) {
+    const err = new Error(`YouTube page HTTP ${res.status}`);
+    err.code = 'YOUTUBE_PAGE_ERROR';
+    err.httpStatus = res.status;
+    throw err;
+  }
+  return html;
+}
+
+async function fetchYoutubeChannelRssXml(channelId) {
+  const res = await fetch(youtubeChannelRssUrl(channelId), {
+    method: 'GET',
+    redirect: 'follow',
+    headers: { ...YOUTUBE_PUBLIC_FETCH_HEADERS, Accept: 'application/atom+xml,text/xml,*/*' }
+  });
+  const xml = await res.text();
+  if (res.status === 404) {
+    const err = new Error('YouTube channel feed not found');
+    err.code = 'CHANNEL_NOT_FOUND';
+    throw err;
+  }
+  if (!res.ok) {
+    const err = new Error(`YouTube RSS HTTP ${res.status}`);
+    err.code = 'YOUTUBE_RSS_ERROR';
+    err.httpStatus = res.status;
+    throw err;
+  }
+  return xml;
+}
+
+function parseYoutubeChannelMetaFromRssXml(xml, { channelId, handle, pageUrl }) {
+  const feedTitleMatch = xml.match(/<feed[\s\S]*?<title>([^<]+)<\/title>/i);
+  const channelTitle = decodeYoutubeXmlText(feedTitleMatch?.[1]) || null;
+  const alternateMatch = xml.match(
+    /<link rel="alternate" href="(https:\/\/www\.youtube\.com\/[^"]+)"/i
+  );
+  const channelUrl =
+    pageUrl ||
+    alternateMatch?.[1] ||
+    (handle ? `https://www.youtube.com/@${handle}` : `https://www.youtube.com/channel/${channelId}`);
+  let thumbnailUrl = null;
+  const firstVideoId = xml.match(/<yt:videoId>([^<]+)<\/yt:videoId>/i)?.[1];
+  if (firstVideoId) thumbnailUrl = youtubeVideoThumbnailUrl(firstVideoId);
+  return {
+    youtubeChannelId: channelId,
+    channelTitle,
+    channelHandle: handle || null,
+    channelUrl,
+    thumbnailUrl
+  };
+}
+
+function parseYoutubeVideosFromRssXml(xml, maxEntries = 15) {
+  const entries = [...xml.matchAll(/<entry>([\s\S]*?)<\/entry>/gi)];
+  const videos = [];
+  for (const match of entries.slice(0, maxEntries)) {
+    const block = match[1];
+    const videoId = block.match(/<yt:videoId>([^<]+)<\/yt:videoId>/i)?.[1];
+    if (!videoId) continue;
+    const title = decodeYoutubeXmlText(block.match(/<title>([^<]+)<\/title>/i)?.[1]) || 'Untitled';
+    const publishedAt = block.match(/<published>([^<]+)<\/published>/i)?.[1] || null;
+    const channelId = block.match(/<yt:channelId>([^<]+)<\/yt:channelId>/i)?.[1] || null;
+    const channelTitle = decodeYoutubeXmlText(
+      block.match(/<author>[\s\S]*?<name>([^<]+)<\/name>/i)?.[1]
+    );
+    const thumbFromXml = block.match(/<media:thumbnail url="([^"]+)"/i)?.[1];
+    videos.push({
+      videoId: String(videoId),
+      title,
+      thumbnailUrl: thumbFromXml || youtubeVideoThumbnailUrl(videoId),
+      publishedAt: publishedAt ? String(publishedAt) : null,
+      channelId: channelId ? String(channelId) : null,
+      channelTitle: channelTitle || null,
+      watchUrl: `https://www.youtube.com/watch?v=${encodeURIComponent(String(videoId))}`
+    });
+  }
+  return videos;
+}
+
+async function resolveYoutubeChannelMeta(parsed) {
+  if (parsed.channelId) {
+    const xml = await fetchYoutubeChannelRssXml(parsed.channelId);
+    return parseYoutubeChannelMetaFromRssXml(xml, {
+      channelId: parsed.channelId,
+      handle: parsed.handle || null,
+      pageUrl: parsed.pageUrl || null
+    });
+  }
+
+  const pageUrl =
+    parsed.pageUrl ||
+    (parsed.handle ? `https://www.youtube.com/@${encodeURIComponent(parsed.handle)}` : null);
+  if (!pageUrl) {
+    const err = new Error('Could not resolve YouTube channel');
+    err.code = 'INVALID_CHANNEL';
+    throw err;
+  }
+
+  const html = await fetchYoutubePublicPageHtml(pageUrl);
+  const channelId = extractYoutubeChannelIdFromHtml(html);
+  if (!channelId) {
+    const err = new Error('YouTube channel not found on page — check the @handle or URL');
+    err.code = 'CHANNEL_NOT_FOUND';
+    throw err;
+  }
+  const xml = await fetchYoutubeChannelRssXml(channelId);
+  return parseYoutubeChannelMetaFromRssXml(xml, {
+    channelId,
+    handle: parsed.handle || null,
+    pageUrl
+  });
+}
+
+function parseYoutubeChannelInput(raw) {
+  const input = String(raw ?? '').trim();
+  if (!input) return { ok: false, error: 'Channel URL, @handle, or UC… id is required' };
+  if (/^UC[\w-]{10,}$/i.test(input)) {
+    return { ok: true, channelId: input };
+  }
+  let urlText = input;
+  if (!/^https?:\/\//i.test(urlText)) {
+    if (urlText.startsWith('@')) {
+      return { ok: true, handle: urlText.slice(1) };
+    }
+    if (/^[\w.-]+$/.test(urlText)) {
+      return { ok: true, handle: urlText };
+    }
+    urlText = `https://${urlText}`;
+  }
+  try {
+    const url = new URL(urlText);
+    const host = url.hostname.replace(/^www\./i, '').toLowerCase();
+    if (!host.endsWith('youtube.com') && host !== 'youtu.be') {
+      return { ok: false, error: 'Enter a YouTube channel URL, @handle, or UC… channel id' };
+    }
+    const channelMatch = url.pathname.match(/\/channel\/(UC[\w-]+)/i);
+    if (channelMatch) {
+      return { ok: true, channelId: channelMatch[1], pageUrl: url.toString() };
+    }
+    const handleMatch = url.pathname.match(/\/@([\w.-]+)/i);
+    if (handleMatch) {
+      return { ok: true, handle: handleMatch[1], pageUrl: url.toString() };
+    }
+    if (url.pathname.startsWith('/@')) {
+      const handle = url.pathname.slice(2).split('/')[0];
+      if (handle) return { ok: true, handle, pageUrl: url.toString() };
+    }
+  } catch {
+    return { ok: false, error: 'Invalid channel URL' };
+  }
+  return { ok: false, error: 'Could not parse channel from input — use @handle or /channel/UC… URL' };
+}
+
+async function fetchYoutubeChannelVideosFromRss(channelId, maxResults = 15) {
+  const xml = await fetchYoutubeChannelRssXml(channelId);
+  return parseYoutubeVideosFromRssXml(xml, maxResults);
+}
+
+const resellerVideosFeedCache = {
+  atMs: 0,
+  payload: null
+};
+const RESELLER_VIDEOS_FEED_TTL_MS = 10 * 60 * 1000;
+
+/** Saved YouTube channels — table: database/reseller_youtube_channel.sql */
+app.get('/api/research/reseller-videos/channels', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const result = await pool.query(
+      `SELECT id, youtube_channel_id, channel_title, channel_handle, channel_url, thumbnail_url, created_at
+       FROM reseller_youtube_channel
+       ORDER BY created_at ASC, id ASC`
+    );
+    res.json({ rows: result.rows ?? [] });
+  } catch (error) {
+    console.error('reseller-videos channels list failed:', error);
+    res.status(500).json({ error: 'Failed to load channels', details: error.message });
+  }
+});
+
+app.post('/api/research/reseller-videos/channels', async (req, res) => {
+  const parsed = parseYoutubeChannelInput(req.body?.channel ?? req.body?.url ?? req.body?.handle);
+  if (!parsed.ok) {
+    return res.status(400).json({ error: parsed.error });
+  }
+
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+
+    const meta = await resolveYoutubeChannelMeta(parsed);
+    const dup = await pool.query(
+      `SELECT id, youtube_channel_id, channel_title, channel_handle, channel_url, thumbnail_url, created_at
+       FROM reseller_youtube_channel WHERE youtube_channel_id = $1 LIMIT 1`,
+      [meta.youtubeChannelId]
+    );
+    if (dup.rowCount) {
+      resellerVideosFeedCache.atMs = 0;
+      resellerVideosFeedCache.payload = null;
+      return res.json({ row: dup.rows[0], created: false });
+    }
+
+    const ins = await pool.query(
+      `INSERT INTO reseller_youtube_channel
+         (youtube_channel_id, channel_title, channel_handle, channel_url, thumbnail_url)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, youtube_channel_id, channel_title, channel_handle, channel_url, thumbnail_url, created_at`,
+      [
+        meta.youtubeChannelId,
+        meta.channelTitle,
+        meta.channelHandle,
+        meta.channelUrl,
+        meta.thumbnailUrl
+      ]
+    );
+    resellerVideosFeedCache.atMs = 0;
+    resellerVideosFeedCache.payload = null;
+    res.status(201).json({ row: ins.rows[0], created: true });
+  } catch (error) {
+    console.error('reseller-videos channel insert failed:', error);
+    const status = error.code === 'CHANNEL_NOT_FOUND' ? 404 : 500;
+    res.status(status).json({
+      error: 'Failed to add channel',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+app.delete('/api/research/reseller-videos/channels/:id', async (req, res) => {
+  const id = parseInt(String(req.params.id ?? ''), 10);
+  if (!Number.isFinite(id) || id < 1) {
+    return res.status(400).json({ error: 'Invalid channel id' });
+  }
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const del = await pool.query(`DELETE FROM reseller_youtube_channel WHERE id = $1 RETURNING id`, [id]);
+    if (!del.rowCount) {
+      return res.status(404).json({ error: 'Channel not found' });
+    }
+    resellerVideosFeedCache.atMs = 0;
+    resellerVideosFeedCache.payload = null;
+    res.json({ ok: true, id: del.rows[0].id });
+  } catch (error) {
+    console.error('reseller-videos channel delete failed:', error);
+    res.status(500).json({ error: 'Failed to delete channel', details: error.message });
+  }
+});
+
+app.get('/api/research/reseller-videos/feed', async (req, res) => {
+  const refresh = req.query.refresh === '1' || req.query.refresh === 'true';
+  const now = Date.now();
+  if (
+    !refresh &&
+    resellerVideosFeedCache.payload &&
+    now - resellerVideosFeedCache.atMs < RESELLER_VIDEOS_FEED_TTL_MS
+  ) {
+    return res.json(resellerVideosFeedCache.payload);
+  }
+
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+
+    const channelsResult = await pool.query(
+      `SELECT id, youtube_channel_id, channel_title, channel_handle, channel_url, thumbnail_url
+       FROM reseller_youtube_channel
+       ORDER BY created_at ASC, id ASC`
+    );
+    const channels = channelsResult.rows ?? [];
+    if (channels.length === 0) {
+      const empty = { videos: [], channelCount: 0, errors: [] };
+      resellerVideosFeedCache.atMs = now;
+      resellerVideosFeedCache.payload = empty;
+      return res.json(empty);
+    }
+
+    const perChannel = Math.min(
+      30,
+      Math.max(5, Number(req.query.perChannel) || Number(req.query.per_channel) || 15)
+    );
+    const videos = [];
+    const errors = [];
+
+    for (const ch of channels) {
+      try {
+        const uploads = await fetchYoutubeChannelVideosFromRss(ch.youtube_channel_id, perChannel);
+        for (const video of uploads) {
+          videos.push({
+            ...video,
+            savedChannelId: ch.id,
+            savedChannelTitle: ch.channel_title || video.channelTitle || ch.youtube_channel_id,
+            savedChannelUrl:
+              ch.channel_url || `https://www.youtube.com/channel/${ch.youtube_channel_id}`
+          });
+        }
+      } catch (channelErr) {
+        errors.push({
+          channelId: ch.id,
+          channelTitle: ch.channel_title || ch.youtube_channel_id,
+          error: channelErr instanceof Error ? channelErr.message : String(channelErr)
+        });
+      }
+    }
+
+    videos.sort((a, b) => {
+      const ta = a.publishedAt ? Date.parse(a.publishedAt) : 0;
+      const tb = b.publishedAt ? Date.parse(b.publishedAt) : 0;
+      return tb - ta;
+    });
+
+    const payload = {
+      videos,
+      channelCount: channels.length,
+      errors,
+      fetchedAt: new Date().toISOString()
+    };
+    resellerVideosFeedCache.atMs = now;
+    resellerVideosFeedCache.payload = payload;
+    res.json(payload);
+  } catch (error) {
+    console.error('reseller-videos feed failed:', error);
+    res.status(500).json({ error: 'Failed to load videos', details: error.message });
+  }
+});
+
 const IN_FASHION_INSIGHTS_TTL_HOURS = 12;
 
 function mapInFashionInsightsCacheRow(row, tagTerm) {
