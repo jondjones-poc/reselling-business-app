@@ -1,37 +1,109 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  CategoryScale,
+  Chart as ChartJS,
+  Filler,
+  LinearScale,
+  LineElement,
+  PointElement,
+  Tooltip,
+} from 'chart.js';
+import { Line } from 'react-chartjs-2';
 import { apiUrl } from '../utils/apiBase';
 import './Stock.css';
 import './ResearchInFashion.css';
 
-type FashionTag = { id: number; term: string; created_at?: string };
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler);
+
+type CategoryOption = {
+  key: string;
+  label: string;
+  seedCount?: number;
+};
+
+type DepartmentOption = {
+  key: string;
+  label: string;
+  seedCount: number;
+  ebayCategoryId: string | null;
+  categories?: CategoryOption[];
+};
+
+function slugifyCategoryKey(raw: string): string {
+  return String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function deptNameToTrendKey(name: string): string | null {
+  const key = slugifyCategoryKey(name);
+  if (!key) return null;
+  const aliases: Record<string, string> = {
+    menswear: 'menswear',
+    mens: 'menswear',
+    men: 'menswear',
+    womenswear: 'womenswear',
+    womens: 'womenswear',
+    women: 'womenswear',
+    electronics: 'electronics',
+    media: 'media',
+    toys: 'toys',
+    'bric-a-brac': 'bric-a-brac',
+    bricabrac: 'bric-a-brac',
+  };
+  return aliases[key] || null;
+}
+
+/** Prefer exact department name (e.g. Menswear) over aliases like Men / Mens. */
+function findDepartmentRow(
+  rows: Array<{ id: number; department_name: string }>,
+  trendKey: string
+): { id: number; department_name: string } | null {
+  const exact = rows.find(
+    (d) => slugifyCategoryKey(d.department_name) === trendKey || d.department_name.trim().toLowerCase() === trendKey
+  );
+  if (exact) return exact;
+  return rows.find((d) => deptNameToTrendKey(d.department_name) === trendKey) ?? null;
+}
+
+type RisingIdea = {
+  query: string;
+  value: string;
+  seed: string;
+  isRising: boolean;
+};
+
+type InterestPoint = { label: string; value: number };
+
+type RelatedTopic = { title: string; type: string; value: string };
 
 type TrendQuery = { query: string; value: string };
 
-type FashionPhoto = {
-  id: number;
-  url: string;
-  photographer: string;
-  photographerUrl: string;
-  width: number | null;
-  height: number | null;
-  imageUrl: string;
+type EbaySoldThumb = {
+  itemId: string | null;
+  title: string;
+  price: number | null;
+  currency: string;
+  imageUrl: string | null;
+  itemWebUrl: string | null;
+  condition: string | null;
 };
 
-type FashionSection = {
-  tagId: number;
-  tagTerm: string;
+type QueryDetail = {
+  query: string;
+  interestOverTime: InterestPoint[];
+  interestError: string | null;
   relatedQueries: TrendQuery[];
   risingQueries: TrendQuery[];
-  photos: FashionPhoto[];
-  trendsError: string | null;
-  pexelsError: string | null;
-  fetchedAt: string | null;
-};
-
-type FeedPhoto = FashionPhoto & {
-  tagId: number;
-  tagTerm: string;
-  feedKey: string;
+  relatedError: string | null;
+  topTopics: RelatedTopic[];
+  risingTopics: RelatedTopic[];
+  topicsError: string | null;
+  ebaySold: EbaySoldThumb[];
+  ebayError: string | null;
 };
 
 async function readJson<T>(res: Response): Promise<T> {
@@ -43,380 +115,515 @@ async function readJson<T>(res: Response): Promise<T> {
   }
 }
 
-function interleaveFeedPhotos(sections: FashionSection[]): FeedPhoto[] {
-  if (sections.length === 0) return [];
-  const maxLen = Math.max(...sections.map((s) => s.photos.length), 0);
-  const out: FeedPhoto[] = [];
-  for (let i = 0; i < maxLen; i += 1) {
-    for (const sec of sections) {
-      const photo = sec.photos[i];
-      if (!photo) continue;
-      out.push({
-        ...photo,
-        tagId: sec.tagId,
-        tagTerm: sec.tagTerm,
-        feedKey: `${sec.tagId}-${photo.id}`,
-      });
-    }
-  }
-  return out;
-}
-
-function parseTrendQuerySortScore(raw: string): number {
-  const value = String(raw ?? '').trim();
-  if (!value) return 0;
-  if (/^breakout$/i.test(value)) return 1_000_000;
-  const pct = value.match(/^\+?([\d,.]+)\s*%$/);
-  if (pct) {
-    const n = Number(pct[1].replace(/,/g, ''));
-    return Number.isFinite(n) ? n : 0;
-  }
-  const n = Number(value.replace(/,/g, ''));
-  return Number.isFinite(n) ? n : 0;
-}
-
-function mergeAndSortTrendQueries(sections: FashionSection[]): TrendQuery[] {
-  const byQuery = new Map<string, TrendQuery>();
-  for (const sec of sections) {
-    for (const q of [...sec.relatedQueries, ...sec.risingQueries]) {
-      const key = q.query.trim().toLowerCase();
-      if (!key) continue;
-      const existing = byQuery.get(key);
-      if (!existing || parseTrendQuerySortScore(q.value) > parseTrendQuerySortScore(existing.value)) {
-        byQuery.set(key, q);
-      }
-    }
-  }
-  return Array.from(byQuery.values()).sort(
-    (a, b) => parseTrendQuerySortScore(b.value) - parseTrendQuerySortScore(a.value)
-  );
-}
-
-function collectSectionWarnings(sections: FashionSection[]): string[] {
-  const lines: string[] = [];
-  for (const sec of sections) {
-    if (sec.trendsError) lines.push(`${sec.tagTerm} (trends): ${sec.trendsError}`);
-    if (sec.pexelsError) lines.push(`${sec.tagTerm} (photos): ${sec.pexelsError}`);
-  }
-  return lines;
+function formatGbp(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  return new Intl.NumberFormat('en-GB', {
+    style: 'currency',
+    currency: 'GBP',
+    maximumFractionDigits: 0,
+  }).format(value);
 }
 
 const ResearchInFashion: React.FC = () => {
-  const [tags, setTags] = useState<FashionTag[]>([]);
-  const [tagsLoading, setTagsLoading] = useState(true);
-  const [tagsError, setTagsError] = useState<string | null>(null);
-  const [newTag, setNewTag] = useState('');
-  const [addBusy, setAddBusy] = useState(false);
+  const [departments, setDepartments] = useState<DepartmentOption[]>([]);
+  const [department, setDepartment] = useState('menswear');
+  const [category, setCategory] = useState('all');
+  const [dbCategories, setDbCategories] = useState<CategoryOption[]>([{ key: 'all', label: 'All' }]);
+  const [rising, setRising] = useState<RisingIdea[]>([]);
+  const [discoverLoading, setDiscoverLoading] = useState(false);
+  const [discoverError, setDiscoverError] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [showWarnings, setShowWarnings] = useState(false);
 
-  const [sections, setSections] = useState<FashionSection[]>([]);
-  const [insightsLoading, setInsightsLoading] = useState(false);
-  const [insightsError, setInsightsError] = useState<string | null>(null);
-  const [pexelsConfigured, setPexelsConfigured] = useState(true);
+  const [selectedQuery, setSelectedQuery] = useState<string | null>(null);
+  const [detail, setDetail] = useState<QueryDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
-  const feedPhotos = useMemo(() => interleaveFeedPhotos(sections), [sections]);
-  const trendingQueries = useMemo(() => mergeAndSortTrendQueries(sections), [sections]);
-  const sectionWarnings = useMemo(() => collectSectionWarnings(sections), [sections]);
+  const categories = useMemo(() => {
+    return dbCategories.length > 0 ? dbCategories : [{ key: 'all', label: 'All' }];
+  }, [dbCategories]);
 
-  const tagToneById = useMemo(() => {
-    const map = new Map<number, number>();
-    tags.forEach((t, i) => map.set(t.id, i % 6));
-    return map;
-  }, [tags]);
+  const selectedCategoryLabel = useMemo(() => {
+    if (category === 'all') return 'All';
+    return categories.find((c) => c.key === category)?.label || category;
+  }, [categories, category]);
 
-  const loadTags = useCallback(async (): Promise<FashionTag[]> => {
-    setTagsLoading(true);
-    setTagsError(null);
-    try {
-      const res = await fetch(apiUrl('/api/research/in-fashion/tags'));
-      const data = await readJson<{ rows?: FashionTag[]; error?: string }>(res);
-      if (!res.ok) {
-        throw new Error(data.error || res.statusText);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch(apiUrl('/api/research/in-fashion/departments'));
+        const data = await readJson<{ departments?: DepartmentOption[] }>(res);
+        const rows = Array.isArray(data.departments) ? data.departments : [];
+        setDepartments(rows);
+        if (rows.length > 0 && !rows.some((d) => d.key === department)) {
+          setDepartment(rows[0].key);
+        }
+      } catch {
+        setDepartments([
+          {
+            key: 'menswear',
+            label: 'Menswear',
+            seedCount: 0,
+            ebayCategoryId: '11450',
+          },
+          {
+            key: 'electronics',
+            label: 'Electronics',
+            seedCount: 0,
+            ebayCategoryId: '293',
+          },
+        ]);
       }
-      const rows = Array.isArray(data.rows) ? data.rows : [];
-      setTags(rows);
-      return rows;
-    } catch (e) {
-      setTagsError(e instanceof Error ? e.message : 'Could not load tags');
-      setTags([]);
-      return [];
-    } finally {
-      setTagsLoading(false);
-    }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const loadInsights = useCallback(
-    async (options?: { refresh?: boolean; tagId?: number; tagCount?: number }) => {
-      const activeCount = options?.tagCount ?? tags.length;
-      if (activeCount === 0) {
-        setSections([]);
-        return;
-      }
-      setInsightsLoading(true);
-      setInsightsError(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
       try {
-        const params = new URLSearchParams();
+        const deptRes = await fetch(apiUrl('/api/departments'));
+        const deptData = await readJson<{
+          rows?: Array<{ id: number; department_name: string }>;
+        }>(deptRes);
+        const deptRows = Array.isArray(deptData.rows) ? deptData.rows : [];
+        const match = findDepartmentRow(deptRows, department);
+        const departmentId = match?.id ?? null;
+
+        const toOptions = (labels: string[]): CategoryOption[] => {
+          const opts: CategoryOption[] = [{ key: 'all', label: 'All' }];
+          const seen = new Set<string>(['all']);
+          for (const labelRaw of labels) {
+            const label = String(labelRaw || '').trim();
+            if (!label) continue;
+            const key = slugifyCategoryKey(label);
+            if (!key || seen.has(key)) continue;
+            seen.add(key);
+            opts.push({ key, label });
+          }
+          return opts;
+        };
+
+        let next: CategoryOption[] = [{ key: 'all', label: 'All' }];
+
+        // Same stock categories as Research clothing types / Config (shirts, trousers, …).
+        if (departmentId != null) {
+          const res = await fetch(
+            apiUrl(`/api/categories?department_id=${encodeURIComponent(String(departmentId))}`)
+          );
+          const data = await readJson<{
+            rows?: Array<{ id: number; category_name: string }>;
+          }>(res);
+          if (!res.ok) {
+            throw new Error('Failed to load categories');
+          }
+          next = toOptions(
+            (Array.isArray(data.rows) ? data.rows : []).map((r) => String(r.category_name || ''))
+          );
+        }
+
+        if (!cancelled) {
+          setDbCategories(next);
+          setCategory((prev) => (next.some((c) => c.key === prev) ? prev : 'all'));
+        }
+      } catch {
+        if (!cancelled) {
+          setDbCategories([{ key: 'all', label: 'All' }]);
+          setCategory('all');
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [department]);
+
+  useEffect(() => {
+    if (!categories.some((c) => c.key === category)) {
+      setCategory('all');
+    }
+  }, [categories, category]);
+
+  const loadDiscover = useCallback(
+    async (options?: { refresh?: boolean }) => {
+      setDiscoverLoading(true);
+      setDiscoverError(null);
+      setSelectedQuery(null);
+      setDetail(null);
+      try {
+        const params = new URLSearchParams({ department, category });
+        if (category !== 'all') {
+          params.set('category_label', selectedCategoryLabel);
+        }
         if (options?.refresh) params.set('refresh', '1');
-        if (options?.tagId != null) params.set('tagId', String(options.tagId));
-        const q = params.toString();
-        const res = await fetch(apiUrl(`/api/research/in-fashion/insights${q ? `?${q}` : ''}`));
+        const res = await fetch(apiUrl(`/api/research/in-fashion/discover?${params}`));
         const data = await readJson<{
-          sections?: FashionSection[];
-          pexelsConfigured?: boolean;
+          rising?: RisingIdea[];
+          warnings?: string[];
           error?: string;
           details?: string;
         }>(res);
         if (!res.ok) {
           throw new Error(data.details || data.error || res.statusText);
         }
-        const next = Array.isArray(data.sections) ? data.sections : [];
-        setPexelsConfigured(data.pexelsConfigured !== false);
-        if (options?.tagId != null) {
-          setSections((prev) => {
-            const byId = new Map(prev.map((s) => [s.tagId, s]));
-            for (const sec of next) {
-              byId.set(sec.tagId, sec);
-            }
-            return tags.map((t) => byId.get(t.id)).filter(Boolean) as FashionSection[];
-          });
-        } else {
-          setSections(next);
-        }
+        setRising(Array.isArray(data.rising) ? data.rising : []);
+        const nextWarnings = Array.isArray(data.warnings) ? data.warnings : [];
+        setWarnings(nextWarnings);
+        setShowWarnings(nextWarnings.length > 0);
       } catch (e) {
-        setInsightsError(e instanceof Error ? e.message : 'Could not load insights');
-        if (!options?.tagId) setSections([]);
+        setRising([]);
+        setDiscoverError(e instanceof Error ? e.message : 'Could not load trends');
       } finally {
-        setInsightsLoading(false);
+        setDiscoverLoading(false);
       }
     },
-    [tags]
+    [department, category, selectedCategoryLabel]
   );
 
   useEffect(() => {
-    void loadTags();
-  }, [loadTags]);
+    void loadDiscover();
+  }, [loadDiscover]);
 
   useEffect(() => {
-    if (tagsLoading) return;
-    if (tags.length === 0) {
-      setSections([]);
-      return;
-    }
-    void loadInsights({ tagCount: tags.length });
-  }, [tags, tagsLoading, loadInsights]);
+    if (!showWarnings || warnings.length === 0) return;
+    const t = window.setTimeout(() => setShowWarnings(false), 5000);
+    return () => window.clearTimeout(t);
+  }, [showWarnings, warnings]);
 
-  const handleAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const term = newTag.trim();
-    if (!term || addBusy) return;
-    setAddBusy(true);
-    setTagsError(null);
-    try {
-      const res = await fetch(apiUrl('/api/research/in-fashion/tags'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ term }),
-      });
-      const data = await readJson<{ row?: FashionTag; error?: string }>(res);
-      if (!res.ok) {
-        throw new Error(data.error || res.statusText);
-      }
-      if (data.row) {
-        setTags((prev) => {
-          const without = prev.filter((t) => t.id !== data.row!.id);
-          return [...without, data.row!].sort((a, b) => a.id - b.id);
+  const loadDetail = useCallback(
+    async (query: string) => {
+      setSelectedQuery(query);
+      setDetailLoading(true);
+      setDetailError(null);
+      setDetail(null);
+      try {
+        const params = new URLSearchParams({ q: query, department });
+        const res = await fetch(apiUrl(`/api/research/in-fashion/query-detail?${params}`));
+        const data = await readJson<QueryDetail & { error?: string; details?: string }>(res);
+        if (!res.ok) {
+          throw new Error(data.details || data.error || res.statusText);
+        }
+        setDetail({
+          query: data.query || query,
+          interestOverTime: Array.isArray(data.interestOverTime) ? data.interestOverTime : [],
+          interestError: data.interestError ?? null,
+          relatedQueries: Array.isArray(data.relatedQueries) ? data.relatedQueries : [],
+          risingQueries: Array.isArray(data.risingQueries) ? data.risingQueries : [],
+          relatedError: data.relatedError ?? null,
+          topTopics: Array.isArray(data.topTopics) ? data.topTopics : [],
+          risingTopics: Array.isArray(data.risingTopics) ? data.risingTopics : [],
+          topicsError: data.topicsError ?? null,
+          ebaySold: Array.isArray(data.ebaySold) ? data.ebaySold : [],
+          ebayError: data.ebayError ?? null,
         });
-        void loadInsights({ tagId: data.row.id, refresh: true, tagCount: tags.length + 1 });
+      } catch (e) {
+        setDetailError(e instanceof Error ? e.message : 'Could not load detail');
+      } finally {
+        setDetailLoading(false);
       }
-      setNewTag('');
-    } catch (err) {
-      setTagsError(err instanceof Error ? err.message : 'Could not add tag');
-    } finally {
-      setAddBusy(false);
-    }
-  };
+    },
+    [department]
+  );
 
-  const handleRemove = async (id: number) => {
-    setTagsError(null);
-    try {
-      const res = await fetch(apiUrl(`/api/research/in-fashion/tags/${id}`), { method: 'DELETE' });
-      const data = await readJson<{ error?: string }>(res);
-      if (!res.ok) {
-        throw new Error(data.error || res.statusText);
-      }
-      setTags((prev) => prev.filter((t) => t.id !== id));
-      setSections((prev) => prev.filter((s) => s.tagId !== id));
-    } catch (err) {
-      setTagsError(err instanceof Error ? err.message : 'Could not remove tag');
-    }
-  };
+  const chartData = useMemo(() => {
+    const points = detail?.interestOverTime ?? [];
+    return {
+      labels: points.map((p) => p.label),
+      datasets: [
+        {
+          label: 'Search interest',
+          data: points.map((p) => p.value),
+          borderColor: 'rgba(96, 165, 250, 0.95)',
+          backgroundColor: 'rgba(59, 130, 246, 0.18)',
+          fill: true,
+          tension: 0.25,
+          pointRadius: 0,
+          borderWidth: 2,
+        },
+      ],
+    };
+  }, [detail]);
 
-  const handleRefreshAll = () => {
-    if (tags.length === 0 || insightsLoading) return;
-    void loadInsights({ refresh: true, tagCount: tags.length });
-  };
+  const chartOptions = useMemo(
+    () => ({
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { mode: 'index' as const, intersect: false },
+      },
+      scales: {
+        x: {
+          ticks: {
+            maxTicksLimit: 8,
+            color: 'rgba(255,255,255,0.45)',
+            font: { size: 10 },
+          },
+          grid: { color: 'rgba(255,255,255,0.06)' },
+        },
+        y: {
+          beginAtZero: true,
+          max: 100,
+          ticks: { color: 'rgba(255,255,255,0.45)', font: { size: 10 } },
+          grid: { color: 'rgba(255,255,255,0.06)' },
+        },
+      },
+    }),
+    []
+  );
+
+  const modelIdeas = useMemo(() => {
+    if (!detail) return [] as Array<{ label: string; value: string; kind: string }>;
+    const out: Array<{ label: string; value: string; kind: string }> = [];
+    for (const r of detail.risingQueries) {
+      out.push({ label: r.query, value: r.value, kind: 'Rising query' });
+    }
+    for (const r of detail.relatedQueries) {
+      if (out.some((x) => x.label.toLowerCase() === r.query.toLowerCase())) continue;
+      out.push({ label: r.query, value: r.value, kind: 'Related' });
+    }
+    for (const t of [...detail.risingTopics, ...detail.topTopics]) {
+      if (out.some((x) => x.label.toLowerCase() === t.title.toLowerCase())) continue;
+      out.push({
+        label: t.title,
+        value: t.value,
+        kind: t.type ? `Topic · ${t.type}` : 'Topic',
+      });
+    }
+    return out.slice(0, 24);
+  }, [detail]);
+
+  const deptLabel = departments.find((d) => d.key === department)?.label || department;
+  const categoryLabel = selectedCategoryLabel;
 
   return (
-    <div className="research-in-fashion">
-      <form className="research-in-fashion-toolbar" onSubmit={handleAdd}>
-        <input
-          className="search-input research-in-fashion-toolbar-search"
-          value={newTag}
-          onChange={(ev) => setNewTag(ev.target.value)}
-          placeholder="e.g. mens clothes, vintage toys, antiques"
-          maxLength={120}
-          aria-label="New in-fashion tag"
-        />
-        <button type="submit" className="new-entry-button" disabled={addBusy || !newTag.trim()}>
-          {addBusy ? 'Adding…' : 'Add tag'}
-        </button>
-        <button
-          type="button"
-          className="stock-refresh-icon-button research-in-fashion-refresh-all"
-          onClick={handleRefreshAll}
-          disabled={tags.length === 0 || insightsLoading}
-          title="Refresh all tags"
-          aria-label="Refresh all tags"
-        >
-          ↻
-        </button>
-      </form>
-
-      {!pexelsConfigured && (
-        <div className="research-in-fashion-banner research-in-fashion-banner--warn" role="status">
-          Pexels images are disabled — add <code>PEXELS_API_KEY</code> to your server <code>.env</code>{' '}
-          (free at{' '}
-          <a href="https://www.pexels.com/api/" target="_blank" rel="noopener noreferrer">
-            pexels.com/api
-          </a>
-          ).
-        </div>
-      )}
-
-      {tagsError && (
-        <div className="research-in-fashion-banner research-in-fashion-banner--error" role="alert">
-          {tagsError}
-        </div>
-      )}
-
-      <div className="research-in-fashion-tags" aria-label="Saved tags">
-        {tagsLoading && <span className="research-in-fashion-muted">Loading tags…</span>}
-        {tags.map((t, i) => (
-          <span
-            key={t.id}
-            className={`research-in-fashion-chip research-in-fashion-chip--tone-${i % 6}`}
+    <div className="research-in-fashion research-in-fashion--discover">
+      <div className="research-in-fashion-filters">
+        <div className="research-in-fashion-dept-bar">
+          <nav className="research-in-fashion-dept-pills" aria-label="Department filter">
+            {(departments.length
+              ? departments
+              : [{ key: 'menswear', label: 'Menswear', seedCount: 0, ebayCategoryId: null }]
+            ).map((d) => (
+              <button
+                key={d.key}
+                type="button"
+                className={
+                  'research-in-fashion-dept-pill' +
+                  (department === d.key ? ' research-in-fashion-dept-pill--active' : '')
+                }
+                aria-pressed={department === d.key}
+                onClick={() => {
+                  setDepartment(d.key);
+                  setCategory('all');
+                }}
+              >
+                {d.label}
+              </button>
+            ))}
+          </nav>
+          <button
+            type="button"
+            className="stock-refresh-icon-button research-in-fashion-dept-refresh"
+            onClick={() => void loadDiscover({ refresh: true })}
+            disabled={discoverLoading}
+            title="Refresh trends"
+            aria-label="Refresh trends"
           >
-            <span className="research-in-fashion-chip-label" title={t.term}>
-              {t.term}
-            </span>
-            <button
-              type="button"
-              className="research-in-fashion-chip-remove"
-              onClick={() => void handleRemove(t.id)}
-              aria-label={`Remove tag ${t.term}`}
-            >
-              ×
-            </button>
-          </span>
-        ))}
+            ↻
+          </button>
+        </div>
+
+        {categories.length > 1 && (
+          <div className="research-in-fashion-category-bar">
+            <div className="research-in-fashion-category-scroll" role="presentation">
+              <nav className="research-in-fashion-category-pills" aria-label="Category filter">
+                {categories.map((c) => (
+                  <button
+                    key={c.key}
+                    type="button"
+                    className={
+                      'research-in-fashion-category-pill' +
+                      (category === c.key ? ' research-in-fashion-category-pill--active' : '')
+                    }
+                    aria-pressed={category === c.key}
+                    onClick={() => setCategory(c.key)}
+                  >
+                    {c.label}
+                  </button>
+                ))}
+              </nav>
+            </div>
+          </div>
+        )}
       </div>
 
-      {insightsError && (
+      {discoverError && (
         <div className="research-in-fashion-banner research-in-fashion-banner--error" role="alert">
-          {insightsError}
+          {discoverError}
         </div>
       )}
 
-      {tags.length === 0 && !tagsLoading && (
-        <p className="research-in-fashion-muted">
-          Add a tag above to see trending searches and inspiration photos.
-        </p>
-      )}
-
-      {tags.length > 0 && insightsLoading && sections.length === 0 && (
-        <div className="research-in-fashion-body">
-          <div className="research-in-fashion-loading research-in-fashion-feed" aria-busy="true">
-            Loading trends and photos…
-          </div>
-          <aside className="research-in-fashion-sidebar" aria-label="Trending searches" />
+      {showWarnings && warnings.length > 0 && !discoverLoading && (
+        <div className="research-in-fashion-banner research-in-fashion-banner--warn" role="status">
+          Some seed lookups failed ({warnings.length}). Showing whatever Trends returned.
         </div>
       )}
 
-      {tags.length > 0 && sections.length > 0 && (
-        <>
-          {sectionWarnings.length > 0 && (
-            <div className="research-in-fashion-banner research-in-fashion-banner--warn" role="status">
-              {sectionWarnings.join(' · ')}
+      <div className="research-in-fashion-discover-layout">
+        <section className="research-in-fashion-rising-panel" aria-label="Rising ideas">
+          <h3 className="research-in-fashion-panel-title">Research queue</h3>
+          {discoverLoading && rising.length === 0 ? (
+            <p className="research-in-fashion-muted">
+              Scanning Google Trends for {deptLabel}
+              {category !== 'all' ? ` · ${categoryLabel}` : ''}…
+            </p>
+          ) : rising.length === 0 ? (
+            <p className="research-in-fashion-muted">No rising ideas yet. Try refresh.</p>
+          ) : (
+            <ul className="research-in-fashion-rising-list">
+              {rising.map((idea) => (
+                <li key={idea.query}>
+                  <button
+                    type="button"
+                    className={
+                      'research-in-fashion-rising-item' +
+                      (selectedQuery === idea.query
+                        ? ' research-in-fashion-rising-item--active'
+                        : '')
+                    }
+                    onClick={() => void loadDetail(idea.query)}
+                  >
+                    <span className="research-in-fashion-rising-query">{idea.query}</span>
+                    <span className="research-in-fashion-rising-meta">
+                      {idea.value ? (
+                        <span className="research-in-fashion-rising-value">{idea.value}</span>
+                      ) : null}
+                      {idea.isRising ? (
+                        <span className="research-in-fashion-rising-badge">Rising</span>
+                      ) : null}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section className="research-in-fashion-detail-panel" aria-label="Selected trend detail">
+          {!selectedQuery && !detailLoading && (
+            <div className="research-in-fashion-detail-empty">
+              <p>Select a rising search on the left to see interest over time, model-level ideas, and recent eBay solds.</p>
             </div>
           )}
 
-          <div className="research-in-fashion-body">
-            <div className="research-in-fashion-feed" aria-label="Inspiration feed">
-              {feedPhotos.length > 0 ? (
-                <div className="research-in-fashion-photo-grid">
-                  {feedPhotos.map((photo) => {
-                    const tone = tagToneById.get(photo.tagId) ?? 0;
-                    return (
-                      <figure key={photo.feedKey} className="research-in-fashion-photo-card">
-                        <a
-                          href={photo.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="research-in-fashion-photo-link"
+          {detailLoading && (
+            <p className="research-in-fashion-muted" aria-busy="true">
+              Loading detail for “{selectedQuery}”…
+            </p>
+          )}
+
+          {detailError && (
+            <div className="research-in-fashion-banner research-in-fashion-banner--error" role="alert">
+              {detailError}
+            </div>
+          )}
+
+          {detail && !detailLoading && (
+            <>
+              <h3 className="research-in-fashion-detail-heading">{detail.query}</h3>
+
+              <div className="research-in-fashion-chart-wrap">
+                <h4 className="research-in-fashion-panel-title">Interest over time (GB, ~90 days)</h4>
+                {detail.interestError ? (
+                  <p className="research-in-fashion-muted">{detail.interestError}</p>
+                ) : detail.interestOverTime.length === 0 ? (
+                  <p className="research-in-fashion-muted">No interest series returned.</p>
+                ) : (
+                  <div className="research-in-fashion-chart">
+                    <Line data={chartData} options={chartOptions} />
+                  </div>
+                )}
+              </div>
+
+              <div className="research-in-fashion-models">
+                <h4 className="research-in-fashion-panel-title">Models & related ideas</h4>
+                {detail.relatedError || detail.topicsError ? (
+                  <p className="research-in-fashion-muted">
+                    {[detail.relatedError, detail.topicsError].filter(Boolean).join(' · ')}
+                  </p>
+                ) : null}
+                {modelIdeas.length === 0 ? (
+                  <p className="research-in-fashion-muted">No related models yet.</p>
+                ) : (
+                  <ul className="research-in-fashion-model-grid">
+                    {modelIdeas.map((m) => (
+                      <li key={`${m.kind}-${m.label}`}>
+                        <button
+                          type="button"
+                          className="research-in-fashion-model-card"
+                          onClick={() => void loadDetail(m.label)}
+                          title={`Research ${m.label}`}
                         >
-                          <img
-                            src={photo.imageUrl}
-                            alt=""
-                            loading="lazy"
-                            decoding="async"
-                            width={photo.width ?? undefined}
-                            height={photo.height ?? undefined}
-                          />
-                          <span
-                            className={`research-in-fashion-photo-tag research-in-fashion-photo-tag--tone-${tone}`}
-                          >
-                            {photo.tagTerm}
+                          <span className="research-in-fashion-model-label">{m.label}</span>
+                          <span className="research-in-fashion-model-kind">
+                            {m.kind}
+                            {m.value ? ` · ${m.value}` : ''}
                           </span>
-                        </a>
-                        <figcaption className="research-in-fashion-photo-credit">
-                          {photo.photographerUrl ? (
-                            <a href={photo.photographerUrl} target="_blank" rel="noopener noreferrer">
-                              {photo.photographer || 'Pexels'}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className="research-in-fashion-ebay">
+                <h4 className="research-in-fashion-panel-title">Recent eBay UK solds</h4>
+                {detail.ebayError ? (
+                  <p className="research-in-fashion-muted">{detail.ebayError}</p>
+                ) : detail.ebaySold.length === 0 ? (
+                  <p className="research-in-fashion-muted">No sold comps in this window.</p>
+                ) : (
+                  <ul className="research-in-fashion-ebay-grid">
+                    {detail.ebaySold.map((item, idx) => {
+                      const inner = (
+                        <>
+                          {item.imageUrl ? (
+                            <img src={item.imageUrl} alt="" loading="lazy" />
+                          ) : (
+                            <span className="research-in-fashion-ebay-noimg">No image</span>
+                          )}
+                          <span className="research-in-fashion-ebay-price">
+                            {formatGbp(item.price)}
+                          </span>
+                          <span className="research-in-fashion-ebay-title">{item.title}</span>
+                        </>
+                      );
+                      return (
+                        <li key={item.itemId || `${item.title}-${idx}`}>
+                          {item.itemWebUrl ? (
+                            <a
+                              href={item.itemWebUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="research-in-fashion-ebay-card"
+                            >
+                              {inner}
                             </a>
                           ) : (
-                            photo.photographer || 'Pexels'
+                            <div className="research-in-fashion-ebay-card">{inner}</div>
                           )}
-                        </figcaption>
-                      </figure>
-                    );
-                  })}
-                </div>
-              ) : (
-                pexelsConfigured &&
-                !insightsLoading && (
-                  <p className="research-in-fashion-muted">No photos matched your tags.</p>
-                )
-              )}
-            </div>
-
-            <aside className="research-in-fashion-sidebar" aria-label="Trending searches">
-              {trendingQueries.length > 0 ? (
-                <ul className="research-in-fashion-query-list">
-                  {trendingQueries.map((q) => (
-                    <li key={q.query} className="research-in-fashion-query-chip">
-                      <span className="research-in-fashion-query-text">{q.query}</span>
-                      {q.value && (
-                        <span className="research-in-fashion-query-value">{q.value}</span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="research-in-fashion-muted">No trending searches returned.</p>
-              )}
-            </aside>
-          </div>
-        </>
-      )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            </>
+          )}
+        </section>
+      </div>
     </div>
   );
 };

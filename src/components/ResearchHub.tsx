@@ -51,7 +51,7 @@ const ResearchHub: React.FC = () => {
           aria-selected={view === 'in-fashion'}
           className={() => `research-tab${view === 'in-fashion' ? ' active' : ''}`}
         >
-          In fashion
+          Trends
         </NavLink>
         <NavLink
           to="/research?view=reseller-videos"

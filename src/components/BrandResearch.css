@@ -1988,6 +1988,240 @@ a.research-tab {
   max-width: 100%;
 }
 
+.brand-sales-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.brand-sales-overview-category {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.brand-sales-overview-category-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--text-strong);
+}
+
+.brand-sales-overview-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 900px) {
+  .brand-sales-overview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .brand-sales-overview-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.brand-sales-overview-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 14px 16px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 14px;
+  border: 1px solid var(--neon-border);
+  background: var(--theme-fill);
+  color: var(--text-strong);
+  box-shadow: var(--theme-inset-shadow);
+  transition: border-color 0.2s ease, transform 0.2s ease, background 0.2s ease;
+  overflow: visible;
+  box-sizing: border-box;
+  font: inherit;
+}
+
+.brand-sales-overview-card:hover {
+  border-color: var(--neon-border-strong);
+  background: var(--theme-fill-focus);
+  transform: translateY(-1px);
+}
+
+.brand-sales-overview-card-title-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.brand-sales-overview-card-ask-ai {
+  flex-shrink: 0;
+  display: inline-flex;
+  margin-left: auto;
+}
+
+.brand-sales-overview-card-ask-ai-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(96, 165, 250, 0.55);
+  background: rgba(37, 99, 235, 0.5);
+  color: #eff6ff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-left: auto;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.brand-sales-overview-card-ask-ai-btn:hover:not(:disabled) {
+  background: rgba(37, 99, 235, 0.68);
+  border-color: rgba(147, 197, 253, 0.75);
+}
+
+.brand-sales-overview-card-ask-ai-btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.brand-sales-overview-card-name {
+  font-size: 1.05rem;
+  font-weight: 650;
+  line-height: 1.25;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brand-sales-overview-ask-ai-hint {
+  margin: 0 0 4px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.brand-sales-overview-ask-ai-hint--error {
+  color: var(--color-negative-text, #f87171);
+}
+
+.brand-sales-overview-card-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.brand-sales-overview-card-metrics-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.brand-sales-overview-card-metric {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 2px;
+  min-width: 0;
+  padding: 0 2px;
+}
+
+.brand-sales-overview-card-metric-label {
+  font-size: 0.62rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  line-height: 1.2;
+}
+
+.brand-sales-overview-card-metric-value {
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  line-height: 1.2;
+}
+
+.brand-sales-overview-card-metric[data-tip]:hover::after,
+.brand-sales-overview-card-metric[data-tip]:focus-visible::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  z-index: 5;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.35);
+  background: rgba(12, 10, 8, 0.96);
+  color: var(--text-strong);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35);
+}
+
+.brand-sales-overview-card-metric-value--profit {
+  color: var(--color-positive-text);
+}
+
+.brand-sales-overview-card-metric-value--loss {
+  color: var(--color-negative-text);
+}
+
+.brand-sales-overview-sort-wrap {
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.brand-sales-overview-sort-menu {
+  right: 0;
+  left: auto;
+  min-width: 200px;
+}
+
 .brand-tag-examples-brand-stack {
   display: flex;
   flex-direction: column;
@@ -2106,6 +2340,25 @@ a.research-tab {
   color: var(--text-strong, #fff8e8);
   line-height: 1.2;
   text-align: center;
+}
+
+.brand-research-selected-brand-title-link {
+  color: inherit;
+  text-decoration: none;
+  transition: color 0.15s ease, opacity 0.15s ease;
+}
+
+.brand-research-selected-brand-title-link:hover {
+  color: var(--neon-primary-strong, var(--theme-accent));
+  text-decoration: underline;
+}
+
+.brand-tag-examples-in-stock-cta-wrap {
+  width: 100%;
+  max-width: 720px;
+  margin: 12px auto 0;
+  box-sizing: border-box;
+  padding: 0;
 }
 
 .brand-tag-examples-brand-logo-preview-row {
@@ -2661,6 +2914,60 @@ a.research-tab {
 
 .brand-website-link.brand-tag-examples-website-browse-link--compact-half:hover {
   color: var(--color-positive-text);
+}
+
+.brand-website-link.brand-tag-examples-in-stock-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 2px solid rgba(var(--theme-accent-rgb), 0.55);
+  background: rgba(var(--theme-accent-rgb), 0.22);
+  color: var(--text-strong) !important;
+  font-size: 0.98rem !important;
+  font-weight: 700;
+  letter-spacing: 0.02rem;
+  line-height: 1.3;
+  text-decoration: none !important;
+  text-align: center;
+  box-shadow:
+    0 0 0 1px rgba(var(--theme-accent-rgb), 0.18) inset,
+    0 8px 20px rgba(0, 0, 0, 0.22);
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.brand-tag-examples-in-stock-cta-icon {
+  flex-shrink: 0;
+  display: block;
+}
+
+.brand-website-link.brand-tag-examples-in-stock-cta:hover {
+  background: rgba(var(--theme-accent-rgb), 0.34);
+  border-color: rgba(var(--theme-accent-rgb), 0.85);
+  color: var(--text-strong) !important;
+  text-decoration: none !important;
+  transform: translateY(-1px);
+  box-shadow:
+    0 0 0 1px rgba(var(--theme-accent-rgb), 0.28) inset,
+    0 10px 24px rgba(0, 0, 0, 0.28);
+}
+
+.brand-tag-examples-website-category-split-col--category .brand-visit-website-framed--compact-half {
+  width: 100%;
+}
+
+.brand-tag-examples-website-category-split-col--category .brand-visit-website-rule {
+  display: none;
 }
 
 @media (max-width: 560px) {
@@ -4042,7 +4349,7 @@ a.research-tab {
   line-height: 1.25;
 }
 
-.research-menswear-departments-mobile-trigger,
+.research-menswear-departments > .research-menswear-departments-mobile-trigger,
 .research-menswear-departments-backdrop {
   display: none;
 }
@@ -4067,7 +4374,7 @@ a.research-tab {
     border-bottom: none;
   }
 
-  .research-menswear-departments-mobile-trigger {
+  .research-menswear-departments > .research-menswear-departments-mobile-trigger {
     display: flex;
     width: 100%;
     max-width: 100%;

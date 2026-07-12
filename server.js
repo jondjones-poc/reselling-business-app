@@ -6075,6 +6075,134 @@ app.get('/api/research/in-fashion/insights', async (req, res) => {
   }
 });
 
+/** In fashion — department list for trend discovery. */
+app.get('/api/research/in-fashion/departments', (_req, res) => {
+  res.json({ departments: inFashionInsights.listDepartments() });
+});
+
+/**
+ * Discover rising research ideas for a department (auto seeds + daily trends).
+ * GET /api/research/in-fashion/discover?department=menswear&category=jackets&category_label=Jackets&refresh=1
+ */
+app.get('/api/research/in-fashion/discover', async (req, res) => {
+  try {
+    const department = inFashionInsights.normalizeDepartmentKey(req.query.department);
+    if (!department) {
+      return res.status(400).json({
+        error: 'department is required',
+        departments: inFashionInsights.listDepartments().map((d) => d.key),
+      });
+    }
+    const categoryRaw =
+      typeof req.query.category === 'string' ? req.query.category.trim() : 'all';
+    const category = inFashionInsights.normalizeCategoryKey(department, categoryRaw || 'all');
+    if (categoryRaw && categoryRaw.toLowerCase() !== 'all' && category == null) {
+      return res.status(400).json({
+        error: 'Unknown category',
+        categories: inFashionInsights.listCategoriesForDepartment(department),
+      });
+    }
+    const categoryLabel =
+      typeof req.query.category_label === 'string'
+        ? req.query.category_label.trim()
+        : typeof req.query.categoryLabel === 'string'
+          ? req.query.categoryLabel.trim()
+          : '';
+    const refresh =
+      req.query.refresh === '1' ||
+      req.query.refresh === 'true' ||
+      req.query.refresh === 'yes';
+    const payload = await inFashionInsights.discoverDepartmentTrends(department, {
+      refresh,
+      category: category || 'all',
+      categoryLabel,
+    });
+    res.json(payload);
+  } catch (error) {
+    console.error('in-fashion discover failed:', error);
+    res.status(500).json({ error: 'Failed to discover trends', details: error.message });
+  }
+});
+
+/**
+ * Drill-down for one rising query: interest over time, related/models, topics, eBay solds.
+ * GET /api/research/in-fashion/query-detail?q=...&department=menswear&refresh=1
+ */
+app.get('/api/research/in-fashion/query-detail', async (req, res) => {
+  try {
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    if (!q) {
+      return res.status(400).json({ error: 'Query parameter "q" is required' });
+    }
+    const department = inFashionInsights.normalizeDepartmentKey(req.query.department);
+    const refresh =
+      req.query.refresh === '1' ||
+      req.query.refresh === 'true' ||
+      req.query.refresh === 'yes';
+
+    const detail = await inFashionInsights.fetchQueryDetail(q, { department, refresh });
+
+    let ebaySold = [];
+    let ebayError = null;
+    try {
+      const appId = process.env.REACT_APP_EBAY_APP_ID || process.env.EBAY_APP;
+      const certId = process.env.REACT_APP_EBAY_CERT_ID;
+      if (!appId || !certId) {
+        ebayError = 'eBay credentials not configured';
+      } else {
+        const accessToken = await getAccessToken(appId, certId);
+        const categoryIds =
+          detail.ebayCategoryId != null ? String(detail.ebayCategoryId) : null;
+        const browseData = await getBrowseSearch({
+          query: q,
+          accessToken,
+          limit: '12',
+          sort: 'newlyListed',
+          soldOnly: true,
+          soldDateRangeDays: 90,
+          requireUsedCondition: false,
+          categoryIds,
+          minPriceGbp: 10,
+          ukItemsOnly: false,
+        });
+        const items = Array.isArray(browseData.itemSummaries) ? browseData.itemSummaries : [];
+        ebaySold = items.map((item) => {
+          const image =
+            item?.image?.imageUrl ||
+            item?.thumbnailImages?.[0]?.imageUrl ||
+            item?.additionalImages?.[0]?.imageUrl ||
+            null;
+          const priceVal = item?.price?.value != null ? Number(item.price.value) : null;
+          return {
+            itemId: item.itemId != null ? String(item.itemId) : null,
+            title: item.title != null ? String(item.title) : '—',
+            price:
+              priceVal != null && Number.isFinite(priceVal)
+                ? priceVal
+                : null,
+            currency: item?.price?.currency != null ? String(item.price.currency) : 'GBP',
+            imageUrl: image != null ? String(image) : null,
+            itemWebUrl: item.itemWebUrl != null ? String(item.itemWebUrl) : null,
+            condition: item.condition != null ? String(item.condition) : null,
+          };
+        });
+      }
+    } catch (ebayErr) {
+      ebayError =
+        ebayErr instanceof Error ? ebayErr.message.slice(0, 240) : 'eBay sold lookup failed';
+    }
+
+    res.json({
+      ...detail,
+      ebaySold,
+      ebayError,
+    });
+  } catch (error) {
+    console.error('in-fashion query-detail failed:', error);
+    res.status(500).json({ error: 'Failed to load query detail', details: error.message });
+  }
+});
+
 const RESEARCH_FEED_SOLD_DAYS_DEFAULT = 180;
 const RESEARCH_FEED_TAG_STATS_TTL_HOURS = 24;
 
@@ -11441,6 +11569,117 @@ app.post('/api/brands', async (req, res) => {
   }
 });
 
+/**
+ * Sales by Brand overview: brands grouped by research / stock category with spend / sales / net.
+ * GET /api/brands/sales-overview?department_id=
+ */
+app.get('/api/brands/sales-overview', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    await ensureBrandDepartmentSchema(pool);
+
+    const rawDept = req.query.department_id;
+    let departmentId = null;
+    if (rawDept != null && String(rawDept).trim() !== '' && String(rawDept).trim().toLowerCase() !== 'all') {
+      const n = parseInt(String(rawDept).trim(), 10);
+      if (Number.isNaN(n) || n < 1) {
+        return res.status(400).json({ error: 'department_id must be a positive integer when provided' });
+      }
+      departmentId = n;
+    }
+
+    const result = await pool.query(
+      `
+        SELECT
+          b.id AS brand_id,
+          b.brand_name,
+          CASE
+            WHEN mc.id IS NOT NULL THEN mc.id
+            WHEN c.id IS NOT NULL THEN c.id
+            ELSE 0
+          END::int AS category_id,
+          CASE
+            WHEN mc.id IS NOT NULL THEN COALESCE(NULLIF(TRIM(mc.name), ''), 'Uncategorized')
+            WHEN c.id IS NOT NULL THEN COALESCE(NULLIF(TRIM(c.category_name), ''), 'Uncategorized')
+            ELSE 'Uncategorized'
+          END AS category_name,
+          CASE WHEN mc.id IS NOT NULL THEN 'menswear_category' ELSE 'stock_category' END AS category_kind,
+          COUNT(s.id)::int AS items_bought,
+          COUNT(*) FILTER (
+            WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+          )::int AS items_sold,
+          COUNT(*) FILTER (
+            WHERE s.id IS NOT NULL
+              AND NOT (s.sale_price IS NOT NULL AND s.sale_price::numeric > 0)
+          )::int AS items_for_sale,
+          COALESCE(
+            SUM(s.purchase_price::numeric) FILTER (WHERE s.purchase_price IS NOT NULL),
+            0
+          )::numeric AS total_purchase_spend,
+          COALESCE(
+            SUM(s.sale_price::numeric) FILTER (
+              WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+            ),
+            0
+          )::numeric AS total_sold_revenue
+        FROM public.brand b
+        LEFT JOIN public.menswear_category mc ON mc.id = b.menswear_category_id
+        LEFT JOIN public.category c ON c.id = b.category_id
+        LEFT JOIN public.stock s ON s.brand_id = b.id
+        WHERE ($1::int IS NULL OR b.department_id = $1::int)
+        GROUP BY b.id, b.brand_name, mc.id, mc.name, c.id, c.category_name
+        ORDER BY category_name ASC, total_sold_revenue DESC NULLS LAST, b.brand_name ASC
+      `,
+      [departmentId]
+    );
+
+    /** @type {Map<string, { categoryId: number, categoryName: string, categoryKind: string, brands: object[] }>} */
+    const byCategory = new Map();
+    for (const row of result.rows) {
+      const categoryId = Number(row.category_id) || 0;
+      const categoryName =
+        row.category_name != null && String(row.category_name).trim() !== ''
+          ? String(row.category_name).trim()
+          : 'Uncategorized';
+      const categoryKind =
+        row.category_kind === 'menswear_category' ? 'menswear_category' : 'stock_category';
+      const key = `${categoryKind}:${categoryId}:${categoryName}`;
+      if (!byCategory.has(key)) {
+        byCategory.set(key, {
+          categoryId,
+          categoryName,
+          categoryKind,
+          brands: [],
+        });
+      }
+      const totalPurchaseSpend = Number(row.total_purchase_spend) || 0;
+      const totalSoldRevenue = Number(row.total_sold_revenue) || 0;
+      byCategory.get(key).brands.push({
+        brandId: Number(row.brand_id),
+        brandName: String(row.brand_name ?? '').trim() || '—',
+        itemsBought: Number(row.items_bought) || 0,
+        itemsSold: Number(row.items_sold) || 0,
+        itemsForSale: Number(row.items_for_sale) || 0,
+        totalPurchaseSpend,
+        totalSoldRevenue,
+        brandNetPosition: totalSoldRevenue - totalPurchaseSpend,
+      });
+    }
+
+    res.json({
+      departmentId,
+      categories: Array.from(byCategory.values()),
+    });
+  } catch (error) {
+    console.error('brands sales-overview failed:', error);
+    res.status(500).json({ error: 'Failed to load brand sales overview', details: error.message });
+  }
+});
+
 app.patch('/api/brands/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -13257,8 +13496,24 @@ app.get('/api/menswear-categories/:id/sold-stock-items', async (req, res) => {
 });
 
 /**
+ * True when the department has at least one research bucket (menswear_category row).
+ * Departments without buckets (Electronics, Media, Toys, …) should fall back to stock categories.
+ */
+async function departmentHasMenswearResearchBuckets(pool, departmentId) {
+  if (departmentId == null) return true;
+  const r = await pool.query(
+    `SELECT 1 FROM menswear_category WHERE department_id = $1 LIMIT 1`,
+    [departmentId]
+  );
+  return (r.rowCount ?? 0) > 0;
+}
+
+/**
  * Category-level sold revenue for menswear categories, aggregated from linked brands.
  * GET /api/menswear-categories/sales-by-category?period=last_12_months|2026|2025
+ *
+ * When ?department_id= has no research buckets, groups by stock.category instead so
+ * Electronics / Media / Toys / etc. still show a real category breakdown.
  */
 app.get('/api/menswear-categories/sales-by-category', async (req, res) => {
   try {
@@ -13290,6 +13545,46 @@ app.get('/api/menswear-categories/sales-by-category', async (req, res) => {
       dateFilterSql = "AND s.sale_date >= DATE '2026-01-01' AND s.sale_date < DATE '2027-01-01'";
     } else if (period === '2025') {
       dateFilterSql = "AND s.sale_date >= DATE '2025-01-01' AND s.sale_date < DATE '2026-01-01'";
+    }
+
+    const useStockCategories =
+      filterDeptId != null && !(await departmentHasMenswearResearchBuckets(pool, filterDeptId));
+
+    if (useStockCategories) {
+      const result = await pool.query(
+        `WITH sales AS (
+           SELECT
+             s.category_id AS category_id,
+             COALESCE(SUM(
+               CASE
+                 WHEN s.sale_price IS NOT NULL
+                  AND TRIM(s.sale_price::text) <> ''
+                  AND s.sale_price::numeric > 0
+                 THEN s.sale_price::numeric
+                 ELSE 0
+               END
+             ), 0)::numeric AS total_sales,
+             COUNT(s.id)::int AS sold_count
+           FROM stock s
+           INNER JOIN brand b ON b.id = s.brand_id
+           WHERE s.sale_date IS NOT NULL
+             AND b.department_id = $1::int
+             ${dateFilterSql}
+           GROUP BY s.category_id
+         )
+         SELECT
+           s.category_id AS category_id,
+           COALESCE(c.category_name, 'Uncategorized') AS category_name,
+           COALESCE(s.total_sales, 0)::numeric AS total_sales,
+           COALESCE(s.sold_count, 0)::int AS sold_count
+         FROM sales s
+         LEFT JOIN category c ON c.id = s.category_id
+         WHERE (COALESCE(s.total_sales, 0) > 0 OR COALESCE(s.sold_count, 0) > 0)
+           AND (s.category_id IS NULL OR c.department_id = $1::int OR c.department_id IS NULL)
+         ORDER BY total_sales DESC NULLS LAST, category_name ASC`,
+        [filterDeptId]
+      );
+      return res.json({ rows: result.rows, period, grouping: 'stock_category' });
     }
 
     /**
@@ -13334,7 +13629,7 @@ app.get('/api/menswear-categories/sales-by-category', async (req, res) => {
       [filterDeptId]
     );
 
-    res.json({ rows: result.rows, period });
+    res.json({ rows: result.rows, period, grouping: 'menswear_category' });
   } catch (error) {
     console.error('menswear-categories sales-by-category failed:', error);
     res.status(500).json({ error: 'Failed to load menswear category sales', details: error.message });
@@ -13361,6 +13656,29 @@ app.get('/api/menswear-categories/inventory-by-category', async (req, res) => {
       if (Number.isInteger(n) && n >= 1) {
         filterDeptId = n;
       }
+    }
+
+    const useStockCategories =
+      filterDeptId != null && !(await departmentHasMenswearResearchBuckets(pool, filterDeptId));
+
+    if (useStockCategories) {
+      const result = await pool.query(
+        `SELECT
+           c.id AS category_id,
+           COALESCE(c.category_name, 'Uncategorized') AS category_name,
+           COUNT(s.id)::int AS unsold_count
+         FROM stock s
+         INNER JOIN brand b ON b.id = s.brand_id
+         LEFT JOIN category c ON c.id = s.category_id
+         WHERE s.sale_date IS NULL
+           AND b.department_id = $1::int
+           AND (s.category_id IS NULL OR c.department_id = $1::int OR c.department_id IS NULL)
+         GROUP BY c.id, c.category_name
+         HAVING COUNT(s.id) > 0
+         ORDER BY unsold_count DESC, category_name ASC`,
+        [filterDeptId]
+      );
+      return res.json({ rows: result.rows ?? [], grouping: 'stock_category' });
     }
 
     let result;
@@ -13392,7 +13710,7 @@ app.get('/api/menswear-categories/inventory-by-category', async (req, res) => {
       );
     }
 
-    res.json({ rows: result.rows ?? [] });
+    res.json({ rows: result.rows ?? [], grouping: 'menswear_category' });
   } catch (error) {
     console.error('menswear-categories inventory-by-category failed:', error);
     res.status(500).json({ error: 'Failed to load inventory by category', details: error.message });
@@ -14494,6 +14812,84 @@ app.post('/api/brands/:brandId/links', async (req, res) => {
   } catch (error) {
     console.error('brand links create failed:', error);
     res.status(500).json({ error: 'Failed to save link', details: error.message });
+  }
+});
+
+/**
+ * Unsold / for-sale stock lines for a brand (Ask AI context).
+ * GET /api/brands/:brandId/unsold-stock-items?limit=40
+ */
+app.get('/api/brands/:brandId/unsold-stock-items', async (req, res) => {
+  try {
+    const brandId = parseInt(req.params.brandId, 10);
+    if (Number.isNaN(brandId) || brandId < 1) {
+      return res.status(400).json({ error: 'Invalid brand id' });
+    }
+
+    let limit = parseInt(String(req.query.limit ?? '40'), 10);
+    if (Number.isNaN(limit)) limit = 40;
+    limit = Math.min(80, Math.max(1, limit));
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const brandCheck = await pool.query(
+      'SELECT id, brand_name FROM brand WHERE id = $1',
+      [brandId]
+    );
+    if (!brandCheck.rowCount) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+
+    const result = await pool.query(
+      `
+        SELECT
+          s.id,
+          COALESCE(NULLIF(TRIM(s.item_name), ''), 'Untitled item') AS item_name,
+          s.purchase_price,
+          to_char(s.purchase_date, 'YYYY-MM-DD') AS purchase_date,
+          COALESCE(NULLIF(TRIM(c.category_name), ''), 'Uncategorized') AS category_name,
+          CASE
+            WHEN s.purchase_date IS NOT NULL
+            THEN (CURRENT_DATE - s.purchase_date)::int
+            ELSE NULL
+          END AS days_in_stock
+        FROM stock s
+        LEFT JOIN category c ON c.id = s.category_id
+        WHERE s.brand_id = $1
+          AND NOT (s.sale_price IS NOT NULL AND s.sale_price::numeric > 0)
+        ORDER BY
+          CASE WHEN s.purchase_date IS NULL THEN 1 ELSE 0 END,
+          s.purchase_date ASC NULLS LAST,
+          s.id ASC
+        LIMIT $2
+      `,
+      [brandId, limit]
+    );
+
+    res.json({
+      brandId,
+      brandName: String(brandCheck.rows[0].brand_name ?? '').trim() || '—',
+      items: result.rows.map((row) => ({
+        id: Number(row.id),
+        itemName: String(row.item_name ?? 'Untitled item'),
+        purchasePrice:
+          row.purchase_price != null && Number.isFinite(Number(row.purchase_price))
+            ? Number(row.purchase_price)
+            : null,
+        purchaseDate: row.purchase_date != null ? String(row.purchase_date) : null,
+        categoryName: String(row.category_name ?? 'Uncategorized'),
+        daysInStock:
+          row.days_in_stock != null && Number.isFinite(Number(row.days_in_stock))
+            ? Number(row.days_in_stock)
+            : null,
+      })),
+    });
+  } catch (error) {
+    console.error('brand unsold-stock-items failed:', error);
+    res.status(500).json({ error: 'Failed to load unsold stock items', details: error.message });
   }
 });
 

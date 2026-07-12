@@ -4,262 +4,382 @@
   padding: 0 1rem 3rem;
 }
 
-.research-in-fashion-toolbar {
+.research-in-fashion-filters {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 1rem;
+}
+
+.research-in-fashion-dept-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 42px;
+}
+
+.research-in-fashion-dept-pills {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.65rem;
+  gap: 8px;
+  justify-content: center;
   align-items: center;
-  margin-bottom: 0.75rem;
+  max-width: calc(100% - 56px);
 }
 
-.research-in-fashion-toolbar .research-in-fashion-toolbar-search {
-  flex: 1 1 220px;
-  min-width: 0;
-  box-sizing: border-box;
+.research-in-fashion-category-bar {
+  width: 100%;
+  max-width: 920px;
 }
 
-@media (min-width: 480px) {
-  .research-in-fashion-toolbar .research-in-fashion-toolbar-search {
-    min-width: 160px;
-  }
+.research-in-fashion-category-scroll {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  mask-image: linear-gradient(90deg, #000 0%, #000 calc(100% - 28px), transparent 100%);
 }
 
-.research-in-fashion-refresh-all {
-  margin-left: auto;
+.research-in-fashion-category-scroll::-webkit-scrollbar {
+  height: 4px;
 }
 
-.research-in-fashion-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  min-height: 2.25rem;
-  margin-bottom: 1.35rem;
-}
-
-.research-in-fashion-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.35rem 0.55rem 0.35rem 0.75rem;
+.research-in-fashion-category-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
   border-radius: 999px;
-  font-size: 0.82rem;
+}
+
+.research-in-fashion-category-pills {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  align-items: center;
+  width: max-content;
+  min-width: 100%;
+  padding: 2px 20px 6px 2px;
+}
+
+.research-in-fashion-dept-refresh {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.research-in-fashion-dept-pill {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.28);
+  background: rgba(var(--theme-accent-rgb), 0.08);
+  color: var(--text-strong);
+  font-size: 0.85rem;
   font-weight: 600;
-  border: 1px solid rgba(140, 255, 195, 0.28);
-  background: rgba(140, 255, 195, 0.08);
-}
-
-.research-in-fashion-chip--tone-0 { border-color: rgba(140, 255, 195, 0.35); }
-.research-in-fashion-chip--tone-1 { border-color: rgba(120, 200, 255, 0.35); background: rgba(120, 200, 255, 0.08); }
-.research-in-fashion-chip--tone-2 { border-color: rgba(255, 200, 120, 0.35); background: rgba(255, 200, 120, 0.08); }
-.research-in-fashion-chip--tone-3 { border-color: rgba(220, 160, 255, 0.35); background: rgba(220, 160, 255, 0.08); }
-.research-in-fashion-chip--tone-4 { border-color: rgba(255, 140, 160, 0.35); background: rgba(255, 140, 160, 0.08); }
-.research-in-fashion-chip--tone-5 { border-color: rgba(160, 255, 220, 0.35); background: rgba(160, 255, 220, 0.08); }
-
-.research-in-fashion-chip-label {
-  max-width: 14rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.research-in-fashion-chip-remove {
-  border: none;
-  background: transparent;
-  color: inherit;
   cursor: pointer;
-  font-size: 1.1rem;
-  line-height: 1;
-  padding: 0 0.15rem;
-  opacity: 0.65;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
 }
 
-.research-in-fashion-chip-remove:hover {
-  opacity: 1;
+.research-in-fashion-dept-pill:hover {
+  background: rgba(var(--theme-accent-rgb), 0.16);
+  border-color: rgba(var(--theme-accent-rgb), 0.5);
+}
+
+.research-in-fashion-dept-pill--active {
+  border-color: rgba(96, 165, 250, 0.65);
+  background: rgba(59, 130, 246, 0.28);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.25);
+}
+
+.research-in-fashion-category-pill {
+  flex: 0 0 auto;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.research-in-fashion-category-pill:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.research-in-fashion-category-pill--active {
+  border-color: rgba(148, 163, 184, 0.55);
+  background: rgba(148, 163, 184, 0.18);
+  color: var(--text-strong);
 }
 
 .research-in-fashion-banner {
-  padding: 0.65rem 0.85rem;
-  border-radius: 8px;
-  margin-bottom: 1rem;
+  margin: 0 0 0.85rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 10px;
   font-size: 0.88rem;
-  line-height: 1.45;
+  line-height: 1.4;
 }
 
 .research-in-fashion-banner--error {
-  background: rgba(255, 100, 100, 0.12);
-  border: 1px solid rgba(255, 100, 100, 0.35);
-  color: #ffb8b8;
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  color: #fecaca;
 }
 
 .research-in-fashion-banner--warn {
-  background: rgba(255, 200, 80, 0.1);
-  border: 1px solid rgba(255, 200, 80, 0.35);
-  color: rgba(var(--theme-text-rgb), 0.85);
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  color: #fde68a;
 }
 
 .research-in-fashion-muted {
-  color: rgba(var(--theme-text-rgb), 0.55);
+  margin: 0;
+  color: var(--text-muted);
   font-size: 0.9rem;
 }
 
-.research-in-fashion-loading {
-  padding: 2rem 0;
-  text-align: center;
-  color: rgba(var(--theme-text-rgb), 0.6);
+.research-in-fashion-fetched {
+  margin-bottom: 0.85rem;
 }
 
-.research-in-fashion-body {
+.research-in-fashion-discover-layout {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(240px, 340px) minmax(0, 1fr);
   gap: 1.25rem;
   align-items: start;
 }
 
-@media (min-width: 900px) {
-  .research-in-fashion-body {
-    grid-template-columns: minmax(0, 1fr) 280px;
-    gap: 1.5rem;
+@media (max-width: 860px) {
+  .research-in-fashion-discover-layout {
+    grid-template-columns: 1fr;
   }
 }
 
-.research-in-fashion-feed {
+.research-in-fashion-rising-panel,
+.research-in-fashion-detail-panel {
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.22);
+  border-radius: 14px;
+  background: rgba(var(--theme-accent-rgb), 0.05);
+  padding: 14px 16px;
   min-width: 0;
 }
 
-.research-in-fashion-sidebar {
-  min-width: 0;
+.research-in-fashion-panel-title {
+  margin: 0 0 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 
-@media (min-width: 900px) {
-  .research-in-fashion-sidebar {
-    position: sticky;
-    top: 1rem;
-    max-height: calc(100vh - 2rem);
-    overflow-y: auto;
-    padding: 0.85rem;
-    border-radius: 12px;
-    border: 1px solid rgba(var(--theme-text-rgb), 0.1);
-    background: rgba(var(--theme-text-rgb), 0.03);
-  }
-}
-
-.research-in-fashion-query-list {
+.research-in-fashion-rising-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 6px;
+  max-height: min(70vh, 720px);
+  overflow: auto;
 }
 
-.research-in-fashion-query-chip {
+.research-in-fashion-rising-item {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin: 0;
+  padding: 10px 12px;
+  text-align: left;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--text-strong);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.research-in-fashion-rising-item:hover {
+  border-color: rgba(var(--theme-accent-rgb), 0.35);
+  background: rgba(var(--theme-accent-rgb), 0.1);
+}
+
+.research-in-fashion-rising-item--active {
+  border-color: rgba(96, 165, 250, 0.55);
+  background: rgba(59, 130, 246, 0.18);
+}
+
+.research-in-fashion-rising-query {
+  font-size: 0.92rem;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.research-in-fashion-rising-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.research-in-fashion-rising-value {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: #86efac;
+}
+
+.research-in-fashion-rising-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(96, 165, 250, 0.2);
+  color: #bfdbfe;
+}
+
+.research-in-fashion-detail-empty {
+  padding: 2rem 0.5rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.research-in-fashion-detail-heading {
+  margin: 0 0 1rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-strong);
+}
+
+.research-in-fashion-chart-wrap {
+  margin-bottom: 1.35rem;
+}
+
+.research-in-fashion-chart {
+  height: 220px;
+  width: 100%;
+}
+
+.research-in-fashion-models {
+  margin-bottom: 1.35rem;
+}
+
+.research-in-fashion-model-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px;
+}
+
+.research-in-fashion-model-card {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin: 0;
+  padding: 10px 12px;
+  text-align: left;
+  border-radius: 10px;
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.25);
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--text-strong);
+  cursor: pointer;
+}
+
+.research-in-fashion-model-card:hover {
+  border-color: rgba(var(--theme-accent-rgb), 0.5);
+  background: rgba(var(--theme-accent-rgb), 0.12);
+}
+
+.research-in-fashion-model-label {
+  font-size: 0.88rem;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.research-in-fashion-model-kind {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.research-in-fashion-ebay-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.research-in-fashion-ebay-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 100%;
+  padding: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.22);
+  background: rgba(0, 0, 0, 0.22);
+  color: inherit;
+  text-decoration: none;
+}
+
+.research-in-fashion-ebay-card img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  display: block;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.research-in-fashion-ebay-noimg {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0.45rem 0.65rem;
-  border-radius: 8px;
-  font-size: 0.82rem;
-  background: rgba(var(--theme-text-rgb), 0.06);
-  border: 1px solid rgba(var(--theme-text-rgb), 0.1);
+  justify-content: center;
+  aspect-ratio: 1;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.04);
 }
 
-.research-in-fashion-query-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.research-in-fashion-query-value {
-  flex-shrink: 0;
-  font-size: 0.72rem;
+.research-in-fashion-ebay-price {
+  padding: 0 8px;
+  font-size: 0.85rem;
   font-weight: 700;
-  opacity: 0.65;
   font-variant-numeric: tabular-nums;
 }
 
-.research-in-fashion-photo-grid {
-  columns: 2;
-  column-gap: 0.65rem;
-}
-
-@media (min-width: 600px) {
-  .research-in-fashion-photo-grid {
-    columns: 2;
-  }
-}
-
-@media (min-width: 1100px) {
-  .research-in-fashion-photo-grid {
-    columns: 3;
-  }
-}
-
-.research-in-fashion-photo-card {
-  break-inside: avoid;
-  margin: 0 0 0.65rem;
-  border-radius: 10px;
-  overflow: hidden;
-  background: rgba(var(--theme-text-rgb), 0.05);
-}
-
-.research-in-fashion-photo-link {
-  display: block;
-  line-height: 0;
-  position: relative;
-}
-
-.research-in-fashion-photo-link img {
-  width: 100%;
-  height: auto;
-  display: block;
-  object-fit: cover;
-}
-
-.research-in-fashion-photo-tag {
-  position: absolute;
-  left: 0.45rem;
-  bottom: 0.45rem;
-  max-width: calc(100% - 0.9rem);
-  padding: 0.2rem 0.5rem;
-  border-radius: 999px;
-  font-size: 0.68rem;
-  font-weight: 700;
+.research-in-fashion-ebay-title {
+  padding: 0 8px 8px;
+  font-size: 0.72rem;
   line-height: 1.3;
+  color: var(--text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  background: rgba(15, 23, 42, 0.72);
-  color: #f8fafc;
-}
-
-.research-in-fashion-photo-tag--tone-0 { background: rgba(236, 72, 153, 0.88); }
-.research-in-fashion-photo-tag--tone-1 { background: rgba(6, 182, 212, 0.88); }
-.research-in-fashion-photo-tag--tone-2 { background: rgba(234, 179, 8, 0.92); color: #422006; }
-.research-in-fashion-photo-tag--tone-3 { background: rgba(168, 85, 247, 0.88); }
-.research-in-fashion-photo-tag--tone-4 { background: rgba(34, 197, 94, 0.88); color: #052e16; }
-.research-in-fashion-photo-tag--tone-5 { background: rgba(249, 115, 22, 0.9); color: #431407; }
-
-.research-in-fashion-photo-credit {
-  padding: 0.35rem 0.5rem;
-  font-size: 0.68rem;
-  color: rgba(var(--theme-text-rgb), 0.5);
-  text-align: center;
-}
-
-.research-in-fashion-photo-credit a {
-  color: inherit;
-  text-decoration: underline;
-}
-
-@media (max-width: 899px) {
-  .research-in-fashion-body {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .research-in-fashion-sidebar {
-    order: -1;
-  }
 }
