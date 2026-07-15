@@ -4,7 +4,7 @@ import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import '../react-datepicker-dark.css';
 import { pingDatabase } from '../utils/dbPing';
-import { getApiBase } from '../utils/apiBase';
+import { getApiBase, ebayOAuthStartUrl } from '../utils/apiBase';
 import {
   dateOnlyStringToLocalDate,
   dateOnlyToTime,
@@ -13,9 +13,19 @@ import {
   normalizeDateOnlyString,
 } from '../utils/dateOnly';
 import './Stock.css';
+import './Orders.css';
 import { StockFormDropdown } from './StockFormDropdown';
 
 const API_BASE = getApiBase();
+
+type StockCrossListUnlistModalState = {
+  stockId: number;
+  itemName: string;
+  ebayViolation: { ebay_id: string; ebay_url: string } | null;
+  vintedStillListed: { vinted_id: string; vinted_url: string } | null;
+  unlistLoading: boolean;
+  unlistError: string | null;
+};
 
 function scrollStockEntryFormIntoView(formEl: HTMLDivElement | null) {
   if (!formEl) return;
@@ -177,6 +187,18 @@ function stockRowEbayDraftFromRow(row: { is_ebay_draft?: unknown }): boolean {
   return v === true || v === 't' || v === 'true' || v === 1 || v === '1';
 }
 
+function stockVintedListingUrl(vintedId: string): string | null {
+  const id = vintedId.trim();
+  if (!id) return null;
+  return `https://www.vinted.co.uk/items/${encodeURIComponent(id)}`;
+}
+
+function stockEbayListingUrl(ebayId: string): string | null {
+  const id = ebayId.trim();
+  if (!id) return null;
+  return `https://www.ebay.co.uk/itm/${encodeURIComponent(id)}`;
+}
+
 function stockSaleDatePresent(row: { sale_date?: Nullable<string> }): boolean {
   const d = row.sale_date;
   return d != null && String(d).trim() !== '';
@@ -230,47 +252,7 @@ const formatCurrency = (value: Nullable<string | number>) => {
 
 const formatDate = (value: Nullable<string>) => formatDateOnlyForDisplay(value ?? null);
 
-function normalizeStockRowDates(row: StockRow): StockRow {
-  const purchaseDate = normalizeDateOnlyString(row.purchase_date ?? '');
-  const saleDate = normalizeDateOnlyString(row.sale_date ?? '');
-  return {
-    ...row,
-    purchase_date: purchaseDate || null,
-    sale_date: saleDate || null,
-  };
-}
-
-/** Envelope — add item to orders (postage / dispatch). */
-function AddToOrdersIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      width="22"
-      height="22"
-      viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden
-    >
-      <path
-        d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="m22 6-10 7L2 6"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-/** Envelope + check — save, add to orders, and close. */
+/** Envelope + check — save, add to To Pack orders, and close. */
 function SaveAddToOrderCloseIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -308,6 +290,15 @@ function SaveAddToOrderCloseIcon({ className }: { className?: string }) {
   );
 }
 
+function normalizeStockRowDates(row: StockRow): StockRow {
+  const purchaseDate = normalizeDateOnlyString(row.purchase_date ?? '');
+  const saleDate = normalizeDateOnlyString(row.sale_date ?? '');
+  return {
+    ...row,
+    purchase_date: purchaseDate || null,
+    sale_date: saleDate || null,
+  };
+}
 
 function buildStockInstagramAskAiPrompt(input: {
   itemName: string;
@@ -487,10 +478,18 @@ const Stock: React.FC = () => {
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('');
   const [showSoldPlatformDropdown, setShowSoldPlatformDropdown] = useState(false);
   const soldPlatformDropdownRef = useRef<HTMLDivElement>(null);
-  /** True when the row being edited is already in the Orders list (server `orders` table). */
-  const [editingRowInOrders, setEditingRowInOrders] = useState(false);
-  /** True while POST /api/orders is in flight — button shows disabled / pending styling. */
+  const [listingPackDownloading, setListingPackDownloading] = useState<null | 'ebay' | 'vinted'>(
+    null
+  );
+  /** True while POST /api/orders is in flight from Add to order, save & close. */
   const [addingToOrder, setAddingToOrder] = useState(false);
+  /** Cross-platform still-listed warning after Add to order (same checks as To Pack Posted). */
+  const [crossListUnlistModal, setCrossListUnlistModal] =
+    useState<StockCrossListUnlistModalState | null>(null);
+  const [ebaySellerConnected, setEbaySellerConnected] = useState(false);
+  const [ebayOAuthPending, setEbayOAuthPending] = useState(false);
+  const ebayOAuthPopupRef = useRef<Window | null>(null);
+  const ebayOAuthPollRef = useRef<number | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [showAddCategory, setShowAddCategory] = useState(false);
@@ -519,33 +518,6 @@ const Stock: React.FC = () => {
   const [summaryTotals, setSummaryTotals] = useState({ purchase: 0, sale: 0, profit: 0 });
   const [nextSku, setNextSku] = useState(1);
   const stockFiltersRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    setAddingToOrder(false);
-    if (editingRowId == null) {
-      setEditingRowInOrders(false);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        const response = await fetch(`${API_BASE}/api/orders`);
-        if (!response.ok || cancelled) return;
-        const data = await response.json();
-        const stockIds = new Set(
-          (data.rows ?? []).map((r: { stock_id?: number | string }) => Number(r.stock_id))
-        );
-        if (!cancelled) {
-          setEditingRowInOrders(stockIds.has(Number(editingRowId)));
-        }
-      } catch {
-        if (!cancelled) setEditingRowInOrders(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [editingRowId]);
-
   /** Sold sale prices for other items with the same brand + category as the edit form (excludes the row being edited). */
   const editFormBrandCategorySaleComps = useMemo(() => {
     const bidRaw = createForm.brand_id;
@@ -1584,6 +1556,249 @@ const Stock: React.FC = () => {
     });
   };
 
+  const refreshEbayOAuthStatus = useCallback(async () => {
+    try {
+      const r = await fetch(`${API_BASE}/api/ebay/oauth/status`);
+      if (!r.ok) {
+        setEbaySellerConnected(false);
+        return;
+      }
+      const data = (await r.json()) as { connected?: boolean };
+      setEbaySellerConnected(data.connected === true);
+    } catch {
+      setEbaySellerConnected(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!crossListUnlistModal?.ebayViolation) return;
+    void refreshEbayOAuthStatus();
+  }, [crossListUnlistModal?.ebayViolation, refreshEbayOAuthStatus]);
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type !== 'ebay-oauth') return;
+      setEbayOAuthPending(false);
+      void refreshEbayOAuthStatus();
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [refreshEbayOAuthStatus]);
+
+  useEffect(() => {
+    return () => {
+      if (ebayOAuthPollRef.current != null) {
+        window.clearInterval(ebayOAuthPollRef.current);
+      }
+    };
+  }, []);
+
+  const handleStockConnectEbay = useCallback(() => {
+    const editId = editingRowId ?? crossListUnlistModal?.stockId;
+    const returnPath =
+      editId != null
+        ? `/stock?editId=${editId}&ebay_oauth=success&popup=1`
+        : '/stock?ebay_oauth=success&popup=1';
+    const url = ebayOAuthStartUrl(returnPath);
+    const popup = window.open(url, 'ebay-oauth', 'popup=yes,width=520,height=720');
+    if (!popup) {
+      window.location.href = ebayOAuthStartUrl(
+        editId != null ? `/stock?editId=${editId}&ebay_oauth=success` : '/stock?ebay_oauth=success'
+      );
+      return;
+    }
+    ebayOAuthPopupRef.current = popup;
+    setEbayOAuthPending(true);
+    if (ebayOAuthPollRef.current != null) {
+      window.clearInterval(ebayOAuthPollRef.current);
+    }
+    ebayOAuthPollRef.current = window.setInterval(() => {
+      if (!popup.closed) return;
+      if (ebayOAuthPollRef.current != null) {
+        window.clearInterval(ebayOAuthPollRef.current);
+        ebayOAuthPollRef.current = null;
+      }
+      ebayOAuthPopupRef.current = null;
+      setEbayOAuthPending(false);
+      void refreshEbayOAuthStatus();
+    }, 400);
+  }, [editingRowId, crossListUnlistModal?.stockId, refreshEbayOAuthStatus]);
+
+  const finishAddToOrdersAndClose = useCallback(
+    async (stockId: number) => {
+      setAddingToOrder(true);
+      setError(null);
+      try {
+        const orderResponse = await fetch(`${API_BASE}/api/orders`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stock_id: stockId }),
+        });
+        if (orderResponse.status === 409) {
+          setSuccessMessage('Saved and closed — item was already in orders.');
+        } else if (!orderResponse.ok) {
+          let message = 'Saved, but could not add item to orders';
+          try {
+            const errorBody = await orderResponse.json();
+            message = errorBody?.error || message;
+          } catch {
+            const text = await orderResponse.text();
+            message = text || message;
+          }
+          throw new Error(message);
+        } else {
+          setSuccessMessage('Saved, added to orders, and closed.');
+        }
+        setCrossListUnlistModal(null);
+        suppressAutoOpenEditSkuRef.current = Number(stockId);
+        closeStockEntryPanel();
+        setSortConfig(null);
+        void loadStockPage(stockPage);
+        void loadStockSummary();
+        void loadNextSku();
+        window.setTimeout(() => {
+          stockFiltersRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 0);
+      } catch (orderErr: any) {
+        console.error('Add to orders after save error:', orderErr);
+        setError(orderErr.message || 'Saved, but unable to add item to orders');
+      } finally {
+        setAddingToOrder(false);
+      }
+    },
+    // closeStockEntryPanel / loaders are stable enough via closure for this form flow
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stockPage]
+  );
+
+  const runCrossMarketplaceListingCheck = useCallback(
+    async (row: StockRow): Promise<{
+      ebayViolation: { ebay_id: string; ebay_url: string } | null;
+      vintedStillListed: { vinted_id: string; vinted_url: string } | null;
+    }> => {
+      const soldPlatform = String(row.sold_platform ?? '').trim().toLowerCase();
+      const hasEbayId = row.ebay_id != null && String(row.ebay_id).trim() !== '';
+      const hasVintedId = row.vinted_id != null && String(row.vinted_id).trim() !== '';
+      const isEbaySold =
+        soldPlatform === 'ebay' ||
+        soldPlatform.includes('ebay') ||
+        (!soldPlatform && hasEbayId && !hasVintedId);
+      const isVintedSold =
+        soldPlatform === 'vinted' ||
+        soldPlatform.includes('vinted') ||
+        (!soldPlatform && hasVintedId && !hasEbayId);
+
+      let ebayViolation: { ebay_id: string; ebay_url: string } | null = null;
+      let vintedStillListed: { vinted_id: string; vinted_url: string } | null = null;
+
+      if (isVintedSold && hasEbayId) {
+        try {
+          const response = await fetch(
+            `${API_BASE}/api/stock/${row.id}/vinted-ebay-active-check`,
+            { method: 'POST', headers: { 'Content-Type': 'application/json' } }
+          );
+          const text = await response.text();
+          let data: {
+            needs_unlist?: boolean;
+            ebay_id?: string;
+            ebay_url?: string;
+          } | null = null;
+          try {
+            data = text
+              ? (JSON.parse(text) as {
+                  needs_unlist?: boolean;
+                  ebay_id?: string;
+                  ebay_url?: string;
+                })
+              : null;
+          } catch {
+            /* not JSON */
+          }
+          if (response.ok && data?.needs_unlist && data.ebay_id && data.ebay_url) {
+            ebayViolation = { ebay_id: data.ebay_id, ebay_url: data.ebay_url };
+          }
+        } catch (err) {
+          console.warn('Stock eBay still-listed check failed:', err);
+        }
+      }
+
+      if (isEbaySold && hasVintedId) {
+        try {
+          const response = await fetch(
+            `${API_BASE}/api/stock/${row.id}/ebay-sold-vinted-active-check`,
+            { method: 'POST', headers: { 'Content-Type': 'application/json' } }
+          );
+          const text = await response.text();
+          let data: {
+            still_on_vinted?: boolean;
+            vinted_id?: string | null;
+            vinted_url?: string;
+          } | null = null;
+          try {
+            data = text
+              ? (JSON.parse(text) as {
+                  still_on_vinted?: boolean;
+                  vinted_id?: string | null;
+                  vinted_url?: string;
+                })
+              : null;
+          } catch {
+            /* not JSON */
+          }
+          if (response.ok && data?.still_on_vinted && data.vinted_url) {
+            const vintedId = String(data.vinted_id ?? row.vinted_id ?? '').trim();
+            if (vintedId) {
+              vintedStillListed = { vinted_id: vintedId, vinted_url: data.vinted_url };
+            }
+          }
+        } catch (err) {
+          console.warn('Stock Vinted still-listed check failed:', err);
+        }
+      }
+
+      return { ebayViolation, vintedStillListed };
+    },
+    []
+  );
+
+  const handleStockEbayUnlist = async () => {
+    if (!crossListUnlistModal?.ebayViolation || !ebaySellerConnected || crossListUnlistModal.unlistLoading) {
+      return;
+    }
+    const stockId = crossListUnlistModal.stockId;
+    setCrossListUnlistModal((prev) =>
+      prev ? { ...prev, unlistLoading: true, unlistError: null } : prev
+    );
+    try {
+      const response = await fetch(`${API_BASE}/api/stock/${stockId}/ebay-unlist`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const text = await response.text();
+      let data: { error?: string; details?: string } | null = null;
+      try {
+        data = text ? (JSON.parse(text) as { error?: string; details?: string }) : null;
+      } catch {
+        /* not JSON */
+      }
+      if (!response.ok) {
+        throw new Error(data?.details || data?.error || text || `Unlist failed (${response.status})`);
+      }
+      await finishAddToOrdersAndClose(stockId);
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message === 'Failed to fetch' || err.name === 'TypeError'
+            ? 'Unable to connect to server. Is the API running?'
+            : err.message
+          : 'Unlist failed';
+      setCrossListUnlistModal((prev) =>
+        prev ? { ...prev, unlistLoading: false, unlistError: message } : prev
+      );
+    }
+  };
+
   const handleCreateSubmit = async (
     options?: boolean | { allowCreateDespiteEditIntent?: boolean; addToOrdersAfterSave?: boolean }
   ) => {
@@ -1685,35 +1900,30 @@ const Stock: React.FC = () => {
         if (addToOrdersAfterSave) {
           setAddingToOrder(true);
           try {
-            const orderResponse = await fetch(`${API_BASE}/api/orders`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ stock_id: updatedRow.id }),
-            });
-            if (orderResponse.status === 409) {
-              setSuccessMessage('Saved and closed — item was already in orders.');
-            } else if (!orderResponse.ok) {
-              let message = 'Saved, but could not add item to orders';
-              try {
-                const errorBody = await orderResponse.json();
-                message = errorBody?.error || message;
-              } catch {
-                const text = await orderResponse.text();
-                message = text || message;
-              }
-              throw new Error(message);
-            } else {
-              setEditingRowInOrders(true);
-              setSuccessMessage('Saved, added to orders, and closed.');
+            const { ebayViolation, vintedStillListed } =
+              await runCrossMarketplaceListingCheck(updatedRow);
+            if (ebayViolation || vintedStillListed) {
+              setCrossListUnlistModal({
+                stockId: updatedRow.id,
+                itemName: String(updatedRow.item_name ?? createForm.item_name ?? '').trim() || '—',
+                ebayViolation,
+                vintedStillListed,
+                unlistLoading: false,
+                unlistError: null,
+              });
+              setCreating(false);
+              setAddingToOrder(false);
+              return;
             }
+            await finishAddToOrdersAndClose(updatedRow.id);
+            setCreating(false);
+            return;
           } catch (orderErr: any) {
             console.error('Add to orders after save error:', orderErr);
             setError(orderErr.message || 'Saved, but unable to add item to orders');
             setCreating(false);
             setAddingToOrder(false);
             return;
-          } finally {
-            setAddingToOrder(false);
           }
         } else {
           setSuccessMessage('Stock record updated successfully.');
@@ -1917,19 +2127,6 @@ const Stock: React.FC = () => {
       setShowChangeSkuModal(false);
       setChangeSkuManualId('');
       setSuccessMessage(`SKU updated from ${oldId} to ${newId}`);
-
-      try {
-        const ordersRes = await fetch(`${API_BASE}/api/orders`);
-        if (ordersRes.ok) {
-          const ordersData = await ordersRes.json();
-          const stockIds = new Set(
-            (ordersData.rows ?? []).map((r: { stock_id?: number | string }) => Number(r.stock_id))
-          );
-          setEditingRowInOrders(stockIds.has(newId));
-        }
-      } catch {
-        /* ignore */
-      }
     } catch (err) {
       setChangeSkuError(err instanceof Error ? err.message : 'Failed to change SKU');
     } finally {
@@ -1986,45 +2183,96 @@ const Stock: React.FC = () => {
     }
   }, [editingRowId, brands, createForm.brand_id, brandTagImages]);
 
-  const handleAddToOrders = async () => {
-    if (!editingRowId || editingRowInOrders || addingToOrder) return;
+  const downloadListingPackBlob = async (response: Response, fallbackName: string) => {
+    const blob = await response.blob();
+    const disposition = response.headers.get('Content-Disposition');
+    let downloadName = fallbackName;
+    const filenameMatch = disposition?.match(/filename="([^"]+)"/i);
+    if (filenameMatch?.[1]) downloadName = filenameMatch[1];
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = objectUrl;
+    anchor.download = downloadName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(objectUrl);
+  };
 
+  const handleDownloadEbayListingPack = async () => {
+    if (!editingRowId || listingPackDownloading) return;
+    const ebayId = createForm.ebay_id.trim();
+    if (!ebayId || createForm.ebay_draft) return;
     setError(null);
-    setAddingToOrder(true);
+    setListingPackDownloading('ebay');
     try {
-      const response = await fetch(`${API_BASE}/api/orders`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ stock_id: editingRowId }),
+      const params = new URLSearchParams({
+        ebay_id: ebayId,
+        stock_id: String(editingRowId),
       });
-
+      const response = await fetch(`${API_BASE}/api/ebay/listing-vinted-pack?${params.toString()}`);
       if (!response.ok) {
-        if (response.status === 409) {
-          setEditingRowInOrders(true);
-          return;
-        }
-        let message = 'Failed to add item to orders';
+        const text = await response.text();
+        let msg = 'eBay listing download failed';
         try {
-          const errorBody = await response.json();
-          message = errorBody?.error || message;
+          const data = JSON.parse(text) as { error?: string; details?: string };
+          msg = data.details || data.error || msg;
         } catch {
-          const text = await response.text();
-          message = text || message;
+          msg = text || msg;
         }
-        throw new Error(message);
+        throw new Error(msg);
       }
-
-      setEditingRowInOrders(true);
-      setSuccessMessage('Item added to orders list.');
-    } catch (err: any) {
-      console.error('Add to orders error:', err);
-      setError(err.message || 'Unable to add item to orders');
+      await downloadListingPackBlob(response, `${editingRowId}-${ebayId}.zip`);
+      setSuccessMessage('eBay listing zip downloaded.');
+      window.setTimeout(() => setSuccessMessage(null), 4000);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'eBay listing download failed');
     } finally {
-      setAddingToOrder(false);
+      setListingPackDownloading(null);
     }
   };
+
+  const handleDownloadVintedListingPack = async () => {
+    if (!editingRowId || listingPackDownloading) return;
+    const vintedId = createForm.vinted_id.trim();
+    if (!vintedId) return;
+    setError(null);
+    setListingPackDownloading('vinted');
+    try {
+      const params = new URLSearchParams({
+        vinted_id: vintedId,
+        stock_id: String(editingRowId),
+      });
+      const response = await fetch(
+        `${API_BASE}/api/vinted/listing-export-pack?${params.toString()}`
+      );
+      if (!response.ok) {
+        const text = await response.text();
+        let msg = 'Vinted listing download failed';
+        try {
+          const data = JSON.parse(text) as { error?: string; details?: string };
+          msg = data.details || data.error || msg;
+        } catch {
+          msg = text || msg;
+        }
+        throw new Error(msg);
+      }
+      await downloadListingPackBlob(response, `${editingRowId}-${vintedId}.zip`);
+      setSuccessMessage('Vinted listing zip downloaded.');
+      window.setTimeout(() => setSuccessMessage(null), 4000);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Vinted listing download failed');
+    } finally {
+      setListingPackDownloading(null);
+    }
+  };
+
+  const showEbayListingDownload =
+    Boolean(editingRowId) &&
+    createForm.ebay_id.trim() !== '' &&
+    !createForm.ebay_draft;
+  const showVintedListingDownload =
+    Boolean(editingRowId) && createForm.vinted_id.trim() !== '';
 
   const renderInventoryWriteOffField = (fieldId: string) => (
     <div className="new-entry-field stock-edit-write-off-field stock-new-entry-toggle-field">
@@ -2106,33 +2354,38 @@ const Stock: React.FC = () => {
               </div>
               {editingRowId ? (
                 <div className="stock-new-entry-top-bar-edit-actions">
-                  <button
-                    type="button"
-                    className={`stock-add-to-order-btn stock-edit-row-1-add-to-order${editingRowInOrders ? ' stock-add-to-order-btn--in-orders' : ''}${addingToOrder ? ' stock-add-to-order-btn--adding' : ''}`}
-                    onClick={handleAddToOrders}
-                    disabled={creating || deleting || editingRowInOrders || addingToOrder}
-                    aria-label={
-                      editingRowInOrders
-                        ? 'Item is in orders list'
-                        : addingToOrder
-                          ? 'Adding to orders…'
-                          : 'Add item to orders'
-                    }
-                    title={
-                      editingRowInOrders
-                        ? 'Added — in orders list'
-                        : addingToOrder
-                          ? 'Adding…'
-                          : 'Add to orders'
-                    }
-                  >
-                    <AddToOrdersIcon className="stock-add-to-order-icon" />
-                    {editingRowInOrders
-                      ? 'In orders'
-                      : addingToOrder
-                        ? 'Adding…'
-                        : 'Add to orders'}
-                  </button>
+                  {showEbayListingDownload ? (
+                    <button
+                      type="button"
+                      className="stock-listing-pack-btn stock-listing-pack-btn--ebay"
+                      onClick={() => void handleDownloadEbayListingPack()}
+                      disabled={creating || deleting || listingPackDownloading != null}
+                      aria-label={
+                        listingPackDownloading === 'ebay'
+                          ? 'Downloading eBay listing zip'
+                          : 'Download eBay listing zip'
+                      }
+                      title="Download eBay listing photos + listing.txt as a zip"
+                    >
+                      {listingPackDownloading === 'ebay' ? 'Exporting…' : 'Download eBay'}
+                    </button>
+                  ) : null}
+                  {showVintedListingDownload ? (
+                    <button
+                      type="button"
+                      className="stock-listing-pack-btn stock-listing-pack-btn--vinted"
+                      onClick={() => void handleDownloadVintedListingPack()}
+                      disabled={creating || deleting || listingPackDownloading != null}
+                      aria-label={
+                        listingPackDownloading === 'vinted'
+                          ? 'Downloading Vinted listing zip'
+                          : 'Download Vinted listing zip'
+                      }
+                      title="Download Vinted listing photos + listing.txt as a zip"
+                    >
+                      {listingPackDownloading === 'vinted' ? 'Exporting…' : 'Download Vinted'}
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="stock-image-prompt-btn stock-edit-row-1-image-prompt"
@@ -2756,7 +3009,22 @@ const Stock: React.FC = () => {
               }
             >
               <label className="new-entry-field stock-new-entry-id-field stock-new-entry-id-field--vinted">
-                <span>Vinted ID</span>
+                {(() => {
+                  const vintedHref = stockVintedListingUrl(createForm.vinted_id);
+                  return vintedHref ? (
+                    <a
+                      className="stock-marketplace-id-label-link"
+                      href={vintedHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Open Vinted listing in a new tab"
+                    >
+                      Vinted ID
+                    </a>
+                  ) : (
+                    <span>Vinted ID</span>
+                  );
+                })()}
                 <input
                   type="text"
                   value={createForm.vinted_id}
@@ -2765,7 +3033,22 @@ const Stock: React.FC = () => {
                 />
               </label>
               <label className="new-entry-field stock-new-entry-id-field stock-new-entry-id-field--ebay">
-                <span>eBay ID</span>
+                {(() => {
+                  const ebayHref = stockEbayListingUrl(createForm.ebay_id);
+                  return ebayHref ? (
+                    <a
+                      className="stock-marketplace-id-label-link"
+                      href={ebayHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Open eBay listing in a new tab"
+                    >
+                      eBay ID
+                    </a>
+                  ) : (
+                    <span>eBay ID</span>
+                  );
+                })()}
                 <input
                   type="text"
                   value={createForm.ebay_id}
@@ -3055,7 +3338,7 @@ const Stock: React.FC = () => {
                           onClick={() => {
                             void handleCreateSubmit({ addToOrdersAfterSave: true });
                           }}
-                          disabled={creating || deleting || addingToOrder}
+                          disabled={creating || deleting || addingToOrder || listingPackDownloading != null}
                           aria-label={
                             creating || addingToOrder
                               ? 'Saving and adding to orders'
@@ -3084,7 +3367,7 @@ const Stock: React.FC = () => {
                           onClick={() => {
                             void handleCreateSubmit();
                           }}
-                          disabled={creating || deleting || addingToOrder}
+                          disabled={creating || deleting || addingToOrder || listingPackDownloading != null}
                           aria-label={creating ? 'Saving changes' : 'Save changes'}
                           title={creating ? 'Saving…' : 'Save changes'}
                         >
@@ -3911,6 +4194,161 @@ const Stock: React.FC = () => {
       </div>
         </>
       )}
+
+      {crossListUnlistModal ? (
+        <div
+          className="orders-relist-modal-backdrop orders-topack-unlist-modal-backdrop"
+          role="presentation"
+          onClick={() => {
+            if (!crossListUnlistModal.unlistLoading && !addingToOrder) {
+              void finishAddToOrdersAndClose(crossListUnlistModal.stockId);
+            }
+          }}
+        >
+          <div
+            className="orders-relist-modal orders-topack-unlist-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="stock-crosslist-unlist-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="orders-relist-modal-close"
+              aria-label="Skip and continue to To Pack"
+              disabled={crossListUnlistModal.unlistLoading || addingToOrder}
+              onClick={() => void finishAddToOrdersAndClose(crossListUnlistModal.stockId)}
+            >
+              ×
+            </button>
+            <div className="orders-topack-unlist-modal-body">
+              <p className="orders-relist-modal-eyebrow">
+                {crossListUnlistModal.ebayViolation
+                  ? 'Sold on Vinted'
+                  : crossListUnlistModal.vintedStillListed
+                    ? 'Sold on eBay'
+                    : 'Before adding to To Pack'}
+              </p>
+              <h2 id="stock-crosslist-unlist-modal-title" className="orders-relist-modal-title">
+                {crossListUnlistModal.ebayViolation && crossListUnlistModal.vintedStillListed
+                  ? 'Listings still active'
+                  : crossListUnlistModal.ebayViolation
+                    ? 'Still live on eBay'
+                    : 'Still live on Vinted'}
+              </h2>
+              {crossListUnlistModal.ebayViolation ? (
+                <p className="orders-topack-unlist-modal-lead">
+                  This item sold on Vinted but the eBay listing is still active. Unlist it before
+                  adding to To Pack.
+                </p>
+              ) : null}
+              {crossListUnlistModal.vintedStillListed ? (
+                <div className="orders-topack-vinted-still-flag" role="status" aria-live="polite">
+                  <p className="orders-topack-vinted-still-flag__title">Still on Vinted</p>
+                  <p className="orders-topack-vinted-still-flag__text">
+                    This item sold on eBay but the Vinted listing page is still live. End or remove it
+                    on Vinted before continuing.
+                  </p>
+                </div>
+              ) : null}
+              <dl className="orders-relist-modal-details orders-topack-unlist-modal-details">
+                <div className="orders-relist-modal-detail orders-topack-unlist-modal-detail--wide">
+                  <dt>Item</dt>
+                  <dd>{crossListUnlistModal.itemName}</dd>
+                </div>
+                {crossListUnlistModal.ebayViolation ? (
+                  <div className="orders-relist-modal-detail">
+                    <dt>eBay item</dt>
+                    <dd>
+                      <a
+                        href={crossListUnlistModal.ebayViolation.ebay_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="orders-table-external-link"
+                      >
+                        {crossListUnlistModal.ebayViolation.ebay_id}
+                      </a>
+                    </dd>
+                  </div>
+                ) : null}
+                {crossListUnlistModal.vintedStillListed ? (
+                  <div className="orders-relist-modal-detail">
+                    <dt>Vinted item</dt>
+                    <dd>
+                      <a
+                        href={crossListUnlistModal.vintedStillListed.vinted_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="orders-table-external-link"
+                      >
+                        {crossListUnlistModal.vintedStillListed.vinted_id}
+                      </a>
+                    </dd>
+                  </div>
+                ) : null}
+              </dl>
+              {crossListUnlistModal.unlistError ? (
+                <p className="orders-relist-modal-note orders-relist-modal-note--warn" role="alert">
+                  {crossListUnlistModal.unlistError}
+                </p>
+              ) : null}
+              {crossListUnlistModal.ebayViolation && ebayOAuthPending ? (
+                <p className="orders-relist-modal-note orders-oauth-flash--pending" role="status">
+                  Waiting for eBay sign-in… complete it in the popup, then unlist here.
+                </p>
+              ) : crossListUnlistModal.ebayViolation && !ebaySellerConnected ? (
+                <p className="orders-relist-modal-note">
+                  Connect your eBay seller account to unlist from here without leaving this dialog.
+                </p>
+              ) : null}
+              <div className="orders-relist-modal-actions">
+                {crossListUnlistModal.vintedStillListed ? (
+                  <a
+                    href={crossListUnlistModal.vintedStillListed.vinted_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="orders-vinted-ebay-check-button orders-topack-open-vinted-button"
+                    title="Open this listing on Vinted"
+                  >
+                    Open on Vinted
+                  </a>
+                ) : null}
+                {crossListUnlistModal.ebayViolation ? (
+                  !ebaySellerConnected ? (
+                    <button
+                      type="button"
+                      className="orders-vinted-ebay-check-button orders-topack-unlist-connect-ebay"
+                      disabled={ebayOAuthPending || crossListUnlistModal.unlistLoading || addingToOrder}
+                      onClick={() => handleStockConnectEbay()}
+                    >
+                      {ebayOAuthPending ? 'Connecting…' : 'Connect eBay seller'}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="orders-sales-unlist-button"
+                      disabled={
+                        crossListUnlistModal.unlistLoading || addingToOrder || ebayOAuthPending
+                      }
+                      onClick={() => void handleStockEbayUnlist()}
+                    >
+                      {crossListUnlistModal.unlistLoading ? 'Unlisting…' : 'Unlist on eBay'}
+                    </button>
+                  )
+                ) : null}
+                <button
+                  type="button"
+                  className="orders-posted-button"
+                  disabled={crossListUnlistModal.unlistLoading || addingToOrder}
+                  onClick={() => void finishAddToOrdersAndClose(crossListUnlistModal.stockId)}
+                >
+                  {addingToOrder ? 'Adding…' : 'Continue to To Pack'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };
