@@ -258,9 +258,6 @@
 .orders-sales-summary-table .orders-platform-link {
   font-size: inherit;
   line-height: inherit;
-}
-
-.orders-sales-summary-table td:last-child .orders-platform-link {
   white-space: nowrap;
 }
 
@@ -2299,6 +2296,56 @@
 
 .orders-card-field--shipping .orders-topack-shipping {
   max-width: 100%;
+}
+
+/* To Pack — smaller item title in the table */
+.orders-list-section .orders-table td:nth-child(2),
+.orders-list-section .orders-table td:nth-child(2) .orders-sales-stock-name-link {
+  font-size: 0.95rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.orders-list-section .orders-card-field .orders-card-value .orders-sales-stock-name-link,
+.orders-list-section .orders-card-field .orders-card-value {
+  font-size: 0.95rem;
+  line-height: 1.35;
+}
+
+.orders-topack-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.orders-topack-actions--card {
+  margin-top: 12px;
+}
+
+.orders-refund-button {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  background: rgba(245, 158, 11, 0.16);
+  color: #fcd34d;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.orders-refund-button:hover:not(:disabled) {
+  background: rgba(245, 158, 11, 0.28);
+  border-color: rgba(252, 211, 77, 0.65);
+  color: #fde68a;
+  transform: translateY(-1px);
+}
+
+.orders-refund-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .orders-list-section .orders-table th:nth-child(3),

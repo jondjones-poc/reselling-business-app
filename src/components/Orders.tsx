@@ -1026,6 +1026,11 @@ const Orders: React.FC = () => {
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [clearConfirmCount, setClearConfirmCount] = useState(0);
   const [ordersLoading, setOrdersLoading] = useState(false);
+  const [refundLoadingId, setRefundLoadingId] = useState<number | null>(null);
+  const [refundConfirmItem, setRefundConfirmItem] = useState<{
+    id: number;
+    itemName: string;
+  } | null>(null);
   const [soldRows, setSoldRows] = useState<StockRow[]>([]);
   const [soldLoading, setSoldLoading] = useState(false);
   const [soldError, setSoldError] = useState<string | null>(null);
@@ -2083,6 +2088,73 @@ const Orders: React.FC = () => {
       setError(err.message || 'Unable to remove item from orders');
     } finally {
       setOrdersLoading(false);
+    }
+  };
+
+  /** Clear sale fields on stock (sale price / date / platform); remove from Sales Summary and To Pack if present. */
+  const handleRefundItem = async (item: { id: number }) => {
+    if (refundLoadingId != null) return;
+    setRefundLoadingId(item.id);
+    setSoldError(null);
+    setError(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/stock/${item.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sale_price: null,
+          sale_date: null,
+          sold_platform: null,
+        }),
+      });
+      if (!response.ok) {
+        let message = 'Failed to clear sale details';
+        try {
+          const errorBody = await response.json();
+          message = errorBody?.details || errorBody?.error || message;
+        } catch {
+          const text = await response.text();
+          message = text || message;
+        }
+        throw new Error(message);
+      }
+
+      setSoldRows((prev) => prev.filter((row) => Number(row.id) !== item.id));
+      setAllStock((prev) =>
+        prev.map((row) =>
+          Number(row.id) === item.id
+            ? { ...row, sale_price: null, sale_date: null, sold_platform: null }
+            : row
+        )
+      );
+
+      const removeResponse = await fetch(`${API_BASE}/api/orders/${item.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!removeResponse.ok && removeResponse.status !== 404) {
+        let message = 'Sale cleared, but could not remove item from To Pack';
+        try {
+          const errorBody = await removeResponse.json();
+          message = errorBody?.error || message;
+        } catch {
+          const text = await removeResponse.text();
+          message = text || message;
+        }
+        throw new Error(message);
+      }
+
+      if (removeResponse.ok) {
+        await loadOrders();
+      }
+      setRefundConfirmItem(null);
+    } catch (err: unknown) {
+      console.error('Refund / clear sale error:', err);
+      const message = err instanceof Error ? err.message : 'Unable to process refund';
+      setSoldError(message);
+      setError(message);
+    } finally {
+      setRefundLoadingId(null);
     }
   };
 
@@ -3338,13 +3410,12 @@ const Orders: React.FC = () => {
                         <ToPackPlatformCell item={item} getListingPlatform={getListingPlatform} />
                       </td>
                       <td>
-                        <div style={{ display: 'flex', gap: '8px' }}>
+                        <div className="orders-topack-actions">
                           <button
                             type="button"
                             className="orders-remove-button"
                             onClick={() => handleEditItem(item)}
                             disabled={ordersLoading}
-                            style={{ marginRight: '8px' }}
                             title={
                               toPackItemIsEbaySale(item) &&
                               toPackEbayShippingByStockId[item.id]?.ebay_order_url
@@ -3435,7 +3506,7 @@ const Orders: React.FC = () => {
                       </span>
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                  <div className="orders-topack-actions orders-topack-actions--card">
                     <button
                       type="button"
                       className="orders-remove-button"
@@ -4960,6 +5031,7 @@ const Orders: React.FC = () => {
                       </button>
                     </th>
                     <th>Listing</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -4968,6 +5040,7 @@ const Orders: React.FC = () => {
                     const listing = soldPlatformListingHref(row);
                     const title = row.item_name?.trim() || '—';
                     const profitClass = salesSummaryProfitClass(row, profit);
+                    const rowId = Number(row.id);
                     return (
                       <tr key={row.id}>
                         <td className="orders-sales-summary-sku-cell">
@@ -5007,6 +5080,22 @@ const Orders: React.FC = () => {
                           ) : (
                             <span className="orders-table-dash">—</span>
                           )}
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className="orders-refund-button"
+                            onClick={() =>
+                              setRefundConfirmItem({
+                                id: rowId,
+                                itemName: row.item_name?.trim() || `SKU ${rowId}`,
+                              })
+                            }
+                            disabled={refundLoadingId != null}
+                            title="Clear sale price, sold date, and sold platform"
+                          >
+                            {refundLoadingId === rowId ? 'Refunding…' : 'Refund'}
+                          </button>
                         </td>
                       </tr>
                     );
@@ -5330,6 +5419,61 @@ const Orders: React.FC = () => {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {refundConfirmItem ? (
+        <div
+          className="orders-relist-modal-backdrop"
+          role="presentation"
+          onClick={() => {
+            if (refundLoadingId == null) setRefundConfirmItem(null);
+          }}
+        >
+          <div
+            className="orders-relist-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="orders-refund-confirm-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="orders-relist-modal-close"
+              aria-label="Cancel refund"
+              disabled={refundLoadingId != null}
+              onClick={() => setRefundConfirmItem(null)}
+            >
+              ×
+            </button>
+            <p className="orders-relist-modal-eyebrow">Sales Summary</p>
+            <h2 id="orders-refund-confirm-title" className="orders-relist-modal-title">
+              Refund this item?
+            </h2>
+            <p className="orders-topack-unlist-modal-lead">
+              This clears the sale price, sold date, and sold platform for{' '}
+              <strong>{refundConfirmItem.itemName}</strong> (SKU {refundConfirmItem.id}). The item
+              will leave Sales Summary.
+            </p>
+            <div className="orders-relist-modal-actions">
+              <button
+                type="button"
+                className="orders-sales-edit-button"
+                disabled={refundLoadingId != null}
+                onClick={() => setRefundConfirmItem(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="orders-refund-button"
+                disabled={refundLoadingId != null}
+                onClick={() => void handleRefundItem({ id: refundConfirmItem.id })}
+              >
+                {refundLoadingId === refundConfirmItem.id ? 'Refunding…' : 'Confirm refund'}
+              </button>
             </div>
           </div>
         </div>
