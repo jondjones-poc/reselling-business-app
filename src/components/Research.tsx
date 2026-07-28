@@ -20,6 +20,14 @@ import './BrandResearch.css';
 
 ChartJS.register(ArcElement, BarElement, CategoryScale, LinearScale, Tooltip, Legend);
 
+/** Shared load-in motion for clothing-types analytics pie charts. */
+const CLOTHING_TYPES_PIE_LOAD_ANIMATION = {
+  duration: 1100,
+  easing: 'easeOutQuart' as const,
+  animateRotate: true,
+  animateScale: true,
+};
+
 function formatResearchCurrency(value: number): string {
   return new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(value);
 }
@@ -2481,6 +2489,9 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
   >([]);
   const [clothingTypesInventoryLoading, setClothingTypesInventoryLoading] = useState(false);
   const [clothingTypesInventoryError, setClothingTypesInventoryError] = useState<string | null>(null);
+  const [clothingTypesInvestRiskView, setClothingTypesInvestRiskView] = useState<
+    'cards' | 'graph' | 'table'
+  >('cards');
 
   const [clothingTypeBrands, setClothingTypeBrands] = useState<ClothingTypeBrandRow[]>([]);
   const [clothingTypeBrandsLoading, setClothingTypeBrandsLoading] = useState(false);
@@ -4800,13 +4811,11 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
   }, [clothingTypesInventoryRows]);
 
   /**
-   * Buying / inventory risk: sold vs unsold counts per type, ordered by worst sell-through first (then unsold, strain).
-   * Strain (unsold × share unsold) can rank a big middling bucket above a small terrible one; sell-through matches
-   * “worst categories to invest in” (e.g. few sold vs many listed).
+   * Buying / inventory risk per type. Table stays worst sell-through first; cards use buyOrderedRows
+   * (best sell-through first). Strain (unsold × share unsold) still appears in the detail table.
    */
   const clothingTypesInvestRiskModel = useMemo(() => {
     const minTotalListed = 2;
-    const chartTopN = 14;
     const rows = clothingTypesInventoryRows
       .map((r) => {
         const bucketId = r.category_id == null ? -1 : Number(r.category_id);
@@ -4861,6 +4870,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     if (rows.length === 0) {
       return {
         tableRows: [] as typeof rows,
+        buyOrderedRows: [] as typeof rows,
         chartRowsInChartOrder: [] as typeof rows,
         chartData: null as null,
         chartBucketIds: null as number[] | null,
@@ -4869,6 +4879,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       };
     }
 
+    /** Best sell-through first — best categories to buy. */
     const buySorted = [...rows].sort(
       (a, b) =>
         b.sellThroughPct - a.sellThroughPct ||
@@ -4878,12 +4889,9 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     const buyTop5 = buySorted.slice(0, 5);
     const avoidTop5 = rows.slice(0, 5);
 
-    /** Worst sell-through first — same order for table and chart. */
+    /** Worst sell-through first — same order for table and graph. */
+    const chartTopN = 14;
     const chartOrderRows = rows.slice(0, chartTopN);
-    /**
-     * Chart.js 4 + indexAxis 'y': category index 0 maps to the *top* of the y-axis (see CategoryScale + getPixelForDecimal).
-     * Do not reverse the slice; reversing put the worst type last → bottom of the chart.
-     */
     const labelMax = 36;
     const labels = chartOrderRows.map((x) => {
       let L = x.label;
@@ -4915,6 +4923,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
 
     return {
       tableRows: rows,
+      buyOrderedRows: buySorted,
       chartRowsInChartOrder: chartOrderRows,
       chartData,
       chartBucketIds: chartOrderRows.map((x) => x.bucketId),
@@ -4930,7 +4939,6 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       indexAxis: 'y',
       responsive: true,
       maintainAspectRatio: false,
-      /* Without axis: 'y', horizontal stacked bars resolve the wrong category from the x (value) position. */
       interaction: { mode: 'index', intersect: false, axis: 'y' },
       onClick: (_evt, elements) => {
         if (!ids?.length || !elements?.length) return;
@@ -5220,6 +5228,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     return {
       responsive: true,
       maintainAspectRatio: false,
+      animation: CLOTHING_TYPES_PIE_LOAD_ANIMATION,
       onClick: (_evt, elements) => {
         if (!clickable || !sliceIds?.length || !elements?.length) return;
         const idx = elements[0]?.index;
@@ -5261,6 +5270,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     return {
       responsive: true,
       maintainAspectRatio: false,
+      animation: CLOTHING_TYPES_PIE_LOAD_ANIMATION,
       onClick: (_evt, elements) => {
         if (!clickable || !sliceIds?.length || !elements?.length) return;
         const idx = elements[0]?.index;
@@ -5304,6 +5314,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     return {
       responsive: true,
       maintainAspectRatio: false,
+      animation: CLOTHING_TYPES_PIE_LOAD_ANIMATION,
       onClick: (_evt, elements) => {
         if (!clickable || !sliceIds?.length || !elements?.length) return;
         const idx = elements[0]?.index;
@@ -12327,7 +12338,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                     {!clothingTypesSalesLoading &&
                       !clothingTypesSalesError &&
                       (clothingTypesSalesPieModel.data ? (
-                        <div className="menswear-categories-sales-pie-chart-wrap">
+                        <div className="menswear-categories-sales-pie-chart-wrap clothing-types-pie-chart-reveal">
                           <Pie
                             data={clothingTypesSalesPieModel.data}
                             options={clothingTypesSalesPieChartOptions}
@@ -12361,7 +12372,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                     {!clothingTypesSalesLoading &&
                       !clothingTypesSalesError &&
                       (clothingTypesItemsSoldPieModel.data ? (
-                        <div className="menswear-categories-inventory-chart-wrap">
+                        <div className="menswear-categories-inventory-chart-wrap clothing-types-pie-chart-reveal">
                           <Pie
                             data={clothingTypesItemsSoldPieModel.data}
                             options={clothingTypesItemsSoldPieChartOptions}
@@ -12395,7 +12406,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                     {!clothingTypesInventoryLoading &&
                       !clothingTypesInventoryError &&
                       (clothingTypesInventoryPieModel.data ? (
-                        <div className="menswear-categories-inventory-chart-wrap">
+                        <div className="menswear-categories-inventory-chart-wrap clothing-types-pie-chart-reveal">
                           <Pie
                             data={clothingTypesInventoryPieModel.data}
                             options={clothingTypesInventoryPieChartOptions}
@@ -12413,27 +12424,198 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
 
                   <section
                     className="clothing-types-invest-risk"
-                    aria-label="Sold versus unsold line counts by category, worst sell-through first"
+                    aria-label="Categories ranked best to buy by sell-through"
                   >
-                    <h3 className="clothing-types-invest-risk-title">Inventory strain by category</h3>
+                    <div className="clothing-types-invest-risk-heading-row">
+                      <h3 className="clothing-types-invest-risk-title">Inventory strain by category</h3>
+                      <div
+                        className="clothing-types-invest-risk-view-toggle"
+                        role="group"
+                        aria-label="Inventory strain view"
+                      >
+                        <button
+                          type="button"
+                          className={`clothing-types-invest-risk-view-btn${
+                            clothingTypesInvestRiskView === 'cards' ? ' is-active' : ''
+                          }`}
+                          aria-pressed={clothingTypesInvestRiskView === 'cards'}
+                          aria-label="Card view"
+                          title="Card view"
+                          onClick={() => setClothingTypesInvestRiskView('cards')}
+                        >
+                          <svg
+                            className="clothing-types-invest-risk-view-icon"
+                            viewBox="0 0 20 20"
+                            width="18"
+                            height="18"
+                            aria-hidden="true"
+                            focusable="false"
+                          >
+                            <rect x="2" y="2" width="7" height="7" rx="1.5" fill="currentColor" />
+                            <rect x="11" y="2" width="7" height="7" rx="1.5" fill="currentColor" />
+                            <rect x="2" y="11" width="7" height="7" rx="1.5" fill="currentColor" />
+                            <rect x="11" y="11" width="7" height="7" rx="1.5" fill="currentColor" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          className={`clothing-types-invest-risk-view-btn${
+                            clothingTypesInvestRiskView === 'graph' ? ' is-active' : ''
+                          }`}
+                          aria-pressed={clothingTypesInvestRiskView === 'graph'}
+                          aria-label="Graph view"
+                          title="Graph view"
+                          onClick={() => setClothingTypesInvestRiskView('graph')}
+                        >
+                          <svg
+                            className="clothing-types-invest-risk-view-icon"
+                            viewBox="0 0 20 20"
+                            width="18"
+                            height="18"
+                            aria-hidden="true"
+                            focusable="false"
+                          >
+                            <rect x="2" y="11" width="3.5" height="7" rx="0.8" fill="currentColor" />
+                            <rect x="8.25" y="5" width="3.5" height="13" rx="0.8" fill="currentColor" />
+                            <rect x="14.5" y="2" width="3.5" height="16" rx="0.8" fill="currentColor" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          className={`clothing-types-invest-risk-view-btn${
+                            clothingTypesInvestRiskView === 'table' ? ' is-active' : ''
+                          }`}
+                          aria-pressed={clothingTypesInvestRiskView === 'table'}
+                          aria-label="Table view"
+                          title="Table view"
+                          onClick={() => setClothingTypesInvestRiskView('table')}
+                        >
+                          <svg
+                            className="clothing-types-invest-risk-view-icon"
+                            viewBox="0 0 20 20"
+                            width="18"
+                            height="18"
+                            aria-hidden="true"
+                            focusable="false"
+                          >
+                            <rect
+                              x="2.5"
+                              y="3"
+                              width="15"
+                              height="14"
+                              rx="1.5"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1.6"
+                            />
+                            <path
+                              d="M2.5 7.5h15M2.5 12h15M8 3v14"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1.6"
+                            />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
                     {clothingTypesInventoryError ? (
                       <div className="menswear-categories-error menswear-categories-error--inline" role="alert">
                         {clothingTypesInventoryError}
                       </div>
                     ) : null}
                     {clothingTypesInventoryLoading && !clothingTypesInventoryError ? (
-                      <div className="menswear-categories-muted">Loading inventory chart…</div>
+                      <div className="menswear-categories-muted">Loading inventory…</div>
                     ) : null}
                     {!clothingTypesInventoryLoading &&
                       !clothingTypesInventoryError &&
-                      (clothingTypesInvestRiskModel.chartData ? (
-                        <>
-                          <div className="clothing-types-invest-risk-chart-wrap">
-                            <Bar
-                              data={clothingTypesInvestRiskModel.chartData}
-                              options={clothingTypesInvestRiskBarOptions}
-                            />
-                          </div>
+                      (clothingTypesInvestRiskModel.buyOrderedRows.length > 0 ? (
+                        clothingTypesInvestRiskView === 'cards' ? (
+                            <ul className="clothing-types-invest-risk-cards">
+                                {clothingTypesInvestRiskModel.buyOrderedRows.map((r) => {
+                                  const sellThroughDisplay = (
+                                    Math.round(r.sellThroughPct * 10) / 10
+                                  ).toFixed(1);
+                                  /** Sold ahead/behind vs unsold, as % of listed stock in the category. */
+                                  const netPct =
+                                    r.total > 0 ? ((r.sold - r.unsold) / r.total) * 100 : 0;
+                                  const netPctDisplay = (
+                                    Math.round(Math.abs(netPct) * 10) / 10
+                                  ).toFixed(1);
+                                  const netPositive = netPct > 0;
+                                  const netNegative = netPct < 0;
+                                  const netClass = netPositive
+                                    ? 'clothing-types-invest-risk-card--net-positive'
+                                    : netNegative
+                                      ? 'clothing-types-invest-risk-card--net-negative'
+                                      : 'clothing-types-invest-risk-card--net-neutral';
+                                  return (
+                                    <li key={`${r.bucketId}-${r.label}`}>
+                                      <a
+                                        className={`clothing-types-invest-risk-card ${netClass}`}
+                                        href={clothingTypesDetailHref(
+                                          r.bucketId === -1 ? 'uncategorized' : r.bucketId,
+                                          clothingTypesListDepartmentIdForApi
+                                        )}
+                                      >
+                                        <span className="clothing-types-invest-risk-card-name">
+                                          {r.label}
+                                        </span>
+                                        <span className="clothing-types-invest-risk-card-counts">
+                                          <span className="clothing-types-invest-risk-card-count">
+                                            <span className="clothing-types-invest-risk-card-count-value">
+                                              {r.total}
+                                            </span>
+                                            <span className="clothing-types-invest-risk-card-count-label">
+                                              Bought
+                                            </span>
+                                          </span>
+                                          <span className="clothing-types-invest-risk-card-count">
+                                            <span className="clothing-types-invest-risk-card-count-value">
+                                              {r.sold}
+                                            </span>
+                                            <span className="clothing-types-invest-risk-card-count-label">
+                                              Sold
+                                            </span>
+                                          </span>
+                                        </span>
+                                        <span className="clothing-types-invest-risk-card-sell-through">
+                                          <span className="clothing-types-invest-risk-card-sell-through-value">
+                                            {sellThroughDisplay}%
+                                          </span>
+                                          <span className="clothing-types-invest-risk-card-sell-through-label">
+                                            Sell-through
+                                          </span>
+                                        </span>
+                                        <span
+                                          className={`clothing-types-invest-risk-card-net${
+                                            netPositive
+                                              ? ' clothing-types-invest-risk-card-net--positive'
+                                              : netNegative
+                                                ? ' clothing-types-invest-risk-card-net--negative'
+                                                : ''
+                                          }`}
+                                          title="Sold minus unsold, as a share of bought items in this category"
+                                        >
+                                          {netPositive ? '+' : netNegative ? '−' : ''}
+                                          {netPctDisplay}% net
+                                        </span>
+                                      </a>
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                          ) : clothingTypesInvestRiskView === 'graph' ? (
+                            clothingTypesInvestRiskModel.chartData ? (
+                              <div className="clothing-types-invest-risk-chart-wrap">
+                                <Bar
+                                  data={clothingTypesInvestRiskModel.chartData}
+                                  options={clothingTypesInvestRiskBarOptions}
+                                />
+                              </div>
+                            ) : (
+                              <div className="menswear-categories-muted">No graph data for this view.</div>
+                            )
+                          ) : (
                           <div className="clothing-types-invest-risk-table-wrap">
                             <table className="menswear-categories-avoid-drilldown-table clothing-types-invest-risk-table">
                               <thead>
@@ -12504,7 +12686,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                               </tbody>
                             </table>
                           </div>
-                        </>
+                          )
                       ) : (
                         <div className="menswear-categories-muted">
                           No categories with unsold stock and at least two listings match this view for{' '}
