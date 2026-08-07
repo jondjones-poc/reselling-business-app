@@ -9,6 +9,8 @@ const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...ar
 const DEFAULT_INTEGRATION_KEY = 'default';
 const FULFILLMENT_SCOPE = 'https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly';
 const ANALYTICS_SCOPE = 'https://api.ebay.com/oauth/api_scope/sell.analytics.readonly';
+/** Required to list Seller Hub drafts (unpublished offers) and publishOffer. */
+const INVENTORY_SCOPE = 'https://api.ebay.com/oauth/api_scope/sell.inventory';
 const TOKEN_URL = 'https://api.ebay.com/identity/v1/oauth2/token';
 const AUTHORIZE_BASE = 'https://auth.ebay.com/oauth2/authorize';
 
@@ -36,12 +38,19 @@ function getScopeString() {
   const includeAnalytics =
     process.env.EBAY_OAUTH_INCLUDE_ANALYTICS === '1' ||
     process.env.EBAY_OAUTH_INCLUDE_ANALYTICS === 'true';
-  return includeAnalytics ? `${FULFILLMENT_SCOPE} ${ANALYTICS_SCOPE}` : FULFILLMENT_SCOPE;
+  const parts = [FULFILLMENT_SCOPE, INVENTORY_SCOPE];
+  if (includeAnalytics) parts.push(ANALYTICS_SCOPE);
+  return parts.join(' ');
 }
 
 function scopeIncludesAnalytics(scope) {
   if (!scope) return false;
   return String(scope).includes('sell.analytics');
+}
+
+function scopeIncludesInventory(scope) {
+  if (!scope) return false;
+  return String(scope).includes('sell.inventory');
 }
 
 /**
@@ -196,13 +205,15 @@ function buildAuthorizeUrl(state) {
     throw new Error('eBay Client ID and Client Secret are required (EBAY_APP / REACT_APP_EBAY_APP_ID and REACT_APP_EBAY_CERT_ID).');
   }
   const redirectUri = getEbayOAuthRuName();
+  const scope = getScopeString();
   const params = new URLSearchParams({
     client_id: creds.clientId,
     response_type: 'code',
     redirect_uri: redirectUri,
-    scope: getScopeString(),
+    scope,
     state
   });
+  console.log('[eBay OAuth] authorize scopes:', scope);
   return `${AUTHORIZE_BASE}?${params.toString()}`;
 }
 
@@ -297,8 +308,19 @@ async function updateRefreshTokenIfRotated(pool, newRefreshToken) {
   );
 }
 
+async function updateStoredScope(pool, scope) {
+  if (!scope) return;
+  const key = (process.env.EBAY_OAUTH_INTEGRATION_KEY || DEFAULT_INTEGRATION_KEY).trim() || DEFAULT_INTEGRATION_KEY;
+  await pool.query(
+    `UPDATE ebay_oauth_token SET scope = $2, updated_at = NOW() WHERE integration_key = $1`,
+    [key, String(scope)]
+  );
+}
+
 /**
- * Returns a valid user access token for Fulfillment, using DB refresh token + short-lived memory cache.
+ * Returns a valid user access token for seller APIs (Fulfillment, Inventory, etc.).
+ * Always refreshes with the app's current scope string so newly added scopes (e.g. sell.inventory)
+ * are included even if the DB row still lists an older narrower scope.
  */
 async function getFulfillmentUserAccessToken(pool) {
   const envOverride = (
@@ -329,7 +351,22 @@ async function getFulfillmentUserAccessToken(pool) {
     throw err;
   }
 
-  const tok = await exchangeRefreshToken(row.refresh_token, row.scope);
+  const desiredScope = getScopeString();
+  let tok;
+  try {
+    tok = await exchangeRefreshToken(row.refresh_token, desiredScope);
+  } catch (wideErr) {
+    // Fall back to historically stored scopes if eBay rejects the expanded set.
+    if (row.scope && String(row.scope).trim() !== desiredScope) {
+      console.warn(
+        '[eBay OAuth] refresh with app scopes failed, retrying stored scope:',
+        wideErr instanceof Error ? wideErr.message : wideErr
+      );
+      tok = await exchangeRefreshToken(row.refresh_token, row.scope);
+    } else {
+      throw wideErr;
+    }
+  }
   const access = tok.access_token;
   const expiresIn = Number(tok.expires_in) || 7200;
   if (!access) {
@@ -343,6 +380,15 @@ async function getFulfillmentUserAccessToken(pool) {
     await updateRefreshTokenIfRotated(pool, tok.refresh_token);
   }
 
+  const grantedScope = (tok.scope && String(tok.scope).trim()) || desiredScope;
+  if (grantedScope && grantedScope !== String(row.scope || '').trim()) {
+    try {
+      await updateStoredScope(pool, grantedScope);
+    } catch (scopeErr) {
+      console.warn('[eBay OAuth] could not persist expanded scope:', scopeErr.message);
+    }
+  }
+
   return access;
 }
 
@@ -350,10 +396,12 @@ module.exports = {
   DEFAULT_INTEGRATION_KEY,
   FULFILLMENT_SCOPE,
   ANALYTICS_SCOPE,
+  INVENTORY_SCOPE,
   getEbayClientCreds,
   getEbayOAuthRuName,
   getScopeString,
   scopeIncludesAnalytics,
+  scopeIncludesInventory,
   createOAuthState,
   consumeOAuthState,
   sanitizeOAuthReturnTo,

@@ -16,7 +16,7 @@
   display: flex;
   gap: 0;
   width: 100%;
-  max-width: 720px;
+  max-width: 960px;
   margin: 0 auto 28px auto;
   padding: 0;
   border-radius: 16px;
@@ -27,15 +27,15 @@
 }
 
 .orders-tab {
-  flex: 1 1 33.33%;
+  flex: 1 1 25%;
   margin: 0;
-  padding: 14px 20px;
+  padding: 14px 12px;
   border: none;
   background: transparent;
   color: rgba(var(--theme-text-rgb), 0.65);
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   font-weight: 600;
-  letter-spacing: 0.06rem;
+  letter-spacing: 0.04rem;
   text-transform: uppercase;
   cursor: pointer;
   transition:
@@ -337,6 +337,11 @@
   border: 2px solid transparent;
   line-height: 0;
   text-decoration: none;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  appearance: none;
+  -webkit-appearance: none;
   transition:
     background 0.15s ease,
     border-color 0.15s ease,
@@ -2606,5 +2611,143 @@
     font-size: 1.1rem;
     padding: 18px 24px;
   }
+}
+
+.orders-schedule-listing {
+  margin-top: 8px;
+}
+
+.orders-schedule-listing-section {
+  margin-top: 8px;
+}
+
+.orders-schedule-listing-status-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.75rem;
+}
+
+.orders-schedule-listing-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.orders-schedule-listing-lead {
+  margin: 0;
+  max-width: 42rem;
+  color: rgba(var(--theme-text-rgb), 0.78);
+  line-height: 1.45;
+}
+
+.orders-schedule-listing-steps {
+  margin: 0.85rem 0 1rem;
+  padding-left: 1.25rem;
+  max-width: 42rem;
+  color: rgba(var(--theme-text-rgb), 0.78);
+  line-height: 1.5;
+}
+
+.orders-schedule-listing-steps a {
+  color: var(--neon-primary-strong);
+}
+
+.orders-schedule-listing-muted {
+  color: rgba(var(--theme-text-rgb), 0.55);
+}
+
+.orders-schedule-listing-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--neon-border);
+  border-radius: 14px;
+}
+
+.orders-schedule-listing-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.orders-schedule-listing-table th,
+.orders-schedule-listing-table td {
+  padding: 0.85rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.12);
+  vertical-align: top;
+}
+
+.orders-schedule-listing-table th {
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(var(--theme-text-rgb), 0.55);
+  background: rgba(var(--theme-bg-rgb), 0.55);
+}
+
+.orders-schedule-listing-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.orders-schedule-listing-title {
+  font-weight: 600;
+  color: var(--neon-primary-strong);
+}
+
+.orders-schedule-listing-meta {
+  margin-top: 0.25rem;
+  font-size: 0.78rem;
+  color: rgba(var(--theme-text-rgb), 0.5);
+}
+
+.orders-schedule-listing-note {
+  margin-top: 0.4rem;
+  font-size: 0.82rem;
+  color: rgba(var(--theme-accent-rgb), 0.95);
+}
+
+.orders-schedule-listing-date {
+  min-width: 9.5rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid var(--neon-border);
+  background: rgba(var(--theme-bg-rgb), 0.9);
+  color: inherit;
+}
+
+.orders-schedule-listing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.orders-schedule-listing-publish {
+  padding: 0.4rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.45);
+  background: rgba(var(--theme-accent-rgb), 0.16);
+  color: var(--neon-primary-strong);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.orders-schedule-listing-publish:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.orders-ebay-oauth-link {
+  display: inline-flex;
+  align-items: center;
+  margin: 0.75rem 0.75rem 0 0;
+  padding: 0.5rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.45);
+  background: rgba(var(--theme-accent-rgb), 0.14);
+  color: var(--neon-primary-strong);
+  font-weight: 600;
+  text-decoration: none;
 }
 

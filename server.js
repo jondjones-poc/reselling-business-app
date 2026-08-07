@@ -17,6 +17,8 @@ const ebaySellerOAuth = require('./ebaySellerOAuth');
 const { normalizeDateOnlyString, serializeStockDateFields } = require('./utils/dateOnly');
 const stockListQuery = require('./utils/stockListQuery');
 const inFashionInsights = require('./utils/inFashionInsights');
+const brandTrendsInsights = require('./utils/brandTrendsInsights');
+const ebayInventoryDrafts = require('./utils/ebayInventoryDrafts');
 
 const app = express();
 const PORT = process.env.PORT || 5003;
@@ -426,6 +428,8 @@ const PUBLIC_API_ROUTES = new Set([
   'GET /db-ping',
   'GET /db-keepalive',
   'POST /research-seller/cache-refresh',
+  'POST /research/in-fashion/brand-trends/refresh',
+  'POST /ebay/scheduled-listings/run',
   'GET /ebay/oauth/callback',
 ]);
 
@@ -1163,6 +1167,9 @@ app.get('/api/ebay/oauth/callback', async (req, res) => {
 
     const scopeGranted =
       (tokens.scope && String(tokens.scope).trim()) || ebaySellerOAuth.getScopeString();
+    const requested = ebaySellerOAuth.getScopeString();
+    console.log('[eBay OAuth] requested scopes:', requested);
+    console.log('[eBay OAuth] granted scopes:', scopeGranted);
 
     let userName = 'seller';
     let ebayUserId = null;
@@ -1182,6 +1189,16 @@ app.get('/api/ebay/oauth/callback', async (req, res) => {
       scope: scopeGranted,
       ebayUserId
     });
+    ebaySellerOAuth.invalidateAccessTokenCache();
+
+    const returnTo = stateData?.returnTo ? String(stateData.returnTo) : '';
+    const wantsInventory = /schedule-listing/i.test(returnTo);
+    if (wantsInventory && !ebaySellerOAuth.scopeIncludesInventory(scopeGranted)) {
+      const msg = encodeURIComponent(
+        'eBay did not grant listing (Inventory) access. In developer.ebay.com open your app keyset, enable the Sell Inventory API, then remove this app under eBay Account → Sign in and security → Third-party app permissions, and reconnect.'
+      );
+      return res.redirect(302, `${frontendErrorBase}&ebay_oauth_msg=${msg}`);
+    }
 
     const verify = await pool.query(
       `SELECT refresh_token FROM ebay_oauth_token WHERE integration_key = $1`,
@@ -1226,7 +1243,8 @@ app.get('/api/ebay/oauth/status', async (req, res) => {
       updated_at: row.updated_at,
       integration_key: key,
       scope,
-      has_analytics_scope: ebaySellerOAuth.scopeIncludesAnalytics(scope)
+      has_analytics_scope: ebaySellerOAuth.scopeIncludesAnalytics(scope),
+      has_inventory_scope: ebaySellerOAuth.scopeIncludesInventory(scope),
     });
   } catch (e) {
     console.error('/api/ebay/oauth/status failed:', e);
@@ -1236,6 +1254,323 @@ app.get('/api/ebay/oauth/status', async (req, res) => {
       error: e instanceof Error ? e.message : String(e)
     });
   }
+});
+
+let ebayScheduledListingsRunInFlight = false;
+let ebayScheduledListingsLastSummary = null;
+
+/**
+ * GET — Seller Hub drafts (unpublished Inventory offers) + any pending schedules from DB.
+ */
+app.get('/api/ebay/listing-drafts', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    let userToken;
+    try {
+      userToken = await ebaySellerOAuth.getFulfillmentUserAccessToken(pool);
+    } catch (tokErr) {
+      const code = tokErr && tokErr.code;
+      return res.status(code === 'EBAY_USER_TOKEN_MISSING' ? 401 : 502).json({
+        error: tokErr instanceof Error ? tokErr.message : String(tokErr),
+        code: code || 'EBAY_TOKEN_ERROR',
+      });
+    }
+
+    let drafts;
+    try {
+      drafts = await ebayInventoryDrafts.listUnpublishedOffers(userToken);
+    } catch (apiErr) {
+      const status = apiErr.httpStatus === 401 || apiErr.httpStatus === 403 ? 403 : 502;
+      let scope = '';
+      try {
+        const key = (process.env.EBAY_OAUTH_INTEGRATION_KEY || ebaySellerOAuth.DEFAULT_INTEGRATION_KEY).trim();
+        const scopeRes = await pool.query(
+          `SELECT scope FROM ebay_oauth_token WHERE integration_key = $1`,
+          [key]
+        );
+        scope = scopeRes.rows?.[0]?.scope != null ? String(scopeRes.rows[0].scope) : '';
+      } catch {
+        /* ignore */
+      }
+      const missingInventory = !ebaySellerOAuth.scopeIncludesInventory(scope);
+      console.warn(
+        '/api/ebay/listing-drafts eBay error:',
+        apiErr.message,
+        'http=',
+        apiErr.httpStatus,
+        'dbScope=',
+        scope || '(none)',
+        'missingInventory=',
+        missingInventory
+      );
+      return res.status(status).json({
+        error: missingInventory
+          ? 'eBay login is missing listing access. Reconnect eBay on this tab after enabling Sell Inventory on your eBay developer app.'
+          : apiErr instanceof Error
+            ? apiErr.message
+            : String(apiErr),
+        code: missingInventory ? 'EBAY_INVENTORY_SCOPE' : apiErr.code || 'EBAY_GET_OFFERS_FAILED',
+        needsInventoryScope: missingInventory || apiErr.code === 'EBAY_INVENTORY_SCOPE',
+        scope,
+      });
+    }
+
+    try {
+      await ebayInventoryDrafts.ensureScheduledListingTable(pool);
+    } catch (ensureErr) {
+      console.warn('ebay_scheduled_listing ensure:', ensureErr.message);
+    }
+    const pending = await ebayInventoryDrafts.listPendingSchedules(pool);
+    const pendingByOffer = new Map(
+      pending.map((row) => [String(row.offer_id), ebayInventoryDrafts.serializeScheduleRow(row)])
+    );
+
+    const rows = drafts.map((d) => ({
+      ...d,
+      title: d.listingTitle || d.title || d.sku || `Offer ${d.offerId}`,
+      schedule: pendingByOffer.get(d.offerId) || null,
+    }));
+
+    res.json({
+      count: rows.length,
+      asOf: ebayInventoryDrafts.londonTodayYmd(),
+      marketplaceId: ebayInventoryDrafts.marketplaceId(),
+      rows,
+    });
+  } catch (e) {
+    console.error('/api/ebay/listing-drafts failed:', e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+/**
+ * POST — Publish a draft offer immediately.
+ */
+app.post('/api/ebay/listing-drafts/:offerId/publish', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const offerId = String(req.params.offerId || '').trim();
+    if (!offerId) {
+      return res.status(400).json({ error: 'offerId required' });
+    }
+
+    let userToken;
+    try {
+      userToken = await ebaySellerOAuth.getFulfillmentUserAccessToken(pool);
+    } catch (tokErr) {
+      const code = tokErr && tokErr.code;
+      return res.status(code === 'EBAY_USER_TOKEN_MISSING' ? 401 : 502).json({
+        error: tokErr instanceof Error ? tokErr.message : String(tokErr),
+        code: code || 'EBAY_TOKEN_ERROR',
+      });
+    }
+
+    const published = await ebayInventoryDrafts.publishOffer(userToken, offerId);
+
+    try {
+      await ebayInventoryDrafts.ensureScheduledListingTable(pool);
+      await pool.query(
+        `UPDATE ebay_scheduled_listing
+         SET status = 'published', listing_id = COALESCE($2, listing_id),
+             published_at = NOW(), updated_at = NOW(), last_error = NULL
+         WHERE offer_id = $1 AND status IN ('pending', 'failed', 'publishing')`,
+        [offerId, published.listingId]
+      );
+    } catch (dbErr) {
+      console.warn('schedule mark after immediate publish:', dbErr.message);
+    }
+
+    res.json({ ok: true, offerId, listingId: published.listingId, warnings: published.warnings });
+  } catch (e) {
+    console.error('/api/ebay/listing-drafts publish failed:', e);
+    const status = e.httpStatus === 401 || e.httpStatus === 403 ? 403 : 502;
+    res.status(status).json({
+      error: e instanceof Error ? e.message : String(e),
+      code: e.code || 'EBAY_PUBLISH_OFFER_FAILED',
+      needsInventoryScope: e.code === 'EBAY_INVENTORY_SCOPE',
+    });
+  }
+});
+
+/**
+ * POST — Schedule a draft to publish on a calendar date (Europe/London).
+ * Body: { scheduledFor: "YYYY-MM-DD", title?, sku?, price? }
+ */
+app.post('/api/ebay/listing-drafts/:offerId/schedule', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const offerId = String(req.params.offerId || '').trim();
+    const scheduledFor = ebayInventoryDrafts.parseYmd(req.body?.scheduledFor);
+    if (!offerId) {
+      return res.status(400).json({ error: 'offerId required' });
+    }
+    if (!scheduledFor) {
+      return res.status(400).json({ error: 'scheduledFor must be YYYY-MM-DD' });
+    }
+    const today = ebayInventoryDrafts.londonTodayYmd();
+    if (scheduledFor < today) {
+      return res.status(400).json({ error: 'scheduledFor cannot be in the past' });
+    }
+
+    let title = req.body?.title != null ? String(req.body.title).trim() : '';
+    let sku = req.body?.sku != null ? String(req.body.sku).trim() : '';
+    let priceValue =
+      req.body?.price?.value != null && Number.isFinite(Number(req.body.price.value))
+        ? Number(req.body.price.value)
+        : null;
+    let priceCurrency = req.body?.price?.currency != null ? String(req.body.price.currency) : null;
+    let marketplaceId = ebayInventoryDrafts.marketplaceId();
+
+    try {
+      const userToken = await ebaySellerOAuth.getFulfillmentUserAccessToken(pool);
+      const offer = await ebayInventoryDrafts.getOffer(userToken, offerId);
+      if (offer.status && offer.status !== 'UNPUBLISHED') {
+        return res.status(400).json({
+          error: `Offer is ${offer.status}, not an unpublished draft`,
+          code: 'OFFER_NOT_DRAFT',
+        });
+      }
+      title = title || offer.title || offer.sku || `Offer ${offerId}`;
+      sku = sku || offer.sku || '';
+      if (priceValue == null && offer.price) {
+        priceValue = offer.price.value;
+        priceCurrency = offer.price.currency;
+      }
+      marketplaceId = offer.marketplaceId || marketplaceId;
+    } catch (offerErr) {
+      console.warn('schedule getOffer:', offerErr.message);
+      if (!title) title = `Offer ${offerId}`;
+    }
+
+    const row = await ebayInventoryDrafts.upsertSchedule(pool, {
+      offerId,
+      sku: sku || null,
+      title,
+      marketplaceId,
+      priceValue,
+      priceCurrency,
+      scheduledFor,
+    });
+
+    res.json({
+      ok: true,
+      schedule: ebayInventoryDrafts.serializeScheduleRow(row),
+    });
+  } catch (e) {
+    console.error('/api/ebay/listing-drafts schedule failed:', e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+/**
+ * DELETE — Cancel a pending schedule for an offer.
+ */
+app.delete('/api/ebay/listing-drafts/:offerId/schedule', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const offerId = String(req.params.offerId || '').trim();
+    if (!offerId) {
+      return res.status(400).json({ error: 'offerId required' });
+    }
+    const row = await ebayInventoryDrafts.cancelSchedule(pool, offerId);
+    res.json({
+      ok: true,
+      cancelled: Boolean(row),
+      schedule: ebayInventoryDrafts.serializeScheduleRow(row),
+    });
+  } catch (e) {
+    console.error('/api/ebay/listing-drafts cancel schedule failed:', e);
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+/**
+ * POST — Cron: publish due scheduled drafts (Bearer DB_KEEPALIVE_SECRET or signed-in user).
+ */
+app.post('/api/ebay/scheduled-listings/run', async (req, res) => {
+  const secretOk = (() => {
+    const expected = (process.env.DB_KEEPALIVE_SECRET || '').trim();
+    if (!expected) return false;
+    const auth = String(req.headers.authorization || '');
+    if (auth.toLowerCase().startsWith('bearer ') && auth.slice(7).trim() === expected) {
+      return true;
+    }
+    const q = req.query && req.query.secret != null ? String(req.query.secret).trim() : '';
+    return q === expected;
+  })();
+
+  if (!secretOk) {
+    const user = await requireAuthUser(req, res);
+    if (!user) return;
+  }
+
+  if (ebayScheduledListingsRunInFlight) {
+    return res.status(202).json({
+      ok: true,
+      alreadyRunning: true,
+      lastSummary: ebayScheduledListingsLastSummary,
+    });
+  }
+
+  ebayScheduledListingsRunInFlight = true;
+  res.status(202).json({ ok: true, started: true });
+
+  setImmediate(() => {
+    const pool = getDatabasePool();
+    if (!pool) {
+      ebayScheduledListingsRunInFlight = false;
+      ebayScheduledListingsLastSummary = {
+        error: 'Database not configured',
+        finishedAt: new Date().toISOString(),
+      };
+      return;
+    }
+    ebayInventoryDrafts
+      .runDueScheduledPublishes(pool, () => ebaySellerOAuth.getFulfillmentUserAccessToken(pool))
+      .then((summary) => {
+        ebayScheduledListingsLastSummary = {
+          ...summary,
+          finishedAt: new Date().toISOString(),
+        };
+        console.log(
+          'ebay scheduled-listings run:',
+          summary.published,
+          'published,',
+          summary.failed,
+          'failed of',
+          summary.total
+        );
+      })
+      .catch((err) => {
+        console.error('ebay scheduled-listings run failed:', err);
+        ebayScheduledListingsLastSummary = {
+          error: err instanceof Error ? err.message : String(err),
+          finishedAt: new Date().toISOString(),
+        };
+      })
+      .finally(() => {
+        ebayScheduledListingsRunInFlight = false;
+      });
+  });
+});
+
+app.get('/api/ebay/scheduled-listings/run-status', async (req, res) => {
+  res.json({
+    running: ebayScheduledListingsRunInFlight,
+    lastSummary: ebayScheduledListingsLastSummary,
+  });
 });
 
 function formatEbayAnalyticsDateYmd(d) {
@@ -2506,6 +2841,8 @@ function verifyDbKeepaliveSecret(req, res) {
 }
 
 let researchSellerCronRefreshInFlight = false;
+let brandTrendsRefreshInFlight = false;
+let brandTrendsLastRefreshSummary = null;
 
 /** In-memory progress for per-seller ↻ refresh (polled by the UI while eBay fetch runs). */
 const researchSellerRefreshProgress = new Map();
@@ -6201,6 +6538,246 @@ app.get('/api/research/in-fashion/query-detail', async (req, res) => {
     console.error('in-fashion query-detail failed:', error);
     res.status(500).json({ error: 'Failed to load query detail', details: error.message });
   }
+});
+
+/**
+ * Resolve Trends department key (menswear, …) → department.id from public.department.
+ */
+async function resolveDepartmentIdForTrendKey(pool, departmentKey) {
+  const key = inFashionInsights.normalizeDepartmentKey(departmentKey);
+  if (!key) return null;
+  const res = await pool.query(
+    `SELECT id, department_name FROM department ORDER BY id ASC`
+  );
+  const rows = res.rows || [];
+  const slug = (name) =>
+    String(name || '')
+      .trim()
+      .toLowerCase()
+      .replace(/&/g, ' and ')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  const aliases = {
+    menswear: 'menswear',
+    mens: 'menswear',
+    men: 'menswear',
+    womenswear: 'womenswear',
+    womens: 'womenswear',
+    women: 'womenswear',
+    electronics: 'electronics',
+    media: 'media',
+    toys: 'toys',
+    'bric-a-brac': 'bric-a-brac',
+    bricabrac: 'bric-a-brac',
+  };
+  const want = aliases[key] || key;
+  for (const row of rows) {
+    const s = slug(row.department_name);
+    if (s === want || aliases[s] === want) return Number(row.id);
+  }
+  return null;
+}
+
+/**
+ * Cached brand pulse from research_brand_trends_cache (no live Google Trends).
+ * GET /api/research/in-fashion/brand-trends?department=menswear&window=1y
+ */
+app.get('/api/research/in-fashion/brand-trends', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    try {
+      await brandTrendsInsights.ensureBrandTrendsTable(pool);
+    } catch (ensureErr) {
+      console.warn('brand-trends ensure table:', ensureErr.message);
+    }
+
+    const windowKey = brandTrendsInsights.normalizeWindowKey(req.query.window);
+    const departmentKey = inFashionInsights.normalizeDepartmentKey(req.query.department);
+    const departmentId = departmentKey
+      ? await resolveDepartmentIdForTrendKey(pool, departmentKey)
+      : null;
+
+    const scoreCol = `score_${windowKey}`;
+    const dirCol = `direction_${windowKey}`;
+
+    const result = await pool.query(
+      `SELECT
+         c.brand_id,
+         c.brand_name,
+         c.department_id,
+         c.geo,
+         c.interest_series,
+         c.score_6m, c.score_1y, c.score_2y, c.score_5y,
+         c.direction_6m, c.direction_1y, c.direction_2y, c.direction_5y,
+         c.trends_error,
+         c.fetched_at
+       FROM research_brand_trends_cache c
+       WHERE ($1::int IS NULL OR c.department_id = $1::int)
+         AND jsonb_array_length(COALESCE(c.interest_series, '[]'::jsonb)) > 0
+       ORDER BY
+         CASE COALESCE(c.${dirCol}, 'flat')
+           WHEN 'rising' THEN 0
+           WHEN 'flat' THEN 1
+           WHEN 'fading' THEN 2
+           ELSE 3
+         END,
+         COALESCE(c.${scoreCol}, 0) DESC,
+         c.brand_name ASC`,
+      [departmentId]
+    );
+
+    const rows = (result.rows || []).map((r) => {
+      const series = Array.isArray(r.interest_series) ? r.interest_series : [];
+      const direction = r[dirCol] || 'flat';
+      const scoreRaw = r[scoreCol];
+      const score =
+        scoreRaw == null || scoreRaw === ''
+          ? null
+          : Number.isFinite(Number(scoreRaw))
+            ? Number(scoreRaw)
+            : null;
+      return {
+        brandId: Number(r.brand_id),
+        brandName: r.brand_name,
+        departmentId: r.department_id != null ? Number(r.department_id) : null,
+        geo: r.geo || 'GB',
+        window: windowKey,
+        score,
+        direction,
+        scores: {
+          '6m': r.score_6m != null ? Number(r.score_6m) : null,
+          '1y': r.score_1y != null ? Number(r.score_1y) : null,
+          '2y': r.score_2y != null ? Number(r.score_2y) : null,
+          '5y': r.score_5y != null ? Number(r.score_5y) : null,
+        },
+        directions: {
+          '6m': r.direction_6m || 'flat',
+          '1y': r.direction_1y || 'flat',
+          '2y': r.direction_2y || 'flat',
+          '5y': r.direction_5y || 'flat',
+        },
+        sparkline: brandTrendsInsights.sparklineFromSeries(series, 24),
+        trendsError: r.trends_error || null,
+        fetchedAt: r.fetched_at ? new Date(r.fetched_at).toISOString() : null,
+      };
+    });
+
+    const latestFetched = rows.reduce((max, row) => {
+      if (!row.fetchedAt) return max;
+      if (!max || row.fetchedAt > max) return row.fetchedAt;
+      return max;
+    }, null);
+
+    res.json({
+      department: departmentKey,
+      departmentId,
+      window: windowKey,
+      rows,
+      count: rows.length,
+      latestFetchedAt: latestFetched,
+      refresh: {
+        running: brandTrendsRefreshInFlight,
+        lastSummary: brandTrendsLastRefreshSummary,
+      },
+    });
+  } catch (error) {
+    console.error('brand-trends list failed:', error);
+    if (String(error.message || '').includes('research_brand_trends_cache')) {
+      return res.status(503).json({
+        error: 'research_brand_trends_cache table missing',
+        details: 'Run database/research_brand_trends_cache.sql in your database.',
+      });
+    }
+    res.status(500).json({ error: 'Failed to load brand trends', details: error.message });
+  }
+});
+
+/**
+ * Weekly cron / manual: refresh Google Trends for brands into Postgres.
+ * Auth: Bearer DB_KEEPALIVE_SECRET (cron) OR signed-in app user (manual button).
+ * POST /api/research/in-fashion/brand-trends/refresh
+ * Returns 202; job runs in background.
+ */
+app.post('/api/research/in-fashion/brand-trends/refresh', async (req, res) => {
+  const keepSecret = process.env.DB_KEEPALIVE_SECRET;
+  const auth = String(req.get('authorization') || '').trim();
+  const m = /^Bearer\s+(.+)$/i.exec(auth);
+  const bearer = m ? m[1].trim() : '';
+  const qSecret = String(req.query.secret ?? '').trim();
+  const isCronAuth =
+    Boolean(keepSecret) && (bearer === keepSecret || qSecret === keepSecret);
+
+  if (!isCronAuth) {
+    const user = await requireAuthUser(req, res);
+    if (!user) return;
+  }
+
+  if (brandTrendsRefreshInFlight) {
+    return res.status(202).json({
+      ok: true,
+      started: false,
+      alreadyRunning: true,
+      lastSummary: brandTrendsLastRefreshSummary,
+    });
+  }
+
+  const pool = getDatabasePool();
+  if (!pool) {
+    return res.status(503).json({ ok: false, error: 'Database not configured' });
+  }
+
+  let departmentId = null;
+  const departmentKey = inFashionInsights.normalizeDepartmentKey(
+    req.query.department ?? req.body?.department
+  );
+  if (departmentKey) {
+    try {
+      departmentId = await resolveDepartmentIdForTrendKey(pool, departmentKey);
+    } catch {
+      departmentId = null;
+    }
+  }
+
+  brandTrendsRefreshInFlight = true;
+  res.status(202).json({
+    ok: true,
+    started: true,
+    department: departmentKey,
+    departmentId,
+  });
+
+  setImmediate(() => {
+    brandTrendsInsights
+      .runBrandTrendsRefreshJob(pool, { departmentId })
+      .then((summary) => {
+        brandTrendsLastRefreshSummary = summary;
+        console.log('brand-trends refresh finished', JSON.stringify(summary));
+      })
+      .catch((err) => {
+        brandTrendsLastRefreshSummary = {
+          error: err instanceof Error ? err.message : String(err),
+          finishedAt: new Date().toISOString(),
+        };
+        console.error('brand-trends refresh failed', err);
+      })
+      .finally(() => {
+        brandTrendsRefreshInFlight = false;
+      });
+  });
+});
+
+/**
+ * Poll refresh status for the manual button.
+ * GET /api/research/in-fashion/brand-trends/refresh-status
+ */
+app.get('/api/research/in-fashion/brand-trends/refresh-status', (_req, res) => {
+  res.json({
+    running: brandTrendsRefreshInFlight,
+    lastSummary: brandTrendsLastRefreshSummary,
+  });
 });
 
 const RESEARCH_FEED_SOLD_DAYS_DEFAULT = 180;
@@ -13663,18 +14240,51 @@ app.get('/api/menswear-categories/inventory-by-category', async (req, res) => {
 
     if (useStockCategories) {
       const result = await pool.query(
-        `SELECT
-           c.id AS category_id,
-           COALESCE(c.category_name, 'Uncategorized') AS category_name,
-           COUNT(s.id)::int AS unsold_count
-         FROM stock s
-         INNER JOIN brand b ON b.id = s.brand_id
-         LEFT JOIN category c ON c.id = s.category_id
-         WHERE s.sale_date IS NULL
-           AND b.department_id = $1::int
-           AND (s.category_id IS NULL OR c.department_id = $1::int OR c.department_id IS NULL)
-         GROUP BY c.id, c.category_name
-         HAVING COUNT(s.id) > 0
+        `WITH per_cat AS (
+           SELECT
+             c.id AS category_id,
+             COALESCE(c.category_name, 'Uncategorized') AS category_name,
+             COUNT(*) FILTER (WHERE s.sale_date IS NOT NULL)::int AS sold_count,
+             COUNT(*) FILTER (WHERE s.sale_date IS NULL)::int AS unsold_count,
+             COALESCE(SUM(
+               CASE
+                 WHEN s.sale_date IS NOT NULL
+                 THEN COALESCE(NULLIF(TRIM(s.sale_price::text), '')::numeric, 0)
+                   - COALESCE(NULLIF(TRIM(s.purchase_price::text), '')::numeric, 0)
+                 ELSE 0::numeric
+               END
+             ), 0::numeric) AS total_net_profit,
+             COALESCE(SUM(
+               CASE
+                 WHEN s.sale_date IS NULL
+                  AND s.purchase_price IS NOT NULL
+                  AND TRIM(s.purchase_price::text) <> ''
+                 THEN s.purchase_price::numeric
+                 ELSE 0::numeric
+               END
+             ), 0::numeric) AS unsold_inventory_total
+           FROM stock s
+           INNER JOIN brand b ON b.id = s.brand_id
+           LEFT JOIN category c ON c.id = s.category_id
+           WHERE b.department_id = $1::int
+             AND (s.category_id IS NULL OR c.department_id = $1::int OR c.department_id IS NULL)
+           GROUP BY c.id, c.category_name
+         )
+         SELECT
+           category_id,
+           category_name,
+           sold_count,
+           unsold_count,
+           (sold_count + unsold_count)::int AS total_count,
+           CASE
+             WHEN (sold_count + unsold_count) > 0
+             THEN (unsold_count::double precision / (sold_count + unsold_count))
+             ELSE 0::double precision
+           END AS unsold_ratio,
+           total_net_profit,
+           unsold_inventory_total
+         FROM per_cat
+         WHERE sold_count > 0 OR unsold_count > 0
          ORDER BY unsold_count DESC, category_name ASC`,
         [filterDeptId]
       );
@@ -13684,29 +14294,100 @@ app.get('/api/menswear-categories/inventory-by-category', async (req, res) => {
     let result;
     if (filterDeptId !== null) {
       result = await pool.query(
-        `SELECT
-           c.id AS category_id,
-           COALESCE(c.name, 'No research bucket') AS category_name,
-           COUNT(s.id)::int AS unsold_count
-         FROM brand b
-         LEFT JOIN menswear_category c ON c.id = b.menswear_category_id
-         LEFT JOIN stock s ON s.brand_id = b.id AND s.sale_date IS NULL
-         WHERE b.department_id = $1
-         GROUP BY c.id, c.name
-         ORDER BY unsold_count DESC, c.name ASC`,
+        `WITH per_cat AS (
+           SELECT
+             c.id AS category_id,
+             COALESCE(c.name, 'No research bucket') AS category_name,
+             COUNT(*) FILTER (WHERE s.id IS NOT NULL AND s.sale_date IS NOT NULL)::int AS sold_count,
+             COUNT(*) FILTER (WHERE s.id IS NOT NULL AND s.sale_date IS NULL)::int AS unsold_count,
+             COALESCE(SUM(
+               CASE
+                 WHEN s.id IS NOT NULL AND s.sale_date IS NOT NULL
+                 THEN COALESCE(NULLIF(TRIM(s.sale_price::text), '')::numeric, 0)
+                   - COALESCE(NULLIF(TRIM(s.purchase_price::text), '')::numeric, 0)
+                 ELSE 0::numeric
+               END
+             ), 0::numeric) AS total_net_profit,
+             COALESCE(SUM(
+               CASE
+                 WHEN s.id IS NOT NULL
+                  AND s.sale_date IS NULL
+                  AND s.purchase_price IS NOT NULL
+                  AND TRIM(s.purchase_price::text) <> ''
+                 THEN s.purchase_price::numeric
+                 ELSE 0::numeric
+               END
+             ), 0::numeric) AS unsold_inventory_total
+           FROM brand b
+           LEFT JOIN menswear_category c ON c.id = b.menswear_category_id
+           LEFT JOIN stock s ON s.brand_id = b.id
+           WHERE b.department_id = $1
+           GROUP BY c.id, c.name
+         )
+         SELECT
+           category_id,
+           category_name,
+           sold_count,
+           unsold_count,
+           (sold_count + unsold_count)::int AS total_count,
+           CASE
+             WHEN (sold_count + unsold_count) > 0
+             THEN (unsold_count::double precision / (sold_count + unsold_count))
+             ELSE 0::double precision
+           END AS unsold_ratio,
+           total_net_profit,
+           unsold_inventory_total
+         FROM per_cat
+         WHERE sold_count > 0 OR unsold_count > 0
+         ORDER BY unsold_count DESC, category_name ASC`,
         [filterDeptId]
       );
     } else {
       result = await pool.query(
-        `SELECT
-           c.id AS category_id,
-           c.name AS category_name,
-           COUNT(s.id)::int AS unsold_count
-         FROM menswear_category c
-         LEFT JOIN brand b ON b.menswear_category_id = c.id
-         LEFT JOIN stock s ON s.brand_id = b.id AND s.sale_date IS NULL
-         GROUP BY c.id, c.name
-         ORDER BY unsold_count DESC, c.name ASC`
+        `WITH per_cat AS (
+           SELECT
+             c.id AS category_id,
+             c.name AS category_name,
+             COUNT(*) FILTER (WHERE s.id IS NOT NULL AND s.sale_date IS NOT NULL)::int AS sold_count,
+             COUNT(*) FILTER (WHERE s.id IS NOT NULL AND s.sale_date IS NULL)::int AS unsold_count,
+             COALESCE(SUM(
+               CASE
+                 WHEN s.id IS NOT NULL AND s.sale_date IS NOT NULL
+                 THEN COALESCE(NULLIF(TRIM(s.sale_price::text), '')::numeric, 0)
+                   - COALESCE(NULLIF(TRIM(s.purchase_price::text), '')::numeric, 0)
+                 ELSE 0::numeric
+               END
+             ), 0::numeric) AS total_net_profit,
+             COALESCE(SUM(
+               CASE
+                 WHEN s.id IS NOT NULL
+                  AND s.sale_date IS NULL
+                  AND s.purchase_price IS NOT NULL
+                  AND TRIM(s.purchase_price::text) <> ''
+                 THEN s.purchase_price::numeric
+                 ELSE 0::numeric
+               END
+             ), 0::numeric) AS unsold_inventory_total
+           FROM menswear_category c
+           LEFT JOIN brand b ON b.menswear_category_id = c.id
+           LEFT JOIN stock s ON s.brand_id = b.id
+           GROUP BY c.id, c.name
+         )
+         SELECT
+           category_id,
+           category_name,
+           sold_count,
+           unsold_count,
+           (sold_count + unsold_count)::int AS total_count,
+           CASE
+             WHEN (sold_count + unsold_count) > 0
+             THEN (unsold_count::double precision / (sold_count + unsold_count))
+             ELSE 0::double precision
+           END AS unsold_ratio,
+           total_net_profit,
+           unsold_inventory_total
+         FROM per_cat
+         ORDER BY unsold_count DESC, category_name ASC`
       );
     }
 
@@ -13818,9 +14499,10 @@ app.get('/api/stock-categories/inventory-by-category', async (req, res) => {
              CASE
                WHEN s.sale_date IS NOT NULL
                 AND ($1::int IS NULL OR b.department_id = $1::int)
-                AND s.net_profit IS NOT NULL
-                AND TRIM(s.net_profit::text) <> ''
-               THEN s.net_profit::numeric
+               THEN
+                 /* Prefer sale − purchase so stored net_profit of 0 cannot hide real losses. */
+                 COALESCE(NULLIF(TRIM(s.sale_price::text), '')::numeric, 0)
+                   - COALESCE(NULLIF(TRIM(s.purchase_price::text), '')::numeric, 0)
                ELSE 0::numeric
              END
            ), 0::numeric) AS total_net_profit,
@@ -13849,9 +14531,9 @@ app.get('/api/stock-categories/inventory-by-category', async (req, res) => {
            COALESCE(SUM(
              CASE
                WHEN s.sale_date IS NOT NULL
-                AND s.net_profit IS NOT NULL
-                AND TRIM(s.net_profit::text) <> ''
-               THEN s.net_profit::numeric
+               THEN
+                 COALESCE(NULLIF(TRIM(s.sale_price::text), '')::numeric, 0)
+                   - COALESCE(NULLIF(TRIM(s.purchase_price::text), '')::numeric, 0)
                ELSE 0::numeric
              END
            ), 0::numeric) AS total_net_profit,
@@ -14816,6 +15498,420 @@ app.post('/api/brands/:brandId/links', async (req, res) => {
 });
 
 /**
+ * Inventory ageing — unsold stock by age band (purchase_date).
+ * GET /api/stock/inventory-ageing?department_id=&category_id=&brand_id=&platform=
+ * GET /api/stock/inventory-ageing/items?band=91-180&department_id=&category_id=&brand_id=&platform=&limit=
+ */
+const INVENTORY_AGEING_BANDS = [
+  { key: '0-30', label: '0–30 days', minDays: 0, maxDays: 30, warning: 'healthy' },
+  { key: '31-60', label: '31–60 days', minDays: 31, maxDays: 60, warning: 'healthy' },
+  { key: '61-90', label: '61–90 days', minDays: 61, maxDays: 90, warning: 'healthy' },
+  { key: '91-180', label: '91–180 days', minDays: 91, maxDays: 180, warning: 'watch' },
+  { key: '181-365', label: '181–365 days', minDays: 181, maxDays: 365, warning: 'slow' },
+  { key: '365+', label: '365+ days', minDays: 366, maxDays: null, warning: 'stale' },
+];
+
+function parseInventoryAgeingFilters(req) {
+  const departmentId = parseOptionalBrandDepartmentFilter(req);
+  const rawCat = req.query.category_id ?? req.query.categoryId;
+  let categoryId = null;
+  if (rawCat !== undefined && rawCat !== null && String(rawCat).trim() !== '') {
+    const n = Number(rawCat);
+    if (Number.isInteger(n) && n >= 1) categoryId = n;
+  }
+  const rawBrand = req.query.brand_id ?? req.query.brandId;
+  let brandId = null;
+  if (rawBrand !== undefined && rawBrand !== null && String(rawBrand).trim() !== '') {
+    const n = Number(rawBrand);
+    if (Number.isInteger(n) && n >= 1) brandId = n;
+  }
+  const platformRaw = String(req.query.platform ?? 'all').trim().toLowerCase();
+  const platform = ['vinted', 'ebay', 'depop', 'unlisted'].includes(platformRaw)
+    ? platformRaw
+    : 'all';
+  return { departmentId, categoryId, brandId, platform };
+}
+
+function inventoryAgeingFilterSql(filters, startIndex = 1, opts = {}) {
+  const requirePurchaseDate = opts.requirePurchaseDate !== false;
+  const clauses = ['s.sale_date IS NULL'];
+  if (requirePurchaseDate) {
+    clauses.push('s.purchase_date IS NOT NULL');
+  } else {
+    clauses.push('s.purchase_date IS NULL');
+  }
+  const params = [];
+  let i = startIndex;
+  if (filters.departmentId != null) {
+    clauses.push(`b.department_id = $${i++}`);
+    params.push(filters.departmentId);
+  }
+  if (filters.categoryId != null) {
+    clauses.push(`s.category_id = $${i++}`);
+    params.push(filters.categoryId);
+  }
+  if (filters.brandId != null) {
+    clauses.push(`s.brand_id = $${i++}`);
+    params.push(filters.brandId);
+  }
+  if (filters.platform === 'vinted') {
+    clauses.push(`s.vinted_id IS NOT NULL AND TRIM(s.vinted_id::text) <> ''`);
+  } else if (filters.platform === 'ebay') {
+    clauses.push(`s.ebay_id IS NOT NULL AND TRIM(s.ebay_id::text) <> ''`);
+  } else if (filters.platform === 'depop') {
+    clauses.push(`s.depop_id IS NOT NULL AND TRIM(s.depop_id::text) <> ''`);
+  } else if (filters.platform === 'unlisted') {
+    clauses.push(`(
+      (s.vinted_id IS NULL OR TRIM(s.vinted_id::text) = '')
+      AND (s.ebay_id IS NULL OR TRIM(s.ebay_id::text) = '')
+      AND (s.depop_id IS NULL OR TRIM(s.depop_id::text) = '')
+    )`);
+  }
+  return { whereSql: clauses.join(' AND '), params, nextIndex: i };
+}
+
+function inventoryAgeingBandCaseSql(ageExpr) {
+  return `
+    CASE
+      WHEN ${ageExpr} BETWEEN 0 AND 30 THEN '0-30'
+      WHEN ${ageExpr} BETWEEN 31 AND 60 THEN '31-60'
+      WHEN ${ageExpr} BETWEEN 61 AND 90 THEN '61-90'
+      WHEN ${ageExpr} BETWEEN 91 AND 180 THEN '91-180'
+      WHEN ${ageExpr} BETWEEN 181 AND 365 THEN '181-365'
+      WHEN ${ageExpr} >= 366 THEN '365+'
+      ELSE NULL
+    END
+  `;
+}
+
+app.get('/api/stock/inventory-ageing', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const filters = parseInventoryAgeingFilters(req);
+    const { whereSql, params } = inventoryAgeingFilterSql(filters);
+
+    const result = await pool.query(
+      `
+      WITH aged AS (
+        SELECT
+          s.id,
+          (CURRENT_DATE - s.purchase_date)::int AS age_days,
+          COALESCE(NULLIF(TRIM(s.purchase_price::text), '')::numeric, 0) AS purchase_cost,
+          CASE
+            WHEN s.projected_sale_price IS NOT NULL
+             AND TRIM(s.projected_sale_price::text) <> ''
+            THEN s.projected_sale_price::numeric
+            ELSE NULL
+          END AS asking_price
+        FROM stock s
+        LEFT JOIN brand b ON b.id = s.brand_id
+        WHERE ${whereSql}
+      ),
+      banded AS (
+        SELECT
+          *,
+          ${inventoryAgeingBandCaseSql('age_days')} AS band_key
+        FROM aged
+        WHERE age_days IS NOT NULL AND age_days >= 0
+      )
+      SELECT
+        band_key,
+        COUNT(*)::int AS item_count,
+        COALESCE(SUM(purchase_cost), 0)::numeric AS purchase_total,
+        AVG(purchase_cost)::numeric AS avg_purchase_cost,
+        AVG(asking_price) FILTER (WHERE asking_price IS NOT NULL)::numeric AS avg_asking_price,
+        AVG(age_days)::float AS avg_age_days,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY age_days)::float AS median_age_days,
+        MAX(age_days)::int AS max_age_days,
+        MIN(age_days)::int AS min_age_days
+      FROM banded
+      WHERE band_key IS NOT NULL
+      GROUP BY band_key
+      `,
+      params
+    );
+
+    const byKey = new Map(
+      (result.rows ?? []).map((r) => [String(r.band_key), r])
+    );
+
+    // Missing purchase date count with same filters (except purchase_date required)
+    const missingClauses = ['s.sale_date IS NULL', 's.purchase_date IS NULL'];
+    const missingParams = [];
+    let mi = 1;
+    if (filters.departmentId != null) {
+      missingClauses.push(`b.department_id = $${mi++}`);
+      missingParams.push(filters.departmentId);
+    }
+    if (filters.categoryId != null) {
+      missingClauses.push(`s.category_id = $${mi++}`);
+      missingParams.push(filters.categoryId);
+    }
+    if (filters.brandId != null) {
+      missingClauses.push(`s.brand_id = $${mi++}`);
+      missingParams.push(filters.brandId);
+    }
+    if (filters.platform === 'vinted') {
+      missingClauses.push(`s.vinted_id IS NOT NULL AND TRIM(s.vinted_id::text) <> ''`);
+    } else if (filters.platform === 'ebay') {
+      missingClauses.push(`s.ebay_id IS NOT NULL AND TRIM(s.ebay_id::text) <> ''`);
+    } else if (filters.platform === 'depop') {
+      missingClauses.push(`s.depop_id IS NOT NULL AND TRIM(s.depop_id::text) <> ''`);
+    } else if (filters.platform === 'unlisted') {
+      missingClauses.push(`(
+        (s.vinted_id IS NULL OR TRIM(s.vinted_id::text) = '')
+        AND (s.ebay_id IS NULL OR TRIM(s.ebay_id::text) = '')
+        AND (s.depop_id IS NULL OR TRIM(s.depop_id::text) = '')
+      )`);
+    }
+    const missingResult = await pool.query(
+      `
+      SELECT COUNT(*)::int AS missing_purchase_date_count
+      FROM stock s
+      LEFT JOIN brand b ON b.id = s.brand_id
+      WHERE ${missingClauses.join(' AND ')}
+      `,
+      missingParams
+    );
+
+    let totalItems = 0;
+    let totalCapital = 0;
+
+    const bands = INVENTORY_AGEING_BANDS.map((meta) => {
+      const row = byKey.get(meta.key);
+      const itemCount = row ? Number(row.item_count) || 0 : 0;
+      const purchaseTotal = row ? Number(row.purchase_total) || 0 : 0;
+      const avgPurchaseCost = row && row.avg_purchase_cost != null ? Number(row.avg_purchase_cost) : null;
+      const avgAskingPrice = row && row.avg_asking_price != null ? Number(row.avg_asking_price) : null;
+      totalItems += itemCount;
+      totalCapital += purchaseTotal;
+      return {
+        key: meta.key,
+        label: meta.label,
+        minDays: meta.minDays,
+        maxDays: meta.maxDays,
+        warning: meta.warning,
+        itemCount,
+        purchaseTotal,
+        avgPurchaseCost: avgPurchaseCost != null && Number.isFinite(avgPurchaseCost) ? avgPurchaseCost : null,
+        avgAskingPrice: avgAskingPrice != null && Number.isFinite(avgAskingPrice) ? avgAskingPrice : null,
+        pctOfItems: 0,
+        pctOfCapital: 0,
+      };
+    });
+
+    for (const band of bands) {
+      band.pctOfItems = totalItems > 0 ? (band.itemCount / totalItems) * 100 : 0;
+      band.pctOfCapital = totalCapital > 0 ? (band.purchaseTotal / totalCapital) * 100 : 0;
+    }
+
+    // Overall age stats from all matching rows
+    const statsResult = await pool.query(
+      `
+      SELECT
+        AVG(age_days)::float AS avg_age_days,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY age_days)::float AS median_age_days,
+        MAX(age_days)::int AS max_age_days,
+        MIN(purchase_date) AS oldest_purchase_date,
+        MAX(purchase_date) AS newest_purchase_date
+      FROM (
+        SELECT
+          (CURRENT_DATE - s.purchase_date)::int AS age_days,
+          s.purchase_date
+        FROM stock s
+        LEFT JOIN brand b ON b.id = s.brand_id
+        WHERE ${whereSql}
+      ) t
+      WHERE age_days IS NOT NULL AND age_days >= 0
+      `,
+      params
+    );
+    const stats = statsResult.rows?.[0] ?? {};
+
+    res.json({
+      bands,
+      totals: {
+        itemCount: totalItems,
+        purchaseTotal: totalCapital,
+        avgAgeDays:
+          stats.avg_age_days != null && Number.isFinite(Number(stats.avg_age_days))
+            ? Number(stats.avg_age_days)
+            : null,
+        medianAgeDays:
+          stats.median_age_days != null && Number.isFinite(Number(stats.median_age_days))
+            ? Number(stats.median_age_days)
+            : null,
+        oldestAgeDays:
+          stats.max_age_days != null && Number.isFinite(Number(stats.max_age_days))
+            ? Number(stats.max_age_days)
+            : null,
+        oldestPurchaseDate: stats.oldest_purchase_date
+          ? String(stats.oldest_purchase_date).slice(0, 10)
+          : null,
+        newestPurchaseDate: stats.newest_purchase_date
+          ? String(stats.newest_purchase_date).slice(0, 10)
+          : null,
+        missingPurchaseDateCount: Number(missingResult.rows?.[0]?.missing_purchase_date_count) || 0,
+      },
+      filters,
+      dataSpanNote:
+        'Purchase dates in this system are relatively recent (about 9 months of history). Treat 365+ and long-term trend comparisons cautiously.',
+    });
+  } catch (error) {
+    console.error('stock inventory-ageing failed:', error);
+    res.status(500).json({ error: 'Failed to load inventory ageing', details: error.message });
+  }
+});
+
+app.get('/api/stock/inventory-ageing/items', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const bandKey = String(req.query.band ?? '').trim();
+    const isMissingDate = bandKey === 'missing-date';
+    const meta = isMissingDate
+      ? { key: 'missing-date', label: 'Missing purchase date', warning: 'watch' }
+      : INVENTORY_AGEING_BANDS.find((b) => b.key === bandKey);
+    if (!meta) {
+      return res.status(400).json({
+        error: 'Invalid band. Use 0-30, 31-60, 61-90, 91-180, 181-365, 365+, or missing-date.',
+      });
+    }
+
+    let limit = parseInt(String(req.query.limit ?? '200'), 10);
+    if (Number.isNaN(limit)) limit = 200;
+    limit = Math.min(500, Math.max(1, limit));
+
+    const filters = parseInventoryAgeingFilters(req);
+
+    if (isMissingDate) {
+      const { whereSql, params, nextIndex } = inventoryAgeingFilterSql(filters, 1, {
+        requirePurchaseDate: false,
+      });
+      const result = await pool.query(
+        `
+        SELECT
+          s.id,
+          COALESCE(NULLIF(TRIM(s.item_name), ''), 'Untitled item') AS item_name,
+          NULL::text AS purchase_date,
+          NULL::int AS days_in_stock,
+          s.purchase_price,
+          s.projected_sale_price,
+          s.brand_id,
+          COALESCE(NULLIF(TRIM(b.brand_name), ''), '—') AS brand_name,
+          s.category_id,
+          COALESCE(NULLIF(TRIM(c.category_name), ''), 'Uncategorized') AS category_name,
+          s.vinted_id,
+          s.ebay_id,
+          s.depop_id
+        FROM stock s
+        LEFT JOIN brand b ON b.id = s.brand_id
+        LEFT JOIN category c ON c.id = s.category_id
+        WHERE ${whereSql}
+        ORDER BY s.id DESC
+        LIMIT $${nextIndex}
+        `,
+        [...params, limit]
+      );
+
+      return res.json({
+        band: meta.key,
+        label: meta.label,
+        warning: meta.warning,
+        rows: (result.rows ?? []).map((row) => ({
+          id: Number(row.id),
+          itemName: row.item_name,
+          purchaseDate: null,
+          daysInStock: null,
+          purchasePrice: row.purchase_price != null ? Number(row.purchase_price) : null,
+          projectedSalePrice:
+            row.projected_sale_price != null && row.projected_sale_price !== ''
+              ? Number(row.projected_sale_price)
+              : null,
+          brandId: row.brand_id != null ? Number(row.brand_id) : null,
+          brandName: row.brand_name,
+          categoryId: row.category_id != null ? Number(row.category_id) : null,
+          categoryName: row.category_name,
+          vintedId: row.vinted_id,
+          ebayId: row.ebay_id,
+          depopId: row.depop_id,
+        })),
+      });
+    }
+
+    const { whereSql, params, nextIndex } = inventoryAgeingFilterSql(filters);
+    const ageExpr = '(CURRENT_DATE - s.purchase_date)::int';
+    const ageClause =
+      meta.maxDays == null
+        ? `${ageExpr} >= $${nextIndex}`
+        : `${ageExpr} BETWEEN $${nextIndex} AND $${nextIndex + 1}`;
+    const ageParams =
+      meta.maxDays == null ? [meta.minDays] : [meta.minDays, meta.maxDays];
+
+    const result = await pool.query(
+      `
+      SELECT
+        s.id,
+        COALESCE(NULLIF(TRIM(s.item_name), ''), 'Untitled item') AS item_name,
+        to_char(s.purchase_date, 'YYYY-MM-DD') AS purchase_date,
+        ${ageExpr} AS days_in_stock,
+        s.purchase_price,
+        s.projected_sale_price,
+        s.brand_id,
+        COALESCE(NULLIF(TRIM(b.brand_name), ''), '—') AS brand_name,
+        s.category_id,
+        COALESCE(NULLIF(TRIM(c.category_name), ''), 'Uncategorized') AS category_name,
+        s.vinted_id,
+        s.ebay_id,
+        s.depop_id
+      FROM stock s
+      LEFT JOIN brand b ON b.id = s.brand_id
+      LEFT JOIN category c ON c.id = s.category_id
+      WHERE ${whereSql}
+        AND ${ageClause}
+      ORDER BY ${ageExpr} DESC NULLS LAST, s.id DESC
+      LIMIT $${nextIndex + ageParams.length}
+      `,
+      [...params, ...ageParams, limit]
+    );
+
+    res.json({
+      band: meta.key,
+      label: meta.label,
+      warning: meta.warning,
+      rows: (result.rows ?? []).map((row) => ({
+        id: Number(row.id),
+        itemName: row.item_name,
+        purchaseDate: row.purchase_date,
+        daysInStock: row.days_in_stock != null ? Number(row.days_in_stock) : null,
+        purchasePrice: row.purchase_price != null ? Number(row.purchase_price) : null,
+        projectedSalePrice:
+          row.projected_sale_price != null && row.projected_sale_price !== ''
+            ? Number(row.projected_sale_price)
+            : null,
+        brandId: row.brand_id != null ? Number(row.brand_id) : null,
+        brandName: row.brand_name,
+        categoryId: row.category_id != null ? Number(row.category_id) : null,
+        categoryName: row.category_name,
+        vintedId: row.vinted_id,
+        ebayId: row.ebay_id,
+        depopId: row.depop_id,
+      })),
+    });
+  } catch (error) {
+    console.error('stock inventory-ageing items failed:', error);
+    res.status(500).json({ error: 'Failed to load ageing band items', details: error.message });
+  }
+});
+
+/**
  * Unsold / for-sale stock lines for a brand (Ask AI context).
  * GET /api/brands/:brandId/unsold-stock-items?limit=40
  */
@@ -15450,6 +16546,97 @@ app.get('/api/departments', async (req, res) => {
   } catch (error) {
     console.error('Departments query failed:', error);
     res.status(500).json({ error: 'Failed to load departments', details: error.message });
+  }
+});
+
+/**
+ * GET /api/departments/sales-overview
+ * Sell-through totals per department (bought / sold / for sale + spend / revenue).
+ */
+app.get('/api/departments/sales-overview', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    await ensureBrandDepartmentSchema(pool);
+
+    const result = await pool.query(
+      `
+        SELECT
+          d.id AS department_id,
+          d.department_name,
+          COUNT(s.id)::int AS items_bought,
+          COUNT(*) FILTER (
+            WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+          )::int AS items_sold,
+          COUNT(*) FILTER (
+            WHERE s.id IS NOT NULL
+              AND NOT (s.sale_price IS NOT NULL AND s.sale_price::numeric > 0)
+          )::int AS items_for_sale,
+          COALESCE(
+            SUM(s.purchase_price::numeric) FILTER (WHERE s.purchase_price IS NOT NULL),
+            0
+          )::numeric AS total_purchase_spend,
+          COALESCE(
+            SUM(s.sale_price::numeric) FILTER (
+              WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+            ),
+            0
+          )::numeric AS total_sold_revenue
+        FROM public.department d
+        LEFT JOIN public.brand b ON b.department_id = d.id
+        LEFT JOIN public.stock s ON s.brand_id = b.id
+        GROUP BY d.id, d.department_name
+        ORDER BY d.department_name ASC
+      `
+    );
+
+    const departments = (result.rows ?? []).map((row) => {
+      const totalPurchaseSpend = Number(row.total_purchase_spend) || 0;
+      const totalSoldRevenue = Number(row.total_sold_revenue) || 0;
+      return {
+        departmentId: Number(row.department_id),
+        departmentName: String(row.department_name ?? '').trim() || '—',
+        itemsBought: Number(row.items_bought) || 0,
+        itemsSold: Number(row.items_sold) || 0,
+        itemsForSale: Number(row.items_for_sale) || 0,
+        totalPurchaseSpend,
+        totalSoldRevenue,
+        netPosition: totalSoldRevenue - totalPurchaseSpend,
+      };
+    });
+
+    const total = departments.reduce(
+      (acc, d) => {
+        acc.itemsBought += d.itemsBought;
+        acc.itemsSold += d.itemsSold;
+        acc.itemsForSale += d.itemsForSale;
+        acc.totalPurchaseSpend += d.totalPurchaseSpend;
+        acc.totalSoldRevenue += d.totalSoldRevenue;
+        return acc;
+      },
+      {
+        departmentId: 0,
+        departmentName: 'Total',
+        itemsBought: 0,
+        itemsSold: 0,
+        itemsForSale: 0,
+        totalPurchaseSpend: 0,
+        totalSoldRevenue: 0,
+        netPosition: 0,
+      }
+    );
+    total.netPosition = total.totalSoldRevenue - total.totalPurchaseSpend;
+
+    res.json({
+      total,
+      departments,
+    });
+  } catch (error) {
+    console.error('departments sales-overview failed:', error);
+    res.status(500).json({ error: 'Failed to load department sales overview', details: error.message });
   }
 });
 

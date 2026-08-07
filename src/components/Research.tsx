@@ -10,12 +10,24 @@ import {
   type ChartOptions,
 } from 'chart.js';
 import { Bar, Pie } from 'react-chartjs-2';
-import { Link, useLocation, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import { getApiBase } from '../utils/apiBase';
 import { themeAccentRgba, themeTextRgba } from '../utils/themeColors';
+import {
+  balancePctToHeatColor,
+  balancePctToHeatTextColor,
+  buySignalBreakdown,
+  buySignalHeatPct,
+  buySignalToColor,
+  buySignalToTextColor,
+  profitMarginToColor,
+  profitMarginToTextColor,
+  sellThroughBalanceToColor,
+  sellThroughBalanceToTextColor,
+} from '../utils/sellThroughHeatColor';
 import ResearchItemViews from './ResearchItemViews';
+import InventoryAgeing from './InventoryAgeing';
 import SeasonalWeeklyTopItems from './SeasonalWeeklyTopItems';
-import EbayNicheExplorer from './EbayNicheExplorer';
 import './BrandResearch.css';
 
 ChartJS.register(ArcElement, BarElement, CategoryScale, LinearScale, Tooltip, Legend);
@@ -30,6 +42,24 @@ const CLOTHING_TYPES_PIE_LOAD_ANIMATION = {
 
 function formatResearchCurrency(value: number): string {
   return new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(value);
+}
+
+/** Keep +/− glued to the amount so it cannot wrap onto its own line. */
+function formatSignedResearchCurrency(value: number | string | null | undefined): string {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n) || n === 0) return formatResearchCurrency(0);
+  const sign = n > 0 ? '+' : '−';
+  return `${sign}\u2060${formatResearchCurrency(Math.abs(n))}`;
+}
+
+function formatSignedNumber(
+  value: number | string | null | undefined,
+  digits = 1
+): string {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n) || n === 0) return (0).toFixed(digits);
+  const sign = n > 0 ? '+' : '−';
+  return `${sign}\u2060${Math.abs(n).toFixed(digits)}`;
 }
 
 function formatAveragedSaleBand(min: number, max: number): string {
@@ -702,6 +732,263 @@ type BrandSalesOverviewBrandCard = {
   totalSoldRevenue: number;
   brandNetPosition: number;
 };
+
+type DepartmentSalesOverviewCard = {
+  departmentId: number;
+  departmentName: string;
+  itemsBought: number;
+  itemsSold: number;
+  itemsForSale: number;
+  totalPurchaseSpend: number;
+  totalSoldRevenue: number;
+  netPosition: number;
+};
+
+function buildDepartmentSalesOverviewAskAiPrompt(
+  cards: DepartmentSalesOverviewCard[]
+): string {
+  const maxAbsProfit = Math.max(1, ...cards.map((c) => Math.abs(c.netPosition)));
+  const maxBought = Math.max(1, ...cards.map((c) => c.itemsBought));
+
+  const totals = cards.reduce(
+    (acc, c) => {
+      acc.itemsBought += c.itemsBought;
+      acc.itemsSold += c.itemsSold;
+      acc.itemsForSale += c.itemsForSale;
+      acc.totalPurchaseSpend += c.totalPurchaseSpend;
+      acc.totalSoldRevenue += c.totalSoldRevenue;
+      acc.netPosition += c.netPosition;
+      return acc;
+    },
+    {
+      itemsBought: 0,
+      itemsSold: 0,
+      itemsForSale: 0,
+      totalPurchaseSpend: 0,
+      totalSoldRevenue: 0,
+      netPosition: 0,
+    }
+  );
+
+  const sorted = [...cards].sort((a, b) => {
+    const scoreA = buySignalHeatPct({
+      sold: a.itemsSold,
+      inventory: a.itemsForSale,
+      bought: a.itemsBought,
+      netProfit: a.netPosition,
+      maxAbsProfit,
+      maxBought,
+    });
+    const scoreB = buySignalHeatPct({
+      sold: b.itemsSold,
+      inventory: b.itemsForSale,
+      bought: b.itemsBought,
+      netProfit: b.netPosition,
+      maxAbsProfit,
+      maxBought,
+    });
+    if (scoreB !== scoreA) return scoreB - scoreA;
+    return b.netPosition - a.netPosition;
+  });
+
+  const lines: string[] = [
+    `I'm a UK second-hand / resale seller. I want **objective** advice — do **not** just agree with me, cheerlead, or soft-pedal. Challenge weak assumptions, say when the data is thin, and separate facts from guesses.`,
+    ``,
+    `Below is my **department-level performance** from my stock system. Net = sales revenue − all purchase spend (including capital still tied up in unsold stock). Sell-through = sold ÷ bought. Buy signal combines net position, sell-through rate, and volume (higher = stronger buy; negative = avoid).`,
+    ``,
+    `## Overall`,
+    `- Departments: ${cards.length}`,
+    `- Items bought: ${totals.itemsBought}`,
+    `- Items sold: ${totals.itemsSold}`,
+    `- Still for sale: ${totals.itemsForSale}`,
+    `- Sales revenue: ${formatResearchCurrency(totals.totalSoldRevenue)}`,
+    `- Amount spent: ${formatResearchCurrency(totals.totalPurchaseSpend)}`,
+    `- Net position: ${formatSignedResearchCurrency(totals.netPosition)}`,
+    `- Overall sell-through: ${
+      totals.itemsBought > 0
+        ? `${((totals.itemsSold / totals.itemsBought) * 100).toFixed(1)}%`
+        : '—'
+    }`,
+    ``,
+    `## Departments (sorted by buy signal, strongest first)`,
+    ``,
+  ];
+
+  if (sorted.length === 0) {
+    lines.push(`*(No department data in my system yet.)*`, ``);
+  } else {
+    sorted.forEach((c, i) => {
+      const sellThrough =
+        c.itemsBought > 0 ? `${((c.itemsSold / c.itemsBought) * 100).toFixed(1)}%` : '—';
+      const signal = buySignalBreakdown({
+        sold: c.itemsSold,
+        inventory: c.itemsForSale,
+        bought: c.itemsBought,
+        netProfit: c.netPosition,
+        maxAbsProfit,
+        maxBought,
+      });
+      lines.push(
+        `### ${i + 1}. ${c.departmentName}`,
+        `- Net: ${formatSignedResearchCurrency(c.netPosition)}`,
+        `- Sales: ${formatResearchCurrency(c.totalSoldRevenue)} · Spent: ${formatResearchCurrency(c.totalPurchaseSpend)}`,
+        `- Bought ${c.itemsBought} · Sold ${c.itemsSold} · For sale ${c.itemsForSale}`,
+        `- Sell-through: ${sellThrough}`,
+        `- Buy signal: ${formatSignedNumber(Math.round(signal.score * 10) / 10, 1)} (vol weight ${(
+          signal.volumeWeight * 100
+        ).toFixed(0)}%, sample ${(signal.sampleWeight * 100).toFixed(0)}%)`,
+        ``
+      );
+    });
+  }
+
+  lines.push(
+    `## What I need from you`,
+    `1. **What I'm doing right** — Based on the numbers, where does my department mix look strong (profit, sell-through, or buy signal)? Be specific.`,
+    `2. **What I'm doing wrong** — Where am I leaking money, tying up capital, or chasing weak departments? Call out the worst offenders and why.`,
+    `3. **Ideas I might not have thought about** — Practical next moves a UK reseller might miss: sourcing focus, department mix, when to stop buying, how to free capital, category experiments, pricing/turn tactics. Prefer actionable ideas over generic advice.`,
+    ``,
+    `Tone: direct, practical. Work from the data above; say when sample size is too small to trust.`,
+    `Today’s date context: ${new Date().toISOString().slice(0, 10)}.`
+  );
+
+  return lines.join('\n');
+}
+
+type ClothingTypeInvestRiskAskAiRow = {
+  label: string;
+  sold: number;
+  unsold: number;
+  total: number;
+  sellThroughPct: number;
+  totalNetProfit: number;
+  unsoldInventoryTotal: number;
+  netPosition: number;
+};
+
+function clothingTypesHeatModeAskAiLabel(
+  mode: 'price' | 'sell-through' | 'buy-signal'
+): string {
+  switch (mode) {
+    case 'price':
+      return 'Price (net position)';
+    case 'sell-through':
+      return 'Sell-through';
+    default:
+      return 'Buy signal';
+  }
+}
+
+function buildClothingTypesAskAiPrompt(args: {
+  departmentName: string;
+  heatMode: 'price' | 'sell-through' | 'buy-signal';
+  salesPeriodLabel: string;
+  cards: ClothingTypeInvestRiskAskAiRow[];
+  buyTop5: string[];
+  avoidTop5: string[];
+  maxAbsProfit: number;
+  maxBought: number;
+}): string {
+  const {
+    departmentName,
+    heatMode,
+    salesPeriodLabel,
+    cards,
+    buyTop5,
+    avoidTop5,
+    maxAbsProfit,
+    maxBought,
+  } = args;
+
+  const totals = cards.reduce(
+    (acc, c) => {
+      acc.bought += c.total;
+      acc.sold += c.sold;
+      acc.forSale += c.unsold;
+      acc.realizedProfit += c.totalNetProfit;
+      acc.inventoryTiedUp += c.unsoldInventoryTotal;
+      acc.netPosition += c.netPosition;
+      return acc;
+    },
+    {
+      bought: 0,
+      sold: 0,
+      forSale: 0,
+      realizedProfit: 0,
+      inventoryTiedUp: 0,
+      netPosition: 0,
+    }
+  );
+
+  const lines: string[] = [
+    `I'm a UK second-hand / resale seller. I want **objective** advice — do **not** just agree with me, cheerlead, or soft-pedal. Challenge weak assumptions, say when the data is thin, and separate facts from guesses.`,
+    ``,
+    `Below is my **clothing-type (stock category) performance** for department **${departmentName}** from my stock system.`,
+    `Net = sold P/L − capital still tied up in unsold stock. Sell-through = sold ÷ bought. Buy signal combines net position, sell-through rate, and volume (higher = stronger buy; negative = avoid).`,
+    `Card sort / heat mode currently selected in my UI: **${clothingTypesHeatModeAskAiLabel(heatMode)}**.`,
+    `Sales charts in the same view use period **${salesPeriodLabel}** (the category cards below are inventory-wide for this department, not limited to that sales period).`,
+    ``,
+    `## Overall (${departmentName})`,
+    `- Clothing types with activity: ${cards.length}`,
+    `- Items bought: ${totals.bought}`,
+    `- Items sold: ${totals.sold}`,
+    `- Still for sale: ${totals.forSale}`,
+    `- Realized sold P/L: ${formatSignedResearchCurrency(totals.realizedProfit)}`,
+    `- Capital in unsold stock: ${formatResearchCurrency(totals.inventoryTiedUp)}`,
+    `- Net position: ${formatSignedResearchCurrency(totals.netPosition)}`,
+    `- Overall sell-through: ${
+      totals.bought > 0 ? `${((totals.sold / totals.bought) * 100).toFixed(1)}%` : '—'
+    }`,
+    ``,
+    `## Quick strip from my UI`,
+    `- Top 5 to buy (by sell-through): ${buyTop5.length > 0 ? buyTop5.join(' · ') : '—'}`,
+    `- Avoid buying (worst sell-through with stuck stock): ${
+      avoidTop5.length > 0 ? avoidTop5.join(' · ') : '—'
+    }`,
+    ``,
+    `## Clothing types (same order as my cards — ${clothingTypesHeatModeAskAiLabel(heatMode)})`,
+    ``,
+  ];
+
+  if (cards.length === 0) {
+    lines.push(`*(No clothing-type card data for this department filter.)*`, ``);
+  } else {
+    cards.forEach((c, i) => {
+      const signal = buySignalBreakdown({
+        sold: c.sold,
+        inventory: c.unsold,
+        bought: c.total,
+        netProfit: c.netPosition,
+        maxAbsProfit,
+        maxBought,
+      });
+      lines.push(
+        `### ${i + 1}. ${c.label}`,
+        `- Net: ${formatSignedResearchCurrency(c.netPosition)} (sold P/L ${formatSignedResearchCurrency(
+          c.totalNetProfit
+        )} · stock tied up ${formatResearchCurrency(c.unsoldInventoryTotal)})`,
+        `- Bought ${c.total} · Sold ${c.sold} · For sale ${c.unsold}`,
+        `- Sell-through: ${(Math.round(c.sellThroughPct * 10) / 10).toFixed(1)}%`,
+        `- Buy signal: ${formatSignedNumber(Math.round(signal.score * 10) / 10, 1)} (vol weight ${(
+          signal.volumeWeight * 100
+        ).toFixed(0)}%, sample ${(signal.sampleWeight * 100).toFixed(0)}%)`,
+        ``
+      );
+    });
+  }
+
+  lines.push(
+    `## What I need from you`,
+    `1. **What I'm doing right** — Which clothing types look strong for this department (net, sell-through, or buy signal)? Be specific.`,
+    `2. **What I'm doing wrong** — Where am I leaking money, tying up capital, or buying the wrong types? Call out the worst offenders and why.`,
+    `3. **Ideas I might not have thought about** — Practical next moves for this department’s type mix: what to buy more/less of, how to free capital, pricing/turn tactics, sourcing focus. Prefer actionable ideas over generic advice.`,
+    ``,
+    `Tone: direct, practical. Work from the data above; say when sample size is too small to trust.`,
+    `Today’s date context: ${new Date().toISOString().slice(0, 10)}.`
+  );
+
+  return lines.join('\n');
+}
 
 type BrandSalesOverviewCategory = {
   categoryId: number;
@@ -1834,12 +2121,14 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
 
   const researchTab = useMemo<
     | 'brand'
+    | 'department'
     | 'offline'
     | 'menswear-categories'
     | 'clothing-types'
     | 'seasonal'
     | 'sourced'
     | 'item-views'
+    | 'inventory-ageing'
   >(() => {
     if (forcedView === 'offline') {
       return forcedView;
@@ -1847,11 +2136,13 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     const t = searchParams.get('tab');
     if (
       t === 'offline' ||
+      t === 'department' ||
       t === 'menswear-categories' ||
       t === 'clothing-types' ||
       t === 'seasonal' ||
       t === 'sourced' ||
-      t === 'item-views'
+      t === 'item-views' ||
+      t === 'inventory-ageing'
     )
       return t;
     return 'brand';
@@ -1919,11 +2210,13 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     (
       tab:
         | 'brand'
+        | 'department'
         | 'menswear-categories'
         | 'clothing-types'
         | 'seasonal'
         | 'sourced'
         | 'item-views'
+        | 'inventory-ageing'
     ) => {
       if (tab === 'brand') {
         brandTabInputUserEditRef.current = false;
@@ -2124,6 +2417,11 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     category_id: number;
     category_name: string;
     unsold_count: number;
+    sold_count?: number;
+    total_count?: number;
+    unsold_ratio?: number;
+    total_net_profit?: string | number | null;
+    unsold_inventory_total?: string | number | null;
   };
 
   function parseMenswearAggCategoryId(raw: unknown): number {
@@ -2394,10 +2692,10 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
   );
   const [menswearAskAiBusy, setMenswearAskAiBusy] = useState(false);
   const [menswearAskAiHint, setMenswearAskAiHint] = useState<string | null>(null);
-  const [menswearStrainTableSort, setMenswearStrainTableSort] = useState<{
-    key: 'category' | 'listed' | 'sold' | 'unsold' | 'sellThrough' | 'strain';
-    dir: 'asc' | 'desc';
-  } | null>(null);
+  const [departmentAskAiBusy, setDepartmentAskAiBusy] = useState(false);
+  const [departmentAskAiHint, setDepartmentAskAiHint] = useState<string | null>(null);
+  const [clothingTypesAskAiBusy, setClothingTypesAskAiBusy] = useState(false);
+  const [clothingTypesAskAiHint, setClothingTypesAskAiHint] = useState<string | null>(null);
   const [menswearSalesPeriod, setMenswearSalesPeriod] = useState<MenswearSalesPeriod>('last_12_months');
   const [menswearCategorySalesRows, setMenswearCategorySalesRows] = useState<MenswearCategorySalesRow[]>(
     []
@@ -2492,6 +2790,16 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
   const [clothingTypesInvestRiskView, setClothingTypesInvestRiskView] = useState<
     'cards' | 'graph' | 'table'
   >('cards');
+  /** Clothing-type cards: price / sell-through / combined buy signal. */
+  const [clothingTypesHeatMode, setClothingTypesHeatMode] = useState<
+    'price' | 'sell-through' | 'buy-signal'
+  >('buy-signal');
+  const [menswearInvestRiskView, setMenswearInvestRiskView] = useState<
+    'cards' | 'graph' | 'table'
+  >('cards');
+  const [menswearHeatMode, setMenswearHeatMode] = useState<
+    'price' | 'sell-through' | 'buy-signal'
+  >('buy-signal');
 
   const [clothingTypeBrands, setClothingTypeBrands] = useState<ClothingTypeBrandRow[]>([]);
   const [clothingTypeBrandsLoading, setClothingTypeBrandsLoading] = useState(false);
@@ -2563,6 +2871,17 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
   >([]);
   const [brandSalesOverviewLoading, setBrandSalesOverviewLoading] = useState(false);
   const [brandSalesOverviewError, setBrandSalesOverviewError] = useState<string | null>(null);
+  const [departmentSalesOverviewCards, setDepartmentSalesOverviewCards] = useState<
+    DepartmentSalesOverviewCard[]
+  >([]);
+  const [departmentSalesOverviewLoading, setDepartmentSalesOverviewLoading] = useState(false);
+  const [departmentSalesOverviewError, setDepartmentSalesOverviewError] = useState<string | null>(
+    null
+  );
+  /** Department heat: price / sell-through / combined buy signal. */
+  const [departmentHeatMode, setDepartmentHeatMode] = useState<
+    'price' | 'sell-through' | 'buy-signal'
+  >('buy-signal');
   const [brandSalesOverviewSort, setBrandSalesOverviewSort] =
     useState<BrandSalesOverviewSort>('all');
   const [brandSalesOverviewSortMenuOpen, setBrandSalesOverviewSortMenuOpen] = useState(false);
@@ -3318,11 +3637,29 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           setMenswearCategoryGrouping(data.grouping);
         }
         setMenswearCategoryInventoryRows(
-          raw.map((r) => ({
-            category_id: parseMenswearAggCategoryId(r.category_id),
-            category_name: String(r.category_name ?? '—'),
-            unsold_count: Math.max(0, Math.floor(Number(r.unsold_count) || 0)),
-          }))
+          raw.map((r) => {
+            const sold = Math.max(0, Math.floor(Number((r as { sold_count?: unknown }).sold_count) || 0));
+            const unsold = Math.max(0, Math.floor(Number(r.unsold_count) || 0));
+            const totalFromApi = Math.floor(Number((r as { total_count?: unknown }).total_count) || 0);
+            const total = totalFromApi > 0 ? totalFromApi : sold + unsold;
+            const profitRaw = (r as { total_net_profit?: unknown }).total_net_profit;
+            const total_net_profit =
+              profitRaw == null || profitRaw === '' ? 0 : Number(profitRaw);
+            const unsoldInvRaw = (r as { unsold_inventory_total?: unknown }).unsold_inventory_total;
+            const unsold_inventory_total =
+              unsoldInvRaw == null || unsoldInvRaw === '' ? 0 : Number(unsoldInvRaw);
+            return {
+              category_id: parseMenswearAggCategoryId(r.category_id),
+              category_name: String(r.category_name ?? '—'),
+              sold_count: sold,
+              unsold_count: unsold,
+              total_count: total,
+              total_net_profit: Number.isFinite(total_net_profit) ? total_net_profit : 0,
+              unsold_inventory_total: Number.isFinite(unsold_inventory_total)
+                ? unsold_inventory_total
+                : 0,
+            };
+          })
         );
       } catch (e) {
         if (cancelled || isAbortError(e)) return;
@@ -3485,6 +3822,16 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                 : total > 0
                   ? unsold / total
                   : 0;
+            const profitRaw = (r as { total_net_profit?: unknown }).total_net_profit;
+            const total_net_profit =
+              profitRaw == null || profitRaw === ''
+                ? 0
+                : Number(profitRaw);
+            const unsoldInvRaw = (r as { unsold_inventory_total?: unknown }).unsold_inventory_total;
+            const unsold_inventory_total =
+              unsoldInvRaw == null || unsoldInvRaw === ''
+                ? 0
+                : Number(unsoldInvRaw);
             return {
               category_id:
                 r.category_id === null || r.category_id === undefined ? null : Number(r.category_id),
@@ -3493,6 +3840,10 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
               unsold_count: unsold,
               total_count: total,
               unsold_ratio,
+              total_net_profit: Number.isFinite(total_net_profit) ? total_net_profit : 0,
+              unsold_inventory_total: Number.isFinite(unsold_inventory_total)
+                ? unsold_inventory_total
+                : 0,
             };
           })
         );
@@ -4816,48 +5167,55 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
    */
   const clothingTypesInvestRiskModel = useMemo(() => {
     const minTotalListed = 2;
-    const rows = clothingTypesInventoryRows
-      .map((r) => {
-        const bucketId = r.category_id == null ? -1 : Number(r.category_id);
-        const sold = Math.max(0, Math.floor(Number(r.sold_count) || 0));
-        const unsold = Math.max(0, Math.floor(Number(r.unsold_count) || 0));
-        const total =
-          r.total_count > 0 ? Math.floor(Number(r.total_count) || 0) : sold + unsold;
-        const ratio =
-          Number.isFinite(r.unsold_ratio) && total > 0
-            ? Math.min(1, Math.max(0, r.unsold_ratio))
-            : total > 0
-              ? unsold / total
-              : 0;
-        const strain = unsold * ratio;
-        const sellThroughPct = total > 0 ? (sold / total) * 100 : 0;
-        const profitRaw = r.total_net_profit;
-        const unsoldInvRaw = r.unsold_inventory_total;
-        const totalNetProfit =
-          profitRaw == null || profitRaw === ''
-            ? 0
-            : typeof profitRaw === 'number'
-              ? profitRaw
-              : parseFloat(String(profitRaw));
-        const unsoldInventoryTotal =
-          unsoldInvRaw == null || unsoldInvRaw === ''
-            ? 0
-            : typeof unsoldInvRaw === 'number'
-              ? unsoldInvRaw
-              : parseFloat(String(unsoldInvRaw));
-        return {
-          bucketId: Number.isFinite(bucketId) ? bucketId : -1,
-          label: String(r.category_name ?? '—'),
-          sold,
-          unsold,
-          total,
-          ratio,
-          strain,
-          sellThroughPct,
-          totalNetProfit: Number.isFinite(totalNetProfit) ? totalNetProfit : 0,
-          unsoldInventoryTotal: Number.isFinite(unsoldInventoryTotal) ? unsoldInventoryTotal : 0,
-        };
-      })
+    const mapped = clothingTypesInventoryRows.map((r) => {
+      const bucketId = r.category_id == null ? -1 : Number(r.category_id);
+      const sold = Math.max(0, Math.floor(Number(r.sold_count) || 0));
+      const unsold = Math.max(0, Math.floor(Number(r.unsold_count) || 0));
+      const total =
+        r.total_count > 0 ? Math.floor(Number(r.total_count) || 0) : sold + unsold;
+      const ratio =
+        Number.isFinite(r.unsold_ratio) && total > 0
+          ? Math.min(1, Math.max(0, r.unsold_ratio))
+          : total > 0
+            ? unsold / total
+            : 0;
+      const strain = unsold * ratio;
+      const sellThroughPct = total > 0 ? (sold / total) * 100 : 0;
+      const profitRaw = r.total_net_profit;
+      const unsoldInvRaw = r.unsold_inventory_total;
+      const totalNetProfit =
+        profitRaw == null || profitRaw === ''
+          ? 0
+          : typeof profitRaw === 'number'
+            ? profitRaw
+            : parseFloat(String(profitRaw));
+      const unsoldInventoryTotal =
+        unsoldInvRaw == null || unsoldInvRaw === ''
+          ? 0
+          : typeof unsoldInvRaw === 'number'
+            ? unsoldInvRaw
+            : parseFloat(String(unsoldInvRaw));
+      const realizedProfit = Number.isFinite(totalNetProfit) ? totalNetProfit : 0;
+      const inventoryTiedUp = Number.isFinite(unsoldInventoryTotal) ? unsoldInventoryTotal : 0;
+      /** Sales P/L on sold lines minus purchase capital still in stock (matches department net). */
+      const netPosition = realizedProfit - inventoryTiedUp;
+      return {
+        bucketId: Number.isFinite(bucketId) ? bucketId : -1,
+        label: String(r.category_name ?? '—'),
+        sold,
+        unsold,
+        total,
+        ratio,
+        strain,
+        sellThroughPct,
+        totalNetProfit: realizedProfit,
+        unsoldInventoryTotal: inventoryTiedUp,
+        netPosition,
+      };
+    });
+
+    /** Strain table / avoid strip: stuck inventory with enough listings. */
+    const rows = mapped
       .filter((r) => r.unsold > 0 && r.total >= minTotalListed)
       .sort(
         (a, b) =>
@@ -4867,26 +5225,70 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
       );
 
-    if (rows.length === 0) {
+    /** Cards replace the blue category menu — all types with any stock (or zero for empty cats). */
+    const cardPool = [...mapped].sort((a, b) =>
+      a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
+    );
+
+    if (mapped.length === 0) {
       return {
-        tableRows: [] as typeof rows,
-        buyOrderedRows: [] as typeof rows,
-        chartRowsInChartOrder: [] as typeof rows,
+        tableRows: [] as typeof mapped,
+        buyOrderedRows: [] as typeof mapped,
+        chartRowsInChartOrder: [] as typeof mapped,
         chartData: null as null,
         chartBucketIds: null as number[] | null,
-        buyTop5: [] as typeof rows,
-        avoidTop5: [] as typeof rows,
+        buyTop5: [] as typeof mapped,
+        avoidTop5: [] as typeof mapped,
+        maxAbsProfit: 0,
+        maxBought: 0,
       };
     }
 
     /** Best sell-through first — best categories to buy. */
-    const buySorted = [...rows].sort(
+    const buySortedBySellThrough = [...cardPool].sort(
       (a, b) =>
         b.sellThroughPct - a.sellThroughPct ||
         b.sold - a.sold ||
         a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
     );
-    const buyTop5 = buySorted.slice(0, 5);
+    const buySortedByPrice = [...cardPool].sort(
+      (a, b) =>
+        b.netPosition - a.netPosition ||
+        b.sellThroughPct - a.sellThroughPct ||
+        a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
+    );
+    const maxAbsProfit = Math.max(1, ...cardPool.map((r) => Math.abs(r.netPosition)));
+    const maxBought = Math.max(1, ...cardPool.map((r) => r.total));
+    const buySortedBySignal = [...cardPool].sort((a, b) => {
+      const scoreA = buySignalHeatPct({
+        sold: a.sold,
+        inventory: a.unsold,
+        bought: a.total,
+        netProfit: a.netPosition,
+        maxAbsProfit,
+        maxBought,
+      });
+      const scoreB = buySignalHeatPct({
+        sold: b.sold,
+        inventory: b.unsold,
+        bought: b.total,
+        netProfit: b.netPosition,
+        maxAbsProfit,
+        maxBought,
+      });
+      if (scoreB !== scoreA) return scoreB - scoreA;
+      return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
+    });
+    const buyOrderedRows =
+      clothingTypesHeatMode === 'price'
+        ? buySortedByPrice
+        : clothingTypesHeatMode === 'buy-signal'
+          ? buySortedBySignal
+          : buySortedBySellThrough;
+
+    const buyTop5 = buySortedBySellThrough
+      .filter((r) => r.total >= minTotalListed)
+      .slice(0, 5);
     const avoidTop5 = rows.slice(0, 5);
 
     /** Worst sell-through first — same order for table and graph. */
@@ -4923,14 +5325,16 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
 
     return {
       tableRows: rows,
-      buyOrderedRows: buySorted,
+      buyOrderedRows,
       chartRowsInChartOrder: chartOrderRows,
       chartData,
       chartBucketIds: chartOrderRows.map((x) => x.bucketId),
       buyTop5,
       avoidTop5,
+      maxAbsProfit,
+      maxBought,
     };
-  }, [clothingTypesInventoryRows]);
+  }, [clothingTypesInventoryRows, clothingTypesHeatMode]);
 
   const clothingTypesInvestRiskBarOptions = useMemo((): ChartOptions<'bar'> => {
     const ids = clothingTypesInvestRiskModel.chartBucketIds;
@@ -5584,6 +5988,26 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     }
   }, [menswearCategories]);
 
+  const runDepartmentSalesOverviewAskAi = useCallback(async () => {
+    if (departmentSalesOverviewCards.length === 0) {
+      setDepartmentAskAiHint('Load department cards first.');
+      window.setTimeout(() => setDepartmentAskAiHint(null), 4500);
+      return;
+    }
+    setDepartmentAskAiBusy(true);
+    setDepartmentAskAiHint(null);
+    try {
+      const text = buildDepartmentSalesOverviewAskAiPrompt(departmentSalesOverviewCards);
+      await copyResearchTextToClipboard(text);
+      setDepartmentAskAiHint('Copied to clipboard — paste into ChatGPT.');
+    } catch (e) {
+      setDepartmentAskAiHint(friendlyApiUnreachableMessage(e));
+    } finally {
+      setDepartmentAskAiBusy(false);
+      window.setTimeout(() => setDepartmentAskAiHint(null), 5000);
+    }
+  }, [departmentSalesOverviewCards]);
+
   /** On Brand tab: chosen department, or Menswear (then first dept) from the API list until the user changes the dropdown. */
   const brandResearchDepartmentFilterEffective = useMemo(() => {
     if (researchTab !== 'brand') return null;
@@ -5804,6 +6228,122 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     })();
     return () => ac.abort();
   }, [researchTab, brandResearchDepartmentFilterEffective]);
+
+  useEffect(() => {
+    if (researchTab !== 'department') return;
+    const ac = new AbortController();
+    setDepartmentSalesOverviewLoading(true);
+    setDepartmentSalesOverviewError(null);
+    void (async () => {
+      try {
+        const response = await fetch(apiUrl('/api/departments/sales-overview'), {
+          signal: ac.signal,
+        });
+        const data = await readJsonResponse<{
+          departments?: Array<{
+            departmentId?: number;
+            departmentName?: string;
+            itemsBought?: number;
+            itemsSold?: number;
+            itemsForSale?: number;
+            totalPurchaseSpend?: number;
+            totalSoldRevenue?: number;
+            netPosition?: number;
+          }>;
+        }>(response, 'department sales overview');
+        if (ac.signal.aborted) return;
+        const cards: DepartmentSalesOverviewCard[] = (data.departments ?? [])
+          .map((row) => {
+            const departmentId = Number(row.departmentId);
+            if (!Number.isFinite(departmentId) || departmentId < 1) return null;
+            const totalPurchaseSpend = Number(row.totalPurchaseSpend) || 0;
+            const totalSoldRevenue = Number(row.totalSoldRevenue) || 0;
+            return {
+              departmentId,
+              departmentName:
+                row.departmentName != null && String(row.departmentName).trim() !== ''
+                  ? String(row.departmentName).trim()
+                  : '—',
+              itemsBought: Number(row.itemsBought) || 0,
+              itemsSold: Number(row.itemsSold) || 0,
+              itemsForSale: Number(row.itemsForSale) || 0,
+              totalPurchaseSpend,
+              totalSoldRevenue,
+              netPosition:
+                row.netPosition != null && Number.isFinite(Number(row.netPosition))
+                  ? Number(row.netPosition)
+                  : totalSoldRevenue - totalPurchaseSpend,
+            };
+          })
+          .filter((c): c is DepartmentSalesOverviewCard => c != null);
+        setDepartmentSalesOverviewCards(cards);
+      } catch (err: unknown) {
+        if (isAbortError(err) || ac.signal.aborted) return;
+        setDepartmentSalesOverviewCards([]);
+        setDepartmentSalesOverviewError(
+          err instanceof Error ? err.message : 'Failed to load department cards'
+        );
+      } finally {
+        if (!ac.signal.aborted) setDepartmentSalesOverviewLoading(false);
+      }
+    })();
+    return () => ac.abort();
+  }, [researchTab]);
+
+  const departmentSalesOverviewDisplayCards = useMemo(() => {
+    const cards = [...departmentSalesOverviewCards];
+    const maxAbsProfit = Math.max(1, ...cards.map((c) => Math.abs(c.netPosition)));
+    const maxBought = Math.max(1, ...cards.map((c) => c.itemsBought));
+    if (departmentHeatMode === 'price') {
+      cards.sort((a, b) => {
+        const netDiff = b.netPosition - a.netPosition;
+        if (netDiff !== 0) return netDiff;
+        const marginA =
+          a.totalPurchaseSpend > 0 ? a.netPosition / a.totalPurchaseSpend : a.netPosition;
+        const marginB =
+          b.totalPurchaseSpend > 0 ? b.netPosition / b.totalPurchaseSpend : b.netPosition;
+        if (marginB !== marginA) return marginB - marginA;
+        return a.departmentName.localeCompare(b.departmentName, undefined, {
+          sensitivity: 'base',
+        });
+      });
+    } else if (departmentHeatMode === 'buy-signal') {
+      cards.sort((a, b) => {
+        const scoreA = buySignalHeatPct({
+          sold: a.itemsSold,
+          inventory: a.itemsForSale,
+          bought: a.itemsBought,
+          netProfit: a.netPosition,
+          maxAbsProfit,
+          maxBought,
+        });
+        const scoreB = buySignalHeatPct({
+          sold: b.itemsSold,
+          inventory: b.itemsForSale,
+          bought: b.itemsBought,
+          netProfit: b.netPosition,
+          maxAbsProfit,
+          maxBought,
+        });
+        if (scoreB !== scoreA) return scoreB - scoreA;
+        return a.departmentName.localeCompare(b.departmentName, undefined, {
+          sensitivity: 'base',
+        });
+      });
+    } else {
+      cards.sort((a, b) => {
+        const balA =
+          a.itemsBought > 0 ? (a.itemsSold - a.itemsForSale) / a.itemsBought : Number.NEGATIVE_INFINITY;
+        const balB =
+          b.itemsBought > 0 ? (b.itemsSold - b.itemsForSale) / b.itemsBought : Number.NEGATIVE_INFINITY;
+        if (balB !== balA) return balB - balA;
+        return a.departmentName.localeCompare(b.departmentName, undefined, {
+          sensitivity: 'base',
+        });
+      });
+    }
+    return cards;
+  }, [departmentSalesOverviewCards, departmentHeatMode]);
 
   const brandTabTypeaheadList = useMemo(() => {
     const list = brandsForBrandResearchTypeahead;
@@ -7570,6 +8110,47 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     return n || `department #${clothingTypesListDepartmentIdForApi}`;
   }, [researchDepartments, clothingTypesListDepartmentIdForApi]);
 
+  const runClothingTypesAskAi = useCallback(async () => {
+    const cards = clothingTypesInvestRiskModel.buyOrderedRows;
+    if (cards.length === 0) {
+      setClothingTypesAskAiHint('Load clothing-type cards first.');
+      window.setTimeout(() => setClothingTypesAskAiHint(null), 4500);
+      return;
+    }
+    setClothingTypesAskAiBusy(true);
+    setClothingTypesAskAiHint(null);
+    try {
+      const salesPeriodLabel =
+        clothingTypesPeriod === 'last_12_months'
+          ? 'Last 12 months'
+          : clothingTypesPeriod === '2026'
+            ? '2026'
+            : '2025';
+      const text = buildClothingTypesAskAiPrompt({
+        departmentName: clothingTypesResearchDepartmentLabel,
+        heatMode: clothingTypesHeatMode,
+        salesPeriodLabel,
+        cards,
+        buyTop5: clothingTypesInvestRiskModel.buyTop5.map((r) => r.label),
+        avoidTop5: clothingTypesInvestRiskModel.avoidTop5.map((r) => r.label),
+        maxAbsProfit: clothingTypesInvestRiskModel.maxAbsProfit,
+        maxBought: clothingTypesInvestRiskModel.maxBought,
+      });
+      await copyResearchTextToClipboard(text);
+      setClothingTypesAskAiHint('Copied to clipboard — paste into ChatGPT.');
+    } catch (e) {
+      setClothingTypesAskAiHint(friendlyApiUnreachableMessage(e));
+    } finally {
+      setClothingTypesAskAiBusy(false);
+      window.setTimeout(() => setClothingTypesAskAiHint(null), 5000);
+    }
+  }, [
+    clothingTypesInvestRiskModel,
+    clothingTypesHeatMode,
+    clothingTypesPeriod,
+    clothingTypesResearchDepartmentLabel,
+  ]);
+
   const showClothingTypesSplit =
     !clothingTypesListLoading && !clothingTypesListError && clothingTypeSelection === null;
 
@@ -7704,20 +8285,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     return clothingTypeBrandStockLines.filter((r) => r.category_id === id);
   }, [clothingTypeBrandStockLines, clothingTypeBrandStockLinesCategoryFilter]);
 
-  const clothingTypesHasUncategorized = useMemo(
-    () =>
-      clothingTypesSalesRows.some((r) => r.category_id == null) ||
-      clothingTypesInventoryRows.some((r) => r.category_id == null),
-    [clothingTypesSalesRows, clothingTypesInventoryRows]
-  );
-
-  /** Sales by category: `mcView` — eBay niche grid vs automated stock analytics. */
-  const menswearCategoryViewMode = useMemo<'ebay-niches' | 'automated'>(() => {
-    const raw = searchParams.get('mcView')?.trim().toLowerCase();
-    if (raw === 'ebay-niches' || raw === 'ebay') return 'ebay-niches';
-    return 'automated';
-  }, [searchParams]);
-
+  /** Sales by category always uses automated stock analytics (eBay category stars → /research?view=category-research). */
   const researchActiveDepartmentLabel = useMemo((): string => {
     if (researchTab === 'brand') {
       const id =
@@ -7726,9 +8294,6 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           : brandResearchDepartmentFilterEffective;
       if (id == null) return 'Department';
       return researchDepartments.find((d) => d.id === id)?.department_name ?? 'Department';
-    }
-    if (researchTab === 'menswear-categories' && menswearCategoryViewMode === 'ebay-niches') {
-      return 'All Categories';
     }
     if (researchTab === 'seasonal' && researchScopedDepartmentIdFromUrl == null) {
       return 'All';
@@ -7749,7 +8314,6 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     researchTab,
     brandResearchDepartmentFilterSelection,
     brandResearchDepartmentFilterEffective,
-    menswearCategoryViewMode,
     researchScopedDepartmentIdFromUrl,
     clothingTypesListDepartmentIdForApi,
     menswearCategoriesListDepartmentIdForApi,
@@ -7763,40 +8327,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     researchTab,
     researchScopedDepartmentIdFromUrl,
     brandResearchDepartmentFilterSelection,
-    menswearCategoryViewMode,
   ]);
-
-  const goToEbayNichesView = useCallback(() => {
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.set('tab', 'menswear-categories');
-        next.set('mcView', 'ebay-niches');
-        next.delete('menswearCategoryId');
-        next.delete('menswearBrandId');
-        next.delete('mcPanel');
-        return next;
-      },
-      { replace: true }
-    );
-  }, [setSearchParams]);
-
-  const menswearDepartmentEbayHighlightId = useMemo(() => {
-    const deptId = menswearCategoriesListDepartmentIdForApi;
-    if (deptId == null) return null;
-    const dept = researchDepartments.find((d) => d.id === deptId);
-    if (!dept) return null;
-    const key = dept.department_name.trim().toLowerCase().replace(/[\s_]+/g, '-');
-    const map: Record<string, string> = {
-      menswear: '11450',
-      womenswear: '11450',
-      electronics: '293',
-      media: '267',
-      toys: '220',
-      'bric-a-brac': '1',
-    };
-    return map[key] ?? null;
-  }, [researchDepartments, menswearCategoriesListDepartmentIdForApi]);
 
   /** Menswear Categories tab: `mcPanel` selects subpanel. List view defaults to chart; detail defaults to overview. */
   const menswearClothingSubpanel = useMemo<'overview' | 'sales'>(() => {
@@ -7873,61 +8404,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     return ids.map((id) => ({ id, name: nameById.get(id) ?? `Category #${id}` }));
   }, [menswearCategories, menswearCategorySalesRows, menswearCategoryInventoryRows]);
 
-  const menswearBucketOverviewRows = useMemo(() => {
-    const salesById = new Map<number, MenswearCategorySalesRow>();
-    for (const r of menswearCategorySalesRows) {
-      salesById.set(r.category_id, r);
-    }
-    const invById = new Map<number, MenswearCategoryInventoryRow>();
-    for (const r of menswearCategoryInventoryRows) {
-      invById.set(r.category_id, r);
-    }
-    return menswearListViewCategoryUnion.map((cat) => {
-      const s = salesById.get(cat.id);
-      const inv = invById.get(cat.id);
-      const tsRaw =
-        typeof s?.total_sales === 'number' ? s.total_sales : parseFloat(String(s?.total_sales ?? '0'));
-      const totalSales = Number.isFinite(tsRaw) && tsRaw > 0 ? tsRaw : 0;
-      const sold = Math.max(0, Math.floor(Number(s?.sold_count) || 0));
-      const unsold = Math.max(0, inv?.unsold_count ?? 0);
-      const lines = sold + unsold;
-      const sellRateDecimal = avoidStockSellRateDecimal(unsold, sold);
-      return {
-        id: cat.id,
-        name: cat.name,
-        totalSales,
-        sold,
-        unsold,
-        lines,
-        sellRateDecimal,
-        sellRateLabel: formatAvoidStockSellRateLabel(unsold, sold),
-      };
-    });
-  }, [menswearListViewCategoryUnion, menswearCategorySalesRows, menswearCategoryInventoryRows]);
-
-  const menswearOverviewBestRows = useMemo(() => {
-    return [...menswearBucketOverviewRows]
-      .filter((r) => r.totalSales > 0)
-      .sort(
-        (a, b) =>
-          b.totalSales - a.totalSales ||
-          a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
-      )
-      .slice(0, 5);
-  }, [menswearBucketOverviewRows]);
-
-  const menswearOverviewWorstRows = useMemo(() => {
-    return [...menswearBucketOverviewRows]
-      .filter((r) => r.lines >= 1)
-      .sort((a, b) => {
-        if (a.sellRateDecimal !== b.sellRateDecimal) return a.sellRateDecimal - b.sellRateDecimal;
-        if (b.unsold !== a.unsold) return b.unsold - a.unsold;
-        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
-      })
-      .slice(0, 5);
-  }, [menswearBucketOverviewRows]);
-
-  /** List view: strain (unsold × share unsold) and sell-through per category; buy/avoid strip matches clothing-types rules (unsold & ≥2 listed). */
+  /** List view: heat cards + strain table; buy/avoid from sell-through among categories with unsold stock. */
   const menswearCategoryStrainModel = useMemo(() => {
     const minTotalListed = 2;
     const salesById = new Map<number, MenswearCategorySalesRow>();
@@ -7938,119 +8415,243 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     for (const r of menswearCategoryInventoryRows) {
       invById.set(r.category_id, r);
     }
-    const baseRows = menswearListViewCategoryUnion.map((cat) => {
+    const mapped = menswearListViewCategoryUnion.map((cat) => {
       const s = salesById.get(cat.id);
       const inv = invById.get(cat.id);
-      const sold = Math.max(0, Math.floor(Number(s?.sold_count) || 0));
+      const soldFromInv = inv?.sold_count;
+      const sold =
+        soldFromInv != null
+          ? Math.max(0, Math.floor(Number(soldFromInv) || 0))
+          : Math.max(0, Math.floor(Number(s?.sold_count) || 0));
       const unsold = Math.max(0, inv?.unsold_count ?? 0);
-      const total = sold + unsold;
+      const total =
+        inv?.total_count != null && inv.total_count > 0
+          ? Math.floor(Number(inv.total_count) || 0)
+          : sold + unsold;
       const ratio = total > 0 ? unsold / total : 0;
       const strain = unsold * ratio;
-      const sellThroughPct = total > 0 ? (sold / total) * 100 : null;
+      const sellThroughPct = total > 0 ? (sold / total) * 100 : 0;
+      const profitRaw = inv?.total_net_profit;
+      const unsoldInvRaw = inv?.unsold_inventory_total;
+      const realizedProfit =
+        profitRaw == null || profitRaw === ''
+          ? 0
+          : typeof profitRaw === 'number'
+            ? profitRaw
+            : parseFloat(String(profitRaw));
+      const inventoryTiedUp =
+        unsoldInvRaw == null || unsoldInvRaw === ''
+          ? 0
+          : typeof unsoldInvRaw === 'number'
+            ? unsoldInvRaw
+            : parseFloat(String(unsoldInvRaw));
+      const netPosition =
+        (Number.isFinite(realizedProfit) ? realizedProfit : 0) -
+        (Number.isFinite(inventoryTiedUp) ? inventoryTiedUp : 0);
       return {
         id: cat.id,
         name: cat.name,
+        bucketId: cat.id,
+        label: cat.name,
         sold,
         unsold,
         total,
+        ratio,
         strain,
         sellThroughPct,
+        totalNetProfit: Number.isFinite(realizedProfit) ? realizedProfit : 0,
+        unsoldInventoryTotal: Number.isFinite(inventoryTiedUp) ? inventoryTiedUp : 0,
+        netPosition,
       };
     });
 
-    const stripPool = baseRows
+    const rows = mapped
       .filter((r) => r.unsold > 0 && r.total >= minTotalListed)
       .sort(
         (a, b) =>
-          (a.sellThroughPct ?? 0) - (b.sellThroughPct ?? 0) ||
+          a.sellThroughPct - b.sellThroughPct ||
           b.unsold - a.unsold ||
           b.strain - a.strain ||
           a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
       );
-    const buySorted = [...stripPool].sort(
+
+    const cardPool = [...mapped]
+      .filter((r) => r.id >= 1 && r.total > 0)
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+
+    if (cardPool.length === 0 && mapped.length === 0) {
+      return {
+        tableRows: [] as typeof mapped,
+        buyOrderedRows: [] as typeof mapped,
+        chartRowsInChartOrder: [] as typeof mapped,
+        chartData: null as null,
+        chartBucketIds: null as number[] | null,
+        buyTop5: [] as typeof mapped,
+        avoidTop5: [] as typeof mapped,
+        maxAbsProfit: 0,
+        maxBought: 0,
+      };
+    }
+
+    const buySortedBySellThrough = [...cardPool].sort(
       (a, b) =>
-        (b.sellThroughPct ?? 0) - (a.sellThroughPct ?? 0) ||
+        b.sellThroughPct - a.sellThroughPct ||
         b.sold - a.sold ||
         a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
     );
-
-    const tableRows = [...baseRows].sort((a, b) => {
-      if (a.total === 0 && b.total === 0) {
-        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
-      }
-      if (a.total === 0) return 1;
-      if (b.total === 0) return -1;
-      return (
-        (a.sellThroughPct ?? 0) - (b.sellThroughPct ?? 0) ||
-        b.unsold - a.unsold ||
-        b.strain - a.strain ||
+    const buySortedByPrice = [...cardPool].sort(
+      (a, b) =>
+        b.netPosition - a.netPosition ||
+        b.sellThroughPct - a.sellThroughPct ||
         a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
-      );
+    );
+    const maxAbsProfit = Math.max(1, ...cardPool.map((r) => Math.abs(r.netPosition)));
+    const maxBought = Math.max(1, ...cardPool.map((r) => r.total));
+    const buySortedBySignal = [...cardPool].sort((a, b) => {
+      const scoreA = buySignalHeatPct({
+        sold: a.sold,
+        inventory: a.unsold,
+        bought: a.total,
+        netProfit: a.netPosition,
+        maxAbsProfit,
+        maxBought,
+      });
+      const scoreB = buySignalHeatPct({
+        sold: b.sold,
+        inventory: b.unsold,
+        bought: b.total,
+        netProfit: b.netPosition,
+        maxAbsProfit,
+        maxBought,
+      });
+      if (scoreB !== scoreA) return scoreB - scoreA;
+      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
     });
+    const buyOrderedRows =
+      menswearHeatMode === 'price'
+        ? buySortedByPrice
+        : menswearHeatMode === 'buy-signal'
+          ? buySortedBySignal
+          : buySortedBySellThrough;
+
+    const buyTop5 = buySortedBySellThrough
+      .filter((r) => r.total >= minTotalListed)
+      .slice(0, 5);
+    const avoidTop5 = rows.slice(0, 5);
+
+    const chartTopN = 14;
+    const chartOrderRows = rows.slice(0, chartTopN);
+    const labelMax = 36;
+    const labels = chartOrderRows.map((x) => {
+      let L = x.label;
+      if (L.length > labelMax) L = `${L.slice(0, labelMax - 1)}…`;
+      return L;
+    });
+
+    const chartData = {
+      labels,
+      datasets: [
+        {
+          label: 'Sold lines',
+          data: chartOrderRows.map((x) => x.sold),
+          backgroundColor: 'rgba(130, 210, 155, 0.82)',
+          borderColor: themeAccentRgba(0.38),
+          borderWidth: 1,
+          stack: 'inv',
+        },
+        {
+          label: 'Unsold lines',
+          data: chartOrderRows.map((x) => x.unsold),
+          backgroundColor: 'rgba(248, 113, 113, 0.78)',
+          borderColor: themeAccentRgba(0.38),
+          borderWidth: 1,
+          stack: 'inv',
+        },
+      ],
+    };
+
+    const tableRows = [...mapped]
+      .filter((r) => r.id >= 1)
+      .sort((a, b) => {
+        if (a.total === 0 && b.total === 0) {
+          return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+        }
+        if (a.total === 0) return 1;
+        if (b.total === 0) return -1;
+        return (
+          a.sellThroughPct - b.sellThroughPct ||
+          b.unsold - a.unsold ||
+          b.strain - a.strain ||
+          a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+        );
+      });
 
     return {
       tableRows,
-      buyTop5: buySorted.slice(0, 5),
-      avoidTop5: stripPool.slice(0, 5),
+      buyOrderedRows,
+      chartRowsInChartOrder: chartOrderRows,
+      chartData,
+      chartBucketIds: chartOrderRows.map((x) => x.bucketId),
+      buyTop5,
+      avoidTop5,
+      maxAbsProfit,
+      maxBought,
     };
-  }, [menswearListViewCategoryUnion, menswearCategorySalesRows, menswearCategoryInventoryRows]);
+  }, [
+    menswearListViewCategoryUnion,
+    menswearCategorySalesRows,
+    menswearCategoryInventoryRows,
+    menswearHeatMode,
+  ]);
 
-  const toggleMenswearStrainTableSort = useCallback(
-    (key: 'category' | 'listed' | 'sold' | 'unsold' | 'sellThrough' | 'strain') => {
-      setMenswearStrainTableSort((prev) => {
-        if (prev?.key === key) {
-          return { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' };
+  const menswearInvestRiskBarOptions = useMemo((): ChartOptions<'bar'> => {
+    const ids = menswearCategoryStrainModel.chartBucketIds;
+    return {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false, axis: 'y' },
+      onClick: (_evt, elements) => {
+        if (!ids?.length || !elements?.length) return;
+        const idx = elements[0]?.index;
+        if (typeof idx !== 'number' || idx < 0 || idx >= ids.length) return;
+        const id = ids[idx];
+        if (id != null && id >= 1) openMenswearCategoryFromListOrPie(id);
+      },
+      onHover: (evt, elements) => {
+        const t = evt.native?.target;
+        if (t instanceof HTMLElement) {
+          t.style.cursor = ids && elements.length > 0 ? 'pointer' : 'default';
         }
-        return { key, dir: 'asc' };
-      });
-    },
-    []
-  );
-
-  const menswearStrainTableSortedRows = useMemo(() => {
-    const rows = [...menswearCategoryStrainModel.tableRows];
-    const sort = menswearStrainTableSort;
-    if (!sort) return rows;
-
-    const tieName = (a: (typeof rows)[0], b: (typeof rows)[0]) =>
-      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
-
-    rows.sort((a, b) => {
-      const d = sort.dir === 'asc' ? 1 : -1;
-      let cmp = 0;
-      switch (sort.key) {
-        case 'category':
-          cmp = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
-          return d * cmp;
-        case 'listed':
-          cmp = a.total - b.total;
-          break;
-        case 'sold':
-          cmp = a.sold - b.sold;
-          break;
-        case 'unsold':
-          cmp = a.unsold - b.unsold;
-          break;
-        case 'sellThrough': {
-          const an = a.sellThroughPct;
-          const bn = b.sellThroughPct;
-          if (an == null && bn == null) cmp = 0;
-          else if (an == null) return 1;
-          else if (bn == null) return -1;
-          else cmp = an - bn;
-          break;
-        }
-        case 'strain':
-          cmp = a.strain - b.strain;
-          break;
-        default:
-          return 0;
-      }
-      if (cmp !== 0) return d * cmp;
-      return tieName(a, b);
-    });
-    return rows;
-  }, [menswearCategoryStrainModel.tableRows, menswearStrainTableSort]);
+      },
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: { color: themeTextRgba(0.75), boxWidth: 12, padding: 12 },
+        },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const v = ctx.parsed.x;
+              return `${ctx.dataset.label}: ${typeof v === 'number' ? v : '—'}`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          stacked: true,
+          ticks: { color: themeTextRgba(0.65) },
+          grid: { color: themeTextRgba(0.08) },
+        },
+        y: {
+          stacked: true,
+          ticks: { color: themeTextRgba(0.75) },
+          grid: { display: false },
+        },
+      },
+    };
+  }, [menswearCategoryStrainModel.chartBucketIds, openMenswearCategoryFromListOrPie]);
 
   const menswearOverviewPeriodLabel =
     menswearSalesPeriod === 'last_12_months'
@@ -8267,6 +8868,14 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     </section>
   );
 
+  const legacyEbayNichesMcView = searchParams.get('mcView')?.trim().toLowerCase();
+  if (
+    !forcedView &&
+    (legacyEbayNichesMcView === 'ebay-niches' || legacyEbayNichesMcView === 'ebay')
+  ) {
+    return <Navigate to="/research?view=category-research" replace />;
+  }
+
   return (
     <div className="research-page-container">
       {researchApiOfflineMessage && (
@@ -8276,6 +8885,17 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       )}
       {!forcedView && (
       <nav className="research-tabs" role="tablist" aria-label="Research sections">
+        <button
+          type="button"
+          role="tab"
+          id="research-tab-department"
+          aria-selected={researchTab === 'department'}
+          aria-controls="research-panel-department"
+          className={`research-tab${researchTab === 'department' ? ' active' : ''}`}
+          onClick={() => setResearchTab('department')}
+        >
+          Department
+        </button>
         <button
           type="button"
           role="tab"
@@ -8341,6 +8961,17 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           onClick={() => setResearchTab('item-views')}
         >
           Item Views
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="research-tab-inventory-ageing"
+          aria-selected={researchTab === 'inventory-ageing'}
+          aria-controls="research-panel-inventory-ageing"
+          className={`research-tab${researchTab === 'inventory-ageing' ? ' active' : ''}`}
+          onClick={() => setResearchTab('inventory-ageing')}
+        >
+          Ageing
         </button>
       </nav>
       )}
@@ -8445,26 +9076,6 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                   </button>
                 </li>
               ) : null}
-              {researchTab === 'menswear-categories' ? (
-                <li key="menswear-ebay-niches" className="research-menswear-departments-item">
-                  <button
-                    type="button"
-                    className={
-                      'research-menswear-department-box' +
-                      (menswearCategoryViewMode === 'ebay-niches'
-                        ? ' research-menswear-department-box--active'
-                        : '')
-                    }
-                    aria-pressed={menswearCategoryViewMode === 'ebay-niches'}
-                    onClick={() => {
-                      setResearchDeptMenuOpen(false);
-                      goToEbayNichesView();
-                    }}
-                  >
-                    <span className="research-menswear-department-box-name">All Categories</span>
-                  </button>
-                </li>
-              ) : null}
               {researchDepartments.map((d) => {
                 const activeDeptId =
                   researchTab === 'clothing-types'
@@ -8479,8 +9090,6 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                     ? typeof brandResearchDepartmentFilterSelection === 'number'
                       ? brandResearchDepartmentFilterSelection === d.id
                       : brandResearchDepartmentFilterEffective === d.id
-                    : researchTab === 'menswear-categories' && menswearCategoryViewMode === 'ebay-niches'
-                      ? false
                     : activeDeptId === d.id;
                 return (
                   <li key={d.id} className="research-menswear-departments-item">
@@ -8534,6 +9143,502 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
             />
           </nav>
         )}
+      {researchTab === 'department' && (
+        <div
+          id="research-panel-department"
+          role="tabpanel"
+          aria-labelledby="research-tab-department"
+          className="research-tab-panel"
+        >
+          <div className="brand-sales-overview department-sales-overview">
+            <div className="department-sales-overview-toolbar">
+              <div
+                className="department-heat-mode-toggle"
+                role="group"
+                aria-label="Department heat scale"
+              >
+                <button
+                  type="button"
+                  className={`department-heat-mode-btn${
+                    departmentHeatMode === 'buy-signal' ? ' is-active' : ''
+                  }`}
+                  aria-pressed={departmentHeatMode === 'buy-signal'}
+                  title="Combines profit and sell-through — green = buy more, red = avoid"
+                  onClick={() => setDepartmentHeatMode('buy-signal')}
+                >
+                  <span className="department-heat-mode-icon" aria-hidden="true">
+                    <svg viewBox="0 0 20 20" width="16" height="16" focusable="false">
+                      <path
+                        fill="currentColor"
+                        d="M10 2.25a.75.75 0 0 1 .67.41l1.6 3.24 3.58.52a.75.75 0 0 1 .42 1.28l-2.59 2.52.61 3.56a.75.75 0 0 1-1.09.79L10 13.27l-3.2 1.68a.75.75 0 0 1-1.09-.79l.61-3.56-2.59-2.52a.75.75 0 0 1 .42-1.28l3.58-.52 1.6-3.24A.75.75 0 0 1 10 2.25Z"
+                      />
+                    </svg>
+                  </span>
+                  Buy signal
+                </button>
+                <button
+                  type="button"
+                  className={`department-heat-mode-btn${
+                    departmentHeatMode === 'price' ? ' is-active' : ''
+                  }`}
+                  aria-pressed={departmentHeatMode === 'price'}
+                  onClick={() => setDepartmentHeatMode('price')}
+                >
+                  <span className="department-heat-mode-icon" aria-hidden="true">
+                    <svg viewBox="0 0 20 20" width="16" height="16" focusable="false">
+                      <path
+                        fill="currentColor"
+                        d="M10 1.75a8.25 8.25 0 1 0 0 16.5 8.25 8.25 0 0 0 0-16.5Zm.7 4.1c1.28.18 2.2.95 2.2 2.15 0 .34-.08.64-.22.9l1.18.48a.6.6 0 0 1-.45 1.11l-1.05-.43c-.28.5-.8.84-1.56.94v.85a.6.6 0 1 1-1.2 0v-.82c-.95-.12-1.7-.58-2.12-1.28a.6.6 0 0 1 1.02-.64c.22.36.66.67 1.4.75V8.4c-.72-.12-1.18-.48-1.18-1.05 0-.68.6-1.1 1.48-1.22V5.4a.6.6 0 1 1 1.2 0v.72Zm0 3.72c.7-.08 1.1-.36 1.1-.78s-.4-.72-1.1-.82v1.6Zm-1.2-2.9c-.55.1-.88.36-.88.72 0 .4.4.68 1.08.78V6.67Z"
+                      />
+                    </svg>
+                  </span>
+                  Price
+                </button>
+                <button
+                  type="button"
+                  className={`department-heat-mode-btn${
+                    departmentHeatMode === 'sell-through' ? ' is-active' : ''
+                  }`}
+                  aria-pressed={departmentHeatMode === 'sell-through'}
+                  onClick={() => setDepartmentHeatMode('sell-through')}
+                >
+                  <span className="department-heat-mode-icon" aria-hidden="true">
+                    <svg viewBox="0 0 20 20" width="16" height="16" focusable="false">
+                      <path
+                        fill="currentColor"
+                        d="M3.5 14.25a.75.75 0 0 1 0-1.5h1.1l2.7-5.2a.75.75 0 0 1 1.32-.05L10.4 11l1.68-3.02a.75.75 0 0 1 1.34.1l1.9 4.17h1.18a.75.75 0 0 1 0 1.5H14.5a.75.75 0 0 1-.69-.45l-1.4-3.06-1.72 3.1a.75.75 0 0 1-1.32.04L7.6 8.88l-2.1 4.04a.75.75 0 0 1-.66.33H3.5Z"
+                      />
+                      <path
+                        fill="currentColor"
+                        d="M14.2 4.2a.75.75 0 0 1 1.06 0l1.75 1.75a.75.75 0 0 1-1.06 1.06l-.47-.47v2.66a.75.75 0 0 1-1.5 0V6.54l-.47.47a.75.75 0 1 1-1.06-1.06L14.2 4.2Z"
+                      />
+                    </svg>
+                  </span>
+                  Sell-through
+                </button>
+              </div>
+            </div>
+            {departmentSalesOverviewLoading && (
+              <p className="brand-tag-examples-muted">Loading department cards…</p>
+            )}
+            {departmentSalesOverviewError && (
+              <p className="brand-tag-examples-error" role="alert">
+                {departmentSalesOverviewError}
+              </p>
+            )}
+            {!departmentSalesOverviewLoading &&
+              !departmentSalesOverviewError &&
+              departmentSalesOverviewDisplayCards.length === 0 && (
+                <p className="brand-tag-examples-muted">No departments to show.</p>
+              )}
+            {!departmentSalesOverviewLoading && departmentSalesOverviewDisplayCards.length > 0 && (
+              <ul className="brand-sales-overview-grid department-sales-overview-grid">
+                {departmentSalesOverviewDisplayCards.map((card) => {
+                  const net = card.netPosition;
+                  const netLabel = formatSignedResearchCurrency(net);
+                  const maxAbsProfit = Math.max(
+                    1,
+                    ...departmentSalesOverviewDisplayCards.map((c) => Math.abs(c.netPosition))
+                  );
+                  const maxBought = Math.max(
+                    1,
+                    ...departmentSalesOverviewDisplayCards.map((c) => c.itemsBought)
+                  );
+                  const signalArgs = {
+                    sold: card.itemsSold,
+                    inventory: card.itemsForSale,
+                    bought: card.itemsBought,
+                    netProfit: net,
+                    maxAbsProfit,
+                    maxBought,
+                  };
+                  const heatBg =
+                    departmentHeatMode === 'price'
+                      ? profitMarginToColor(net, card.totalPurchaseSpend)
+                      : departmentHeatMode === 'buy-signal'
+                        ? buySignalToColor(signalArgs)
+                        : sellThroughBalanceToColor(
+                            card.itemsSold,
+                            card.itemsForSale,
+                            card.itemsBought
+                          );
+                  const heatFg =
+                    departmentHeatMode === 'price'
+                      ? profitMarginToTextColor(net, card.totalPurchaseSpend)
+                      : departmentHeatMode === 'buy-signal'
+                        ? buySignalToTextColor(signalArgs)
+                        : sellThroughBalanceToTextColor(
+                            card.itemsSold,
+                            card.itemsForSale,
+                            card.itemsBought
+                          );
+                  const openDepartment = () => {
+                    window.location.assign(
+                      `/analytics?tab=clothing-types&departmentId=${card.departmentId}`
+                    );
+                  };
+                  const signal = buySignalBreakdown(signalArgs);
+                  const signalScore = signal.score;
+                  const heatTitle =
+                    departmentHeatMode === 'price'
+                      ? card.totalPurchaseSpend > 0 || net !== 0
+                        ? `Net ${netLabel}` +
+                          (net > 0 ? ' — profit' : net < 0 ? ' — loss' : ' — break even')
+                        : undefined
+                      : departmentHeatMode === 'buy-signal'
+                        ? `Buy signal ${signalScore >= 0 ? '+' : '−'}${Math.abs(signalScore).toFixed(0)} · net + sell-through × volume (vol ${(
+                            signal.volumeWeight * 100
+                          ).toFixed(0)}%, sample ${(signal.sampleWeight * 100).toFixed(0)}%)`
+                        : card.itemsBought > 0
+                          ? `Sold ${card.itemsSold} vs ${card.itemsForSale} still for sale` +
+                            (card.itemsSold > card.itemsForSale
+                              ? ' — more sold than in stock'
+                              : card.itemsForSale > card.itemsSold
+                                ? ' — more in stock than sold'
+                                : ' — sold and stock even')
+                          : undefined;
+                  const sellThroughPct =
+                    card.itemsBought > 0 ? (card.itemsSold / card.itemsBought) * 100 : 0;
+                  const sellThroughDisplay = (
+                    Math.round(sellThroughPct * 10) / 10
+                  ).toFixed(1);
+                  const balancePct =
+                    card.itemsBought > 0
+                      ? ((card.itemsSold - card.itemsForSale) / card.itemsBought) * 100
+                      : 0;
+                  const balanceDisplay = (
+                    Math.round(Math.abs(balancePct) * 10) / 10
+                  ).toFixed(1);
+                  const balanceLabel =
+                    balancePct > 0 ? `+${balanceDisplay}%` : balancePct < 0 ? `−${balanceDisplay}%` : '0%';
+                  const signalDisplay = formatSignedNumber(
+                    Math.round(signalScore * 10) / 10,
+                    1
+                  );
+                  const volumeWeightDisplay = `${Math.round(signal.volumeWeight * 100)}%`;
+                  const sampleWeightDisplay = `${Math.round(signal.sampleWeight * 100)}%`;
+                  return (
+                    <li key={card.departmentId}>
+                      <div
+                        className="brand-sales-overview-card brand-sales-overview-card--heat"
+                        role="button"
+                        tabIndex={0}
+                        style={{ backgroundColor: heatBg, color: heatFg }}
+                        title={heatTitle}
+                        onClick={openDepartment}
+                        onKeyDown={(ev) => {
+                          if (ev.key === 'Enter' || ev.key === ' ') {
+                            ev.preventDefault();
+                            openDepartment();
+                          }
+                        }}
+                      >
+                        <span className="brand-sales-overview-card-title-row">
+                          <span className="brand-sales-overview-card-name">
+                            {card.departmentName}
+                          </span>
+                        </span>
+                        {departmentHeatMode === 'price' ? (
+                          <span className="brand-sales-overview-card-metrics">
+                            <span
+                              className="brand-sales-overview-card-metrics-row"
+                              aria-label="Money totals"
+                            >
+                              <span
+                                className="brand-sales-overview-card-metric"
+                                data-tip="Net profit/loss"
+                                aria-label={`Net profit/loss: ${netLabel}`}
+                              >
+                                <span className="brand-sales-overview-card-metric-label" aria-hidden>
+                                  Net
+                                </span>
+                                <span
+                                  className={
+                                    'brand-sales-overview-card-metric-value' +
+                                    (net > 0
+                                      ? ' brand-sales-overview-card-metric-value--profit'
+                                      : net < 0
+                                        ? ' brand-sales-overview-card-metric-value--loss'
+                                        : '')
+                                  }
+                                  aria-hidden
+                                >
+                                  {netLabel}
+                                </span>
+                              </span>
+                              <span
+                                className="brand-sales-overview-card-metric"
+                                data-tip="Sales revenue"
+                                aria-label={`Sales revenue: ${formatResearchCurrency(card.totalSoldRevenue)}`}
+                              >
+                                <span className="brand-sales-overview-card-metric-label" aria-hidden>
+                                  Sales
+                                </span>
+                                <span className="brand-sales-overview-card-metric-value" aria-hidden>
+                                  {formatResearchCurrency(card.totalSoldRevenue)}
+                                </span>
+                              </span>
+                              <span
+                                className="brand-sales-overview-card-metric"
+                                data-tip="Amount spent"
+                                aria-label={`Amount spent: ${formatResearchCurrency(card.totalPurchaseSpend)}`}
+                              >
+                                <span className="brand-sales-overview-card-metric-label" aria-hidden>
+                                  Spent
+                                </span>
+                                <span className="brand-sales-overview-card-metric-value" aria-hidden>
+                                  {formatResearchCurrency(card.totalPurchaseSpend)}
+                                </span>
+                              </span>
+                            </span>
+                            <span
+                              className="brand-sales-overview-card-metrics-row"
+                              aria-label="Item counts"
+                            >
+                              <span
+                                className="brand-sales-overview-card-metric"
+                                data-tip="Items bought"
+                                aria-label={`Items bought: ${card.itemsBought}`}
+                              >
+                                <span className="brand-sales-overview-card-metric-label" aria-hidden>
+                                  Bought
+                                </span>
+                                <span className="brand-sales-overview-card-metric-value" aria-hidden>
+                                  {card.itemsBought}
+                                </span>
+                              </span>
+                              <span
+                                className="brand-sales-overview-card-metric"
+                                data-tip="Number sold"
+                                aria-label={`Number sold: ${card.itemsSold}`}
+                              >
+                                <span className="brand-sales-overview-card-metric-label" aria-hidden>
+                                  Sold
+                                </span>
+                                <span className="brand-sales-overview-card-metric-value" aria-hidden>
+                                  {card.itemsSold}
+                                </span>
+                              </span>
+                              <span
+                                className="brand-sales-overview-card-metric"
+                                data-tip="Number for sale"
+                                aria-label={`Number for sale: ${card.itemsForSale}`}
+                              >
+                                <span className="brand-sales-overview-card-metric-label" aria-hidden>
+                                  For sale
+                                </span>
+                                <span className="brand-sales-overview-card-metric-value" aria-hidden>
+                                  {card.itemsForSale}
+                                </span>
+                              </span>
+                            </span>
+                          </span>
+                        ) : departmentHeatMode === 'sell-through' ? (
+                          <span className="brand-sales-overview-card-metrics">
+                            <span
+                              className="brand-sales-overview-card-metrics-row"
+                              aria-label="Sell-through totals"
+                            >
+                              <span
+                                className="brand-sales-overview-card-metric"
+                                data-tip="Sold ÷ bought"
+                                aria-label={`Sell-through: ${sellThroughDisplay}%`}
+                              >
+                                <span className="brand-sales-overview-card-metric-label" aria-hidden>
+                                  Sell-through
+                                </span>
+                                <span className="brand-sales-overview-card-metric-value" aria-hidden>
+                                  {sellThroughDisplay}%
+                                </span>
+                              </span>
+                              <span
+                                className="brand-sales-overview-card-metric"
+                                data-tip="(Sold − for sale) ÷ bought"
+                                aria-label={`Sold vs stock balance: ${balanceLabel}`}
+                              >
+                                <span className="brand-sales-overview-card-metric-label" aria-hidden>
+                                  Sold vs stock
+                                </span>
+                                <span className="brand-sales-overview-card-metric-value" aria-hidden>
+                                  {balanceLabel}
+                                </span>
+                              </span>
+                            </span>
+                            <span
+                              className="brand-sales-overview-card-metrics-row"
+                              aria-label="Item counts"
+                            >
+                              <span
+                                className="brand-sales-overview-card-metric"
+                                data-tip="Items bought"
+                                aria-label={`Items bought: ${card.itemsBought}`}
+                              >
+                                <span className="brand-sales-overview-card-metric-label" aria-hidden>
+                                  Bought
+                                </span>
+                                <span className="brand-sales-overview-card-metric-value" aria-hidden>
+                                  {card.itemsBought}
+                                </span>
+                              </span>
+                              <span
+                                className="brand-sales-overview-card-metric"
+                                data-tip="Number sold"
+                                aria-label={`Number sold: ${card.itemsSold}`}
+                              >
+                                <span className="brand-sales-overview-card-metric-label" aria-hidden>
+                                  Sold
+                                </span>
+                                <span className="brand-sales-overview-card-metric-value" aria-hidden>
+                                  {card.itemsSold}
+                                </span>
+                              </span>
+                              <span
+                                className="brand-sales-overview-card-metric"
+                                data-tip="Number for sale"
+                                aria-label={`Number for sale: ${card.itemsForSale}`}
+                              >
+                                <span className="brand-sales-overview-card-metric-label" aria-hidden>
+                                  For sale
+                                </span>
+                                <span className="brand-sales-overview-card-metric-value" aria-hidden>
+                                  {card.itemsForSale}
+                                </span>
+                              </span>
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="brand-sales-overview-card-metrics">
+                            <span
+                              className="brand-sales-overview-card-metrics-row"
+                              aria-label="Buy signal drivers"
+                            >
+                              <span
+                                className="brand-sales-overview-card-metric"
+                                data-tip="Score from net profit + sell-through rate, scaled by volume"
+                                aria-label={`Buy signal: ${signalDisplay}`}
+                              >
+                                <span className="brand-sales-overview-card-metric-label" aria-hidden>
+                                  Buy signal
+                                </span>
+                                <span className="brand-sales-overview-card-metric-value" aria-hidden>
+                                  {signalDisplay}
+                                </span>
+                              </span>
+                              <span
+                                className="brand-sales-overview-card-metric"
+                                data-tip="Net profit/loss"
+                                aria-label={`Net profit/loss: ${netLabel}`}
+                              >
+                                <span className="brand-sales-overview-card-metric-label" aria-hidden>
+                                  Net
+                                </span>
+                                <span
+                                  className={
+                                    'brand-sales-overview-card-metric-value' +
+                                    (net > 0
+                                      ? ' brand-sales-overview-card-metric-value--profit'
+                                      : net < 0
+                                        ? ' brand-sales-overview-card-metric-value--loss'
+                                        : '')
+                                  }
+                                  aria-hidden
+                                >
+                                  {netLabel}
+                                </span>
+                              </span>
+                              <span
+                                className="brand-sales-overview-card-metric"
+                                data-tip="Sold ÷ bought"
+                                aria-label={`Sell-through: ${sellThroughDisplay}%`}
+                              >
+                                <span className="brand-sales-overview-card-metric-label" aria-hidden>
+                                  Sell-through
+                                </span>
+                                <span className="brand-sales-overview-card-metric-value" aria-hidden>
+                                  {sellThroughDisplay}%
+                                </span>
+                              </span>
+                            </span>
+                            <span
+                              className="brand-sales-overview-card-metrics-row"
+                              aria-label="Volume weighting"
+                            >
+                              <span
+                                className="brand-sales-overview-card-metric"
+                                data-tip="How strongly item volume scales this score (log of bought vs largest department)"
+                                aria-label={`Volume weight: ${volumeWeightDisplay}`}
+                              >
+                                <span className="brand-sales-overview-card-metric-label" aria-hidden>
+                                  Vol weight
+                                </span>
+                                <span className="brand-sales-overview-card-metric-value" aria-hidden>
+                                  {volumeWeightDisplay}
+                                </span>
+                              </span>
+                              <span
+                                className="brand-sales-overview-card-metric"
+                                data-tip="How much sell-through is trusted given sample size (bought ÷ bought+25)"
+                                aria-label={`Sample weight: ${sampleWeightDisplay}`}
+                              >
+                                <span className="brand-sales-overview-card-metric-label" aria-hidden>
+                                  Sample wt
+                                </span>
+                                <span className="brand-sales-overview-card-metric-value" aria-hidden>
+                                  {sampleWeightDisplay}
+                                </span>
+                              </span>
+                              <span
+                                className="brand-sales-overview-card-metric"
+                                data-tip="Items bought / sold / for sale"
+                                aria-label={`Bought ${card.itemsBought}, sold ${card.itemsSold}, for sale ${card.itemsForSale}`}
+                              >
+                                <span className="brand-sales-overview-card-metric-label" aria-hidden>
+                                  Bought/sold
+                                </span>
+                                <span className="brand-sales-overview-card-metric-value" aria-hidden>
+                                  {card.itemsBought}/{card.itemsSold}
+                                </span>
+                              </span>
+                            </span>
+                          </span>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {departmentAskAiHint ? (
+              <p
+                className={`menswear-categories-ask-ai-hint${
+                  departmentAskAiHint.startsWith('Copied')
+                    ? ''
+                    : ' menswear-categories-ask-ai-hint--error'
+                }`}
+                role="status"
+              >
+                {departmentAskAiHint}
+              </p>
+            ) : null}
+            <div className="menswear-categories-list-ask-all-wrap">
+              <button
+                type="button"
+                className="menswear-categories-ask-ai-btn"
+                disabled={
+                  departmentAskAiBusy ||
+                  departmentSalesOverviewLoading ||
+                  departmentSalesOverviewDisplayCards.length === 0
+                }
+                onClick={() => void runDepartmentSalesOverviewAskAi()}
+                aria-label="Ask AI for advice on department performance"
+              >
+                {departmentAskAiBusy ? '…' : 'Ask AI For Advice'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {researchTab === 'brand' && (
         <div
           id="research-panel-brand"
@@ -8960,12 +10065,33 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                           const known = brandsWithWebsites.find((b) => b.id === card.brandId);
                           const openBrand = () =>
                             selectBrandFromBrandTabTypeahead(known ?? brandRow);
+                          const heatBg = sellThroughBalanceToColor(
+                            card.itemsSold,
+                            card.itemsForSale,
+                            card.itemsBought
+                          );
+                          const heatFg = sellThroughBalanceToTextColor(
+                            card.itemsSold,
+                            card.itemsForSale,
+                            card.itemsBought
+                          );
                           return (
                             <li key={card.brandId}>
                               <div
-                                className="brand-sales-overview-card"
+                                className="brand-sales-overview-card brand-sales-overview-card--heat"
                                 role="button"
                                 tabIndex={0}
+                                style={{ backgroundColor: heatBg, color: heatFg }}
+                                title={
+                                  card.itemsBought > 0
+                                    ? `Sold ${card.itemsSold} vs ${card.itemsForSale} still for sale` +
+                                      (card.itemsSold > card.itemsForSale
+                                        ? ' — more sold than in stock'
+                                        : card.itemsForSale > card.itemsSold
+                                          ? ' — more in stock than sold'
+                                          : ' — sold and stock even')
+                                    : undefined
+                                }
                                 onClick={openBrand}
                                 onKeyDown={(ev) => {
                                   if (ev.key === 'Enter' || ev.key === ' ') {
@@ -10261,9 +11387,6 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           aria-labelledby="research-tab-menswear-categories"
           className="research-tab-panel"
         >
-          {menswearCategoryViewMode === 'ebay-niches' ? (
-            <EbayNicheExplorer highlightCategoryId={menswearDepartmentEbayHighlightId} />
-          ) : (
           <div
             className={
               'menswear-categories-page' +
@@ -10295,39 +11418,511 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
 
             {showMenswearCategoriesSplit && (
               <>
-                <nav
-                  className="clothing-types-browse menswear-categories-browse-top"
-                  aria-label="Menswear categories — open category details"
-                >
-                  <ul className="clothing-types-browse-list">
-                    {menswearListViewCategoryUnion.length === 0 ? (
-                      <li className="menswear-categories-empty">
-                        {menswearCategoryGrouping === 'stock_category'
-                          ? 'No stock categories with sales or inventory in this department yet.'
-                          : 'No categories found.'}
-                      </li>
-                    ) : (
-                      menswearListViewCategoryUnion
-                        .filter((cat) => cat.id >= 1)
-                        .map((cat) => (
-                        <li key={cat.id} className="clothing-types-browse-item">
-                          <a
-                            className="clothing-types-browse-link"
-                            href={menswearCategoryListHref(cat.id)}
+                <div className="clothing-types-charts-below menswear-categories-split-right clothing-types-charts-below--full">
+                  <section
+                    className="clothing-types-invest-risk"
+                    aria-label="Menswear categories ranked by buy signal, price, or sell-through"
+                  >
+                    <div className="clothing-types-invest-risk-heading-row">
+                      <div className="clothing-types-invest-risk-heading-controls">
+                        <div
+                          className="department-heat-mode-toggle"
+                          role="group"
+                          aria-label="Category heat scale"
+                        >
+                          <button
+                            type="button"
+                            className={`department-heat-mode-btn${
+                              menswearHeatMode === 'buy-signal' ? ' is-active' : ''
+                            }`}
+                            aria-pressed={menswearHeatMode === 'buy-signal'}
+                            title="Combines profit and sell-through — green = buy more, red = avoid"
+                            onClick={() => setMenswearHeatMode('buy-signal')}
+                          >
+                            <span className="department-heat-mode-icon" aria-hidden="true">
+                              <svg viewBox="0 0 20 20" width="16" height="16" focusable="false">
+                                <path
+                                  fill="currentColor"
+                                  d="M10 2.25a.75.75 0 0 1 .67.41l1.6 3.24 3.58.52a.75.75 0 0 1 .42 1.28l-2.59 2.52.61 3.56a.75.75 0 0 1-1.09.79L10 13.27l-3.2 1.68a.75.75 0 0 1-1.09-.79l.61-3.56-2.59-2.52a.75.75 0 0 1 .42-1.28l3.58-.52 1.6-3.24A.75.75 0 0 1 10 2.25Z"
+                                />
+                              </svg>
+                            </span>
+                            Buy signal
+                          </button>
+                          <button
+                            type="button"
+                            className={`department-heat-mode-btn${
+                              menswearHeatMode === 'price' ? ' is-active' : ''
+                            }`}
+                            aria-pressed={menswearHeatMode === 'price'}
+                            onClick={() => setMenswearHeatMode('price')}
+                          >
+                            <span className="department-heat-mode-icon" aria-hidden="true">
+                              <svg viewBox="0 0 20 20" width="16" height="16" focusable="false">
+                                <path
+                                  fill="currentColor"
+                                  d="M10 1.75a8.25 8.25 0 1 0 0 16.5 8.25 8.25 0 0 0 0-16.5Zm.7 4.1c1.28.18 2.2.95 2.2 2.15 0 .34-.08.64-.22.9l1.18.48a.6.6 0 0 1-.45 1.11l-1.05-.43c-.28.5-.8.84-1.56.94v.85a.6.6 0 1 1-1.2 0v-.82c-.95-.12-1.7-.58-2.12-1.28a.6.6 0 0 1 1.02-.64c.22.36.66.67 1.4.75V8.4c-.72-.12-1.18-.48-1.18-1.05 0-.68.6-1.1 1.48-1.22V5.4a.6.6 0 1 1 1.2 0v.72Zm0 3.72c.7-.08 1.1-.36 1.1-.78s-.4-.72-1.1-.82v1.6Zm-1.2-2.9c-.55.1-.88.36-.88.72 0 .4.4.68 1.08.78V6.67Z"
+                                />
+                              </svg>
+                            </span>
+                            Price
+                          </button>
+                          <button
+                            type="button"
+                            className={`department-heat-mode-btn${
+                              menswearHeatMode === 'sell-through' ? ' is-active' : ''
+                            }`}
+                            aria-pressed={menswearHeatMode === 'sell-through'}
+                            onClick={() => setMenswearHeatMode('sell-through')}
+                          >
+                            <span className="department-heat-mode-icon" aria-hidden="true">
+                              <svg viewBox="0 0 20 20" width="16" height="16" focusable="false">
+                                <path
+                                  fill="currentColor"
+                                  d="M3.5 14.25a.75.75 0 0 1 0-1.5h1.1l2.7-5.2a.75.75 0 0 1 1.32-.05L10.4 11l1.68-3.02a.75.75 0 0 1 1.34.1l1.9 4.17h1.18a.75.75 0 0 1 0 1.5H14.5a.75.75 0 0 1-.69-.45l-1.4-3.06-1.72 3.1a.75.75 0 0 1-1.32.04L7.6 8.88l-2.1 4.04a.75.75 0 0 1-.66.33H3.5Z"
+                                />
+                                <path
+                                  fill="currentColor"
+                                  d="M14.2 4.2a.75.75 0 0 1 1.06 0l1.75 1.75a.75.75 0 0 1-1.06 1.06l-.47-.47v2.66a.75.75 0 0 1-1.5 0V6.54l-.47.47a.75.75 0 1 1-1.06-1.06L14.2 4.2Z"
+                                />
+                              </svg>
+                            </span>
+                            Sell-through
+                          </button>
+                        </div>
+                        <div
+                          className="clothing-types-invest-risk-view-toggle"
+                          role="group"
+                          aria-label="Inventory strain view"
+                        >
+                          <button
+                            type="button"
+                            className={`clothing-types-invest-risk-view-btn${
+                              menswearInvestRiskView === 'cards' ? ' is-active' : ''
+                            }`}
+                            aria-pressed={menswearInvestRiskView === 'cards'}
+                            aria-label="Card view"
+                            title="Card view"
+                            onClick={() => setMenswearInvestRiskView('cards')}
+                          >
+                            <svg
+                              className="clothing-types-invest-risk-view-icon"
+                              viewBox="0 0 20 20"
+                              width="18"
+                              height="18"
+                              aria-hidden="true"
+                              focusable="false"
+                            >
+                              <rect x="2" y="2" width="7" height="7" rx="1.5" fill="currentColor" />
+                              <rect x="11" y="2" width="7" height="7" rx="1.5" fill="currentColor" />
+                              <rect x="2" y="11" width="7" height="7" rx="1.5" fill="currentColor" />
+                              <rect x="11" y="11" width="7" height="7" rx="1.5" fill="currentColor" />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            className={`clothing-types-invest-risk-view-btn${
+                              menswearInvestRiskView === 'graph' ? ' is-active' : ''
+                            }`}
+                            aria-pressed={menswearInvestRiskView === 'graph'}
+                            aria-label="Graph view"
+                            title="Graph view"
+                            onClick={() => setMenswearInvestRiskView('graph')}
+                          >
+                            <svg
+                              className="clothing-types-invest-risk-view-icon"
+                              viewBox="0 0 20 20"
+                              width="18"
+                              height="18"
+                              aria-hidden="true"
+                              focusable="false"
+                            >
+                              <path
+                                fill="currentColor"
+                                d="M3 15.5V4.5a.75.75 0 0 1 1.5 0v9.25h2.25V8.5a.75.75 0 0 1 1.5 0v5.25h2.25V6.75a.75.75 0 0 1 1.5 0v6.75h2.25V10a.75.75 0 0 1 1.5 0v4.75H17a.75.75 0 0 1 0 1.5H3.75a.75.75 0 0 1-.75-.75Z"
+                              />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            className={`clothing-types-invest-risk-view-btn${
+                              menswearInvestRiskView === 'table' ? ' is-active' : ''
+                            }`}
+                            aria-pressed={menswearInvestRiskView === 'table'}
+                            aria-label="Table view"
+                            title="Table view"
+                            onClick={() => setMenswearInvestRiskView('table')}
+                          >
+                            <svg
+                              className="clothing-types-invest-risk-view-icon"
+                              viewBox="0 0 20 20"
+                              width="18"
+                              height="18"
+                              aria-hidden="true"
+                              focusable="false"
+                            >
+                              <path
+                                fill="currentColor"
+                                d="M3.5 4.25A1.75 1.75 0 0 1 5.25 2.5h9.5A1.75 1.75 0 0 1 16.5 4.25v11.5a1.75 1.75 0 0 1-1.75 1.75h-9.5A1.75 1.75 0 0 1 3.5 15.75V4.25Zm1.5 0v2h10v-2a.25.25 0 0 0-.25-.25h-9.5a.25.25 0 0 0-.25.25Zm0 3.5v2.5h10v-2.5H5Zm0 4v4h10v-4H5Z"
+                              />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    {menswearCategoryInventoryError || menswearCategorySalesError ? (
+                      <div className="menswear-categories-error" role="alert">
+                        {menswearCategoryInventoryError ?? menswearCategorySalesError}
+                      </div>
+                    ) : null}
+                    {(menswearCategoryInventoryLoading || menswearCategorySalesLoading) &&
+                    !menswearCategoryInventoryError &&
+                    !menswearCategorySalesError ? (
+                      <div className="menswear-categories-muted">Loading categories…</div>
+                    ) : null}
+                    {!menswearCategoryInventoryLoading &&
+                      !menswearCategorySalesLoading &&
+                      !menswearCategoryInventoryError &&
+                      !menswearCategorySalesError &&
+                      (menswearCategoryStrainModel.buyOrderedRows.length > 0 ? (
+                        menswearInvestRiskView === 'cards' ? (
+                          <ul className="clothing-types-invest-risk-cards">
+                            {menswearCategoryStrainModel.buyOrderedRows.map((r) => {
+                              const sellThroughDisplay = (
+                                Math.round(r.sellThroughPct * 10) / 10
+                              ).toFixed(1);
+                              const netPct =
+                                r.total > 0 ? ((r.sold - r.unsold) / r.total) * 100 : 0;
+                              const netPctDisplay = (
+                                Math.round(Math.abs(netPct) * 10) / 10
+                              ).toFixed(1);
+                              const netPositive = netPct > 0;
+                              const netNegative = netPct < 0;
+                              const heatByPrice = menswearHeatMode === 'price';
+                              const heatBySignal = menswearHeatMode === 'buy-signal';
+                              const profitHeatPct =
+                                menswearCategoryStrainModel.maxAbsProfit > 0
+                                  ? (r.netPosition / menswearCategoryStrainModel.maxAbsProfit) * 50
+                                  : 0;
+                              const signalArgs = {
+                                sold: r.sold,
+                                inventory: r.unsold,
+                                bought: r.total,
+                                netProfit: r.netPosition,
+                                maxAbsProfit: menswearCategoryStrainModel.maxAbsProfit,
+                                maxBought: menswearCategoryStrainModel.maxBought,
+                              };
+                              const signal = buySignalBreakdown(signalArgs);
+                              const signalScore = signal.score;
+                              const heatBg = heatByPrice
+                                ? balancePctToHeatColor(profitHeatPct)
+                                : heatBySignal
+                                  ? buySignalToColor(signalArgs)
+                                  : sellThroughBalanceToColor(r.sold, r.unsold, r.total);
+                              const heatFg = heatByPrice
+                                ? balancePctToHeatTextColor(profitHeatPct)
+                                : heatBySignal
+                                  ? buySignalToTextColor(signalArgs)
+                                  : sellThroughBalanceToTextColor(r.sold, r.unsold, r.total);
+                              const profitLabel = formatSignedResearchCurrency(r.netPosition);
+                              const signalLabel = formatSignedNumber(
+                                Math.round(signalScore * 10) / 10,
+                                1
+                              );
+                              const volumeWeightDisplay = `${Math.round(signal.volumeWeight * 100)}%`;
+                              const sampleWeightDisplay = `${Math.round(signal.sampleWeight * 100)}%`;
+                              return (
+                                <li key={`${r.bucketId}-${r.label}`}>
+                                  <a
+                                    className="clothing-types-invest-risk-card clothing-types-invest-risk-card--heat"
+                                    style={{ backgroundColor: heatBg, color: heatFg }}
+                                    title={
+                                      heatByPrice
+                                        ? `Net ${profitLabel} (sold P/L − stock tied up)`
+                                        : heatBySignal
+                                          ? `Buy signal ${signalLabel} (net position + sell-through rate × volume) — ${
+                                              signalScore > 5
+                                                ? 'buy more'
+                                                : signalScore < -5
+                                                  ? 'avoid'
+                                                  : 'mixed'
+                                            }`
+                                          : r.total > 0
+                                            ? `Sold ${r.sold} vs ${r.unsold} still for sale` +
+                                              (r.sold > r.unsold
+                                                ? ' — more sold than in stock'
+                                                : r.unsold > r.sold
+                                                  ? ' — more in stock than sold'
+                                                  : ' — sold and stock even')
+                                            : undefined
+                                    }
+                                    href={menswearCategoryListHref(r.id)}
+                                  >
+                                    <span className="clothing-types-invest-risk-card-name">
+                                      {r.label}
+                                    </span>
+                                    {heatByPrice ? (
+                                      <>
+                                        <span className="clothing-types-invest-risk-card-counts">
+                                          <span className="clothing-types-invest-risk-card-count">
+                                            <span className="clothing-types-invest-risk-card-count-value">
+                                              {profitLabel}
+                                            </span>
+                                            <span className="clothing-types-invest-risk-card-count-label">
+                                              Net
+                                            </span>
+                                          </span>
+                                          <span className="clothing-types-invest-risk-card-count">
+                                            <span className="clothing-types-invest-risk-card-count-value">
+                                              {r.total}
+                                            </span>
+                                            <span className="clothing-types-invest-risk-card-count-label">
+                                              Bought
+                                            </span>
+                                          </span>
+                                        </span>
+                                        <span className="clothing-types-invest-risk-card-sell-through">
+                                          <span className="clothing-types-invest-risk-card-sell-through-value">
+                                            {r.sold} sold
+                                          </span>
+                                          <span className="clothing-types-invest-risk-card-sell-through-label">
+                                            {r.unsold} for sale
+                                          </span>
+                                        </span>
+                                        <span className="clothing-types-invest-risk-card-net">
+                                          {sellThroughDisplay}% sell-through
+                                        </span>
+                                      </>
+                                    ) : heatBySignal ? (
+                                      <>
+                                        <span className="clothing-types-invest-risk-card-counts clothing-types-invest-risk-card-counts--primary">
+                                          <span className="clothing-types-invest-risk-card-count">
+                                            <span className="clothing-types-invest-risk-card-count-value">
+                                              {signalLabel}
+                                            </span>
+                                            <span className="clothing-types-invest-risk-card-count-label">
+                                              Buy signal
+                                            </span>
+                                          </span>
+                                          <span className="clothing-types-invest-risk-card-count">
+                                            <span className="clothing-types-invest-risk-card-count-value">
+                                              {profitLabel}
+                                            </span>
+                                            <span className="clothing-types-invest-risk-card-count-label">
+                                              Net
+                                            </span>
+                                          </span>
+                                        </span>
+                                        <span className="clothing-types-invest-risk-card-counts">
+                                          <span className="clothing-types-invest-risk-card-count">
+                                            <span className="clothing-types-invest-risk-card-count-value">
+                                              {sellThroughDisplay}%
+                                            </span>
+                                            <span className="clothing-types-invest-risk-card-count-label">
+                                              Sell-through
+                                            </span>
+                                          </span>
+                                          <span className="clothing-types-invest-risk-card-count">
+                                            <span className="clothing-types-invest-risk-card-count-value">
+                                              {volumeWeightDisplay}
+                                            </span>
+                                            <span className="clothing-types-invest-risk-card-count-label">
+                                              Vol weight
+                                            </span>
+                                          </span>
+                                        </span>
+                                        <span className="clothing-types-invest-risk-card-sell-through">
+                                          <span className="clothing-types-invest-risk-card-sell-through-value">
+                                            {sampleWeightDisplay}
+                                          </span>
+                                          <span className="clothing-types-invest-risk-card-sell-through-label">
+                                            Sample weight
+                                          </span>
+                                        </span>
+                                        <span className="clothing-types-invest-risk-card-net">
+                                          <span className="clothing-types-invest-risk-card-net-line">
+                                            {r.total} bought · {r.sold} sold
+                                          </span>
+                                          <span className="clothing-types-invest-risk-card-net-line">
+                                            {r.unsold} for sale
+                                          </span>
+                                        </span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <span className="clothing-types-invest-risk-card-counts">
+                                          <span className="clothing-types-invest-risk-card-count">
+                                            <span className="clothing-types-invest-risk-card-count-value">
+                                              {sellThroughDisplay}%
+                                            </span>
+                                            <span className="clothing-types-invest-risk-card-count-label">
+                                              Sell-through
+                                            </span>
+                                          </span>
+                                          <span className="clothing-types-invest-risk-card-count">
+                                            <span className="clothing-types-invest-risk-card-count-value">
+                                              {netPositive ? '+' : netNegative ? '−' : ''}
+                                              {netPctDisplay}%
+                                            </span>
+                                            <span className="clothing-types-invest-risk-card-count-label">
+                                              Sold vs stock
+                                            </span>
+                                          </span>
+                                        </span>
+                                        <span className="clothing-types-invest-risk-card-sell-through">
+                                          <span className="clothing-types-invest-risk-card-sell-through-value">
+                                            {r.sold} sold
+                                          </span>
+                                          <span className="clothing-types-invest-risk-card-sell-through-label">
+                                            {r.unsold} for sale
+                                          </span>
+                                        </span>
+                                        <span className="clothing-types-invest-risk-card-net">
+                                          {r.total} bought
+                                        </span>
+                                      </>
+                                    )}
+                                  </a>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        ) : menswearInvestRiskView === 'graph' ? (
+                          menswearCategoryStrainModel.chartData ? (
+                            <div className="clothing-types-invest-risk-chart-wrap">
+                              <Bar
+                                data={menswearCategoryStrainModel.chartData}
+                                options={menswearInvestRiskBarOptions}
+                              />
+                            </div>
+                          ) : (
+                            <div className="menswear-categories-muted">No graph data for this view.</div>
+                          )
+                        ) : (
+                          <div className="clothing-types-invest-risk-table-wrap">
+                            <table className="menswear-categories-avoid-drilldown-table clothing-types-invest-risk-table">
+                              <thead>
+                                <tr>
+                                  <th scope="col">Category</th>
+                                  <th scope="col" className="menswear-categories-avoid-drilldown-num">
+                                    Listed
+                                  </th>
+                                  <th scope="col" className="menswear-categories-avoid-drilldown-num">
+                                    Sold
+                                  </th>
+                                  <th scope="col" className="menswear-categories-avoid-drilldown-num">
+                                    Unsold
+                                  </th>
+                                  <th scope="col" className="menswear-categories-avoid-drilldown-num">
+                                    Sell-through
+                                  </th>
+                                  <th
+                                    scope="col"
+                                    className="menswear-categories-avoid-drilldown-num"
+                                    title="Sold P/L minus capital tied up in unsold stock"
+                                  >
+                                    Net
+                                  </th>
+                                  <th
+                                    scope="col"
+                                    className="menswear-categories-avoid-drilldown-num"
+                                    title="Sum of purchase price on unsold lines"
+                                  >
+                                    Unsold stock (£)
+                                  </th>
+                                  <th scope="col" className="menswear-categories-avoid-drilldown-num">
+                                    Strain
+                                  </th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {menswearCategoryStrainModel.tableRows.map((r) => (
+                                  <tr key={`${r.bucketId}-${r.label}`}>
+                                    <td>
+                                      <a
+                                        className="clothing-types-invest-risk-type-link"
+                                        href={menswearCategoryListHref(r.id)}
+                                      >
+                                        {r.label}
+                                      </a>
+                                    </td>
+                                    <td className="menswear-categories-avoid-drilldown-num">{r.total}</td>
+                                    <td className="menswear-categories-avoid-drilldown-num">{r.sold}</td>
+                                    <td className="menswear-categories-avoid-drilldown-num">{r.unsold}</td>
+                                    <td className="menswear-categories-avoid-drilldown-num">
+                                      {(Math.round(r.sellThroughPct * 10) / 10).toFixed(1)}%
+                                    </td>
+                                    <td className="menswear-categories-avoid-drilldown-num">
+                                      {formatSignedResearchCurrency(r.netPosition)}
+                                    </td>
+                                    <td className="menswear-categories-avoid-drilldown-num">
+                                      {formatResearchCurrency(r.unsoldInventoryTotal)}
+                                    </td>
+                                    <td className="menswear-categories-avoid-drilldown-num">
+                                      {(Math.round(r.strain * 100) / 100).toFixed(2)}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )
+                      ) : (
+                        <div className="menswear-categories-muted">
+                          {menswearCategoryGrouping === 'stock_category'
+                            ? 'No stock categories with sales or inventory in this department yet.'
+                            : 'No categories to show.'}
+                        </div>
+                      ))}
+                  </section>
+
+                  {menswearListViewCategoryUnion.some((c) => c.id >= 1) &&
+                  !menswearCategorySalesLoading &&
+                  !menswearCategoryInventoryLoading &&
+                  !menswearCategorySalesError &&
+                  !menswearCategoryInventoryError ? (
+                    <div
+                      className="clothing-types-buy-avoid-strip menswear-categories-list-buy-avoid"
+                      role="region"
+                      aria-label="Top Menswear categories to buy vs avoid, from sell-through among categories with unsold stock"
+                    >
+                      <div className="clothing-types-buy-avoid-col clothing-types-buy-avoid-col--buy">
+                        <span className="clothing-types-buy-avoid-label">Top 5 to buy</span>
+                        <div className="clothing-types-buy-avoid-names-block">
+                          <span
+                            className="clothing-types-buy-avoid-names"
                             title={
-                              menswearCategoryGrouping === 'stock_category'
-                                ? `Open ${cat.name} in Sales by type`
+                              menswearCategoryStrainModel.buyTop5.length > 0
+                                ? menswearCategoryStrainModel.buyTop5.map((x) => x.name).join(' · ')
                                 : undefined
                             }
                           >
-                            {cat.name}
-                          </a>
-                        </li>
-                      ))
-                    )}
-                  </ul>
-                </nav>
-                <div className="clothing-types-charts-below menswear-categories-list-charts-wrap">
+                            {menswearCategoryStrainModel.buyTop5.length > 0
+                              ? menswearCategoryStrainModel.buyTop5.map((x) => x.name).join(' · ')
+                              : '—'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="clothing-types-buy-avoid-col clothing-types-buy-avoid-col--avoid">
+                        <span className="clothing-types-buy-avoid-label">Avoid buying</span>
+                        <div className="clothing-types-buy-avoid-names-block">
+                          <span
+                            className="clothing-types-buy-avoid-names"
+                            title={
+                              menswearCategoryStrainModel.avoidTop5.length > 0
+                                ? menswearCategoryStrainModel.avoidTop5.map((x) => x.name).join(' · ')
+                                : undefined
+                            }
+                          >
+                            {menswearCategoryStrainModel.avoidTop5.length > 0
+                              ? menswearCategoryStrainModel.avoidTop5.map((x) => x.name).join(' · ')
+                              : '—'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="clothing-types-charts-below menswear-categories-list-charts-wrap">
                   {renderMenswearPeriodFilter('clothing-types-charts-period-bar')}
                   <div className="clothing-types-three-pies-row">
                     <section
@@ -10431,483 +12026,19 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                         ))}
                     </div>
                   </div>
-                  {menswearListViewCategoryUnion.some((c) => c.id >= 1) &&
-                  !menswearCategorySalesLoading &&
-                  !menswearCategoryInventoryLoading &&
-                  !menswearCategorySalesError &&
-                  !menswearCategoryInventoryError ? (
-                    <div
-                      className="clothing-types-buy-avoid-strip menswear-categories-list-buy-avoid menswear-categories-list-buy-avoid--under-charts"
-                      role="region"
-                      aria-label="Top Menswear categories to buy vs avoid, from sell-through among categories with unsold stock"
+                </div>
+                  <div className="menswear-categories-list-ask-all-wrap">
+                    <button
+                      type="button"
+                      className="menswear-categories-ask-ai-btn"
+                      disabled={menswearAskAiBusy}
+                      onClick={() => void runMenswearAllCategoriesAskAi()}
+                      aria-label="Ask AI for advice on Menswear category taxonomy"
                     >
-                      <div className="clothing-types-buy-avoid-col clothing-types-buy-avoid-col--buy">
-                        <span className="clothing-types-buy-avoid-label">Top 5 to buy</span>
-                        <div className="clothing-types-buy-avoid-names-block">
-                          <span
-                            className="clothing-types-buy-avoid-names"
-                            title={
-                              menswearCategoryStrainModel.buyTop5.length > 0
-                                ? menswearCategoryStrainModel.buyTop5.map((x) => x.name).join(' · ')
-                                : undefined
-                            }
-                          >
-                            {menswearCategoryStrainModel.buyTop5.length > 0
-                              ? menswearCategoryStrainModel.buyTop5.map((x) => x.name).join(' · ')
-                              : '—'}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="clothing-types-buy-avoid-col clothing-types-buy-avoid-col--avoid">
-                        <span className="clothing-types-buy-avoid-label">Avoid buying</span>
-                        <div className="clothing-types-buy-avoid-names-block">
-                          <span
-                            className="clothing-types-buy-avoid-names"
-                            title={
-                              menswearCategoryStrainModel.avoidTop5.length > 0
-                                ? menswearCategoryStrainModel.avoidTop5.map((x) => x.name).join(' · ')
-                                : undefined
-                            }
-                          >
-                            {menswearCategoryStrainModel.avoidTop5.length > 0
-                              ? menswearCategoryStrainModel.avoidTop5.map((x) => x.name).join(' · ')
-                              : '—'}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
-                  <div className="menswear-categories-overview-below menswear-categories-overview-wrap">
-                    {menswearCategorySalesLoading || menswearCategoryInventoryLoading ? (
-                      <p className="menswear-categories-muted">Loading overview…</p>
-                    ) : menswearCategorySalesError || menswearCategoryInventoryError ? (
-                      <p className="menswear-categories-error" role="alert">
-                        {menswearCategorySalesError ?? menswearCategoryInventoryError}
-                      </p>
-                    ) : (
-                      <>
-                        <div className="menswear-categories-overview-block">
-                          <h4 className="menswear-categories-overview-heading">
-                            Best Menswear categories (sold revenue)
-                          </h4>
-                          {menswearOverviewBestRows.length === 0 ? (
-                            <p className="menswear-categories-muted">
-                              No sold revenue in this period for research categories.
-                            </p>
-                          ) : (
-                            <div className="menswear-categories-overview-table-wrap">
-                              <table className="menswear-categories-overview-table menswear-categories-overview-table--list-pair">
-                                <thead>
-                                  <tr>
-                                    <th scope="col" className="menswear-categories-overview-category-col">
-                                      Category
-                                    </th>
-                                    <th
-                                      scope="col"
-                                      className="menswear-categories-overview-num menswear-categories-overview-sold-revenue"
-                                    >
-                                      Sold revenue
-                                    </th>
-                                    <th scope="col" className="menswear-categories-overview-metric">
-                                      Number of Sold Items
-                                    </th>
-                                    <th scope="col" className="menswear-categories-overview-metric">
-                                      No. in stock
-                                    </th>
-                                    <th scope="col" className="menswear-categories-overview-metric">
-                                      Sell rate
-                                    </th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {menswearOverviewBestRows.map((row) => {
-                                    const navigable = row.id >= 1;
-                                    return (
-                                    <tr
-                                      key={`best-${row.id}`}
-                                      className={
-                                        navigable ? 'menswear-categories-buy-more-stock-row-link' : undefined
-                                      }
-                                      role={navigable ? 'button' : undefined}
-                                      tabIndex={navigable ? 0 : undefined}
-                                      onClick={
-                                        navigable ? () => openMenswearCategoryFromListOrPie(row.id) : undefined
-                                      }
-                                      onKeyDown={(e) => {
-                                        if (!navigable) return;
-                                        if (e.key === 'Enter' || e.key === ' ') {
-                                          e.preventDefault();
-                                          openMenswearCategoryFromListOrPie(row.id);
-                                        }
-                                      }}
-                                      aria-label={
-                                        navigable
-                                          ? `Open Menswear category ${row.name}`
-                                          : undefined
-                                      }
-                                    >
-                                      <td className="menswear-categories-overview-category-col">{row.name}</td>
-                                      <td className="menswear-categories-overview-num menswear-categories-overview-sold-revenue">
-                                        {formatResearchCurrency(row.totalSales)}
-                                      </td>
-                                      <td className="menswear-categories-overview-metric">{row.sold}</td>
-                                      <td className="menswear-categories-overview-metric">{row.unsold}</td>
-                                      <td className="menswear-categories-overview-metric">
-                                        {row.sellRateLabel}
-                                      </td>
-                                    </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-                        </div>
-                        <div className="menswear-categories-overview-block">
-                          <h4 className="menswear-categories-overview-heading">
-                            Weakest sell-through (buy carefully)
-                          </h4>
-                          {menswearOverviewWorstRows.length === 0 ? (
-                            <p className="menswear-categories-muted">No stock lines to rank yet.</p>
-                          ) : (
-                            <div className="menswear-categories-overview-table-wrap">
-                              <table className="menswear-categories-overview-table menswear-categories-overview-table--list-pair">
-                                <thead>
-                                  <tr>
-                                    <th scope="col" className="menswear-categories-overview-category-col">
-                                      Category
-                                    </th>
-                                    <th
-                                      scope="col"
-                                      className="menswear-categories-overview-num menswear-categories-overview-sold-revenue"
-                                    >
-                                      Sold revenue
-                                    </th>
-                                    <th scope="col" className="menswear-categories-overview-metric">
-                                      Number of Sold Items
-                                    </th>
-                                    <th scope="col" className="menswear-categories-overview-metric">
-                                      No. in stock
-                                    </th>
-                                    <th scope="col" className="menswear-categories-overview-metric">
-                                      Sell rate
-                                    </th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {menswearOverviewWorstRows.map((row) => {
-                                    const navigable = row.id >= 1;
-                                    return (
-                                    <tr
-                                      key={`worst-${row.id}`}
-                                      className={
-                                        navigable ? 'menswear-categories-buy-more-stock-row-link' : undefined
-                                      }
-                                      role={navigable ? 'button' : undefined}
-                                      tabIndex={navigable ? 0 : undefined}
-                                      onClick={
-                                        navigable ? () => openMenswearCategoryFromListOrPie(row.id) : undefined
-                                      }
-                                      onKeyDown={(e) => {
-                                        if (!navigable) return;
-                                        if (e.key === 'Enter' || e.key === ' ') {
-                                          e.preventDefault();
-                                          openMenswearCategoryFromListOrPie(row.id);
-                                        }
-                                      }}
-                                      aria-label={
-                                        navigable
-                                          ? `Open Menswear category ${row.name}`
-                                          : undefined
-                                      }
-                                    >
-                                      <td className="menswear-categories-overview-category-col">{row.name}</td>
-                                      <td className="menswear-categories-overview-num menswear-categories-overview-sold-revenue">
-                                        {row.totalSales > 0 ? formatResearchCurrency(row.totalSales) : '—'}
-                                      </td>
-                                      <td className="menswear-categories-overview-metric">{row.sold}</td>
-                                      <td className="menswear-categories-overview-metric">{row.unsold}</td>
-                                      <td className="menswear-categories-overview-metric">
-                                        {row.sellRateLabel}
-                                      </td>
-                                    </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-                        </div>
-                      </>
-                    )}
+                      Ask AI For Advice
+                    </button>
                   </div>
                 </div>
-                {menswearListViewCategoryUnion.some((c) => c.id >= 1) ? (
-                  menswearCategorySalesLoading || menswearCategoryInventoryLoading ? (
-                    <p className="menswear-categories-muted menswear-categories-list-strain-loading">
-                      Loading strain and sell-through…
-                    </p>
-                  ) : menswearCategorySalesError || menswearCategoryInventoryError ? null : (
-                    <>
-                      <section
-                        className="menswear-categories-list-strain-section"
-                        aria-label="Sell-through and inventory strain by Menswear category"
-                      >
-                        <div className="menswear-categories-list-strain-heading-row">
-                          <h3 className="clothing-types-invest-risk-title menswear-categories-list-strain-heading">
-                            Strain and sell-through by category
-                          </h3>
-                          <span className="menswear-strain-info-wrap">
-                            <button
-                              type="button"
-                              className="menswear-strain-info-btn"
-                              aria-label="What is strain?"
-                              aria-describedby="menswear-strain-info-tooltip"
-                            >
-                              <svg
-                                className="menswear-strain-info-icon"
-                                width="18"
-                                height="18"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                aria-hidden={true}
-                              >
-                                <circle cx="12" cy="12" r="10" />
-                                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-                                <line x1="12" y1="17" x2="12.01" y2="17" />
-                              </svg>
-                            </button>
-                            <span
-                              id="menswear-strain-info-tooltip"
-                              className="menswear-strain-info-tooltip"
-                              role="tooltip"
-                            >
-                              <strong>Strain</strong> is{' '}
-                              <strong>unsold lines × (unsold ÷ listed)</strong>. It goes up when you hold more
-                              unsold stock and unsold pieces are a large share of that category’s listings—so it
-                              highlights tied-up inventory more than a single unsold item would. Sell-through is{' '}
-                              <strong>sold ÷ listed</strong> as a percentage.
-                            </span>
-                          </span>
-                        </div>
-                        <div className="menswear-categories-list-strain-table-wrap">
-                          <table className="menswear-categories-overview-table menswear-categories-list-strain-table">
-                            <thead>
-                              <tr>
-                                <th
-                                  scope="col"
-                                  aria-sort={
-                                    menswearStrainTableSort?.key === 'category'
-                                      ? menswearStrainTableSort.dir === 'asc'
-                                        ? 'ascending'
-                                        : 'descending'
-                                      : 'none'
-                                  }
-                                >
-                                  <button
-                                    type="button"
-                                    className={`menswear-strain-th-sort${menswearStrainTableSort?.key === 'category' ? ' menswear-strain-th-sort--active' : ''}`}
-                                    onClick={() => toggleMenswearStrainTableSort('category')}
-                                  >
-                                    <span>Category</span>
-                                    <span className="menswear-strain-th-sort-icon" aria-hidden>
-                                      {menswearStrainTableSort?.key === 'category'
-                                        ? menswearStrainTableSort.dir === 'asc'
-                                          ? '▲'
-                                          : '▼'
-                                        : ''}
-                                    </span>
-                                  </button>
-                                </th>
-                                <th
-                                  scope="col"
-                                  className="menswear-categories-overview-num"
-                                  aria-sort={
-                                    menswearStrainTableSort?.key === 'listed'
-                                      ? menswearStrainTableSort.dir === 'asc'
-                                        ? 'ascending'
-                                        : 'descending'
-                                      : 'none'
-                                  }
-                                >
-                                  <button
-                                    type="button"
-                                    className={`menswear-strain-th-sort menswear-strain-th-sort--num${menswearStrainTableSort?.key === 'listed' ? ' menswear-strain-th-sort--active' : ''}`}
-                                    onClick={() => toggleMenswearStrainTableSort('listed')}
-                                  >
-                                    <span>Listed</span>
-                                    <span className="menswear-strain-th-sort-icon" aria-hidden>
-                                      {menswearStrainTableSort?.key === 'listed'
-                                        ? menswearStrainTableSort.dir === 'asc'
-                                          ? '▲'
-                                          : '▼'
-                                        : ''}
-                                    </span>
-                                  </button>
-                                </th>
-                                <th
-                                  scope="col"
-                                  className="menswear-categories-overview-num"
-                                  aria-sort={
-                                    menswearStrainTableSort?.key === 'sold'
-                                      ? menswearStrainTableSort.dir === 'asc'
-                                        ? 'ascending'
-                                        : 'descending'
-                                      : 'none'
-                                  }
-                                >
-                                  <button
-                                    type="button"
-                                    className={`menswear-strain-th-sort menswear-strain-th-sort--num${menswearStrainTableSort?.key === 'sold' ? ' menswear-strain-th-sort--active' : ''}`}
-                                    onClick={() => toggleMenswearStrainTableSort('sold')}
-                                  >
-                                    <span>Sold</span>
-                                    <span className="menswear-strain-th-sort-icon" aria-hidden>
-                                      {menswearStrainTableSort?.key === 'sold'
-                                        ? menswearStrainTableSort.dir === 'asc'
-                                          ? '▲'
-                                          : '▼'
-                                        : ''}
-                                    </span>
-                                  </button>
-                                </th>
-                                <th
-                                  scope="col"
-                                  className="menswear-categories-overview-num"
-                                  aria-sort={
-                                    menswearStrainTableSort?.key === 'unsold'
-                                      ? menswearStrainTableSort.dir === 'asc'
-                                        ? 'ascending'
-                                        : 'descending'
-                                      : 'none'
-                                  }
-                                >
-                                  <button
-                                    type="button"
-                                    className={`menswear-strain-th-sort menswear-strain-th-sort--num${menswearStrainTableSort?.key === 'unsold' ? ' menswear-strain-th-sort--active' : ''}`}
-                                    onClick={() => toggleMenswearStrainTableSort('unsold')}
-                                  >
-                                    <span>Unsold</span>
-                                    <span className="menswear-strain-th-sort-icon" aria-hidden>
-                                      {menswearStrainTableSort?.key === 'unsold'
-                                        ? menswearStrainTableSort.dir === 'asc'
-                                          ? '▲'
-                                          : '▼'
-                                        : ''}
-                                    </span>
-                                  </button>
-                                </th>
-                                <th
-                                  scope="col"
-                                  className="menswear-categories-overview-num"
-                                  aria-sort={
-                                    menswearStrainTableSort?.key === 'sellThrough'
-                                      ? menswearStrainTableSort.dir === 'asc'
-                                        ? 'ascending'
-                                        : 'descending'
-                                      : 'none'
-                                  }
-                                >
-                                  <button
-                                    type="button"
-                                    className={`menswear-strain-th-sort menswear-strain-th-sort--num${menswearStrainTableSort?.key === 'sellThrough' ? ' menswear-strain-th-sort--active' : ''}`}
-                                    onClick={() => toggleMenswearStrainTableSort('sellThrough')}
-                                  >
-                                    <span>Sell-through</span>
-                                    <span className="menswear-strain-th-sort-icon" aria-hidden>
-                                      {menswearStrainTableSort?.key === 'sellThrough'
-                                        ? menswearStrainTableSort.dir === 'asc'
-                                          ? '▲'
-                                          : '▼'
-                                        : ''}
-                                    </span>
-                                  </button>
-                                </th>
-                                <th
-                                  scope="col"
-                                  className="menswear-categories-overview-num"
-                                  title="Unsold lines × (unsold ÷ listed)"
-                                  aria-sort={
-                                    menswearStrainTableSort?.key === 'strain'
-                                      ? menswearStrainTableSort.dir === 'asc'
-                                        ? 'ascending'
-                                        : 'descending'
-                                      : 'none'
-                                  }
-                                >
-                                  <button
-                                    type="button"
-                                    className={`menswear-strain-th-sort menswear-strain-th-sort--num${menswearStrainTableSort?.key === 'strain' ? ' menswear-strain-th-sort--active' : ''}`}
-                                    onClick={() => toggleMenswearStrainTableSort('strain')}
-                                  >
-                                    <span>Strain</span>
-                                    <span className="menswear-strain-th-sort-icon" aria-hidden>
-                                      {menswearStrainTableSort?.key === 'strain'
-                                        ? menswearStrainTableSort.dir === 'asc'
-                                          ? '▲'
-                                          : '▼'
-                                        : ''}
-                                    </span>
-                                  </button>
-                                </th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {menswearStrainTableSortedRows.length === 0 ? (
-                                <tr>
-                                  <td colSpan={6} className="menswear-categories-muted menswear-strain-table-empty">
-                                    No categories to show.
-                                  </td>
-                                </tr>
-                              ) : (
-                                menswearStrainTableSortedRows.map((r) => (
-                                  <tr key={r.id}>
-                                    <td>
-                                      <a
-                                        className="clothing-types-invest-risk-type-link"
-                                        href={menswearCategoryListHref(r.id)}
-                                      >
-                                        {r.name}
-                                      </a>
-                                    </td>
-                                    <td className="menswear-categories-overview-num">{r.total}</td>
-                                    <td className="menswear-categories-overview-num">{r.sold}</td>
-                                    <td className="menswear-categories-overview-num">{r.unsold}</td>
-                                    <td className="menswear-categories-overview-num">
-                                      {r.sellThroughPct != null
-                                        ? `${(Math.round(r.sellThroughPct * 10) / 10).toFixed(1)}%`
-                                        : '—'}
-                                    </td>
-                                    <td className="menswear-categories-overview-num">
-                                      {r.total > 0
-                                        ? (Math.round(r.strain * 100) / 100).toFixed(2)
-                                        : '—'}
-                                    </td>
-                                  </tr>
-                                ))
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
-                      </section>
-                      <div className="menswear-categories-list-ask-all-wrap">
-                        <button
-                          type="button"
-                          className="menswear-categories-ask-ai-btn"
-                          disabled={menswearAskAiBusy}
-                          onClick={() => void runMenswearAllCategoriesAskAi()}
-                          aria-label="Copy Ask RI prompt to review Menswear category taxonomy"
-                        >
-                          Ask RI - Review This Selection
-                        </button>
-                      </div>
-                    </>
-                  )
-                ) : null}
               </>
             )}
 
@@ -11193,9 +12324,9 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                                   : undefined,
                             })
                           }
-                          aria-label="Copy Ask RI prompt for this category and its brands"
+                          aria-label="Ask AI for advice on this category and its brands"
                         >
-                          Ask RI - Review This Selection
+                          Ask AI For Advice
                         </button>
                       </div>
 
@@ -12181,7 +13312,6 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
               renderMenswearSalesPie()
             ) : null}
           </div>
-          )}
         </div>
       )}
 
@@ -12209,47 +13339,466 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
             )}
             {showClothingTypesSplit && (
               <>
-                <nav
-                  className="clothing-types-browse"
-                  aria-label="Sales by type — open category details"
-                >
-                  <ul className="clothing-types-browse-list">
-                    {clothingTypesListRows.length === 0 && !clothingTypesHasUncategorized ? (
-                      <li className="menswear-categories-empty">
-                        No categories defined for {clothingTypesResearchDepartmentLabel} yet.
-                      </li>
-                    ) : null}
-                    {clothingTypesListRows.map((cat) => (
-                      <li key={cat.id} className="clothing-types-browse-item">
-                        <a
-                          className="clothing-types-browse-link"
-                          id={`clothing-type-list-${cat.id}`}
-                          href={clothingTypesDetailHref(cat.id, clothingTypesListDepartmentIdForApi)}
+                <div className="clothing-types-charts-below menswear-categories-split-right clothing-types-charts-below--full">
+                  <section
+                    className="clothing-types-invest-risk"
+                    aria-label="Categories ranked by price or sell-through"
+                  >
+                    <div className="clothing-types-invest-risk-heading-row">
+                      <div className="clothing-types-invest-risk-heading-controls">
+                        <div
+                          className="department-heat-mode-toggle"
+                          role="group"
+                          aria-label="Category heat scale"
                         >
-                          {cat.category_name}
-                        </a>
-                      </li>
-                    ))}
-                    {clothingTypesHasUncategorized ? (
-                      <li className="clothing-types-browse-item">
-                        <a
-                          className="clothing-types-browse-link clothing-types-browse-link--uncat"
-                          id="clothing-type-list-uncategorized"
-                          href={clothingTypesDetailHref(
-                            'uncategorized',
-                            clothingTypesListDepartmentIdForApi
-                          )}
+                          <button
+                            type="button"
+                            className={`department-heat-mode-btn${
+                              clothingTypesHeatMode === 'buy-signal' ? ' is-active' : ''
+                            }`}
+                            aria-pressed={clothingTypesHeatMode === 'buy-signal'}
+                            title="Combines profit and sell-through — green = buy more, red = avoid"
+                            onClick={() => setClothingTypesHeatMode('buy-signal')}
+                          >
+                            <span className="department-heat-mode-icon" aria-hidden="true">
+                              <svg viewBox="0 0 20 20" width="16" height="16" focusable="false">
+                                <path
+                                  fill="currentColor"
+                                  d="M10 2.25a.75.75 0 0 1 .67.41l1.6 3.24 3.58.52a.75.75 0 0 1 .42 1.28l-2.59 2.52.61 3.56a.75.75 0 0 1-1.09.79L10 13.27l-3.2 1.68a.75.75 0 0 1-1.09-.79l.61-3.56-2.59-2.52a.75.75 0 0 1 .42-1.28l3.58-.52 1.6-3.24A.75.75 0 0 1 10 2.25Z"
+                                />
+                              </svg>
+                            </span>
+                            Buy signal
+                          </button>
+                          <button
+                            type="button"
+                            className={`department-heat-mode-btn${
+                              clothingTypesHeatMode === 'price' ? ' is-active' : ''
+                            }`}
+                            aria-pressed={clothingTypesHeatMode === 'price'}
+                            onClick={() => setClothingTypesHeatMode('price')}
+                          >
+                            <span className="department-heat-mode-icon" aria-hidden="true">
+                              <svg viewBox="0 0 20 20" width="16" height="16" focusable="false">
+                                <path
+                                  fill="currentColor"
+                                  d="M10 1.75a8.25 8.25 0 1 0 0 16.5 8.25 8.25 0 0 0 0-16.5Zm.7 4.1c1.28.18 2.2.95 2.2 2.15 0 .34-.08.64-.22.9l1.18.48a.6.6 0 0 1-.45 1.11l-1.05-.43c-.28.5-.8.84-1.56.94v.85a.6.6 0 1 1-1.2 0v-.82c-.95-.12-1.7-.58-2.12-1.28a.6.6 0 0 1 1.02-.64c.22.36.66.67 1.4.75V8.4c-.72-.12-1.18-.48-1.18-1.05 0-.68.6-1.1 1.48-1.22V5.4a.6.6 0 1 1 1.2 0v.72Zm0 3.72c.7-.08 1.1-.36 1.1-.78s-.4-.72-1.1-.82v1.6Zm-1.2-2.9c-.55.1-.88.36-.88.72 0 .4.4.68 1.08.78V6.67Z"
+                                />
+                              </svg>
+                            </span>
+                            Price
+                          </button>
+                          <button
+                            type="button"
+                            className={`department-heat-mode-btn${
+                              clothingTypesHeatMode === 'sell-through' ? ' is-active' : ''
+                            }`}
+                            aria-pressed={clothingTypesHeatMode === 'sell-through'}
+                            onClick={() => setClothingTypesHeatMode('sell-through')}
+                          >
+                            <span className="department-heat-mode-icon" aria-hidden="true">
+                              <svg viewBox="0 0 20 20" width="16" height="16" focusable="false">
+                                <path
+                                  fill="currentColor"
+                                  d="M3.5 14.25a.75.75 0 0 1 0-1.5h1.1l2.7-5.2a.75.75 0 0 1 1.32-.05L10.4 11l1.68-3.02a.75.75 0 0 1 1.34.1l1.9 4.17h1.18a.75.75 0 0 1 0 1.5H14.5a.75.75 0 0 1-.69-.45l-1.4-3.06-1.72 3.1a.75.75 0 0 1-1.32.04L7.6 8.88l-2.1 4.04a.75.75 0 0 1-.66.33H3.5Z"
+                                />
+                                <path
+                                  fill="currentColor"
+                                  d="M14.2 4.2a.75.75 0 0 1 1.06 0l1.75 1.75a.75.75 0 0 1-1.06 1.06l-.47-.47v2.66a.75.75 0 0 1-1.5 0V6.54l-.47.47a.75.75 0 1 1-1.06-1.06L14.2 4.2Z"
+                                />
+                              </svg>
+                            </span>
+                            Sell-through
+                          </button>
+                        </div>
+                        <div
+                          className="clothing-types-invest-risk-view-toggle"
+                          role="group"
+                          aria-label="Inventory strain view"
                         >
-                          Uncategorized
-                          <span className="clothing-types-browse-link-sub">
-                            No category on stock line
-                          </span>
-                        </a>
-                      </li>
+                          <button
+                            type="button"
+                            className={`clothing-types-invest-risk-view-btn${
+                              clothingTypesInvestRiskView === 'cards' ? ' is-active' : ''
+                            }`}
+                            aria-pressed={clothingTypesInvestRiskView === 'cards'}
+                            aria-label="Card view"
+                            title="Card view"
+                            onClick={() => setClothingTypesInvestRiskView('cards')}
+                          >
+                            <svg
+                              className="clothing-types-invest-risk-view-icon"
+                              viewBox="0 0 20 20"
+                              width="18"
+                              height="18"
+                              aria-hidden="true"
+                              focusable="false"
+                            >
+                              <rect x="2" y="2" width="7" height="7" rx="1.5" fill="currentColor" />
+                              <rect x="11" y="2" width="7" height="7" rx="1.5" fill="currentColor" />
+                              <rect x="2" y="11" width="7" height="7" rx="1.5" fill="currentColor" />
+                              <rect x="11" y="11" width="7" height="7" rx="1.5" fill="currentColor" />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            className={`clothing-types-invest-risk-view-btn${
+                              clothingTypesInvestRiskView === 'graph' ? ' is-active' : ''
+                            }`}
+                            aria-pressed={clothingTypesInvestRiskView === 'graph'}
+                            aria-label="Graph view"
+                            title="Graph view"
+                            onClick={() => setClothingTypesInvestRiskView('graph')}
+                          >
+                            <svg
+                              className="clothing-types-invest-risk-view-icon"
+                              viewBox="0 0 20 20"
+                              width="18"
+                              height="18"
+                              aria-hidden="true"
+                              focusable="false"
+                            >
+                              <path
+                                fill="currentColor"
+                                d="M3 15.5V4.5a.75.75 0 0 1 1.5 0v9.25h2.25V8.5a.75.75 0 0 1 1.5 0v5.25h2.25V6.75a.75.75 0 0 1 1.5 0v6.75h2.25V10a.75.75 0 0 1 1.5 0v4.75H17a.75.75 0 0 1 0 1.5H3.75a.75.75 0 0 1-.75-.75Z"
+                              />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            className={`clothing-types-invest-risk-view-btn${
+                              clothingTypesInvestRiskView === 'table' ? ' is-active' : ''
+                            }`}
+                            aria-pressed={clothingTypesInvestRiskView === 'table'}
+                            aria-label="Table view"
+                            title="Table view"
+                            onClick={() => setClothingTypesInvestRiskView('table')}
+                          >
+                            <svg
+                              className="clothing-types-invest-risk-view-icon"
+                              viewBox="0 0 20 20"
+                              width="18"
+                              height="18"
+                              aria-hidden="true"
+                              focusable="false"
+                            >
+                              <path
+                                fill="currentColor"
+                                d="M3.5 4.25A1.75 1.75 0 0 1 5.25 2.5h9.5A1.75 1.75 0 0 1 16.5 4.25v11.5a1.75 1.75 0 0 1-1.75 1.75h-9.5A1.75 1.75 0 0 1 3.5 15.75V4.25Zm1.5 0v2h10v-2a.25.25 0 0 0-.25-.25h-9.5a.25.25 0 0 0-.25.25Zm0 3.5v2.5h10v-2.5H5Zm0 4v4h10v-4H5Z"
+                              />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    {clothingTypesInventoryError ? (
+                      <div className="menswear-categories-error" role="alert">
+                        {clothingTypesInventoryError}
+                      </div>
                     ) : null}
-                  </ul>
-                </nav>
-                <div className="clothing-types-charts-below menswear-categories-split-right">
+                    {clothingTypesInventoryLoading && !clothingTypesInventoryError ? (
+                      <div className="menswear-categories-muted">Loading inventory…</div>
+                    ) : null}
+                    {!clothingTypesInventoryLoading &&
+                      !clothingTypesInventoryError &&
+                      (clothingTypesInvestRiskModel.buyOrderedRows.length > 0 ? (
+                        clothingTypesInvestRiskView === 'cards' ? (
+                          <ul className="clothing-types-invest-risk-cards">
+                            {clothingTypesInvestRiskModel.buyOrderedRows.map((r) => {
+                              const sellThroughDisplay = (
+                                Math.round(r.sellThroughPct * 10) / 10
+                              ).toFixed(1);
+                              const netPct =
+                                r.total > 0 ? ((r.sold - r.unsold) / r.total) * 100 : 0;
+                              const netPctDisplay = (
+                                Math.round(Math.abs(netPct) * 10) / 10
+                              ).toFixed(1);
+                              const netPositive = netPct > 0;
+                              const netNegative = netPct < 0;
+                              const heatByPrice = clothingTypesHeatMode === 'price';
+                              const heatBySignal = clothingTypesHeatMode === 'buy-signal';
+                              const profitHeatPct =
+                                clothingTypesInvestRiskModel.maxAbsProfit > 0
+                                  ? (r.netPosition /
+                                      clothingTypesInvestRiskModel.maxAbsProfit) *
+                                    50
+                                  : 0;
+                              const signalArgs = {
+                                sold: r.sold,
+                                inventory: r.unsold,
+                                bought: r.total,
+                                netProfit: r.netPosition,
+                                maxAbsProfit: clothingTypesInvestRiskModel.maxAbsProfit,
+                                maxBought: clothingTypesInvestRiskModel.maxBought,
+                              };
+                              const signal = buySignalBreakdown(signalArgs);
+                              const signalScore = signal.score;
+                              const heatBg = heatByPrice
+                                ? balancePctToHeatColor(profitHeatPct)
+                                : heatBySignal
+                                  ? buySignalToColor(signalArgs)
+                                  : sellThroughBalanceToColor(r.sold, r.unsold, r.total);
+                              const heatFg = heatByPrice
+                                ? balancePctToHeatTextColor(profitHeatPct)
+                                : heatBySignal
+                                  ? buySignalToTextColor(signalArgs)
+                                  : sellThroughBalanceToTextColor(r.sold, r.unsold, r.total);
+                              const profitLabel = formatSignedResearchCurrency(r.netPosition);
+                              const signalLabel = formatSignedNumber(
+                                Math.round(signalScore * 10) / 10,
+                                1
+                              );
+                              const volumeWeightDisplay = `${Math.round(signal.volumeWeight * 100)}%`;
+                              const sampleWeightDisplay = `${Math.round(signal.sampleWeight * 100)}%`;
+                              return (
+                                <li key={`${r.bucketId}-${r.label}`}>
+                                  <a
+                                    className="clothing-types-invest-risk-card clothing-types-invest-risk-card--heat"
+                                    style={{ backgroundColor: heatBg, color: heatFg }}
+                                    title={
+                                      heatByPrice
+                                        ? `Net ${profitLabel} (sold P/L − stock tied up)`
+                                        : heatBySignal
+                                          ? `Buy signal ${signalLabel} (net position + sell-through rate × volume) — ${
+                                              signalScore > 5
+                                                ? 'buy more'
+                                                : signalScore < -5
+                                                  ? 'avoid'
+                                                  : 'mixed'
+                                            }`
+                                          : r.total > 0
+                                            ? `Sold ${r.sold} vs ${r.unsold} still for sale` +
+                                              (r.sold > r.unsold
+                                                ? ' — more sold than in stock'
+                                                : r.unsold > r.sold
+                                                  ? ' — more in stock than sold'
+                                                  : ' — sold and stock even')
+                                            : undefined
+                                    }
+                                    href={clothingTypesDetailHref(
+                                      r.bucketId === -1 ? 'uncategorized' : r.bucketId,
+                                      clothingTypesListDepartmentIdForApi
+                                    )}
+                                  >
+                                    <span className="clothing-types-invest-risk-card-name">
+                                      {r.label}
+                                    </span>
+                                    {heatByPrice ? (
+                                      <>
+                                        <span className="clothing-types-invest-risk-card-counts">
+                                          <span className="clothing-types-invest-risk-card-count">
+                                            <span className="clothing-types-invest-risk-card-count-value">
+                                              {profitLabel}
+                                            </span>
+                                            <span className="clothing-types-invest-risk-card-count-label">
+                                              Net
+                                            </span>
+                                          </span>
+                                          <span className="clothing-types-invest-risk-card-count">
+                                            <span className="clothing-types-invest-risk-card-count-value">
+                                              {r.total}
+                                            </span>
+                                            <span className="clothing-types-invest-risk-card-count-label">
+                                              Bought
+                                            </span>
+                                          </span>
+                                        </span>
+                                        <span className="clothing-types-invest-risk-card-sell-through">
+                                          <span className="clothing-types-invest-risk-card-sell-through-value">
+                                            {r.sold} sold
+                                          </span>
+                                          <span className="clothing-types-invest-risk-card-sell-through-label">
+                                            {r.unsold} for sale
+                                          </span>
+                                        </span>
+                                        <span className="clothing-types-invest-risk-card-net">
+                                          {sellThroughDisplay}% sell-through
+                                        </span>
+                                      </>
+                                    ) : heatBySignal ? (
+                                      <>
+                                        <span className="clothing-types-invest-risk-card-counts clothing-types-invest-risk-card-counts--primary">
+                                          <span className="clothing-types-invest-risk-card-count">
+                                            <span className="clothing-types-invest-risk-card-count-value">
+                                              {signalLabel}
+                                            </span>
+                                            <span className="clothing-types-invest-risk-card-count-label">
+                                              Buy signal
+                                            </span>
+                                          </span>
+                                          <span className="clothing-types-invest-risk-card-count">
+                                            <span className="clothing-types-invest-risk-card-count-value">
+                                              {profitLabel}
+                                            </span>
+                                            <span className="clothing-types-invest-risk-card-count-label">
+                                              Net
+                                            </span>
+                                          </span>
+                                        </span>
+                                        <span className="clothing-types-invest-risk-card-counts">
+                                          <span className="clothing-types-invest-risk-card-count">
+                                            <span className="clothing-types-invest-risk-card-count-value">
+                                              {sellThroughDisplay}%
+                                            </span>
+                                            <span className="clothing-types-invest-risk-card-count-label">
+                                              Sell-through
+                                            </span>
+                                          </span>
+                                          <span className="clothing-types-invest-risk-card-count">
+                                            <span className="clothing-types-invest-risk-card-count-value">
+                                              {volumeWeightDisplay}
+                                            </span>
+                                            <span className="clothing-types-invest-risk-card-count-label">
+                                              Vol weight
+                                            </span>
+                                          </span>
+                                        </span>
+                                        <span className="clothing-types-invest-risk-card-sell-through">
+                                          <span className="clothing-types-invest-risk-card-sell-through-value">
+                                            {sampleWeightDisplay}
+                                          </span>
+                                          <span className="clothing-types-invest-risk-card-sell-through-label">
+                                            Sample weight
+                                          </span>
+                                        </span>
+                                        <span className="clothing-types-invest-risk-card-net">
+                                          <span className="clothing-types-invest-risk-card-net-line">
+                                            {r.total} bought · {r.sold} sold
+                                          </span>
+                                          <span className="clothing-types-invest-risk-card-net-line">
+                                            {r.unsold} for sale
+                                          </span>
+                                        </span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <span className="clothing-types-invest-risk-card-counts">
+                                          <span className="clothing-types-invest-risk-card-count">
+                                            <span className="clothing-types-invest-risk-card-count-value">
+                                              {sellThroughDisplay}%
+                                            </span>
+                                            <span className="clothing-types-invest-risk-card-count-label">
+                                              Sell-through
+                                            </span>
+                                          </span>
+                                          <span className="clothing-types-invest-risk-card-count">
+                                            <span className="clothing-types-invest-risk-card-count-value">
+                                              {netPositive ? '+' : netNegative ? '−' : ''}
+                                              {netPctDisplay}%
+                                            </span>
+                                            <span className="clothing-types-invest-risk-card-count-label">
+                                              Sold vs stock
+                                            </span>
+                                          </span>
+                                        </span>
+                                        <span className="clothing-types-invest-risk-card-sell-through">
+                                          <span className="clothing-types-invest-risk-card-sell-through-value">
+                                            {r.sold} sold
+                                          </span>
+                                          <span className="clothing-types-invest-risk-card-sell-through-label">
+                                            {r.unsold} for sale
+                                          </span>
+                                        </span>
+                                        <span className="clothing-types-invest-risk-card-net">
+                                          {r.total} bought
+                                        </span>
+                                      </>
+                                    )}
+                                  </a>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        ) : clothingTypesInvestRiskView === 'graph' ? (
+                          clothingTypesInvestRiskModel.chartData ? (
+                            <div className="clothing-types-invest-risk-chart-wrap">
+                              <Bar
+                                data={clothingTypesInvestRiskModel.chartData}
+                                options={clothingTypesInvestRiskBarOptions}
+                              />
+                            </div>
+                          ) : (
+                            <div className="menswear-categories-muted">No graph data for this view.</div>
+                          )
+                        ) : (
+                          <div className="clothing-types-invest-risk-table-wrap">
+                            <table className="menswear-categories-avoid-drilldown-table clothing-types-invest-risk-table">
+                              <thead>
+                                <tr>
+                                  <th scope="col">Category</th>
+                                  <th scope="col" className="menswear-categories-avoid-drilldown-num">
+                                    Listed
+                                  </th>
+                                  <th scope="col" className="menswear-categories-avoid-drilldown-num">
+                                    Sold
+                                  </th>
+                                  <th scope="col" className="menswear-categories-avoid-drilldown-num">
+                                    Unsold
+                                  </th>
+                                  <th scope="col" className="menswear-categories-avoid-drilldown-num">
+                                    Sell-through
+                                  </th>
+                                  <th
+                                    scope="col"
+                                    className="menswear-categories-avoid-drilldown-num"
+                                    title="Sum of net profit on sold lines in this category"
+                                  >
+                                    Total profit
+                                  </th>
+                                  <th
+                                    scope="col"
+                                    className="menswear-categories-avoid-drilldown-num"
+                                    title="Sum of purchase price on unsold lines (stock tied up)"
+                                  >
+                                    Unsold stock (£)
+                                  </th>
+                                  <th scope="col" className="menswear-categories-avoid-drilldown-num">
+                                    Strain
+                                  </th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {clothingTypesInvestRiskModel.tableRows.map((r) => (
+                                  <tr key={`${r.bucketId}-${r.label}`}>
+                                    <td>
+                                      <a
+                                        className="clothing-types-invest-risk-type-link"
+                                        href={clothingTypesDetailHref(
+                                          r.bucketId === -1 ? 'uncategorized' : r.bucketId,
+                                          clothingTypesListDepartmentIdForApi
+                                        )}
+                                      >
+                                        {r.label}
+                                      </a>
+                                    </td>
+                                    <td className="menswear-categories-avoid-drilldown-num">{r.total}</td>
+                                    <td className="menswear-categories-avoid-drilldown-num">{r.sold}</td>
+                                    <td className="menswear-categories-avoid-drilldown-num">{r.unsold}</td>
+                                    <td className="menswear-categories-avoid-drilldown-num">
+                                      {(Math.round(r.sellThroughPct * 10) / 10).toFixed(1)}%
+                                    </td>
+                                    <td className="menswear-categories-avoid-drilldown-num">
+                                      {formatSignedResearchCurrency(r.totalNetProfit)}
+                                    </td>
+                                    <td className="menswear-categories-avoid-drilldown-num">
+                                      {formatResearchCurrency(r.unsoldInventoryTotal)}
+                                    </td>
+                                    <td className="menswear-categories-avoid-drilldown-num">
+                                      {(Math.round(r.strain * 100) / 100).toFixed(2)}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )
+                      ) : (
+                        <div className="menswear-categories-muted">
+                          No categories to show for {clothingTypesResearchDepartmentLabel}.
+                        </div>
+                      ))}
+                  </section>
+
                   {!clothingTypesInventoryLoading && !clothingTypesInventoryError ? (
                     <div
                       className="clothing-types-buy-avoid-strip"
@@ -12421,279 +13970,33 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                       ))}
                   </div>
                   </div>
-
-                  <section
-                    className="clothing-types-invest-risk"
-                    aria-label="Categories ranked best to buy by sell-through"
+                </div>
+                {clothingTypesAskAiHint ? (
+                  <p
+                    className={`menswear-categories-ask-ai-hint${
+                      clothingTypesAskAiHint.startsWith('Copied')
+                        ? ''
+                        : ' menswear-categories-ask-ai-hint--error'
+                    }`}
+                    role="status"
                   >
-                    <div className="clothing-types-invest-risk-heading-row">
-                      <h3 className="clothing-types-invest-risk-title">Inventory strain by category</h3>
-                      <div
-                        className="clothing-types-invest-risk-view-toggle"
-                        role="group"
-                        aria-label="Inventory strain view"
-                      >
-                        <button
-                          type="button"
-                          className={`clothing-types-invest-risk-view-btn${
-                            clothingTypesInvestRiskView === 'cards' ? ' is-active' : ''
-                          }`}
-                          aria-pressed={clothingTypesInvestRiskView === 'cards'}
-                          aria-label="Card view"
-                          title="Card view"
-                          onClick={() => setClothingTypesInvestRiskView('cards')}
-                        >
-                          <svg
-                            className="clothing-types-invest-risk-view-icon"
-                            viewBox="0 0 20 20"
-                            width="18"
-                            height="18"
-                            aria-hidden="true"
-                            focusable="false"
-                          >
-                            <rect x="2" y="2" width="7" height="7" rx="1.5" fill="currentColor" />
-                            <rect x="11" y="2" width="7" height="7" rx="1.5" fill="currentColor" />
-                            <rect x="2" y="11" width="7" height="7" rx="1.5" fill="currentColor" />
-                            <rect x="11" y="11" width="7" height="7" rx="1.5" fill="currentColor" />
-                          </svg>
-                        </button>
-                        <button
-                          type="button"
-                          className={`clothing-types-invest-risk-view-btn${
-                            clothingTypesInvestRiskView === 'graph' ? ' is-active' : ''
-                          }`}
-                          aria-pressed={clothingTypesInvestRiskView === 'graph'}
-                          aria-label="Graph view"
-                          title="Graph view"
-                          onClick={() => setClothingTypesInvestRiskView('graph')}
-                        >
-                          <svg
-                            className="clothing-types-invest-risk-view-icon"
-                            viewBox="0 0 20 20"
-                            width="18"
-                            height="18"
-                            aria-hidden="true"
-                            focusable="false"
-                          >
-                            <rect x="2" y="11" width="3.5" height="7" rx="0.8" fill="currentColor" />
-                            <rect x="8.25" y="5" width="3.5" height="13" rx="0.8" fill="currentColor" />
-                            <rect x="14.5" y="2" width="3.5" height="16" rx="0.8" fill="currentColor" />
-                          </svg>
-                        </button>
-                        <button
-                          type="button"
-                          className={`clothing-types-invest-risk-view-btn${
-                            clothingTypesInvestRiskView === 'table' ? ' is-active' : ''
-                          }`}
-                          aria-pressed={clothingTypesInvestRiskView === 'table'}
-                          aria-label="Table view"
-                          title="Table view"
-                          onClick={() => setClothingTypesInvestRiskView('table')}
-                        >
-                          <svg
-                            className="clothing-types-invest-risk-view-icon"
-                            viewBox="0 0 20 20"
-                            width="18"
-                            height="18"
-                            aria-hidden="true"
-                            focusable="false"
-                          >
-                            <rect
-                              x="2.5"
-                              y="3"
-                              width="15"
-                              height="14"
-                              rx="1.5"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="1.6"
-                            />
-                            <path
-                              d="M2.5 7.5h15M2.5 12h15M8 3v14"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="1.6"
-                            />
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
-                    {clothingTypesInventoryError ? (
-                      <div className="menswear-categories-error menswear-categories-error--inline" role="alert">
-                        {clothingTypesInventoryError}
-                      </div>
-                    ) : null}
-                    {clothingTypesInventoryLoading && !clothingTypesInventoryError ? (
-                      <div className="menswear-categories-muted">Loading inventory…</div>
-                    ) : null}
-                    {!clothingTypesInventoryLoading &&
-                      !clothingTypesInventoryError &&
-                      (clothingTypesInvestRiskModel.buyOrderedRows.length > 0 ? (
-                        clothingTypesInvestRiskView === 'cards' ? (
-                            <ul className="clothing-types-invest-risk-cards">
-                                {clothingTypesInvestRiskModel.buyOrderedRows.map((r) => {
-                                  const sellThroughDisplay = (
-                                    Math.round(r.sellThroughPct * 10) / 10
-                                  ).toFixed(1);
-                                  /** Sold ahead/behind vs unsold, as % of listed stock in the category. */
-                                  const netPct =
-                                    r.total > 0 ? ((r.sold - r.unsold) / r.total) * 100 : 0;
-                                  const netPctDisplay = (
-                                    Math.round(Math.abs(netPct) * 10) / 10
-                                  ).toFixed(1);
-                                  const netPositive = netPct > 0;
-                                  const netNegative = netPct < 0;
-                                  const netClass = netPositive
-                                    ? 'clothing-types-invest-risk-card--net-positive'
-                                    : netNegative
-                                      ? 'clothing-types-invest-risk-card--net-negative'
-                                      : 'clothing-types-invest-risk-card--net-neutral';
-                                  return (
-                                    <li key={`${r.bucketId}-${r.label}`}>
-                                      <a
-                                        className={`clothing-types-invest-risk-card ${netClass}`}
-                                        href={clothingTypesDetailHref(
-                                          r.bucketId === -1 ? 'uncategorized' : r.bucketId,
-                                          clothingTypesListDepartmentIdForApi
-                                        )}
-                                      >
-                                        <span className="clothing-types-invest-risk-card-name">
-                                          {r.label}
-                                        </span>
-                                        <span className="clothing-types-invest-risk-card-counts">
-                                          <span className="clothing-types-invest-risk-card-count">
-                                            <span className="clothing-types-invest-risk-card-count-value">
-                                              {r.total}
-                                            </span>
-                                            <span className="clothing-types-invest-risk-card-count-label">
-                                              Bought
-                                            </span>
-                                          </span>
-                                          <span className="clothing-types-invest-risk-card-count">
-                                            <span className="clothing-types-invest-risk-card-count-value">
-                                              {r.sold}
-                                            </span>
-                                            <span className="clothing-types-invest-risk-card-count-label">
-                                              Sold
-                                            </span>
-                                          </span>
-                                        </span>
-                                        <span className="clothing-types-invest-risk-card-sell-through">
-                                          <span className="clothing-types-invest-risk-card-sell-through-value">
-                                            {sellThroughDisplay}%
-                                          </span>
-                                          <span className="clothing-types-invest-risk-card-sell-through-label">
-                                            Sell-through
-                                          </span>
-                                        </span>
-                                        <span
-                                          className={`clothing-types-invest-risk-card-net${
-                                            netPositive
-                                              ? ' clothing-types-invest-risk-card-net--positive'
-                                              : netNegative
-                                                ? ' clothing-types-invest-risk-card-net--negative'
-                                                : ''
-                                          }`}
-                                          title="Sold minus unsold, as a share of bought items in this category"
-                                        >
-                                          {netPositive ? '+' : netNegative ? '−' : ''}
-                                          {netPctDisplay}% net
-                                        </span>
-                                      </a>
-                                    </li>
-                                  );
-                                })}
-                              </ul>
-                          ) : clothingTypesInvestRiskView === 'graph' ? (
-                            clothingTypesInvestRiskModel.chartData ? (
-                              <div className="clothing-types-invest-risk-chart-wrap">
-                                <Bar
-                                  data={clothingTypesInvestRiskModel.chartData}
-                                  options={clothingTypesInvestRiskBarOptions}
-                                />
-                              </div>
-                            ) : (
-                              <div className="menswear-categories-muted">No graph data for this view.</div>
-                            )
-                          ) : (
-                          <div className="clothing-types-invest-risk-table-wrap">
-                            <table className="menswear-categories-avoid-drilldown-table clothing-types-invest-risk-table">
-                              <thead>
-                                <tr>
-                                  <th scope="col">Category</th>
-                                  <th scope="col" className="menswear-categories-avoid-drilldown-num">
-                                    Listed
-                                  </th>
-                                  <th scope="col" className="menswear-categories-avoid-drilldown-num">
-                                    Sold
-                                  </th>
-                                  <th scope="col" className="menswear-categories-avoid-drilldown-num">
-                                    Unsold
-                                  </th>
-                                  <th scope="col" className="menswear-categories-avoid-drilldown-num">
-                                    Sell-through
-                                  </th>
-                                  <th
-                                    scope="col"
-                                    className="menswear-categories-avoid-drilldown-num"
-                                    title="Sum of net profit on sold lines in this category"
-                                  >
-                                    Total profit
-                                  </th>
-                                  <th
-                                    scope="col"
-                                    className="menswear-categories-avoid-drilldown-num"
-                                    title="Sum of purchase price on unsold lines (stock tied up)"
-                                  >
-                                    Unsold stock (£)
-                                  </th>
-                                  <th scope="col" className="menswear-categories-avoid-drilldown-num">
-                                    Strain
-                                  </th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {clothingTypesInvestRiskModel.tableRows.map((r) => (
-                                  <tr key={`${r.bucketId}-${r.label}`}>
-                                    <td>
-                                      <a
-                                        className="clothing-types-invest-risk-type-link"
-                                        href={clothingTypesDetailHref(
-                                          r.bucketId === -1 ? 'uncategorized' : r.bucketId,
-                                          clothingTypesListDepartmentIdForApi
-                                        )}
-                                      >
-                                        {r.label}
-                                      </a>
-                                    </td>
-                                    <td className="menswear-categories-avoid-drilldown-num">{r.total}</td>
-                                    <td className="menswear-categories-avoid-drilldown-num">{r.sold}</td>
-                                    <td className="menswear-categories-avoid-drilldown-num">{r.unsold}</td>
-                                    <td className="menswear-categories-avoid-drilldown-num">
-                                      {(Math.round(r.sellThroughPct * 10) / 10).toFixed(1)}%
-                                    </td>
-                                    <td className="menswear-categories-avoid-drilldown-num">
-                                      {formatResearchCurrency(r.totalNetProfit)}
-                                    </td>
-                                    <td className="menswear-categories-avoid-drilldown-num">
-                                      {formatResearchCurrency(r.unsoldInventoryTotal)}
-                                    </td>
-                                    <td className="menswear-categories-avoid-drilldown-num">
-                                      {(Math.round(r.strain * 100) / 100).toFixed(2)}
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                          )
-                      ) : (
-                        <div className="menswear-categories-muted">
-                          No categories with unsold stock and at least two listings match this view for{' '}
-                          {clothingTypesResearchDepartmentLabel}.
-                        </div>
-                      ))}
-                  </section>
+                    {clothingTypesAskAiHint}
+                  </p>
+                ) : null}
+                <div className="menswear-categories-list-ask-all-wrap">
+                  <button
+                    type="button"
+                    className="menswear-categories-ask-ai-btn"
+                    disabled={
+                      clothingTypesAskAiBusy ||
+                      clothingTypesInventoryLoading ||
+                      clothingTypesInvestRiskModel.buyOrderedRows.length === 0
+                    }
+                    onClick={() => void runClothingTypesAskAi()}
+                    aria-label="Ask AI for advice on clothing types in this department"
+                  >
+                    {clothingTypesAskAiBusy ? '…' : 'Ask AI For Advice'}
+                  </button>
                 </div>
               </>
             )}
@@ -13613,6 +14916,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       )}
 
       {researchTab === 'item-views' && <ResearchItemViews />}
+
+      {researchTab === 'inventory-ageing' && <InventoryAgeing />}
 
       {researchTab === 'seasonal' && (
         <div

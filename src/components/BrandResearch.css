@@ -1996,6 +1996,202 @@ a.research-tab {
   margin-top: 8px;
 }
 
+.department-sales-overview {
+  width: 75%;
+  max-width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.department-sales-overview-toolbar {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+}
+
+.department-heat-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.22);
+  background: rgba(var(--theme-accent-rgb), 0.06);
+}
+
+.department-heat-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 14px 0 8px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(var(--theme-text-rgb), 0.55);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition:
+    background 0.28s ease,
+    color 0.28s ease,
+    box-shadow 0.28s ease,
+    transform 0.28s ease;
+}
+
+.department-heat-mode-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(var(--theme-accent-rgb), 0.12);
+  color: inherit;
+  flex-shrink: 0;
+  transition:
+    background 0.28s ease,
+    color 0.28s ease,
+    transform 0.28s ease,
+    box-shadow 0.28s ease;
+}
+
+.department-heat-mode-icon svg {
+  display: block;
+}
+
+.department-heat-mode-btn:hover {
+  color: rgba(var(--theme-text-rgb), 0.9);
+}
+
+.department-heat-mode-btn:hover .department-heat-mode-icon {
+  transform: scale(1.06);
+}
+
+.department-heat-mode-btn.is-active {
+  background: rgba(var(--theme-accent-rgb), 0.2);
+  color: var(--text-strong);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset;
+}
+
+.department-heat-mode-btn.is-active .department-heat-mode-icon {
+  background: rgba(var(--theme-accent-rgb), 0.32);
+  box-shadow: 0 0 0 1px rgba(var(--theme-accent-rgb), 0.25);
+  transform: scale(1.04);
+}
+
+.department-sales-overview-grid {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  justify-content: stretch;
+  gap: 20px;
+}
+
+.department-sales-overview-grid > li {
+  width: 100%;
+  max-width: none;
+  height: 320px;
+  transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.department-sales-overview-grid .brand-sales-overview-card {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 22px 20px;
+  overflow: visible;
+  transition:
+    background-color 0.55s cubic-bezier(0.22, 1, 0.36, 1),
+    color 0.45s ease,
+    filter 0.35s ease,
+    transform 0.35s ease;
+}
+
+.department-sales-overview-grid .brand-sales-overview-card--heat:hover {
+  transform: translateY(-2px) scale(1.01);
+}
+
+.department-sales-overview-grid .brand-sales-overview-card-title-row {
+  width: 100%;
+  align-items: flex-start;
+}
+
+.department-sales-overview-grid .brand-sales-overview-card-name {
+  width: 100%;
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  display: block;
+  -webkit-line-clamp: unset;
+  -webkit-box-orient: unset;
+  word-break: break-word;
+}
+
+.department-sales-overview-grid .brand-sales-overview-card-metrics {
+  flex: 1 1 auto;
+  width: 100%;
+  justify-content: space-evenly;
+  gap: 14px;
+}
+
+.department-sales-overview-grid .brand-sales-overview-card-metrics-row {
+  width: 100%;
+  gap: 8px;
+  flex-wrap: nowrap;
+  align-items: stretch;
+}
+
+.department-sales-overview-grid .brand-sales-overview-card-metric {
+  display: grid;
+  grid-template-rows: auto minmax(1.7rem, auto);
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-items: center;
+}
+
+.department-sales-overview-grid .brand-sales-overview-card-metric-label {
+  font-size: 0.78rem;
+  font-weight: 650;
+  max-width: none;
+  width: 100%;
+  text-align: center;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+}
+
+.department-sales-overview-grid .brand-sales-overview-card-metric-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  max-width: 100%;
+  width: 100%;
+  min-height: 1.7rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: normal;
+}
+
+@media (max-width: 720px) {
+  .department-sales-overview {
+    width: 100%;
+  }
+}
+
 .brand-sales-overview-category {
   display: flex;
   flex-direction: column;
@@ -2047,16 +2243,46 @@ a.research-tab {
   background: var(--theme-fill);
   color: var(--text-strong);
   box-shadow: var(--theme-inset-shadow);
-  transition: border-color 0.2s ease, transform 0.2s ease, background 0.2s ease;
+  transition: border-color 0.2s ease, transform 0.2s ease, filter 0.2s ease;
   overflow: visible;
   box-sizing: border-box;
   font: inherit;
 }
 
+.brand-sales-overview-card--heat {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.brand-sales-overview-card--heat .brand-sales-overview-card-name,
+.brand-sales-overview-card--heat .brand-sales-overview-card-metric-label,
+.brand-sales-overview-card--heat .brand-sales-overview-card-metric-value {
+  color: inherit;
+}
+
+.brand-sales-overview-card--heat .brand-sales-overview-card-metric-value {
+  overflow: visible;
+  text-overflow: unset;
+}
+
+.brand-sales-overview-card--heat .brand-sales-overview-card-metric-value--profit,
+.brand-sales-overview-card--heat .brand-sales-overview-card-metric-value--loss {
+  color: inherit;
+  font-weight: 700;
+}
+
 .brand-sales-overview-card:hover {
   border-color: var(--neon-border-strong);
-  background: var(--theme-fill-focus);
   transform: translateY(-1px);
+}
+
+.brand-sales-overview-card:not(.brand-sales-overview-card--heat):hover {
+  background: var(--theme-fill-focus);
+}
+
+.brand-sales-overview-card--heat:hover {
+  border-color: transparent;
+  filter: brightness(1.06);
 }
 
 .brand-sales-overview-card-title-row {
@@ -5059,16 +5285,35 @@ a.research-tab {
   text-align: left;
 }
 
+.clothing-types-charts-below.clothing-types-charts-below--full {
+  width: 100%;
+  max-width: 100%;
+  padding-left: 8px;
+  padding-right: 8px;
+  border-left: none;
+}
+
 .clothing-types-invest-risk-heading-row {
   position: relative;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  margin: 0 0 12px 0;
+  gap: 12px;
+  margin: 0 0 16px 0;
   width: 100%;
   min-height: 40px;
-  padding: 0 128px;
+  padding: 0;
   box-sizing: border-box;
+}
+
+.clothing-types-invest-risk-heading-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px 14px;
+  width: 100%;
 }
 
 .clothing-types-invest-risk-title {
@@ -5080,11 +5325,14 @@ a.research-tab {
   text-align: center;
 }
 
+.clothing-types-invest-risk-heading-controls .clothing-types-invest-risk-view-toggle {
+  position: static;
+  transform: none;
+  top: auto;
+  right: auto;
+}
+
 .clothing-types-invest-risk-view-toggle {
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -5096,13 +5344,7 @@ a.research-tab {
 
 @media (max-width: 640px) {
   .clothing-types-invest-risk-heading-row {
-    padding: 0 0 44px;
-  }
-
-  .clothing-types-invest-risk-view-toggle {
-    top: auto;
-    bottom: 0;
-    transform: none;
+    padding: 0;
   }
 }
 
@@ -5145,8 +5387,8 @@ a.research-tab {
   margin: 0 0 28px 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
   width: 100%;
   box-sizing: border-box;
 }
@@ -5154,23 +5396,56 @@ a.research-tab {
 .clothing-types-invest-risk-card {
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
   height: 100%;
+  min-height: 220px;
   box-sizing: border-box;
-  padding: 16px 14px 14px;
+  padding: 18px 16px 16px;
   border-radius: 12px;
   border: 1px solid rgba(var(--theme-accent-rgb), 0.22);
   background: rgba(var(--theme-accent-rgb), 0.06);
   text-decoration: none;
   color: inherit;
-  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+  text-align: center;
+  transition:
+    border-color 0.15s ease,
+    transform 0.15s ease,
+    filter 0.15s ease,
+    background-color 0.55s cubic-bezier(0.22, 1, 0.36, 1),
+    color 0.45s ease;
+}
+
+.clothing-types-invest-risk-card--heat {
+  border-color: transparent;
+}
+
+.clothing-types-invest-risk-card--heat .clothing-types-invest-risk-card-name,
+.clothing-types-invest-risk-card--heat .clothing-types-invest-risk-card-count-value,
+.clothing-types-invest-risk-card--heat .clothing-types-invest-risk-card-count-label,
+.clothing-types-invest-risk-card--heat .clothing-types-invest-risk-card-sell-through-value,
+.clothing-types-invest-risk-card--heat .clothing-types-invest-risk-card-sell-through-label,
+.clothing-types-invest-risk-card--heat .clothing-types-invest-risk-card-net {
+  color: inherit;
+}
+
+.clothing-types-invest-risk-card--heat .clothing-types-invest-risk-card-sell-through {
+  border-top-color: rgba(255, 255, 255, 0.28);
 }
 
 .clothing-types-invest-risk-card:hover {
   border-color: rgba(var(--theme-accent-rgb), 0.45);
-  background: rgba(var(--theme-accent-rgb), 0.1);
   transform: translateY(-1px);
+}
+
+.clothing-types-invest-risk-card:not(.clothing-types-invest-risk-card--heat):hover {
+  background: rgba(var(--theme-accent-rgb), 0.1);
+}
+
+.clothing-types-invest-risk-card--heat:hover {
+  border-color: transparent;
+  filter: brightness(1.06);
 }
 
 .clothing-types-invest-risk-card:focus-visible {
@@ -5188,78 +5463,133 @@ a.research-tab {
 
 .clothing-types-invest-risk-card-name {
   display: block;
-  font-size: 0.95rem;
-  font-weight: 650;
-  line-height: 1.25;
+  width: 100%;
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.3;
   letter-spacing: 0.01rem;
   color: rgba(var(--theme-text-rgb), 0.95);
   text-align: center;
+  word-break: break-word;
 }
 
 .clothing-types-invest-risk-card-counts {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  gap: 14px 12px;
   width: 100%;
+  align-items: stretch;
+  justify-items: stretch;
+}
+
+.clothing-types-invest-risk-card-counts--primary {
+  margin-top: 2px;
+}
+
+.clothing-types-invest-risk-card-counts--primary .clothing-types-invest-risk-card-count {
+  grid-template-rows: 2.4rem auto;
+}
+
+.clothing-types-invest-risk-card-counts--primary .clothing-types-invest-risk-card-count-value {
+  min-height: 2.4rem;
+  font-size: 1.28rem;
 }
 
 .clothing-types-invest-risk-card-count {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: 2.1rem auto;
   align-items: center;
-  gap: 2px;
+  justify-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  text-align: center;
 }
 
 .clothing-types-invest-risk-card-count-value {
-  font-size: 1.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 100%;
+  min-height: 2.1rem;
+  font-size: 1.2rem;
   font-weight: 700;
-  line-height: 1.05;
-  letter-spacing: -0.02rem;
+  line-height: 1.15;
+  letter-spacing: -0.01rem;
   color: rgba(var(--theme-text-rgb), 0.96);
   font-variant-numeric: tabular-nums;
+  text-align: center;
+  /* Keep +/−£ visible — overflow:hidden + center was clipping signs to leave "0.00". */
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: unset;
 }
 
 .clothing-types-invest-risk-card-count-label {
-  font-size: 0.72rem;
-  font-weight: 600;
+  font-size: 0.68rem;
+  font-weight: 650;
   letter-spacing: 0.04rem;
   text-transform: uppercase;
   color: rgba(var(--theme-text-rgb), 0.55);
+  text-align: center;
+  line-height: 1.2;
+  width: 100%;
 }
 
 .clothing-types-invest-risk-card-sell-through {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
-  padding-top: 4px;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  padding-top: 10px;
   border-top: 1px solid rgba(var(--theme-accent-rgb), 0.14);
+  text-align: center;
 }
 
 .clothing-types-invest-risk-card-sell-through-value {
-  font-size: 1.2rem;
+  font-size: 1.15rem;
   font-weight: 700;
-  line-height: 1.1;
+  line-height: 1.2;
   color: rgba(var(--theme-text-rgb), 0.92);
   font-variant-numeric: tabular-nums;
+  text-align: center;
+  word-break: break-word;
 }
 
 .clothing-types-invest-risk-card-sell-through-label {
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.04rem;
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.03rem;
   text-transform: uppercase;
   color: rgba(var(--theme-text-rgb), 0.55);
+  text-align: center;
+  line-height: 1.25;
 }
 
 .clothing-types-invest-risk-card-net {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
   text-align: center;
-  font-size: 0.95rem;
-  font-weight: 700;
-  letter-spacing: 0.02rem;
-  color: rgba(var(--theme-text-rgb), 0.7);
+  font-size: 0.82rem;
+  font-weight: 650;
+  letter-spacing: 0.01rem;
+  line-height: 1.35;
+  color: rgba(var(--theme-text-rgb), 0.72);
   font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+.clothing-types-invest-risk-card-net-line {
+  display: block;
+  width: 100%;
+  text-align: center;
 }
 
 .clothing-types-invest-risk-card-net--positive {

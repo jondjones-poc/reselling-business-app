@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { pingDatabase } from '../utils/dbPing';
 import { getApiBase, ebayOAuthStartUrl } from '../utils/apiBase';
 import { computeStockInfoPanelMetrics } from './StockRowInfoOverlay';
+import OrdersScheduleListing from './OrdersScheduleListing';
 import './Orders.css';
 
 const API_BASE = getApiBase();
@@ -51,7 +52,7 @@ function stockIsBulky(row: StockRow | OrderItem): boolean {
   return v === true || v === 't' || v === 'true' || v === 1 || v === '1';
 }
 
-type OrdersTab = 'to-pack' | 'sales' | 'sales-summary';
+type OrdersTab = 'to-pack' | 'sales' | 'sales-summary' | 'schedule-listing';
 type SalesSummaryPeriodMode = 'week' | 'month';
 type SalesSummarySortKey = 'sale_price' | 'buy_price' | 'profit';
 type SalesSummarySortConfig = { key: SalesSummarySortKey; direction: 'asc' | 'desc' };
@@ -64,6 +65,7 @@ const SALES_PAGE_SIZE = 40;
 function parseOrdersTabParam(raw: string | null): OrdersTab {
   if (raw === 'sales' || raw === 'listing-management') return 'sales';
   if (raw === 'sales-summary') return 'sales-summary';
+  if (raw === 'schedule-listing') return 'schedule-listing';
   return 'to-pack';
 }
 
@@ -1119,6 +1121,8 @@ const Orders: React.FC = () => {
     reason?: string;
     integration_key?: string;
     error?: string;
+    has_inventory_scope?: boolean;
+    has_analytics_scope?: boolean;
   } | null>(null);
 
   const refreshEbayOAuthStatus = useCallback(async () => {
@@ -1246,7 +1250,8 @@ const Orders: React.FC = () => {
       q === 'sales' ||
       q === 'listing-management' ||
       q === 'to-pack' ||
-      q === 'sales-summary'
+      q === 'sales-summary' ||
+      q === 'schedule-listing'
     ) {
       try {
         sessionStorage.setItem(
@@ -1262,11 +1267,12 @@ const Orders: React.FC = () => {
     try {
       const saved = sessionStorage.getItem('ordersTab');
       if (saved === 'sales' || saved === 'listing-management') initial = 'sales';
-      else if (saved === 'sales-summary') initial = saved;
+      else if (saved === 'sales-summary' || saved === 'schedule-listing') initial = saved;
     } catch {
       /* ignore */
     }
-    setSearchParams({ tab: initial }, { replace: true });
+    const urlTab = initial === 'sales' ? 'listing-management' : initial;
+    setSearchParams({ tab: urlTab }, { replace: true });
   }, [searchParams, setSearchParams]);
 
   useEffect(() => {
@@ -1314,7 +1320,8 @@ const Orders: React.FC = () => {
     };
   }, [ordersTab]);
 
-  const ordersTabUsesEbayOAuth = ordersTab === 'sales' || ordersTab === 'to-pack';
+  const ordersTabUsesEbayOAuth =
+    ordersTab === 'sales' || ordersTab === 'to-pack' || ordersTab === 'schedule-listing';
 
   useEffect(() => {
     if (!ordersTabUsesEbayOAuth) {
@@ -3244,6 +3251,17 @@ const Orders: React.FC = () => {
         >
           Listing Management
         </button>
+        <button
+          type="button"
+          role="tab"
+          id="orders-tab-schedule-listing"
+          aria-selected={ordersTab === 'schedule-listing'}
+          aria-controls="orders-panel-schedule-listing"
+          className={`orders-tab${ordersTab === 'schedule-listing' ? ' orders-tab--active' : ''}`}
+          onClick={() => setOrdersTab('schedule-listing')}
+        >
+          Schedule Listing
+        </button>
       </div>
 
       {ordersTab === 'to-pack' && error && <div className="orders-error">{error}</div>}
@@ -5116,6 +5134,57 @@ const Orders: React.FC = () => {
               </button>
             </div>
           ) : null}
+        </div>
+      )}
+
+      {ordersTab === 'schedule-listing' && (
+        <div
+          id="orders-panel-schedule-listing"
+          role="tabpanel"
+          aria-labelledby="orders-tab-schedule-listing"
+          className="orders-schedule-listing-section"
+        >
+          <div className="orders-schedule-listing-status-row">
+            <div className="orders-ebay-seller-status">
+              {ebaySellerConnected && ebayOAuthStatus?.has_inventory_scope === true ? (
+                <span
+                  className="orders-ebay-seller-status-icon orders-ebay-seller-status-icon--connected"
+                  title={
+                    ebayOAuthStatus?.user_name
+                      ? `eBay seller linked as ${ebayOAuthStatus.user_name}`
+                      : 'eBay seller linked'
+                  }
+                  aria-label={
+                    ebayOAuthStatus?.user_name
+                      ? `eBay seller linked as ${ebayOAuthStatus.user_name}`
+                      : 'eBay seller linked'
+                  }
+                  role="img"
+                >
+                  <EbaySellerProfileIcon className="orders-ebay-seller-status-profile" />
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className="orders-ebay-seller-status-icon orders-ebay-seller-status-icon--disconnected"
+                  title="Connect eBay seller account"
+                  aria-label="Connect eBay seller account"
+                  onClick={() => {
+                    window.location.assign(
+                      ebayOAuthStartUrl('/orders?tab=schedule-listing')
+                    );
+                  }}
+                >
+                  <EbaySellerProfileIcon className="orders-ebay-seller-status-profile" />
+                </button>
+              )}
+            </div>
+          </div>
+          <OrdersScheduleListing
+            ebaySellerConnected={
+              ebaySellerConnected && ebayOAuthStatus?.has_inventory_scope === true
+            }
+          />
         </div>
       )}
 

@@ -383,3 +383,222 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* Mode toggle: Brand pulse vs Discover */
+.research-in-fashion-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.22);
+  background: rgba(var(--theme-accent-rgb), 0.06);
+  margin-bottom: 4px;
+}
+
+.research-in-fashion-mode-btn {
+  padding: 7px 14px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(var(--theme-text-rgb), 0.62);
+  font-size: 0.82rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.research-in-fashion-mode-btn:hover {
+  color: rgba(var(--theme-text-rgb), 0.9);
+}
+
+.research-in-fashion-mode-btn--active {
+  background: rgba(var(--theme-accent-rgb), 0.22);
+  color: rgba(var(--theme-text-rgb), 0.98);
+}
+
+.research-in-fashion-window-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  margin-top: 2px;
+}
+
+.research-in-fashion-window-pill {
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.24);
+  background: rgba(var(--theme-accent-rgb), 0.06);
+  color: rgba(var(--theme-text-rgb), 0.75);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.research-in-fashion-window-pill--active {
+  border-color: rgba(74, 222, 128, 0.45);
+  background: rgba(74, 222, 128, 0.14);
+  color: rgba(var(--theme-text-rgb), 0.98);
+}
+
+.research-in-fashion-brand-meta {
+  text-align: center;
+  margin: 0 0 16px;
+  font-size: 0.82rem;
+}
+
+.research-in-fashion-brand-grid {
+  list-style: none;
+  margin: 0 0 28px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.research-in-fashion-brand-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 14px 12px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.2);
+  background: rgba(var(--theme-accent-rgb), 0.05);
+}
+
+.research-in-fashion-brand-card--rising {
+  border-color: rgba(74, 222, 128, 0.35);
+}
+
+.research-in-fashion-brand-card--fading {
+  border-color: rgba(248, 113, 113, 0.4);
+}
+
+.research-in-fashion-brand-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.research-in-fashion-brand-card-name {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 650;
+  line-height: 1.25;
+  color: rgba(var(--theme-text-rgb), 0.95);
+}
+
+.research-in-fashion-brand-dir {
+  flex: 0 0 auto;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04rem;
+  text-transform: uppercase;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.16);
+  color: rgba(226, 232, 240, 0.85);
+}
+
+.research-in-fashion-brand-dir--rising {
+  background: rgba(74, 222, 128, 0.16);
+  color: #86efac;
+}
+
+.research-in-fashion-brand-dir--fading {
+  background: rgba(248, 113, 113, 0.16);
+  color: #fca5a5;
+}
+
+.research-in-fashion-brand-score {
+  margin: 0;
+  font-size: 1.55rem;
+  font-weight: 700;
+  letter-spacing: -0.02rem;
+  font-variant-numeric: tabular-nums;
+  color: rgba(var(--theme-text-rgb), 0.95);
+}
+
+.research-in-fashion-brand-spark {
+  height: 48px;
+  width: 100%;
+}
+
+.research-in-fashion-brand-err {
+  margin: 0;
+  font-size: 0.7rem;
+  color: #fca5a5;
+  line-height: 1.3;
+}
+
+.research-in-fashion-brand-refresh-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(var(--theme-accent-rgb), 0.16);
+  text-align: center;
+}
+
+.research-in-fashion-brand-refresh-progress {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 11px 16px;
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.28);
+  border-radius: 10px;
+  background: rgba(var(--theme-accent-rgb), 0.09);
+  color: rgba(var(--theme-text-rgb), 0.92);
+  font-size: 0.86rem;
+  font-weight: 650;
+}
+
+.research-in-fashion-brand-refresh-spinner {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  border: 2px solid rgba(var(--theme-accent-rgb), 0.22);
+  border-top-color: rgba(var(--theme-accent-rgb), 0.95);
+  border-radius: 50%;
+  animation: research-in-fashion-brand-refresh-spin 0.75s linear infinite;
+}
+
+@keyframes research-in-fashion-brand-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .research-in-fashion-brand-refresh-spinner {
+    animation-duration: 1.8s;
+  }
+}
+
+.research-in-fashion-brand-refresh-btn {
+  padding: 12px 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.35);
+  background: rgba(var(--theme-accent-rgb), 0.14);
+  color: rgba(var(--theme-text-rgb), 0.95);
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.research-in-fashion-brand-refresh-btn:hover:not(:disabled) {
+  background: rgba(var(--theme-accent-rgb), 0.22);
+}
+
+.research-in-fashion-brand-refresh-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

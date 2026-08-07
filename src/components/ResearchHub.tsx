@@ -5,6 +5,7 @@ import ResearchTagSellThrough from './ResearchTagSellThrough';
 import ResearchSellerSolds from './ResearchSellerSolds';
 import ResearchInFashion from './ResearchInFashion';
 import ResearchResellerVideos from './ResearchResellerVideos';
+import EbayNicheExplorer from './EbayNicheExplorer';
 import './BrandResearch.css';
 
 type HubView =
@@ -12,13 +13,17 @@ type HubView =
   | 'tag-sell-through'
   | 'seller-listings'
   | 'in-fashion'
-  | 'reseller-videos';
+  | 'reseller-videos'
+  | 'category-research';
 
 function normalizeView(raw: string | null): HubView {
   if (raw === 'tag-sell-through') return 'tag-sell-through';
   if (raw === 'seller-listings' || raw === 'seller-solds') return 'seller-listings';
   if (raw === 'in-fashion') return 'in-fashion';
   if (raw === 'reseller-videos') return 'reseller-videos';
+  if (raw === 'category-research' || raw === 'ebay-niches' || raw === 'ebay-categories') {
+    return 'category-research';
+  }
   return 'feed';
 }
 
@@ -69,6 +74,14 @@ const ResearchHub: React.FC = () => {
         >
           Tag sell-through rate
         </NavLink>
+        <NavLink
+          to="/research?view=category-research"
+          role="tab"
+          aria-selected={view === 'category-research'}
+          className={() => `research-tab${view === 'category-research' ? ' active' : ''}`}
+        >
+          Category research
+        </NavLink>
       </nav>
 
       {view === 'feed' && <ResearchEbayFeed />}
@@ -76,6 +89,7 @@ const ResearchHub: React.FC = () => {
       {view === 'seller-listings' && <ResearchSellerSolds />}
       {view === 'in-fashion' && <ResearchInFashion />}
       {view === 'reseller-videos' && <ResearchResellerVideos />}
+      {view === 'category-research' && <EbayNicheExplorer />}
     </div>
   );
 };

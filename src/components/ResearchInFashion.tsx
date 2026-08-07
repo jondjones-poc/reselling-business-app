@@ -9,11 +9,14 @@ import {
   Tooltip,
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
-import { apiUrl } from '../utils/apiBase';
+import { apiFetch, apiUrl } from '../utils/apiBase';
 import './Stock.css';
 import './ResearchInFashion.css';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler);
+
+type TrendsMode = 'brands' | 'discover';
+type BrandTrendWindow = '6m' | '1y' | '2y' | '5y';
 
 type CategoryOption = {
   key: string;
@@ -28,6 +31,34 @@ type DepartmentOption = {
   ebayCategoryId: string | null;
   categories?: CategoryOption[];
 };
+
+type BrandTrendRow = {
+  brandId: number;
+  brandName: string;
+  departmentId: number | null;
+  window: BrandTrendWindow;
+  score: number | null;
+  direction: 'rising' | 'flat' | 'fading' | string;
+  sparkline: Array<{ label: string; value: number }>;
+  trendsError: string | null;
+  fetchedAt: string | null;
+};
+
+/** Google Trends serves a CAPTCHA/HTML page when it rate-limits, which surfaces as a JSON parse error. */
+const TRENDS_BLOCK_MESSAGE = /unexpected token\s*'?<|not valid json|<!doctype|<html/i;
+
+function isTrendsBlockMessage(raw: string | null | undefined): boolean {
+  return TRENDS_BLOCK_MESSAGE.test(String(raw || ''));
+}
+
+function friendlyTrendsMessage(raw: string | null | undefined): string | null {
+  const message = String(raw || '').trim();
+  if (!message) return null;
+  if (isTrendsBlockMessage(message)) {
+    return 'Google Trends is rate-limiting requests right now. Saved scores are unchanged — try again later.';
+  }
+  return message;
+}
 
 function slugifyCategoryKey(raw: string): string {
   return String(raw || '')
@@ -125,6 +156,14 @@ function formatGbp(value: number | null): string {
 }
 
 const ResearchInFashion: React.FC = () => {
+  const [trendsMode, setTrendsMode] = useState<TrendsMode>('brands');
+  const [brandWindow, setBrandWindow] = useState<BrandTrendWindow>('1y');
+  const [brandRows, setBrandRows] = useState<BrandTrendRow[]>([]);
+  const [brandLoading, setBrandLoading] = useState(false);
+  const [brandError, setBrandError] = useState<string | null>(null);
+  const [brandRefreshBusy, setBrandRefreshBusy] = useState(false);
+  const [brandRefreshNote, setBrandRefreshNote] = useState<string | null>(null);
+
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
   const [department, setDepartment] = useState('menswear');
   const [category, setCategory] = useState('all');
@@ -282,8 +321,123 @@ const ResearchInFashion: React.FC = () => {
   );
 
   useEffect(() => {
+    if (trendsMode !== 'discover') return;
     void loadDiscover();
-  }, [loadDiscover]);
+  }, [loadDiscover, trendsMode]);
+
+  const loadBrandTrends = useCallback(async () => {
+    setBrandLoading(true);
+    setBrandError(null);
+    try {
+      const params = new URLSearchParams({
+        department,
+        window: brandWindow,
+      });
+      const res = await apiFetch(`/api/research/in-fashion/brand-trends?${params}`);
+      const data = await readJson<{
+        rows?: BrandTrendRow[];
+        error?: string;
+        details?: string;
+      }>(res);
+      if (!res.ok) {
+        throw new Error(data.details || data.error || res.statusText);
+      }
+      setBrandRows(Array.isArray(data.rows) ? data.rows : []);
+    } catch (e) {
+      setBrandRows([]);
+      setBrandError(
+        friendlyTrendsMessage(e instanceof Error ? e.message : null) ||
+          'Could not load brand trends'
+      );
+    } finally {
+      setBrandLoading(false);
+    }
+  }, [department, brandWindow]);
+
+  useEffect(() => {
+    if (trendsMode !== 'brands') return;
+    void loadBrandTrends();
+  }, [loadBrandTrends, trendsMode]);
+
+  const handleBrandTrendsRefresh = useCallback(async () => {
+    if (brandRefreshBusy) return;
+    setBrandRefreshBusy(true);
+    setBrandRefreshNote(null);
+    try {
+      const params = new URLSearchParams({ department });
+      const res = await apiFetch(`/api/research/in-fashion/brand-trends/refresh?${params}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await readJson<{
+        ok?: boolean;
+        started?: boolean;
+        alreadyRunning?: boolean;
+        error?: string;
+      }>(res);
+      if (!res.ok) {
+        throw new Error(data.error || res.statusText);
+      }
+      setBrandRefreshNote(
+        data.alreadyRunning
+          ? 'Refresh already running in the background…'
+          : 'Weekly-style refresh started. This can take several minutes — scores update as brands finish.'
+      );
+
+      let polls = 0;
+      const maxPolls = 90;
+      let lastSummary: {
+        ok?: number;
+        failed?: number;
+        total?: number;
+        stoppedEarly?: boolean;
+        stopReason?: string | null;
+      } | null = null;
+      while (polls < maxPolls) {
+        await new Promise((r) => window.setTimeout(r, 4000));
+        polls += 1;
+        const statusRes = await apiFetch('/api/research/in-fashion/brand-trends/refresh-status');
+        const status = await readJson<{
+          running?: boolean;
+          lastSummary?: {
+            ok?: number;
+            failed?: number;
+            total?: number;
+            stoppedEarly?: boolean;
+            stopReason?: string | null;
+          } | null;
+        }>(statusRes);
+        if (status.lastSummary) lastSummary = status.lastSummary;
+        if (!status.running) break;
+      }
+      await loadBrandTrends();
+      if (lastSummary?.stopReason) {
+        setBrandRefreshNote(lastSummary.stopReason);
+      } else if (lastSummary && (lastSummary.failed ?? 0) > 0 && (lastSummary.ok ?? 0) === 0) {
+        setBrandRefreshNote(
+          'Google Trends blocked or rate-limited every brand. Wait a bit, then try again (or leave it to the weekly cron).'
+        );
+      } else if (lastSummary && (lastSummary.failed ?? 0) > 0) {
+        setBrandRefreshNote(
+          `Refresh finished: ${lastSummary.ok ?? 0} ok, ${lastSummary.failed ?? 0} failed of ${lastSummary.total ?? 0}.`
+        );
+      } else {
+        setBrandRefreshNote('Brand trends refresh finished.');
+      }
+    } catch (e) {
+      setBrandRefreshNote(
+        friendlyTrendsMessage(e instanceof Error ? e.message : null) || 'Refresh failed'
+      );
+    } finally {
+      setBrandRefreshBusy(false);
+    }
+  }, [brandRefreshBusy, department, loadBrandTrends]);
+
+  useEffect(() => {
+    if (!brandRefreshNote) return;
+    const t = window.setTimeout(() => setBrandRefreshNote(null), 5000);
+    return () => window.clearTimeout(t);
+  }, [brandRefreshNote]);
 
   useEffect(() => {
     if (!showWarnings || warnings.length === 0) return;
@@ -397,9 +551,69 @@ const ResearchInFashion: React.FC = () => {
   const deptLabel = departments.find((d) => d.key === department)?.label || department;
   const categoryLabel = selectedCategoryLabel;
 
+  const brandWindowOptions: Array<{ key: BrandTrendWindow; label: string }> = [
+    { key: '6m', label: '6 months' },
+    { key: '1y', label: '1 year' },
+    { key: '2y', label: '2 years' },
+    { key: '5y', label: '5 years' },
+  ];
+
+  const formatScore = (score: number | null) => {
+    if (score == null || !Number.isFinite(score)) return '—';
+    const rounded = Math.round(score * 10) / 10;
+    return `${rounded > 0 ? '+' : ''}${rounded}%`;
+  };
+
+  const sparkOptions = useMemo(
+    () => ({
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      scales: {
+        x: { display: false },
+        y: { display: false, beginAtZero: true, max: 100 },
+      },
+      elements: {
+        point: { radius: 0 },
+        line: { borderWidth: 1.5, tension: 0.3 },
+      },
+    }),
+    []
+  );
+
   return (
-    <div className="research-in-fashion research-in-fashion--discover">
+    <div
+      className={
+        'research-in-fashion' +
+        (trendsMode === 'brands' ? ' research-in-fashion--brands' : ' research-in-fashion--discover')
+      }
+    >
       <div className="research-in-fashion-filters">
+        <div className="research-in-fashion-mode-toggle" role="group" aria-label="Trends view">
+          <button
+            type="button"
+            className={
+              'research-in-fashion-mode-btn' +
+              (trendsMode === 'brands' ? ' research-in-fashion-mode-btn--active' : '')
+            }
+            aria-pressed={trendsMode === 'brands'}
+            onClick={() => setTrendsMode('brands')}
+          >
+            Brand pulse
+          </button>
+          <button
+            type="button"
+            className={
+              'research-in-fashion-mode-btn' +
+              (trendsMode === 'discover' ? ' research-in-fashion-mode-btn--active' : '')
+            }
+            aria-pressed={trendsMode === 'discover'}
+            onClick={() => setTrendsMode('discover')}
+          >
+            Discover
+          </button>
+        </div>
+
         <div className="research-in-fashion-dept-bar">
           <nav className="research-in-fashion-dept-pills" aria-label="Department filter">
             {(departments.length
@@ -423,19 +637,40 @@ const ResearchInFashion: React.FC = () => {
               </button>
             ))}
           </nav>
-          <button
-            type="button"
-            className="stock-refresh-icon-button research-in-fashion-dept-refresh"
-            onClick={() => void loadDiscover({ refresh: true })}
-            disabled={discoverLoading}
-            title="Refresh trends"
-            aria-label="Refresh trends"
-          >
-            ↻
-          </button>
+          {trendsMode === 'discover' ? (
+            <button
+              type="button"
+              className="stock-refresh-icon-button research-in-fashion-dept-refresh"
+              onClick={() => void loadDiscover({ refresh: true })}
+              disabled={discoverLoading}
+              title="Refresh trends"
+              aria-label="Refresh trends"
+            >
+              ↻
+            </button>
+          ) : null}
         </div>
 
-        {categories.length > 1 && (
+        {trendsMode === 'brands' ? (
+          <nav className="research-in-fashion-window-pills" aria-label="Trend time window">
+            {brandWindowOptions.map((w) => (
+              <button
+                key={w.key}
+                type="button"
+                className={
+                  'research-in-fashion-window-pill' +
+                  (brandWindow === w.key ? ' research-in-fashion-window-pill--active' : '')
+                }
+                aria-pressed={brandWindow === w.key}
+                onClick={() => setBrandWindow(w.key)}
+              >
+                {w.label}
+              </button>
+            ))}
+          </nav>
+        ) : null}
+
+        {trendsMode === 'discover' && categories.length > 1 ? (
           <div className="research-in-fashion-category-bar">
             <div className="research-in-fashion-category-scroll" role="presentation">
               <nav className="research-in-fashion-category-pills" aria-label="Category filter">
@@ -456,174 +691,273 @@ const ResearchInFashion: React.FC = () => {
               </nav>
             </div>
           </div>
-        )}
+        ) : null}
       </div>
 
-      {discoverError && (
-        <div className="research-in-fashion-banner research-in-fashion-banner--error" role="alert">
-          {discoverError}
-        </div>
-      )}
+      {trendsMode === 'brands' ? (
+        <>
+          {brandRefreshBusy ? (
+            <div
+              className="research-in-fashion-brand-refresh-progress"
+              role="status"
+              aria-live="polite"
+              aria-label="Refreshing brand trends from Google Trends"
+            >
+              <span className="research-in-fashion-brand-refresh-spinner" aria-hidden="true" />
+              <span>Refreshing from Google Trends…</span>
+            </div>
+          ) : null}
+          {brandError ? (
+            <div className="research-in-fashion-banner research-in-fashion-banner--error" role="alert">
+              {brandError}
+            </div>
+          ) : null}
+          {brandRefreshNote ? (
+            <div className="research-in-fashion-banner research-in-fashion-banner--warn" role="status">
+              {brandRefreshNote}
+            </div>
+          ) : null}
 
-      {showWarnings && warnings.length > 0 && !discoverLoading && (
-        <div className="research-in-fashion-banner research-in-fashion-banner--warn" role="status">
-          Some seed lookups failed ({warnings.length}). Showing whatever Trends returned.
-        </div>
-      )}
-
-      <div className="research-in-fashion-discover-layout">
-        <section className="research-in-fashion-rising-panel" aria-label="Rising ideas">
-          <h3 className="research-in-fashion-panel-title">Research queue</h3>
-          {discoverLoading && rising.length === 0 ? (
-            <p className="research-in-fashion-muted">
-              Scanning Google Trends for {deptLabel}
-              {category !== 'all' ? ` · ${categoryLabel}` : ''}…
-            </p>
-          ) : rising.length === 0 ? (
-            <p className="research-in-fashion-muted">No rising ideas yet. Try refresh.</p>
-          ) : (
-            <ul className="research-in-fashion-rising-list">
-              {rising.map((idea) => (
-                <li key={idea.query}>
-                  <button
-                    type="button"
-                    className={
-                      'research-in-fashion-rising-item' +
-                      (selectedQuery === idea.query
-                        ? ' research-in-fashion-rising-item--active'
-                        : '')
-                    }
-                    onClick={() => void loadDetail(idea.query)}
-                  >
-                    <span className="research-in-fashion-rising-query">{idea.query}</span>
-                    <span className="research-in-fashion-rising-meta">
-                      {idea.value ? (
-                        <span className="research-in-fashion-rising-value">{idea.value}</span>
+          {brandLoading && brandRows.length === 0 ? (
+            <p className="research-in-fashion-muted">Loading brand pulse for {deptLabel}…</p>
+          ) : brandRows.length === 0 ? null : (
+            <ul className="research-in-fashion-brand-grid" aria-label="Brand trend pulse">
+              {brandRows.map((row) => {
+                const dir = row.direction || 'flat';
+                const spark = {
+                  labels: row.sparkline.map((p) => p.label),
+                  datasets: [
+                    {
+                      data: row.sparkline.map((p) => p.value),
+                      borderColor:
+                        dir === 'rising'
+                          ? 'rgba(74, 222, 128, 0.95)'
+                          : dir === 'fading'
+                            ? 'rgba(248, 113, 113, 0.95)'
+                            : 'rgba(148, 163, 184, 0.9)',
+                      backgroundColor: 'transparent',
+                      fill: false,
+                    },
+                  ],
+                };
+                return (
+                  <li key={row.brandId}>
+                    <article
+                      className={
+                        'research-in-fashion-brand-card research-in-fashion-brand-card--' + dir
+                      }
+                    >
+                      <header className="research-in-fashion-brand-card-head">
+                        <h3 className="research-in-fashion-brand-card-name">{row.brandName}</h3>
+                        <span
+                          className={
+                            'research-in-fashion-brand-dir research-in-fashion-brand-dir--' + dir
+                          }
+                        >
+                          {dir === 'rising' ? 'Trending' : dir === 'fading' ? 'Fading' : 'Flat'}
+                        </span>
+                      </header>
+                      <p className="research-in-fashion-brand-score">{formatScore(row.score)}</p>
+                      <div className="research-in-fashion-brand-spark">
+                        {row.sparkline.length > 1 ? (
+                          <Line data={spark} options={sparkOptions} />
+                        ) : (
+                          <span className="research-in-fashion-muted">No series</span>
+                        )}
+                      </div>
+                      {row.trendsError && !isTrendsBlockMessage(row.trendsError) ? (
+                        <p className="research-in-fashion-brand-err">{row.trendsError}</p>
                       ) : null}
-                      {idea.isRising ? (
-                        <span className="research-in-fashion-rising-badge">Rising</span>
-                      ) : null}
-                    </span>
-                  </button>
-                </li>
-              ))}
+                    </article>
+                  </li>
+                );
+              })}
             </ul>
           )}
-        </section>
 
-        <section className="research-in-fashion-detail-panel" aria-label="Selected trend detail">
-          {!selectedQuery && !detailLoading && (
-            <div className="research-in-fashion-detail-empty">
-              <p>Select a rising search on the left to see interest over time, model-level ideas, and recent eBay solds.</p>
-            </div>
-          )}
-
-          {detailLoading && (
-            <p className="research-in-fashion-muted" aria-busy="true">
-              Loading detail for “{selectedQuery}”…
-            </p>
-          )}
-
-          {detailError && (
+          <div className="research-in-fashion-brand-refresh-footer">
+            <button
+              type="button"
+              className="research-in-fashion-brand-refresh-btn"
+              onClick={() => void handleBrandTrendsRefresh()}
+              disabled={brandRefreshBusy}
+            >
+              Refresh brand trends now
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          {discoverError ? (
             <div className="research-in-fashion-banner research-in-fashion-banner--error" role="alert">
-              {detailError}
+              {discoverError}
             </div>
-          )}
+          ) : null}
 
-          {detail && !detailLoading && (
-            <>
-              <h3 className="research-in-fashion-detail-heading">{detail.query}</h3>
+          {showWarnings && warnings.length > 0 && !discoverLoading ? (
+            <div className="research-in-fashion-banner research-in-fashion-banner--warn" role="status">
+              Some seed lookups failed ({warnings.length}). Showing whatever Trends returned.
+            </div>
+          ) : null}
 
-              <div className="research-in-fashion-chart-wrap">
-                <h4 className="research-in-fashion-panel-title">Interest over time (GB, ~90 days)</h4>
-                {detail.interestError ? (
-                  <p className="research-in-fashion-muted">{detail.interestError}</p>
-                ) : detail.interestOverTime.length === 0 ? (
-                  <p className="research-in-fashion-muted">No interest series returned.</p>
-                ) : (
-                  <div className="research-in-fashion-chart">
-                    <Line data={chartData} options={chartOptions} />
-                  </div>
-                )}
-              </div>
+          <div className="research-in-fashion-discover-layout">
+            <section className="research-in-fashion-rising-panel" aria-label="Rising ideas">
+              <h3 className="research-in-fashion-panel-title">Research queue</h3>
+              {discoverLoading && rising.length === 0 ? (
+                <p className="research-in-fashion-muted">
+                  Scanning Google Trends for {deptLabel}
+                  {category !== 'all' ? ` · ${categoryLabel}` : ''}…
+                </p>
+              ) : rising.length === 0 ? (
+                <p className="research-in-fashion-muted">No rising ideas yet. Try refresh.</p>
+              ) : (
+                <ul className="research-in-fashion-rising-list">
+                  {rising.map((idea) => (
+                    <li key={idea.query}>
+                      <button
+                        type="button"
+                        className={
+                          'research-in-fashion-rising-item' +
+                          (selectedQuery === idea.query
+                            ? ' research-in-fashion-rising-item--active'
+                            : '')
+                        }
+                        onClick={() => void loadDetail(idea.query)}
+                      >
+                        <span className="research-in-fashion-rising-query">{idea.query}</span>
+                        <span className="research-in-fashion-rising-meta">
+                          {idea.value ? (
+                            <span className="research-in-fashion-rising-value">{idea.value}</span>
+                          ) : null}
+                          {idea.isRising ? (
+                            <span className="research-in-fashion-rising-badge">Rising</span>
+                          ) : null}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
 
-              <div className="research-in-fashion-models">
-                <h4 className="research-in-fashion-panel-title">Models & related ideas</h4>
-                {detail.relatedError || detail.topicsError ? (
-                  <p className="research-in-fashion-muted">
-                    {[detail.relatedError, detail.topicsError].filter(Boolean).join(' · ')}
+            <section className="research-in-fashion-detail-panel" aria-label="Selected trend detail">
+              {!selectedQuery && !detailLoading ? (
+                <div className="research-in-fashion-detail-empty">
+                  <p>
+                    Select a rising search on the left to see interest over time, model-level ideas,
+                    and recent eBay solds.
                   </p>
-                ) : null}
-                {modelIdeas.length === 0 ? (
-                  <p className="research-in-fashion-muted">No related models yet.</p>
-                ) : (
-                  <ul className="research-in-fashion-model-grid">
-                    {modelIdeas.map((m) => (
-                      <li key={`${m.kind}-${m.label}`}>
-                        <button
-                          type="button"
-                          className="research-in-fashion-model-card"
-                          onClick={() => void loadDetail(m.label)}
-                          title={`Research ${m.label}`}
-                        >
-                          <span className="research-in-fashion-model-label">{m.label}</span>
-                          <span className="research-in-fashion-model-kind">
-                            {m.kind}
-                            {m.value ? ` · ${m.value}` : ''}
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
+                </div>
+              ) : null}
 
-              <div className="research-in-fashion-ebay">
-                <h4 className="research-in-fashion-panel-title">Recent eBay UK solds</h4>
-                {detail.ebayError ? (
-                  <p className="research-in-fashion-muted">{detail.ebayError}</p>
-                ) : detail.ebaySold.length === 0 ? (
-                  <p className="research-in-fashion-muted">No sold comps in this window.</p>
-                ) : (
-                  <ul className="research-in-fashion-ebay-grid">
-                    {detail.ebaySold.map((item, idx) => {
-                      const inner = (
-                        <>
-                          {item.imageUrl ? (
-                            <img src={item.imageUrl} alt="" loading="lazy" />
-                          ) : (
-                            <span className="research-in-fashion-ebay-noimg">No image</span>
-                          )}
-                          <span className="research-in-fashion-ebay-price">
-                            {formatGbp(item.price)}
-                          </span>
-                          <span className="research-in-fashion-ebay-title">{item.title}</span>
-                        </>
-                      );
-                      return (
-                        <li key={item.itemId || `${item.title}-${idx}`}>
-                          {item.itemWebUrl ? (
-                            <a
-                              href={item.itemWebUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="research-in-fashion-ebay-card"
+              {detailLoading ? (
+                <p className="research-in-fashion-muted" aria-busy="true">
+                  Loading detail for “{selectedQuery}”…
+                </p>
+              ) : null}
+
+              {detailError ? (
+                <div className="research-in-fashion-banner research-in-fashion-banner--error" role="alert">
+                  {detailError}
+                </div>
+              ) : null}
+
+              {detail && !detailLoading ? (
+                <>
+                  <h3 className="research-in-fashion-detail-heading">{detail.query}</h3>
+
+                  <div className="research-in-fashion-chart-wrap">
+                    <h4 className="research-in-fashion-panel-title">Interest over time (GB, ~90 days)</h4>
+                    {detail.interestError ? (
+                      <p className="research-in-fashion-muted">{detail.interestError}</p>
+                    ) : detail.interestOverTime.length === 0 ? (
+                      <p className="research-in-fashion-muted">No interest series returned.</p>
+                    ) : (
+                      <div className="research-in-fashion-chart">
+                        <Line data={chartData} options={chartOptions} />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="research-in-fashion-models">
+                    <h4 className="research-in-fashion-panel-title">Models & related ideas</h4>
+                    {detail.relatedError || detail.topicsError ? (
+                      <p className="research-in-fashion-muted">
+                        {[detail.relatedError, detail.topicsError].filter(Boolean).join(' · ')}
+                      </p>
+                    ) : null}
+                    {modelIdeas.length === 0 ? (
+                      <p className="research-in-fashion-muted">No related models yet.</p>
+                    ) : (
+                      <ul className="research-in-fashion-model-grid">
+                        {modelIdeas.map((m) => (
+                          <li key={`${m.kind}-${m.label}`}>
+                            <button
+                              type="button"
+                              className="research-in-fashion-model-card"
+                              onClick={() => void loadDetail(m.label)}
+                              title={`Research ${m.label}`}
                             >
-                              {inner}
-                            </a>
-                          ) : (
-                            <div className="research-in-fashion-ebay-card">{inner}</div>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </div>
-            </>
-          )}
-        </section>
-      </div>
+                              <span className="research-in-fashion-model-label">{m.label}</span>
+                              <span className="research-in-fashion-model-kind">
+                                {m.kind}
+                                {m.value ? ` · ${m.value}` : ''}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+
+                  <div className="research-in-fashion-ebay">
+                    <h4 className="research-in-fashion-panel-title">Recent eBay UK solds</h4>
+                    {detail.ebayError ? (
+                      <p className="research-in-fashion-muted">{detail.ebayError}</p>
+                    ) : detail.ebaySold.length === 0 ? (
+                      <p className="research-in-fashion-muted">No sold comps in this window.</p>
+                    ) : (
+                      <ul className="research-in-fashion-ebay-grid">
+                        {detail.ebaySold.map((item, idx) => {
+                          const inner = (
+                            <>
+                              {item.imageUrl ? (
+                                <img src={item.imageUrl} alt="" loading="lazy" />
+                              ) : (
+                                <span className="research-in-fashion-ebay-noimg">No image</span>
+                              )}
+                              <span className="research-in-fashion-ebay-price">
+                                {formatGbp(item.price)}
+                              </span>
+                              <span className="research-in-fashion-ebay-title">{item.title}</span>
+                            </>
+                          );
+                          return (
+                            <li key={item.itemId || `${item.title}-${idx}`}>
+                              {item.itemWebUrl ? (
+                                <a
+                                  href={item.itemWebUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="research-in-fashion-ebay-card"
+                                >
+                                  {inner}
+                                </a>
+                              ) : (
+                                <div className="research-in-fashion-ebay-card">{inner}</div>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                </>
+              ) : null}
+            </section>
+          </div>
+        </>
+      )}
     </div>
   );
 };

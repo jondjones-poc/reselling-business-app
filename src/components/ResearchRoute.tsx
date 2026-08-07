@@ -22,13 +22,21 @@ const ResearchRoute: React.FC = () => {
     return <Navigate to={`/analytics?${searchParams.toString()}`} replace />;
   }
 
+  // Legacy: eBay category stars lived under analytics menswear → Research hub
+  const mcView = searchParams.get('mcView')?.trim().toLowerCase();
+  if (mcView === 'ebay-niches' || mcView === 'ebay') {
+    return <Navigate to="/research?view=category-research" replace />;
+  }
+
   const analyticsTabs = new Set([
     'brand',
+    'department',
     'menswear-categories',
     'clothing-types',
     'seasonal',
     'sourced',
     'item-views',
+    'inventory-ageing',
   ]);
   if (tab && analyticsTabs.has(tab)) {
     return <Navigate to={`/analytics?${searchParams.toString()}`} replace />;
