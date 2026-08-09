@@ -472,18 +472,23 @@ function EbaySellerProfileIcon({ className }: { className?: string }) {
   );
 }
 
+/** Live eBay listing ids are digits only; alphanumeric / draft values count as empty. */
+function isNumericEbayListingId(ebayId: Nullable<string>): boolean {
+  const s = ebayId != null ? String(ebayId).trim() : '';
+  return s.length > 0 && /^\d+$/.test(s);
+}
+
 const ebayListingHref = (ebayId: Nullable<string>): string | null => {
   const s = ebayId?.trim();
   if (!s) return null;
   if (/^https?:\/\//i.test(s)) return s;
+  if (!isNumericEbayListingId(s)) return null;
   return `https://www.ebay.co.uk/itm/${encodeURIComponent(s)}`;
 };
 
 const ebayReviseListingHref = (ebayId: Nullable<string>): string | null => {
-  const s = ebayId?.trim();
-  if (!s) return null;
-  const legacy = s.replace(/\D/g, '');
-  if (!legacy) return null;
+  if (!isNumericEbayListingId(ebayId)) return null;
+  const legacy = String(ebayId).trim();
   return `https://www.ebay.co.uk/sl/list?itemId=${encodeURIComponent(legacy)}&mode=ReviseItem`;
 };
 
@@ -1642,7 +1647,7 @@ const Orders: React.FC = () => {
           soldRowMatchesPlatformFilter(row, 'ebay') &&
           soldRowMatchesDateRange(row, salesDateRangeFilter) &&
           soldRowMatchesBrandFilter(row, salesBrandFilter, stockBrandIdByStockId) &&
-          Boolean(row.ebay_id?.trim()) &&
+          isNumericEbayListingId(row.ebay_id) &&
           Boolean(row.vinted_id?.trim())
       ),
     [soldRows, salesDateRangeFilter, salesBrandFilter, stockBrandIdByStockId]
@@ -2202,7 +2207,7 @@ const Orders: React.FC = () => {
 
   const handlePostedClick = async (item: OrderItem) => {
     const soldPlatform = String(item.sold_platform ?? '').trim().toLowerCase();
-    const hasEbayId = item.ebay_id != null && String(item.ebay_id).trim() !== '';
+    const hasEbayId = isNumericEbayListingId(item.ebay_id);
     const hasVintedId = item.vinted_id != null && String(item.vinted_id).trim() !== '';
     const isEbaySold =
       soldPlatform === 'ebay' ||
@@ -4763,7 +4768,7 @@ const Orders: React.FC = () => {
                         ) : null}
                         {salesEbayGridMode === 'unlist-ebay' ? (
                           <td>
-                            {row.ebay_id != null && String(row.ebay_id).trim() !== '' ? (
+                            {isNumericEbayListingId(row.ebay_id) ? (
                               <div className="orders-sales-unlist-cell">
                                 {rowUnlisted ? (
                                   <span className="orders-sales-unlist-done" title="Listing ended on eBay">

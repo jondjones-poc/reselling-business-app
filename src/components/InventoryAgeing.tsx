@@ -64,6 +64,20 @@ type AgeingTotals = {
   missingPurchaseDateCount: number;
 };
 
+type StorageTotals = AgeingTotals & {
+  ebayDraftCount: number;
+  fullyUnlistedCount: number;
+  withAskingPriceCount: number;
+  askingTotal: number;
+};
+
+type StorageCategoryRow = {
+  categoryId: number | null;
+  categoryName: string;
+  itemCount: number;
+  purchaseTotal: number;
+};
+
 type AgeingItemRow = {
   id: number;
   itemName: string;
@@ -83,7 +97,8 @@ type AgeingItemRow = {
 type FilterOption = { id: number; name: string };
 
 type ChartMetric = 'items' | 'capital';
-type PlatformFilter = 'all' | 'vinted' | 'ebay' | 'depop' | 'unlisted';
+type PlatformFilter = 'all' | 'vinted' | 'ebay' | 'depop';
+type ListingScope = 'live' | 'storage';
 
 const WARNING_LABEL: Record<AgeingWarning, string> = {
   healthy: 'Healthy (0–90 days)',
@@ -134,48 +149,94 @@ function buildInventoryAgeingAskAiPrompt(args: {
   };
   totals: AgeingTotals;
   bands: AgeingBand[];
+  storageTotals: StorageTotals | null;
+  storageBands: AgeingBand[];
+  storageCategories: StorageCategoryRow[];
   selectedBand: AgeingBand | null;
+  selectedScope: ListingScope;
   selectedItems: AgeingItemRow[];
 }): string {
-  const { filters, totals, bands, selectedBand, selectedItems } = args;
+  const {
+    filters,
+    totals,
+    bands,
+    storageTotals,
+    storageBands,
+    storageCategories,
+    selectedBand,
+    selectedScope,
+    selectedItems,
+  } = args;
   const lines: string[] = [
     `I'm a UK second-hand / resale seller (Vinted + eBay). I want **objective, practical** advice — do **not** just agree with me or soft-pedal. Challenge weak assumptions and say when the sample is thin.`,
     ``,
-    `Below is my **unsold inventory ageing** snapshot from my stock system. Age is days since **purchase date**. Capital = sum of purchase cost still tied up. Asking price = projected sale price where I have one.`,
+    `I hold a lot of **seasonal** stock in storage (summer vs winter). Live ageing below is only Vinted and/or live eBay — not storage and not eBay drafts. Storage is unlisted or eBay-draft stock held for the right season. Age is days since **purchase date**. Capital = purchase cost still tied up.`,
     ``,
     `## Current filters`,
     `- Department: ${filters.department}`,
     `- Stock category / clothing type: ${filters.category}`,
     `- Brand: ${filters.brand}`,
-    `- Platform listing filter: ${filters.platform}`,
+    `- Live platform filter: ${filters.platform}`,
     ``,
-    `## Overall unsold stock`,
-    `- Unsold items: ${totals.itemCount}`,
-    `- Capital tied up: ${formatGbp(totals.purchaseTotal)}`,
+    `## Live listed unsold stock`,
+    `- Live unsold items: ${totals.itemCount}`,
+    `- Capital tied up (live): ${formatGbp(totals.purchaseTotal)}`,
     `- Average age: ${formatDays(totals.avgAgeDays)}`,
     `- Median age: ${formatDays(totals.medianAgeDays)}`,
     `- Oldest unsold: ${formatDays(totals.oldestAgeDays)}`,
     totals.missingPurchaseDateCount > 0
-      ? `- Items missing purchase date (excluded from bands): ${totals.missingPurchaseDateCount}`
+      ? `- Live items missing purchase date (excluded from bands): ${totals.missingPurchaseDateCount}`
       : null,
     ``,
-    `## Age bands`,
+    `## Live age bands`,
     ``,
   ].filter((line): line is string => line != null);
 
   bands.forEach((b) => {
     lines.push(
       `### ${b.label} (${WARNING_LABEL[b.warning]})`,
-      `- Items: ${b.itemCount} (${formatPct(b.pctOfItems)} of unsold)`,
-      `- Capital: ${formatGbp(b.purchaseTotal)} (${formatPct(b.pctOfCapital)} of capital)`,
+      `- Items: ${b.itemCount} (${formatPct(b.pctOfItems)} of live)`,
+      `- Capital: ${formatGbp(b.purchaseTotal)} (${formatPct(b.pctOfCapital)} of live capital)`,
       `- Avg buy: ${formatGbp(b.avgPurchaseCost)} · Avg ask: ${formatGbp(b.avgAskingPrice)}`,
       ``
     );
   });
 
+  if (storageTotals) {
+    lines.push(
+      `## Storage / unlisted (seasonal hold)`,
+      `- Storage items: ${storageTotals.itemCount}`,
+      `- Capital in storage: ${formatGbp(storageTotals.purchaseTotal)}`,
+      `- eBay drafts: ${storageTotals.ebayDraftCount}`,
+      `- Fully unlisted (no Vinted + no eBay): ${storageTotals.fullyUnlistedCount}`,
+      `- With asking price: ${storageTotals.withAskingPriceCount} · ask total ${formatGbp(storageTotals.askingTotal)}`,
+      `- Average age in storage: ${formatDays(storageTotals.avgAgeDays)}`,
+      `- Median age in storage: ${formatDays(storageTotals.medianAgeDays)}`,
+      ``,
+      `## Storage age bands`,
+      ``
+    );
+    storageBands.forEach((b) => {
+      lines.push(
+        `### ${b.label}`,
+        `- Items: ${b.itemCount} (${formatPct(b.pctOfItems)}) · Capital: ${formatGbp(b.purchaseTotal)} (${formatPct(b.pctOfCapital)})`,
+        ``
+      );
+    });
+    if (storageCategories.length > 0) {
+      lines.push(`## Top storage categories by capital`, ``);
+      storageCategories.slice(0, 8).forEach((c, i) => {
+        lines.push(
+          `${i + 1}. ${c.categoryName}: ${c.itemCount} items · ${formatGbp(c.purchaseTotal)}`
+        );
+      });
+      lines.push(``);
+    }
+  }
+
   if (selectedBand) {
     lines.push(
-      `## Currently opened band in my UI: ${selectedBand.label}`,
+      `## Currently opened band (${selectedScope}): ${selectedBand.label}`,
       `- ${selectedBand.itemCount} items · ${formatGbp(selectedBand.purchaseTotal)} capital`,
       ``
     );
@@ -196,11 +257,12 @@ function buildInventoryAgeingAskAiPrompt(args: {
 
   lines.push(
     `## What I need from you`,
-    `1. **What I should do** — Prioritise actions by age band and capital stuck. What to clear first, what to hold, what to stop buying. Be specific to the numbers above.`,
-    `2. **How to sell it quickly on Vinted and eBay** — Concrete listing, pricing, photos, shipping, bundling, and promo tactics for UK buyers. Call out different tactics for fresh stock vs Watch / Slow / Stale bands.`,
-    `3. **Ideas I might not have thought of** — Clearance angles, channel mix, pricing experiments, when to cut loss, charity/write-off thresholds, or sourcing changes. Prefer actionable ideas over generic advice.`,
+    `1. **Live vs storage** — How healthy is live ageing once storage is separated? What should I list next for the current season vs keep stored?`,
+    `2. **What I should do** — Prioritise by age band and capital. Clear first vs hold for seasonality. Be specific to the numbers.`,
+    `3. **How to sell live stock quickly on Vinted and eBay** — Listing, pricing, photos, shipping, bundling for UK buyers. Different tactics for fresh vs Watch / Slow / Stale.`,
+    `4. **Ideas I might not have thought of** — Seasonal rotate-in plans, channel mix, when to cut loss, sourcing changes.`,
     ``,
-    `Tone: direct, practical UK reseller advice. Work from the data; say when 365+ history is too thin to over-interpret.`,
+    `Tone: direct, practical UK reseller advice. Work from the data; say when history is too thin to over-interpret.`,
     `Today’s date context: ${new Date().toISOString().slice(0, 10)}.`
   );
 
@@ -220,10 +282,15 @@ const InventoryAgeing: React.FC = () => {
 
   const [bands, setBands] = useState<AgeingBand[]>([]);
   const [totals, setTotals] = useState<AgeingTotals | null>(null);
+  const [storageBands, setStorageBands] = useState<AgeingBand[]>([]);
+  const [storageTotals, setStorageTotals] = useState<StorageTotals | null>(null);
+  const [storageCategories, setStorageCategories] = useState<StorageCategoryRow[]>([]);
+  const [storageChartMetric, setStorageChartMetric] = useState<ChartMetric>('capital');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [selectedBand, setSelectedBand] = useState<string | null>(null);
+  const [drilldownScope, setDrilldownScope] = useState<ListingScope>('live');
   const [bandItems, setBandItems] = useState<AgeingItemRow[]>([]);
   const [bandItemsLoading, setBandItemsLoading] = useState(false);
   const [bandItemsError, setBandItemsError] = useState<string | null>(null);
@@ -367,13 +434,26 @@ const InventoryAgeing: React.FC = () => {
         const data = await readJson<{
           bands?: AgeingBand[];
           totals?: AgeingTotals;
+          storage?: {
+            bands?: AgeingBand[];
+            totals?: StorageTotals;
+            byCategory?: StorageCategoryRow[];
+          };
         }>(res, 'inventory ageing');
         setBands(Array.isArray(data.bands) ? data.bands : []);
         setTotals(data.totals ?? null);
+        const storageBandsRaw = data.storage?.bands;
+        const storageCategoriesRaw = data.storage?.byCategory;
+        setStorageBands(Array.isArray(storageBandsRaw) ? storageBandsRaw : []);
+        setStorageTotals(data.storage?.totals ?? null);
+        setStorageCategories(Array.isArray(storageCategoriesRaw) ? storageCategoriesRaw : []);
       } catch (e) {
         if ((e as { name?: string })?.name === 'AbortError') return;
         setBands([]);
         setTotals(null);
+        setStorageBands([]);
+        setStorageTotals(null);
+        setStorageCategories([]);
         setError(e instanceof Error ? e.message : 'Failed to load inventory ageing');
       } finally {
         if (!ac.signal.aborted) setLoading(false);
@@ -395,11 +475,12 @@ const InventoryAgeing: React.FC = () => {
       try {
         const qs = new URLSearchParams();
         qs.set('band', selectedBand);
+        qs.set('scope', drilldownScope);
         if (departmentId !== '') qs.set('department_id', String(departmentId));
         if (categoryId !== '') qs.set('category_id', String(categoryId));
         if (brandId !== '') qs.set('brand_id', String(brandId));
-        if (platform !== 'all') qs.set('platform', platform);
-        qs.set('limit', '250');
+        if (drilldownScope === 'live' && platform !== 'all') qs.set('platform', platform);
+        qs.set('limit', '500');
         const res = await fetch(apiUrl(`/api/stock/inventory-ageing/items?${qs}`), {
           signal: ac.signal,
         });
@@ -414,10 +495,11 @@ const InventoryAgeing: React.FC = () => {
       }
     })();
     return () => ac.abort();
-  }, [selectedBand, departmentId, categoryId, brandId, platform]);
+  }, [selectedBand, drilldownScope, departmentId, categoryId, brandId, platform]);
 
   const selectedBandMeta = useMemo(() => {
-    if (selectedBand === 'missing-date' && totals) {
+    const sourceBands = drilldownScope === 'storage' ? storageBands : bands;
+    if (selectedBand === 'missing-date' && totals && drilldownScope === 'live') {
       return {
         key: 'missing-date',
         label: 'Missing purchase date',
@@ -432,9 +514,8 @@ const InventoryAgeing: React.FC = () => {
         pctOfCapital: 0,
       };
     }
-    return bands.find((b) => b.key === selectedBand) ?? null;
-  }, [bands, selectedBand, totals]);
-
+    return sourceBands.find((b) => b.key === selectedBand) ?? null;
+  }, [bands, storageBands, selectedBand, totals, drilldownScope]);
   const showDrilldown = selectedBand != null && (selectedBandMeta != null || selectedBand === 'missing-date');
 
   const filterLabels = useMemo(() => {
@@ -452,14 +533,12 @@ const InventoryAgeing: React.FC = () => {
         : brands.find((b) => b.id === brandId)?.name ?? `Brand #${brandId}`;
     const platformLabel =
       platform === 'all'
-        ? 'All platforms'
-        : platform === 'unlisted'
-          ? 'No listing IDs'
-          : platform === 'vinted'
-            ? 'Vinted listed'
-            : platform === 'ebay'
-              ? 'eBay listed'
-              : 'Depop listed';
+        ? 'All live platforms'
+        : platform === 'vinted'
+          ? 'Vinted listed'
+          : platform === 'ebay'
+            ? 'eBay listed'
+            : 'Depop listed';
     return { department, category, brand, platform: platformLabel };
   }, [departmentId, categoryId, brandId, platform, departments, categories, brands]);
 
@@ -476,7 +555,11 @@ const InventoryAgeing: React.FC = () => {
         filters: filterLabels,
         totals,
         bands,
+        storageTotals,
+        storageBands,
+        storageCategories,
         selectedBand: selectedBandMeta,
+        selectedScope: drilldownScope,
         selectedItems: showDrilldown ? bandItems : [],
       });
       await copyTextToClipboard(text);
@@ -487,7 +570,18 @@ const InventoryAgeing: React.FC = () => {
       setAskAiBusy(false);
       window.setTimeout(() => setAskAiHint(null), 5000);
     }
-  }, [totals, bands, filterLabels, selectedBandMeta, bandItems, showDrilldown]);
+  }, [
+    totals,
+    bands,
+    storageTotals,
+    storageBands,
+    storageCategories,
+    filterLabels,
+    selectedBandMeta,
+    drilldownScope,
+    bandItems,
+    showDrilldown,
+  ]);
 
   const chartData = useMemo(() => {
     const labels = bands.map((b) => b.label);
@@ -513,7 +607,7 @@ const InventoryAgeing: React.FC = () => {
       labels,
       datasets: [
         {
-          label: chartMetric === 'items' ? 'Unsold items' : 'Capital tied up (£)',
+          label: chartMetric === 'items' ? 'Live listed items' : 'Live capital (£)',
           data: values,
           backgroundColor: colors,
           borderColor: themeAccentRgba(0.28),
@@ -523,74 +617,323 @@ const InventoryAgeing: React.FC = () => {
     };
   }, [bands, chartMetric]);
 
-  const chartOptions = useMemo((): ChartOptions<'bar'> => {
-    return {
-      responsive: true,
-      maintainAspectRatio: false,
-      onClick: (_evt, elements) => {
-        if (!elements?.length) return;
-        const idx = elements[0]?.index;
-        if (typeof idx !== 'number' || idx < 0 || idx >= bands.length) return;
-        const key = bands[idx]?.key;
-        if (!key) return;
-        setSelectedBand((prev) => (prev === key ? null : key));
-      },
-      onHover: (evt, elements) => {
-        const t = evt.native?.target;
-        if (t instanceof HTMLElement) {
-          t.style.cursor = elements.length > 0 ? 'pointer' : 'default';
-        }
-      },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            afterBody: (items) => {
-              const idx = items[0]?.dataIndex;
-              if (idx == null || !bands[idx]) return [];
-              const b = bands[idx];
-              return [
-                `Items: ${b.itemCount} (${formatPct(b.pctOfItems)} of unsold)`,
-                `Capital: ${formatGbp(b.purchaseTotal)} (${formatPct(b.pctOfCapital)})`,
-                `Avg buy: ${formatGbp(b.avgPurchaseCost)}`,
-                `Avg ask: ${formatGbp(b.avgAskingPrice)}`,
-                WARNING_LABEL[b.warning],
-                'Click bar to list items',
-              ];
-            },
-            label: (ctx) => {
-              const v = ctx.parsed.y;
-              if (typeof v !== 'number') return '';
-              return chartMetric === 'items' ? `${v} items` : formatGbp(v);
-            },
+  const makeChartOptions = (
+    sourceBands: AgeingBand[],
+    metric: ChartMetric,
+    scope: ListingScope
+  ): ChartOptions<'bar'> => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    onClick: (_evt, elements) => {
+      if (!elements?.length) return;
+      const idx = elements[0]?.index;
+      if (typeof idx !== 'number' || idx < 0 || idx >= sourceBands.length) return;
+      const key = sourceBands[idx]?.key;
+      if (!key) return;
+      if (selectedBand === key && drilldownScope === scope) {
+        setSelectedBand(null);
+      } else {
+        setDrilldownScope(scope);
+        setSelectedBand(key);
+      }
+    },
+    onHover: (evt, elements) => {
+      const t = evt.native?.target;
+      if (t instanceof HTMLElement) {
+        t.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+      }
+    },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          afterBody: (items) => {
+            const idx = items[0]?.dataIndex;
+            if (idx == null || !sourceBands[idx]) return [];
+            const b = sourceBands[idx];
+            return [
+              `Items: ${b.itemCount} (${formatPct(b.pctOfItems)})`,
+              `Capital: ${formatGbp(b.purchaseTotal)} (${formatPct(b.pctOfCapital)})`,
+              `Avg buy: ${formatGbp(b.avgPurchaseCost)}`,
+              `Avg ask: ${formatGbp(b.avgAskingPrice)}`,
+              WARNING_LABEL[b.warning],
+              'Click bar to list items',
+            ];
+          },
+          label: (ctx) => {
+            const v = ctx.parsed.y;
+            if (typeof v !== 'number') return '';
+            return metric === 'items' ? `${v} items` : formatGbp(v);
           },
         },
       },
-      scales: {
-        x: {
-          ticks: { color: themeTextRgba(0.72), maxRotation: 0, minRotation: 0 },
-          grid: { display: false },
-        },
-        y: {
-          beginAtZero: true,
-          ticks: {
-            color: themeTextRgba(0.65),
-            callback: (value) => {
-              if (chartMetric === 'capital' && typeof value === 'number') {
-                return formatGbp(value);
-              }
-              return value;
-            },
-          },
-          grid: { color: themeTextRgba(0.08) },
-        },
+    },
+    scales: {
+      x: {
+        ticks: { color: themeTextRgba(0.72), maxRotation: 0, minRotation: 0 },
+        grid: { display: false },
       },
-    };
-  }, [bands, chartMetric]);
+      y: {
+        beginAtZero: true,
+        ticks: {
+          color: themeTextRgba(0.65),
+          callback: (value) => {
+            if (metric === 'capital' && typeof value === 'number') {
+              return formatGbp(value);
+            }
+            return value;
+          },
+        },
+        grid: { color: themeTextRgba(0.08) },
+      },
+    },
+  });
 
-  const onSelectBand = useCallback((key: string) => {
-    setSelectedBand((prev) => (prev === key ? null : key));
-  }, []);
+  const chartOptions = useMemo(
+    () => makeChartOptions(bands, chartMetric, 'live'),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- recreate when selection/bands/metric change
+    [bands, chartMetric, selectedBand, drilldownScope]
+  );
+
+  const storageChartData = useMemo(() => {
+    const labels = storageBands.map((b) => b.label);
+    const values =
+      storageChartMetric === 'items'
+        ? storageBands.map((b) => b.itemCount)
+        : storageBands.map((b) => Math.round(b.purchaseTotal * 100) / 100);
+    const colors = storageBands.map((b) => {
+      switch (b.warning) {
+        case 'healthy':
+          return 'rgba(56, 189, 248, 0.78)';
+        case 'watch':
+          return 'rgba(14, 165, 233, 0.82)';
+        case 'slow':
+          return 'rgba(2, 132, 199, 0.82)';
+        case 'stale':
+          return 'rgba(3, 105, 161, 0.88)';
+        default:
+          return themeAccentRgba(0.45);
+      }
+    });
+    return {
+      labels,
+      datasets: [
+        {
+          label: storageChartMetric === 'items' ? 'Storage items' : 'Storage capital (£)',
+          data: values,
+          backgroundColor: colors,
+          borderColor: themeAccentRgba(0.28),
+          borderWidth: 1,
+        },
+      ],
+    };
+  }, [storageBands, storageChartMetric]);
+
+  const storageChartOptions = useMemo(
+    () => makeChartOptions(storageBands, storageChartMetric, 'storage'),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [storageBands, storageChartMetric, selectedBand, drilldownScope]
+  );
+
+  const onSelectBand = useCallback((key: string, scope: ListingScope = 'live') => {
+    if (selectedBand === key && drilldownScope === scope) {
+      setSelectedBand(null);
+    } else {
+      setDrilldownScope(scope);
+      setSelectedBand(key);
+    }
+  }, [selectedBand, drilldownScope]);
+
+  const liveCapitalShare =
+    totals && storageTotals && totals.purchaseTotal + storageTotals.purchaseTotal > 0
+      ? (totals.purchaseTotal / (totals.purchaseTotal + storageTotals.purchaseTotal)) * 100
+      : null;
+  const storageCapitalShare =
+    totals && storageTotals && totals.purchaseTotal + storageTotals.purchaseTotal > 0
+      ? (storageTotals.purchaseTotal / (totals.purchaseTotal + storageTotals.purchaseTotal)) * 100
+      : null;
+
+  const renderBandTable = (sourceBands: AgeingBand[], scope: ListingScope) => (
+    <div className="inventory-ageing-table-wrap">
+      <table className="inventory-ageing-table">
+        <thead>
+          <tr>
+            <th scope="col">Band</th>
+            <th scope="col" className="inventory-ageing-num">
+              Items
+            </th>
+            <th scope="col" className="inventory-ageing-num">
+              % stock
+            </th>
+            <th scope="col" className="inventory-ageing-num">
+              Capital
+            </th>
+            <th scope="col" className="inventory-ageing-num">
+              % capital
+            </th>
+            <th scope="col" className="inventory-ageing-num">
+              Avg buy
+            </th>
+            <th scope="col" className="inventory-ageing-num">
+              Avg ask
+            </th>
+            <th scope="col">Flag</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sourceBands.map((b) => {
+            const isSelected = selectedBand === b.key && drilldownScope === scope;
+            return (
+              <tr
+                key={`${scope}-${b.key}`}
+                className={`inventory-ageing-row inventory-ageing-row--${b.warning}${
+                  isSelected ? ' is-selected' : ''
+                }`}
+                onClick={() => onSelectBand(b.key, scope)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onSelectBand(b.key, scope);
+                  }
+                }}
+                tabIndex={0}
+                role="button"
+                aria-pressed={isSelected}
+                aria-label={`${b.label}: ${b.itemCount} items. Activate to list stock.`}
+              >
+                <td>{b.label}</td>
+                <td className="inventory-ageing-num">{b.itemCount}</td>
+                <td className="inventory-ageing-num">{formatPct(b.pctOfItems)}</td>
+                <td className="inventory-ageing-num">{formatGbp(b.purchaseTotal)}</td>
+                <td className="inventory-ageing-num">{formatPct(b.pctOfCapital)}</td>
+                <td className="inventory-ageing-num">{formatGbp(b.avgPurchaseCost)}</td>
+                <td className="inventory-ageing-num">{formatGbp(b.avgAskingPrice)}</td>
+                <td>
+                  <span className={`inventory-ageing-flag inventory-ageing-flag--${b.warning}`}>
+                    {b.warning}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  const renderBandItemsDrilldown = (scope: ListingScope) => {
+    if (!showDrilldown || !selectedBandMeta || drilldownScope !== scope) return null;
+    return (
+      <section
+        className="inventory-ageing-drilldown"
+        aria-label={`Items in ${selectedBandMeta.label}`}
+        id={`inventory-ageing-drilldown-${scope}`}
+      >
+        <div className="inventory-ageing-drilldown-header">
+          <h3 className="inventory-ageing-drilldown-title">
+            {selectedBandMeta.label}
+            <span className="inventory-ageing-drilldown-meta">
+              {' '}
+              · {selectedBandMeta.itemCount} items
+              {selectedBandMeta.key === 'missing-date'
+                ? ' · add a purchase date to include in age bands'
+                : ` · ${formatGbp(selectedBandMeta.purchaseTotal)} · ${
+                    WARNING_LABEL[selectedBandMeta.warning]
+                  }`}
+            </span>
+          </h3>
+          <button
+            type="button"
+            className="inventory-ageing-drilldown-close"
+            onClick={() => setSelectedBand(null)}
+          >
+            Close
+          </button>
+        </div>
+        {bandItemsLoading ? <p className="inventory-ageing-muted">Loading items…</p> : null}
+        {bandItemsError ? (
+          <p className="inventory-ageing-error" role="alert">
+            {bandItemsError}
+          </p>
+        ) : null}
+        {!bandItemsLoading && !bandItemsError ? (
+          bandItems.length === 0 ? (
+            <p className="inventory-ageing-muted">No items in this band for the current filters.</p>
+          ) : (
+            <div className="inventory-ageing-items-wrap">
+              <table className="inventory-ageing-items-table">
+                <thead>
+                  <tr>
+                    <th scope="col" className="inventory-ageing-col-edit">
+                      <span className="visually-hidden">Edit</span>
+                    </th>
+                    <th scope="col">Item</th>
+                    <th scope="col">Brand</th>
+                    <th scope="col">Type</th>
+                    <th scope="col" className="inventory-ageing-num">
+                      Age
+                    </th>
+                    <th scope="col" className="inventory-ageing-num">
+                      Buy
+                    </th>
+                    <th scope="col" className="inventory-ageing-num">
+                      Ask
+                    </th>
+                    <th scope="col">Bought</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bandItems.map((row) => (
+                    <tr key={row.id}>
+                      <td className="inventory-ageing-col-edit">
+                        <Link
+                          to={`/stock?editId=${encodeURIComponent(String(row.id))}`}
+                          className="inventory-ageing-edit-btn"
+                          title={`Edit ${row.itemName} in Stock`}
+                          aria-label={`Edit ${row.itemName} in Stock`}
+                        >
+                          <svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M12 20h9" />
+                            <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                          </svg>
+                        </Link>
+                      </td>
+                      <td>{row.itemName}</td>
+                      <td>{row.brandName}</td>
+                      <td>{row.categoryName}</td>
+                      <td className="inventory-ageing-num">
+                        {row.daysInStock != null ? formatDays(row.daysInStock) : '—'}
+                      </td>
+                      <td className="inventory-ageing-num">{formatGbp(row.purchasePrice)}</td>
+                      <td className="inventory-ageing-num">
+                        {formatGbp(row.projectedSalePrice)}
+                      </td>
+                      <td>{row.purchaseDate ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {selectedBandMeta.itemCount > bandItems.length ? (
+                <p className="inventory-ageing-muted inventory-ageing-items-note">
+                  Showing {bandItems.length} of {selectedBandMeta.itemCount} items.
+                </p>
+              ) : null}
+            </div>
+          )
+        ) : null}
+      </section>
+    );
+  };
 
   return (
     <div className="inventory-ageing" id="research-panel-inventory-ageing" role="tabpanel">
@@ -650,17 +993,16 @@ const InventoryAgeing: React.FC = () => {
           </select>
         </label>
         <label className="inventory-ageing-filter">
-          <span className="visually-hidden">Platform</span>
+          <span className="visually-hidden">Live platform</span>
           <select
             value={platform}
             onChange={(e) => setPlatform(e.target.value as PlatformFilter)}
-            aria-label="Platform"
+            aria-label="Live platform"
           >
-            <option value="all">All platforms</option>
+            <option value="all">All live platforms</option>
             <option value="vinted">Vinted listed</option>
             <option value="ebay">eBay listed</option>
             <option value="depop">Depop listed</option>
-            <option value="unlisted">No listing IDs</option>
           </select>
         </label>
       </div>
@@ -672,233 +1014,189 @@ const InventoryAgeing: React.FC = () => {
         </p>
       ) : null}
 
-      {!loading && !error && totals ? (
+      {!loading && !error && totals && storageTotals ? (
         <>
-          <dl className="inventory-ageing-summary" aria-label="Inventory ageing summary">
-            <div className="inventory-ageing-summary-item">
-              <dt>Unsold items</dt>
-              <dd>{totals.itemCount}</dd>
-            </div>
-            <div className="inventory-ageing-summary-item">
-              <dt>Capital tied up</dt>
+          <dl className="inventory-ageing-split" aria-label="Live vs storage capital">
+            <div className="inventory-ageing-split-item">
+              <dt>Live capital</dt>
               <dd>{formatGbp(totals.purchaseTotal)}</dd>
+              <dd className="inventory-ageing-split-sub">
+                {totals.itemCount} items
+                {liveCapitalShare != null ? ` · ${formatPct(liveCapitalShare)} of capital` : ''}
+              </dd>
             </div>
-            <div className="inventory-ageing-summary-item">
-              <dt>Average age</dt>
-              <dd>{formatDays(totals.avgAgeDays)}</dd>
-            </div>
-            <div className="inventory-ageing-summary-item">
-              <dt>Median age</dt>
-              <dd>{formatDays(totals.medianAgeDays)}</dd>
-            </div>
-            <div className="inventory-ageing-summary-item">
-              <dt>Oldest unsold</dt>
-              <dd>{formatDays(totals.oldestAgeDays)}</dd>
+            <div className="inventory-ageing-split-item inventory-ageing-split-item--storage">
+              <dt>Storage capital</dt>
+              <dd>{formatGbp(storageTotals.purchaseTotal)}</dd>
+              <dd className="inventory-ageing-split-sub">
+                {storageTotals.itemCount} items
+                {storageCapitalShare != null
+                  ? ` · ${formatPct(storageCapitalShare)} of capital`
+                  : ''}
+              </dd>
             </div>
           </dl>
 
-          <div
-            className="inventory-ageing-metric-toggle"
-            role="group"
-            aria-label="Chart metric"
-          >
-            <button
-              type="button"
-              className={`inventory-ageing-metric-btn${chartMetric === 'items' ? ' is-active' : ''}`}
-              aria-pressed={chartMetric === 'items'}
-              onClick={() => setChartMetric('items')}
-            >
-              Items
-            </button>
-            <button
-              type="button"
-              className={`inventory-ageing-metric-btn${
-                chartMetric === 'capital' ? ' is-active' : ''
-              }`}
-              aria-pressed={chartMetric === 'capital'}
-              onClick={() => setChartMetric('capital')}
-            >
-              Capital (£)
-            </button>
-          </div>
+          <section className="inventory-ageing-section" aria-labelledby="inventory-ageing-live-heading">
+            <h2 id="inventory-ageing-live-heading" className="inventory-ageing-section-title">
+              Live listed
+            </h2>
 
-          <div className="inventory-ageing-chart-wrap">
-            {totals.itemCount === 0 ? (
-              <p className="inventory-ageing-muted">No unsold stock matches these filters.</p>
-            ) : (
-              <Bar data={chartData} options={chartOptions} />
-            )}
-          </div>
-
-          {totals.missingPurchaseDateCount > 0 ? (
-            <button
-              type="button"
-              className={`inventory-ageing-missing-link${
-                selectedBand === 'missing-date' ? ' is-active' : ''
-              }`}
-              onClick={() =>
-                setSelectedBand((prev) => (prev === 'missing-date' ? null : 'missing-date'))
-              }
-              aria-pressed={selectedBand === 'missing-date'}
-            >
-              {totals.missingPurchaseDateCount} unsold item
-              {totals.missingPurchaseDateCount === 1 ? '' : 's'} missing a purchase date — excluded
-              from age bands.
-            </button>
-          ) : null}
-
-          <div className="inventory-ageing-table-wrap">
-            <table className="inventory-ageing-table">
-              <thead>
-                <tr>
-                  <th scope="col">Band</th>
-                  <th scope="col" className="inventory-ageing-num">
-                    Items
-                  </th>
-                  <th scope="col" className="inventory-ageing-num">
-                    % stock
-                  </th>
-                  <th scope="col" className="inventory-ageing-num">
-                    Capital
-                  </th>
-                  <th scope="col" className="inventory-ageing-num">
-                    % capital
-                  </th>
-                  <th scope="col" className="inventory-ageing-num">
-                    Avg buy
-                  </th>
-                  <th scope="col" className="inventory-ageing-num">
-                    Avg ask
-                  </th>
-                  <th scope="col">Flag</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bands.map((b) => (
-                  <tr
-                    key={b.key}
-                    className={`inventory-ageing-row inventory-ageing-row--${b.warning}${
-                      selectedBand === b.key ? ' is-selected' : ''
-                    }`}
-                    onClick={() => onSelectBand(b.key)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        onSelectBand(b.key);
-                      }
-                    }}
-                    tabIndex={0}
-                    role="button"
-                    aria-pressed={selectedBand === b.key}
-                    aria-label={`${b.label}: ${b.itemCount} items. Activate to list stock.`}
-                  >
-                    <td>{b.label}</td>
-                    <td className="inventory-ageing-num">{b.itemCount}</td>
-                    <td className="inventory-ageing-num">{formatPct(b.pctOfItems)}</td>
-                    <td className="inventory-ageing-num">{formatGbp(b.purchaseTotal)}</td>
-                    <td className="inventory-ageing-num">{formatPct(b.pctOfCapital)}</td>
-                    <td className="inventory-ageing-num">{formatGbp(b.avgPurchaseCost)}</td>
-                    <td className="inventory-ageing-num">{formatGbp(b.avgAskingPrice)}</td>
-                    <td>
-                      <span className={`inventory-ageing-flag inventory-ageing-flag--${b.warning}`}>
-                        {b.warning}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {showDrilldown && selectedBandMeta ? (
-            <section
-              className="inventory-ageing-drilldown"
-              aria-label={`Items in ${selectedBandMeta.label}`}
-            >
-              <div className="inventory-ageing-drilldown-header">
-                <h3 className="inventory-ageing-drilldown-title">
-                  {selectedBandMeta.label}
-                  <span className="inventory-ageing-drilldown-meta">
-                    {' '}
-                    · {selectedBandMeta.itemCount} items
-                    {selectedBandMeta.key === 'missing-date'
-                      ? ' · add a purchase date to include in age bands'
-                      : ` · ${formatGbp(selectedBandMeta.purchaseTotal)} · ${
-                          WARNING_LABEL[selectedBandMeta.warning]
-                        }`}
-                  </span>
-                </h3>
-                <button
-                  type="button"
-                  className="inventory-ageing-drilldown-close"
-                  onClick={() => setSelectedBand(null)}
-                >
-                  Close
-                </button>
+            <dl className="inventory-ageing-summary" aria-label="Live inventory ageing summary">
+              <div className="inventory-ageing-summary-item">
+                <dt>Live items</dt>
+                <dd>{totals.itemCount}</dd>
               </div>
-              {bandItemsLoading ? (
-                <p className="inventory-ageing-muted">Loading items…</p>
-              ) : null}
-              {bandItemsError ? (
-                <p className="inventory-ageing-error" role="alert">
-                  {bandItemsError}
-                </p>
-              ) : null}
-              {!bandItemsLoading && !bandItemsError ? (
-                bandItems.length === 0 ? (
-                  <p className="inventory-ageing-muted">No items in this band for the current filters.</p>
-                ) : (
-                  <div className="inventory-ageing-items-wrap">
-                    <table className="inventory-ageing-items-table">
-                      <thead>
-                        <tr>
-                          <th scope="col">Item</th>
-                          <th scope="col">Brand</th>
-                          <th scope="col">Type</th>
-                          <th scope="col" className="inventory-ageing-num">
-                            Age
-                          </th>
-                          <th scope="col" className="inventory-ageing-num">
-                            Buy
-                          </th>
-                          <th scope="col" className="inventory-ageing-num">
-                            Ask
-                          </th>
-                          <th scope="col">Bought</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {bandItems.map((row) => (
-                          <tr key={row.id}>
-                            <td>
-                              <Link
-                                to={`/stock?editId=${encodeURIComponent(String(row.id))}`}
-                                className="inventory-ageing-item-link"
-                              >
-                                {row.itemName}
-                              </Link>
-                            </td>
-                            <td>{row.brandName}</td>
-                            <td>{row.categoryName}</td>
-                            <td className="inventory-ageing-num">
-                              {row.daysInStock != null ? formatDays(row.daysInStock) : '—'}
-                            </td>
-                            <td className="inventory-ageing-num">
-                              {formatGbp(row.purchasePrice)}
-                            </td>
-                            <td className="inventory-ageing-num">
-                              {formatGbp(row.projectedSalePrice)}
-                            </td>
-                            <td>{row.purchaseDate ?? '—'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )
-              ) : null}
-            </section>
-          ) : null}
+              <div className="inventory-ageing-summary-item">
+                <dt>Capital tied up</dt>
+                <dd>{formatGbp(totals.purchaseTotal)}</dd>
+              </div>
+              <div className="inventory-ageing-summary-item">
+                <dt>Average age</dt>
+                <dd>{formatDays(totals.avgAgeDays)}</dd>
+              </div>
+              <div className="inventory-ageing-summary-item">
+                <dt>Median age</dt>
+                <dd>{formatDays(totals.medianAgeDays)}</dd>
+              </div>
+              <div className="inventory-ageing-summary-item">
+                <dt>Oldest live</dt>
+                <dd>{formatDays(totals.oldestAgeDays)}</dd>
+              </div>
+            </dl>
+
+            <div
+              className="inventory-ageing-metric-toggle"
+              role="group"
+              aria-label="Live chart metric"
+            >
+              <button
+                type="button"
+                className={`inventory-ageing-metric-btn${chartMetric === 'items' ? ' is-active' : ''}`}
+                aria-pressed={chartMetric === 'items'}
+                onClick={() => setChartMetric('items')}
+              >
+                Items
+              </button>
+              <button
+                type="button"
+                className={`inventory-ageing-metric-btn${
+                  chartMetric === 'capital' ? ' is-active' : ''
+                }`}
+                aria-pressed={chartMetric === 'capital'}
+                onClick={() => setChartMetric('capital')}
+              >
+                Capital (£)
+              </button>
+            </div>
+
+            <div className="inventory-ageing-chart-wrap">
+              {totals.itemCount === 0 ? (
+                <p className="inventory-ageing-muted">No live listed stock matches these filters.</p>
+              ) : (
+                <Bar data={chartData} options={chartOptions} />
+              )}
+            </div>
+
+            {totals.missingPurchaseDateCount > 0 ? (
+              <button
+                type="button"
+                className={`inventory-ageing-missing-link${
+                  selectedBand === 'missing-date' && drilldownScope === 'live' ? ' is-active' : ''
+                }`}
+                onClick={() => {
+                  if (selectedBand === 'missing-date' && drilldownScope === 'live') {
+                    setSelectedBand(null);
+                  } else {
+                    setDrilldownScope('live');
+                    setSelectedBand('missing-date');
+                  }
+                }}
+                aria-pressed={selectedBand === 'missing-date' && drilldownScope === 'live'}
+              >
+                {totals.missingPurchaseDateCount} live item
+                {totals.missingPurchaseDateCount === 1 ? '' : 's'} missing a purchase date — excluded
+                from age bands.
+              </button>
+            ) : null}
+
+            {renderBandTable(bands, 'live')}
+            {renderBandItemsDrilldown('live')}
+          </section>
+
+          <section
+            className="inventory-ageing-section inventory-ageing-section--storage"
+            aria-labelledby="inventory-ageing-storage-heading"
+          >
+            <h2 id="inventory-ageing-storage-heading" className="inventory-ageing-section-title">
+              Not listed
+            </h2>
+            <dl className="inventory-ageing-summary inventory-ageing-summary--storage" aria-label="Not listed inventory summary">
+              <div className="inventory-ageing-summary-item">
+                <dt>Storage items</dt>
+                <dd>{storageTotals.itemCount}</dd>
+              </div>
+              <div className="inventory-ageing-summary-item">
+                <dt>Capital in storage</dt>
+                <dd>{formatGbp(storageTotals.purchaseTotal)}</dd>
+              </div>
+              <div className="inventory-ageing-summary-item">
+                <dt>eBay drafts</dt>
+                <dd>{storageTotals.ebayDraftCount}</dd>
+              </div>
+              <div className="inventory-ageing-summary-item">
+                <dt>Fully unlisted</dt>
+                <dd>{storageTotals.fullyUnlistedCount}</dd>
+              </div>
+              <div className="inventory-ageing-summary-item">
+                <dt>Ask value ready</dt>
+                <dd>{formatGbp(storageTotals.askingTotal)}</dd>
+              </div>
+              <div className="inventory-ageing-summary-item">
+                <dt>Avg age stored</dt>
+                <dd>{formatDays(storageTotals.avgAgeDays)}</dd>
+              </div>
+            </dl>
+
+            <div
+              className="inventory-ageing-metric-toggle"
+              role="group"
+              aria-label="Storage chart metric"
+            >
+              <button
+                type="button"
+                className={`inventory-ageing-metric-btn${
+                  storageChartMetric === 'items' ? ' is-active' : ''
+                }`}
+                aria-pressed={storageChartMetric === 'items'}
+                onClick={() => setStorageChartMetric('items')}
+              >
+                Items
+              </button>
+              <button
+                type="button"
+                className={`inventory-ageing-metric-btn${
+                  storageChartMetric === 'capital' ? ' is-active' : ''
+                }`}
+                aria-pressed={storageChartMetric === 'capital'}
+                onClick={() => setStorageChartMetric('capital')}
+              >
+                Capital (£)
+              </button>
+            </div>
+
+            <div className="inventory-ageing-chart-wrap">
+              {storageTotals.itemCount === 0 ? (
+                <p className="inventory-ageing-muted">No storage / unlisted stock matches these filters.</p>
+              ) : (
+                <Bar data={storageChartData} options={storageChartOptions} />
+              )}
+            </div>
+
+            {renderBandTable(storageBands, 'storage')}
+            {renderBandItemsDrilldown('storage')}
+          </section>
+
         </>
       ) : null}
 
@@ -916,7 +1214,12 @@ const InventoryAgeing: React.FC = () => {
         <button
           type="button"
           className="inventory-ageing-ask-ai-btn"
-          disabled={askAiBusy || loading || !totals || totals.itemCount === 0}
+          disabled={
+            askAiBusy ||
+            loading ||
+            !totals ||
+            (totals.itemCount === 0 && (!storageTotals || storageTotals.itemCount === 0))
+          }
           onClick={() => void runAskAi()}
           aria-label="Ask AI for advice on inventory ageing"
         >

@@ -8782,7 +8782,16 @@ app.get('/api/stock/sourced-insights', async (req, res) => {
   }
 });
 
-/** Legacy item id from DB (digits, v1|…|0, or itm URL). */
+/**
+ * True when stock.ebay_id is a live listing id (digits only).
+ * Alphanumeric / draft-style values are treated as empty for unlist checks.
+ */
+function isNumericEbayListingId(raw) {
+  const s = raw == null ? '' : String(raw).trim();
+  return s.length > 0 && /^\d+$/.test(s);
+}
+
+/** Legacy item id from DB (digits only, v1|…|0, or itm URL). */
 function extractEbayLegacyItemId(raw) {
   if (raw == null || raw === '') return null;
   let s = String(raw).trim();
@@ -8793,9 +8802,9 @@ function extractEbayLegacyItemId(raw) {
     const parts = s.split('|');
     return parts[1] || null;
   }
+  // Live listing ids are numbers only — do not strip letters from draft/SKU values.
   if (/^\d+$/.test(s)) return s;
-  const digits = s.replace(/\D/g, '');
-  return digits.length > 0 ? digits : null;
+  return null;
 }
 
 function ebayBrowseRestItemIdFromLegacy(legacyId) {
@@ -9508,8 +9517,12 @@ app.post('/api/stock/:id/ebay-unlist', async (req, res) => {
     if (!row) {
       return res.status(404).json({ error: 'Stock row not found' });
     }
-    if (row.ebay_id == null || String(row.ebay_id).trim() === '') {
-      return res.status(400).json({ error: 'Stock row has no eBay listing id' });
+    if (!isNumericEbayListingId(row.ebay_id)) {
+      return res.status(400).json({
+        error: 'Stock row has no numeric eBay listing id',
+        details: 'eBay id must be digits only (draft / alphanumeric ids are ignored for unlist).',
+        code: 'INVALID_EBAY_ID',
+      });
     }
 
     const outcome = await endEbayListingViaTradingApi(userToken, row.ebay_id);
@@ -10601,10 +10614,13 @@ app.post('/api/stock/:id/vinted-ebay-active-check', async (req, res) => {
 
     const soldPlatform = String(row.sold_platform ?? '').trim().toLowerCase();
     const isVintedSold = soldPlatform === 'vinted' || (row.vinted_id != null && String(row.vinted_id).trim() !== '');
-    const hasEbayId = row.ebay_id != null && String(row.ebay_id).trim() !== '';
+    const hasEbayId = isNumericEbayListingId(row.ebay_id);
 
     if (!isVintedSold || !hasEbayId) {
-      return res.json({ needs_unlist: false, reason: 'not_applicable' });
+      return res.json({
+        needs_unlist: false,
+        reason: !isVintedSold ? 'not_applicable' : 'ebay_id_not_numeric',
+      });
     }
 
     const accessToken = await getAccessToken(appId, certId);
@@ -10675,7 +10691,7 @@ app.post('/api/stock/vinted-sold-ebay-active-check', async (req, res) => {
        FROM stock
        WHERE sale_date IS NOT NULL
          AND ebay_id IS NOT NULL
-         AND TRIM(COALESCE(ebay_id::text, '')) <> ''
+         AND TRIM(COALESCE(ebay_id::text, '')) ~ '^[0-9]+$'
          AND LOWER(TRIM(COALESCE(sold_platform::text, ''))) = 'vinted'
        ORDER BY sale_date DESC NULLS LAST, id DESC`
     );
@@ -15499,8 +15515,9 @@ app.post('/api/brands/:brandId/links', async (req, res) => {
 
 /**
  * Inventory ageing — unsold stock by age band (purchase_date).
+ * Live ageing excludes storage: no Vinted+eBay, or is_ebay_draft.
  * GET /api/stock/inventory-ageing?department_id=&category_id=&brand_id=&platform=
- * GET /api/stock/inventory-ageing/items?band=91-180&department_id=&category_id=&brand_id=&platform=&limit=
+ * GET /api/stock/inventory-ageing/items?band=91-180&scope=live|storage&…
  */
 const INVENTORY_AGEING_BANDS = [
   { key: '0-30', label: '0–30 days', minDays: 0, maxDays: 30, warning: 'healthy' },
@@ -15510,6 +15527,24 @@ const INVENTORY_AGEING_BANDS = [
   { key: '181-365', label: '181–365 days', minDays: 181, maxDays: 365, warning: 'slow' },
   { key: '365+', label: '365+ days', minDays: 366, maxDays: null, warning: 'stale' },
 ];
+
+/** Live on a marketplace (not storage / not eBay draft). */
+const INVENTORY_AGEING_LIVE_SQL = `(
+  COALESCE(s.is_ebay_draft, false) IS NOT TRUE
+  AND (
+    (s.vinted_id IS NOT NULL AND TRIM(s.vinted_id::text) <> '')
+    OR (s.ebay_id IS NOT NULL AND TRIM(s.ebay_id::text) <> '')
+  )
+)`;
+
+/** In storage / seasonal hold: no Vinted+eBay, or flagged eBay draft. */
+const INVENTORY_AGEING_STORAGE_SQL = `(
+  COALESCE(s.is_ebay_draft, false) IS TRUE
+  OR (
+    (s.vinted_id IS NULL OR TRIM(s.vinted_id::text) = '')
+    AND (s.ebay_id IS NULL OR TRIM(s.ebay_id::text) = '')
+  )
+)`;
 
 function parseInventoryAgeingFilters(req) {
   const departmentId = parseOptionalBrandDepartmentFilter(req);
@@ -15526,19 +15561,28 @@ function parseInventoryAgeingFilters(req) {
     if (Number.isInteger(n) && n >= 1) brandId = n;
   }
   const platformRaw = String(req.query.platform ?? 'all').trim().toLowerCase();
-  const platform = ['vinted', 'ebay', 'depop', 'unlisted'].includes(platformRaw)
-    ? platformRaw
-    : 'all';
-  return { departmentId, categoryId, brandId, platform };
+  const platform = ['vinted', 'ebay', 'depop'].includes(platformRaw) ? platformRaw : 'all';
+  const scopeRaw = String(req.query.scope ?? 'live').trim().toLowerCase();
+  const scope = scopeRaw === 'storage' ? 'storage' : 'live';
+  return { departmentId, categoryId, brandId, platform, scope };
 }
 
 function inventoryAgeingFilterSql(filters, startIndex = 1, opts = {}) {
-  const requirePurchaseDate = opts.requirePurchaseDate !== false;
+  // purchaseDateMode: 'required' (default) | 'missing' | 'any'
+  const purchaseDateMode =
+    opts.purchaseDateMode ||
+    (opts.requirePurchaseDate === false ? 'missing' : 'required');
+  const listingScope = opts.listingScope || filters.scope || 'live';
   const clauses = ['s.sale_date IS NULL'];
-  if (requirePurchaseDate) {
+  if (purchaseDateMode === 'required') {
     clauses.push('s.purchase_date IS NOT NULL');
-  } else {
+  } else if (purchaseDateMode === 'missing') {
     clauses.push('s.purchase_date IS NULL');
+  }
+  if (listingScope === 'storage') {
+    clauses.push(INVENTORY_AGEING_STORAGE_SQL);
+  } else {
+    clauses.push(INVENTORY_AGEING_LIVE_SQL);
   }
   const params = [];
   let i = startIndex;
@@ -15554,20 +15598,122 @@ function inventoryAgeingFilterSql(filters, startIndex = 1, opts = {}) {
     clauses.push(`s.brand_id = $${i++}`);
     params.push(filters.brandId);
   }
-  if (filters.platform === 'vinted') {
-    clauses.push(`s.vinted_id IS NOT NULL AND TRIM(s.vinted_id::text) <> ''`);
-  } else if (filters.platform === 'ebay') {
-    clauses.push(`s.ebay_id IS NOT NULL AND TRIM(s.ebay_id::text) <> ''`);
-  } else if (filters.platform === 'depop') {
-    clauses.push(`s.depop_id IS NOT NULL AND TRIM(s.depop_id::text) <> ''`);
-  } else if (filters.platform === 'unlisted') {
-    clauses.push(`(
-      (s.vinted_id IS NULL OR TRIM(s.vinted_id::text) = '')
-      AND (s.ebay_id IS NULL OR TRIM(s.ebay_id::text) = '')
-      AND (s.depop_id IS NULL OR TRIM(s.depop_id::text) = '')
-    )`);
+  // Platform filter only applies within live listings.
+  if (listingScope === 'live') {
+    if (filters.platform === 'vinted') {
+      clauses.push(`s.vinted_id IS NOT NULL AND TRIM(s.vinted_id::text) <> ''`);
+    } else if (filters.platform === 'ebay') {
+      clauses.push(`s.ebay_id IS NOT NULL AND TRIM(s.ebay_id::text) <> ''`);
+    } else if (filters.platform === 'depop') {
+      clauses.push(`s.depop_id IS NOT NULL AND TRIM(s.depop_id::text) <> ''`);
+    }
   }
   return { whereSql: clauses.join(' AND '), params, nextIndex: i };
+}
+
+function mapInventoryAgeingBandsFromRows(rows) {
+  const byKey = new Map((rows ?? []).map((r) => [String(r.band_key), r]));
+  let totalItems = 0;
+  let totalCapital = 0;
+  const bands = INVENTORY_AGEING_BANDS.map((meta) => {
+    const row = byKey.get(meta.key);
+    const itemCount = row ? Number(row.item_count) || 0 : 0;
+    const purchaseTotal = row ? Number(row.purchase_total) || 0 : 0;
+    const avgPurchaseCost =
+      row && row.avg_purchase_cost != null ? Number(row.avg_purchase_cost) : null;
+    const avgAskingPrice =
+      row && row.avg_asking_price != null ? Number(row.avg_asking_price) : null;
+    totalItems += itemCount;
+    totalCapital += purchaseTotal;
+    return {
+      key: meta.key,
+      label: meta.label,
+      minDays: meta.minDays,
+      maxDays: meta.maxDays,
+      warning: meta.warning,
+      itemCount,
+      purchaseTotal,
+      avgPurchaseCost:
+        avgPurchaseCost != null && Number.isFinite(avgPurchaseCost) ? avgPurchaseCost : null,
+      avgAskingPrice:
+        avgAskingPrice != null && Number.isFinite(avgAskingPrice) ? avgAskingPrice : null,
+      pctOfItems: 0,
+      pctOfCapital: 0,
+    };
+  });
+  for (const band of bands) {
+    band.pctOfItems = totalItems > 0 ? (band.itemCount / totalItems) * 100 : 0;
+    band.pctOfCapital = totalCapital > 0 ? (band.purchaseTotal / totalCapital) * 100 : 0;
+  }
+  return { bands, totalItems, totalCapital };
+}
+
+async function queryInventoryAgeingBandRows(pool, whereSql, params) {
+  const result = await pool.query(
+    `
+    WITH aged AS (
+      SELECT
+        s.id,
+        (CURRENT_DATE - s.purchase_date)::int AS age_days,
+        COALESCE(NULLIF(TRIM(s.purchase_price::text), '')::numeric, 0) AS purchase_cost,
+        CASE
+          WHEN s.projected_sale_price IS NOT NULL
+           AND TRIM(s.projected_sale_price::text) <> ''
+          THEN s.projected_sale_price::numeric
+          ELSE NULL
+        END AS asking_price
+      FROM stock s
+      LEFT JOIN brand b ON b.id = s.brand_id
+      WHERE ${whereSql}
+    ),
+    banded AS (
+      SELECT
+        *,
+        ${inventoryAgeingBandCaseSql('age_days')} AS band_key
+      FROM aged
+      WHERE age_days IS NOT NULL AND age_days >= 0
+    )
+    SELECT
+      band_key,
+      COUNT(*)::int AS item_count,
+      COALESCE(SUM(purchase_cost), 0)::numeric AS purchase_total,
+      AVG(purchase_cost)::numeric AS avg_purchase_cost,
+      AVG(asking_price) FILTER (WHERE asking_price IS NOT NULL)::numeric AS avg_asking_price,
+      AVG(age_days)::float AS avg_age_days,
+      PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY age_days)::float AS median_age_days,
+      MAX(age_days)::int AS max_age_days,
+      MIN(age_days)::int AS min_age_days
+    FROM banded
+    WHERE band_key IS NOT NULL
+    GROUP BY band_key
+    `,
+    params
+  );
+  return result.rows ?? [];
+}
+
+async function queryInventoryAgeingStats(pool, whereSql, params) {
+  const statsResult = await pool.query(
+    `
+    SELECT
+      AVG(age_days)::float AS avg_age_days,
+      PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY age_days)::float AS median_age_days,
+      MAX(age_days)::int AS max_age_days,
+      MIN(purchase_date) AS oldest_purchase_date,
+      MAX(purchase_date) AS newest_purchase_date
+    FROM (
+      SELECT
+        (CURRENT_DATE - s.purchase_date)::int AS age_days,
+        s.purchase_date
+      FROM stock s
+      LEFT JOIN brand b ON b.id = s.brand_id
+      WHERE ${whereSql}
+    ) t
+    WHERE age_days IS NOT NULL AND age_days >= 0
+    `,
+    params
+  );
+  return statsResult.rows?.[0] ?? {};
 }
 
 function inventoryAgeingBandCaseSql(ageExpr) {
@@ -15592,174 +15738,147 @@ app.get('/api/stock/inventory-ageing', async (req, res) => {
     }
 
     const filters = parseInventoryAgeingFilters(req);
-    const { whereSql, params } = inventoryAgeingFilterSql(filters);
+    const liveFilters = { ...filters, scope: 'live' };
+    const storageFilters = { ...filters, scope: 'storage' };
 
-    const result = await pool.query(
-      `
-      WITH aged AS (
-        SELECT
-          s.id,
-          (CURRENT_DATE - s.purchase_date)::int AS age_days,
-          COALESCE(NULLIF(TRIM(s.purchase_price::text), '')::numeric, 0) AS purchase_cost,
-          CASE
-            WHEN s.projected_sale_price IS NOT NULL
-             AND TRIM(s.projected_sale_price::text) <> ''
-            THEN s.projected_sale_price::numeric
-            ELSE NULL
-          END AS asking_price
-        FROM stock s
-        LEFT JOIN brand b ON b.id = s.brand_id
-        WHERE ${whereSql}
-      ),
-      banded AS (
-        SELECT
-          *,
-          ${inventoryAgeingBandCaseSql('age_days')} AS band_key
-        FROM aged
-        WHERE age_days IS NOT NULL AND age_days >= 0
-      )
-      SELECT
-        band_key,
-        COUNT(*)::int AS item_count,
-        COALESCE(SUM(purchase_cost), 0)::numeric AS purchase_total,
-        AVG(purchase_cost)::numeric AS avg_purchase_cost,
-        AVG(asking_price) FILTER (WHERE asking_price IS NOT NULL)::numeric AS avg_asking_price,
-        AVG(age_days)::float AS avg_age_days,
-        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY age_days)::float AS median_age_days,
-        MAX(age_days)::int AS max_age_days,
-        MIN(age_days)::int AS min_age_days
-      FROM banded
-      WHERE band_key IS NOT NULL
-      GROUP BY band_key
-      `,
-      params
-    );
-
-    const byKey = new Map(
-      (result.rows ?? []).map((r) => [String(r.band_key), r])
-    );
-
-    // Missing purchase date count with same filters (except purchase_date required)
-    const missingClauses = ['s.sale_date IS NULL', 's.purchase_date IS NULL'];
-    const missingParams = [];
-    let mi = 1;
-    if (filters.departmentId != null) {
-      missingClauses.push(`b.department_id = $${mi++}`);
-      missingParams.push(filters.departmentId);
-    }
-    if (filters.categoryId != null) {
-      missingClauses.push(`s.category_id = $${mi++}`);
-      missingParams.push(filters.categoryId);
-    }
-    if (filters.brandId != null) {
-      missingClauses.push(`s.brand_id = $${mi++}`);
-      missingParams.push(filters.brandId);
-    }
-    if (filters.platform === 'vinted') {
-      missingClauses.push(`s.vinted_id IS NOT NULL AND TRIM(s.vinted_id::text) <> ''`);
-    } else if (filters.platform === 'ebay') {
-      missingClauses.push(`s.ebay_id IS NOT NULL AND TRIM(s.ebay_id::text) <> ''`);
-    } else if (filters.platform === 'depop') {
-      missingClauses.push(`s.depop_id IS NOT NULL AND TRIM(s.depop_id::text) <> ''`);
-    } else if (filters.platform === 'unlisted') {
-      missingClauses.push(`(
-        (s.vinted_id IS NULL OR TRIM(s.vinted_id::text) = '')
-        AND (s.ebay_id IS NULL OR TRIM(s.ebay_id::text) = '')
-        AND (s.depop_id IS NULL OR TRIM(s.depop_id::text) = '')
-      )`);
-    }
-    const missingResult = await pool.query(
-      `
-      SELECT COUNT(*)::int AS missing_purchase_date_count
-      FROM stock s
-      LEFT JOIN brand b ON b.id = s.brand_id
-      WHERE ${missingClauses.join(' AND ')}
-      `,
-      missingParams
-    );
-
-    let totalItems = 0;
-    let totalCapital = 0;
-
-    const bands = INVENTORY_AGEING_BANDS.map((meta) => {
-      const row = byKey.get(meta.key);
-      const itemCount = row ? Number(row.item_count) || 0 : 0;
-      const purchaseTotal = row ? Number(row.purchase_total) || 0 : 0;
-      const avgPurchaseCost = row && row.avg_purchase_cost != null ? Number(row.avg_purchase_cost) : null;
-      const avgAskingPrice = row && row.avg_asking_price != null ? Number(row.avg_asking_price) : null;
-      totalItems += itemCount;
-      totalCapital += purchaseTotal;
-      return {
-        key: meta.key,
-        label: meta.label,
-        minDays: meta.minDays,
-        maxDays: meta.maxDays,
-        warning: meta.warning,
-        itemCount,
-        purchaseTotal,
-        avgPurchaseCost: avgPurchaseCost != null && Number.isFinite(avgPurchaseCost) ? avgPurchaseCost : null,
-        avgAskingPrice: avgAskingPrice != null && Number.isFinite(avgAskingPrice) ? avgAskingPrice : null,
-        pctOfItems: 0,
-        pctOfCapital: 0,
-      };
+    const live = inventoryAgeingFilterSql(liveFilters, 1, { listingScope: 'live' });
+    const liveMissingFilter = inventoryAgeingFilterSql(liveFilters, 1, {
+      listingScope: 'live',
+      purchaseDateMode: 'missing',
+    });
+    const storage = inventoryAgeingFilterSql(storageFilters, 1, { listingScope: 'storage' });
+    const storageAll = inventoryAgeingFilterSql(storageFilters, 1, {
+      listingScope: 'storage',
+      purchaseDateMode: 'any',
     });
 
-    for (const band of bands) {
-      band.pctOfItems = totalItems > 0 ? (band.itemCount / totalItems) * 100 : 0;
-      band.pctOfCapital = totalCapital > 0 ? (band.purchaseTotal / totalCapital) * 100 : 0;
-    }
+    const [liveBandRows, liveStats, liveMissing, storageBandRows, storageStats, storageMeta, storageCats] =
+      await Promise.all([
+        queryInventoryAgeingBandRows(pool, live.whereSql, live.params),
+        queryInventoryAgeingStats(pool, live.whereSql, live.params),
+        pool.query(
+          `
+          SELECT COUNT(*)::int AS missing_purchase_date_count
+          FROM stock s
+          LEFT JOIN brand b ON b.id = s.brand_id
+          WHERE ${liveMissingFilter.whereSql}
+          `,
+          liveMissingFilter.params
+        ),
+        queryInventoryAgeingBandRows(pool, storage.whereSql, storage.params),
+        queryInventoryAgeingStats(pool, storage.whereSql, storage.params),
+        pool.query(
+          `
+          SELECT
+            COUNT(*)::int AS item_count,
+            COALESCE(SUM(COALESCE(NULLIF(TRIM(s.purchase_price::text), '')::numeric, 0)), 0)::numeric AS purchase_total,
+            COUNT(*) FILTER (
+              WHERE COALESCE(s.is_ebay_draft, false) IS TRUE
+            )::int AS ebay_draft_count,
+            COUNT(*) FILTER (
+              WHERE COALESCE(s.is_ebay_draft, false) IS NOT TRUE
+                AND (s.vinted_id IS NULL OR TRIM(s.vinted_id::text) = '')
+                AND (s.ebay_id IS NULL OR TRIM(s.ebay_id::text) = '')
+            )::int AS fully_unlisted_count,
+            COUNT(*) FILTER (
+              WHERE s.projected_sale_price IS NOT NULL
+                AND TRIM(s.projected_sale_price::text) <> ''
+            )::int AS with_asking_price_count,
+            COALESCE(
+              SUM(
+                CASE
+                  WHEN s.projected_sale_price IS NOT NULL
+                   AND TRIM(s.projected_sale_price::text) <> ''
+                  THEN s.projected_sale_price::numeric
+                  ELSE 0
+                END
+              ),
+              0
+            )::numeric AS asking_total
+          FROM stock s
+          LEFT JOIN brand b ON b.id = s.brand_id
+          WHERE ${storageAll.whereSql}
+          `,
+          storageAll.params
+        ),
+        pool.query(
+          `
+          SELECT
+            s.category_id,
+            COALESCE(NULLIF(TRIM(c.category_name), ''), 'Uncategorized') AS category_name,
+            COUNT(*)::int AS item_count,
+            COALESCE(SUM(COALESCE(NULLIF(TRIM(s.purchase_price::text), '')::numeric, 0)), 0)::numeric AS purchase_total
+          FROM stock s
+          LEFT JOIN brand b ON b.id = s.brand_id
+          LEFT JOIN category c ON c.id = s.category_id
+          WHERE ${storageAll.whereSql}
+          GROUP BY s.category_id, COALESCE(NULLIF(TRIM(c.category_name), ''), 'Uncategorized')
+          ORDER BY purchase_total DESC, item_count DESC, category_name ASC
+          LIMIT 12
+          `,
+          storageAll.params
+        ),
+      ]);
 
-    // Overall age stats from all matching rows
-    const statsResult = await pool.query(
-      `
-      SELECT
-        AVG(age_days)::float AS avg_age_days,
-        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY age_days)::float AS median_age_days,
-        MAX(age_days)::int AS max_age_days,
-        MIN(purchase_date) AS oldest_purchase_date,
-        MAX(purchase_date) AS newest_purchase_date
-      FROM (
-        SELECT
-          (CURRENT_DATE - s.purchase_date)::int AS age_days,
-          s.purchase_date
-        FROM stock s
-        LEFT JOIN brand b ON b.id = s.brand_id
-        WHERE ${whereSql}
-      ) t
-      WHERE age_days IS NOT NULL AND age_days >= 0
-      `,
-      params
-    );
-    const stats = statsResult.rows?.[0] ?? {};
+    const liveMapped = mapInventoryAgeingBandsFromRows(liveBandRows);
+    const storageMapped = mapInventoryAgeingBandsFromRows(storageBandRows);
+    const storageRow = storageMeta.rows?.[0] ?? {};
+
+    const buildTotals = (mapped, stats, missingCount, overrides = {}) => ({
+      itemCount:
+        overrides.itemCount != null ? overrides.itemCount : mapped.totalItems,
+      purchaseTotal:
+        overrides.purchaseTotal != null ? overrides.purchaseTotal : mapped.totalCapital,
+      avgAgeDays:
+        stats.avg_age_days != null && Number.isFinite(Number(stats.avg_age_days))
+          ? Number(stats.avg_age_days)
+          : null,
+      medianAgeDays:
+        stats.median_age_days != null && Number.isFinite(Number(stats.median_age_days))
+          ? Number(stats.median_age_days)
+          : null,
+      oldestAgeDays:
+        stats.max_age_days != null && Number.isFinite(Number(stats.max_age_days))
+          ? Number(stats.max_age_days)
+          : null,
+      oldestPurchaseDate: stats.oldest_purchase_date
+        ? String(stats.oldest_purchase_date).slice(0, 10)
+        : null,
+      newestPurchaseDate: stats.newest_purchase_date
+        ? String(stats.newest_purchase_date).slice(0, 10)
+        : null,
+      missingPurchaseDateCount: missingCount,
+    });
 
     res.json({
-      bands,
-      totals: {
-        itemCount: totalItems,
-        purchaseTotal: totalCapital,
-        avgAgeDays:
-          stats.avg_age_days != null && Number.isFinite(Number(stats.avg_age_days))
-            ? Number(stats.avg_age_days)
-            : null,
-        medianAgeDays:
-          stats.median_age_days != null && Number.isFinite(Number(stats.median_age_days))
-            ? Number(stats.median_age_days)
-            : null,
-        oldestAgeDays:
-          stats.max_age_days != null && Number.isFinite(Number(stats.max_age_days))
-            ? Number(stats.max_age_days)
-            : null,
-        oldestPurchaseDate: stats.oldest_purchase_date
-          ? String(stats.oldest_purchase_date).slice(0, 10)
-          : null,
-        newestPurchaseDate: stats.newest_purchase_date
-          ? String(stats.newest_purchase_date).slice(0, 10)
-          : null,
-        missingPurchaseDateCount: Number(missingResult.rows?.[0]?.missing_purchase_date_count) || 0,
+      bands: liveMapped.bands,
+      totals: buildTotals(
+        liveMapped,
+        liveStats,
+        Number(liveMissing.rows?.[0]?.missing_purchase_date_count) || 0
+      ),
+      storage: {
+        bands: storageMapped.bands,
+        totals: {
+          ...buildTotals(storageMapped, storageStats, 0, {
+            itemCount: Number(storageRow.item_count) || 0,
+            purchaseTotal: Number(storageRow.purchase_total) || 0,
+          }),
+          ebayDraftCount: Number(storageRow.ebay_draft_count) || 0,
+          fullyUnlistedCount: Number(storageRow.fully_unlisted_count) || 0,
+          withAskingPriceCount: Number(storageRow.with_asking_price_count) || 0,
+          askingTotal: Number(storageRow.asking_total) || 0,
+        },
+        byCategory: (storageCats.rows ?? []).map((r) => ({
+          categoryId: r.category_id != null ? Number(r.category_id) : null,
+          categoryName: r.category_name,
+          itemCount: Number(r.item_count) || 0,
+          purchaseTotal: Number(r.purchase_total) || 0,
+        })),
       },
-      filters,
+      filters: liveFilters,
       dataSpanNote:
-        'Purchase dates in this system are relatively recent (about 9 months of history). Treat 365+ and long-term trend comparisons cautiously.',
+        'Live ageing only includes items listed on Vinted or live eBay (not eBay drafts). Storage holds unlisted stock and eBay drafts — useful for seasonal inventory.',
     });
   } catch (error) {
     console.error('stock inventory-ageing failed:', error);
@@ -15790,10 +15909,12 @@ app.get('/api/stock/inventory-ageing/items', async (req, res) => {
     limit = Math.min(500, Math.max(1, limit));
 
     const filters = parseInventoryAgeingFilters(req);
+    const listingScope = filters.scope === 'storage' ? 'storage' : 'live';
 
     if (isMissingDate) {
       const { whereSql, params, nextIndex } = inventoryAgeingFilterSql(filters, 1, {
-        requirePurchaseDate: false,
+        purchaseDateMode: 'missing',
+        listingScope,
       });
       const result = await pool.query(
         `
@@ -15846,7 +15967,9 @@ app.get('/api/stock/inventory-ageing/items', async (req, res) => {
       });
     }
 
-    const { whereSql, params, nextIndex } = inventoryAgeingFilterSql(filters);
+    const { whereSql, params, nextIndex } = inventoryAgeingFilterSql(filters, 1, {
+      listingScope,
+    });
     const ageExpr = '(CURRENT_DATE - s.purchase_date)::int';
     const ageClause =
       meta.maxDays == null

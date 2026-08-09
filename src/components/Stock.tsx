@@ -1797,7 +1797,9 @@ const Stock: React.FC = () => {
       vintedStillListed: { vinted_id: string; vinted_url: string } | null;
     }> => {
       const soldPlatform = String(row.sold_platform ?? '').trim().toLowerCase();
-      const hasEbayId = row.ebay_id != null && String(row.ebay_id).trim() !== '';
+      const ebayIdTrimmed = row.ebay_id != null ? String(row.ebay_id).trim() : '';
+      // Live eBay listing ids are digits only; alphanumeric / draft values count as empty.
+      const hasEbayId = ebayIdTrimmed.length > 0 && /^\d+$/.test(ebayIdTrimmed);
       const hasVintedId = row.vinted_id != null && String(row.vinted_id).trim() !== '';
       const isEbaySold =
         soldPlatform === 'ebay' ||
