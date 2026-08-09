@@ -2934,27 +2934,73 @@ button.stock-close-circle-btn:disabled {
 
 .stock-filters {
   display: flex;
-  flex-wrap: wrap;
-  gap: 18px;
+  flex-wrap: nowrap;
+  gap: 8px;
   margin-bottom: 28px;
-  align-items: flex-end;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
 }
 
 .filter-group {
   display: flex;
   align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 .filter-actions {
-  margin-left: auto;
   display: flex;
-  gap: 12px;
+  gap: 8px;
   align-items: center;
+  flex: 0 0 auto;
 }
 
 .view-group {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.stock-refresh-group {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.stock-filter-meta {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.stock-filter-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--theme-text-rgb), 0.14);
+  background: rgba(var(--theme-bg-rgb), 0.35);
+  white-space: nowrap;
+}
+
+.stock-filter-stat-label {
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(var(--theme-text-rgb), 0.55);
+}
+
+.stock-filter-stat-value {
+  font-size: 0.9rem;
+  font-weight: 650;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
 }
 
 .stock-refresh-icon-button {
@@ -2987,15 +3033,21 @@ button.stock-close-circle-btn:disabled {
 .unsold-filter-group {
   display: flex;
   align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .unsold-filter-select {
-  min-width: 200px;
+  min-width: 0;
+  max-width: 160px;
+  width: 152px;
+  flex-basis: 152px;
 }
 
 @media (max-width: 768px) {
   .unsold-filter-select {
     min-width: 0;
+    max-width: none;
     width: 100%;
   }
 }
@@ -3004,8 +3056,9 @@ button.stock-close-circle-btn:disabled {
   display: flex;
   align-items: center;
   position: relative;
-  flex: 2;
-  min-width: 400px;
+  flex: 1 1 180px;
+  min-width: 140px;
+  max-width: 360px;
 }
 
 @media (max-width: 768px) {
@@ -3024,12 +3077,12 @@ button.stock-close-circle-btn:disabled {
 
 .search-input {
   width: 100%;
-  padding: 12px 18px;
+  padding: 8px 14px;
   border-radius: 999px;
   border: 1px solid var(--theme-list-control-border);
   background: var(--theme-list-control-bg);
   color: var(--text-strong);
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   outline: none;
   transition: all 0.3s ease;
   box-shadow: var(--theme-list-control-inset);
@@ -3118,17 +3171,42 @@ button.stock-close-circle-btn:disabled {
 }
 
 .filter-select {
-  padding: 12px 18px;
+  padding: 8px 12px;
   border-radius: 999px;
   border: 1px solid var(--theme-list-control-border);
   background: var(--theme-list-control-bg);
   color: var(--text-strong);
-  font-size: 0.95rem;
+  font-size: 0.82rem;
   outline: none;
   transition: all 0.3s ease;
-  min-width: 160px;
+  min-width: 0;
+  max-width: 176px;
+  width: 168px;
+  flex: 0 1 168px;
   cursor: pointer;
   box-shadow: var(--theme-list-control-inset);
+  white-space: nowrap;
+}
+
+.stock-filters .new-entry-button {
+  padding: 8px 12px;
+  font-size: 0.75rem;
+  letter-spacing: 0.05rem;
+  white-space: nowrap;
+}
+
+.search-input-wrapper .filter-select {
+  flex: 0 1 168px;
+  max-width: 168px;
+  width: 168px;
+}
+
+.filter-select.filter-select--category {
+  max-width: 112px;
+  width: 108px;
+  flex: 0 1 108px;
+  padding-left: 10px;
+  padding-right: 10px;
 }
 
 .filter-select:focus {
@@ -3621,6 +3699,114 @@ button.stock-close-circle-btn:disabled {
   opacity: 1;
 }
 
+.stock-actions-cell {
+  vertical-align: middle;
+  text-align: left;
+  white-space: nowrap;
+  width: 1%;
+}
+
+.stock-row-actions {
+  display: inline-grid;
+  grid-template-columns: 30px 30px 30px minmax(3.5rem, auto);
+  align-items: center;
+  justify-items: center;
+  column-gap: 8px;
+}
+
+.stock-action-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border: 1px solid rgba(var(--theme-text-rgb), 0.18);
+  background: rgba(var(--theme-bg-rgb), 0.55);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  text-decoration: none;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+a.stock-action-icon:hover {
+  transform: translateY(-1px);
+  border-color: rgba(var(--theme-accent-rgb), 0.45);
+}
+
+.stock-action-icon img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  display: block;
+}
+
+.stock-action-icon--vinted {
+  background: rgba(9, 177, 186, 0.16);
+  border-color: rgba(9, 177, 186, 0.4);
+}
+
+.stock-action-icon--ebay {
+  background: rgba(245, 175, 2, 0.16);
+  border-color: rgba(245, 175, 2, 0.4);
+}
+
+.stock-action-icon--order {
+  padding: 0;
+  color: rgba(var(--theme-text-rgb), 0.78);
+  background: rgba(var(--theme-text-rgb), 0.08);
+  border-color: rgba(var(--theme-text-rgb), 0.28);
+  cursor: pointer;
+  font: inherit;
+}
+
+.stock-action-icon--order:hover:not(:disabled):not(.is-disabled) {
+  transform: translateY(-1px);
+  color: rgba(var(--theme-text-rgb), 0.95);
+  border-color: rgba(var(--theme-text-rgb), 0.42);
+  background: rgba(var(--theme-text-rgb), 0.14);
+}
+
+.stock-action-icon--order.is-busy,
+.stock-action-icon--order:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.stock-action-order-icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.stock-action-icon.is-disabled {
+  opacity: 0.28;
+  filter: grayscale(0.85);
+  cursor: default;
+  pointer-events: none;
+  box-shadow: none;
+}
+
+.stock-action-status {
+  justify-self: start;
+  font-size: 0.82rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+
+.stock-action-status--sold {
+  color: #7dffb3;
+}
+
+.stock-action-status--unsold {
+  color: #ff8a8a;
+}
+
+.stock-card-field .stock-row-actions {
+  justify-content: flex-start;
+}
+
 /* Combined Sold column: green when sold with price, red when sale date set but price missing */
 .stock-sold-cell {
   vertical-align: middle;
@@ -3875,10 +4061,27 @@ button.stock-close-circle-btn:disabled {
   }
 
   .stock-filters {
+    flex-wrap: wrap;
     flex-direction: column;
     align-items: stretch;
     gap: 14px;
     margin-top: 20px;
+  }
+
+  .stock-refresh-group,
+  .stock-filter-meta {
+    margin-left: 0;
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .stock-filter-stat {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .search-group {
+    max-width: none;
   }
 
   .filter-select {

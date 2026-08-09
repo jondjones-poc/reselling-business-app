@@ -7929,14 +7929,14 @@ app.get('/api/stock', async (req, res) => {
     const options = stockListQuery.parseStockListOptions(req.query);
     if (!options.toListCategoryId && options.view === 'to-list') {
       const toListResult = await pool.query(
-        `SELECT id FROM categories WHERE LOWER(TRIM(category_name)) = 'to list' LIMIT 1`
+        `SELECT id FROM category WHERE LOWER(TRIM(category_name)) = 'to list' LIMIT 1`
       );
       options.toListCategoryId = toListResult.rows[0]?.id ?? null;
     }
 
     const { whereSql, params, needsCategoryJoin } = stockListQuery.buildStockListWhere(options);
     const orderSql = stockListQuery.buildStockListOrder(options);
-    const joinSql = needsCategoryJoin ? 'LEFT JOIN categories c ON c.id = s.category_id' : '';
+    const joinSql = needsCategoryJoin ? 'LEFT JOIN category c ON c.id = s.category_id' : '';
     const fromSql = `FROM stock s ${joinSql}`.trim();
 
     const countResult = await pool.query(

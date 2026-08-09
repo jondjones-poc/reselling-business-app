@@ -8,7 +8,6 @@ import { getApiBase, ebayOAuthStartUrl } from '../utils/apiBase';
 import {
   dateOnlyStringToLocalDate,
   dateOnlyToTime,
-  formatDateOnlyForDisplay,
   localDateToDateOnlyString,
   normalizeDateOnlyString,
 } from '../utils/dateOnly';
@@ -133,30 +132,7 @@ interface StockApiResponse {
   edit_page?: number | null;
 }
 
-interface StockSummaryResponse {
-  total_purchase: number;
-  total_sales: number;
-  total_profit: number;
-}
-
 const STOCK_PAGE_SIZE = 50;
-
-const MONTHS = [
-  { value: '1', label: 'January' },
-  { value: '2', label: 'February' },
-  { value: '3', label: 'March' },
-  { value: '4', label: 'April' },
-  { value: '5', label: 'May' },
-  { value: '6', label: 'June' },
-  { value: '7', label: 'July' },
-  { value: '8', label: 'August' },
-  { value: '9', label: 'September' },
-  { value: '10', label: 'October' },
-  { value: '11', label: 'November' },
-  { value: '12', label: 'December' }
-];
-
-// Removed unused CATEGORIES constant - now using categories from database
 
 const PLATFORMS = ['Not Listed', 'Vinted', 'eBay'];
 
@@ -211,13 +187,101 @@ function stockSalePriceEmpty(row: { sale_price?: Nullable<string | number> }): b
   return false;
 }
 
-/** Sold column styling: red if sold date set but price missing; green if sold with price; else neutral. */
-function soldColumnClass(row: StockRow): string {
-  const hasDate = stockSaleDatePresent(row);
-  const priceEmpty = stockSalePriceEmpty(row);
-  if (hasDate && priceEmpty) return 'stock-sold-cell stock-sold-cell--no-price';
-  if (hasDate && !priceEmpty) return 'stock-sold-cell stock-sold-cell--ok';
-  return 'stock-sold-cell stock-sold-cell--neutral';
+function stockRowIsSold(row: StockRow): boolean {
+  return stockSaleDatePresent(row) || !stockSalePriceEmpty(row);
+}
+
+function StockRowActions({
+  row,
+  inOrders,
+  addingToOrder,
+  onAddToOrder,
+}: {
+  row: StockRow;
+  inOrders: boolean;
+  addingToOrder: boolean;
+  onAddToOrder: (row: StockRow) => void;
+}) {
+  const vintedId = row.vinted_id != null ? String(row.vinted_id).trim() : '';
+  const ebayId = row.ebay_id != null ? String(row.ebay_id).trim() : '';
+  const vintedUrl = vintedId ? stockVintedListingUrl(vintedId) : null;
+  const ebayUrl = ebayId ? stockEbayListingUrl(ebayId) : null;
+  const isSold = stockRowIsSold(row);
+
+  return (
+    <div className="stock-row-actions" onClick={(e) => e.stopPropagation()}>
+      {vintedUrl ? (
+        <a
+          href={vintedUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="stock-action-icon stock-action-icon--vinted"
+          title="Open on Vinted"
+          aria-label="Open on Vinted"
+        >
+          <img src="/images/vinted-icon.svg" alt="" />
+        </a>
+      ) : (
+        <span
+          className="stock-action-icon stock-action-icon--vinted is-disabled"
+          title="No Vinted listing"
+          aria-label="No Vinted listing"
+          aria-disabled="true"
+        >
+          <img src="/images/vinted-icon.svg" alt="" />
+        </span>
+      )}
+      {ebayUrl ? (
+        <a
+          href={ebayUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="stock-action-icon stock-action-icon--ebay"
+          title="Open on eBay"
+          aria-label="Open on eBay"
+        >
+          <img src="/images/ebay-icon.svg" alt="" />
+        </a>
+      ) : (
+        <span
+          className="stock-action-icon stock-action-icon--ebay is-disabled"
+          title="No eBay listing"
+          aria-label="No eBay listing"
+          aria-disabled="true"
+        >
+          <img src="/images/ebay-icon.svg" alt="" />
+        </span>
+      )}
+      {inOrders ? (
+        <span
+          className="stock-action-icon stock-action-icon--order is-disabled"
+          title="Already in orders"
+          aria-label="Already in orders"
+          aria-disabled="true"
+        >
+          <OrderBasketIcon className="stock-action-order-icon" />
+        </span>
+      ) : (
+        <button
+          type="button"
+          className={`stock-action-icon stock-action-icon--order${
+            addingToOrder ? ' is-busy' : ''
+          }`}
+          title={addingToOrder ? 'Adding to orders…' : 'Add to order'}
+          aria-label={addingToOrder ? 'Adding to orders' : 'Add to order'}
+          disabled={addingToOrder}
+          onClick={() => onAddToOrder(row)}
+        >
+          <OrderBasketIcon className="stock-action-order-icon" />
+        </button>
+      )}
+      <span
+        className={`stock-action-status${isSold ? ' stock-action-status--sold' : ' stock-action-status--unsold'}`}
+      >
+        {isSold ? 'Sold' : 'Unsold'}
+      </span>
+    </div>
+  );
 }
 
 function departmentNameForRow(
@@ -249,8 +313,6 @@ const formatCurrency = (value: Nullable<string | number>) => {
     minimumFractionDigits: 2
   }).format(parsed);
 };
-
-const formatDate = (value: Nullable<string>) => formatDateOnlyForDisplay(value ?? null);
 
 /** Envelope + check — save, add to To Pack orders, and close. */
 function SaveAddToOrderCloseIcon({ className }: { className?: string }) {
@@ -286,6 +348,31 @@ function SaveAddToOrderCloseIcon({ className }: { className?: string }) {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+    </svg>
+  );
+}
+
+/** Menu / list — add stock row to To Pack orders from the list Actions column. */
+function OrderBasketIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden
+    >
+      <path
+        d="M8 6h12M8 12h12M8 18h12"
+        stroke="currentColor"
+        strokeWidth="1.85"
+        strokeLinecap="round"
+      />
+      <circle cx="4.25" cy="6" r="1.15" fill="currentColor" />
+      <circle cx="4.25" cy="12" r="1.15" fill="currentColor" />
+      <circle cx="4.25" cy="18" r="1.15" fill="currentColor" />
     </svg>
   );
 }
@@ -432,11 +519,6 @@ const Stock: React.FC = () => {
     key: keyof StockRow;
     direction: 'asc' | 'desc';
   } | null>(null);
-  const now = useMemo(() => new Date(), []);
-  const currentYear = String(now.getFullYear());
-  const [selectedMonth, setSelectedMonth] = useState<string>(String(now.getMonth() + 1));
-  const [selectedYear, setSelectedYear] = useState<string>('all-time');
-  const [selectedWeek, setSelectedWeek] = useState<string>('off');
   const [viewMode, setViewMode] = useState<
     'all' | 'active-listing' | 'sales' | 'listing' | 'to-list' | 'list-on-vinted' | 'list-on-ebay' | 'inventory-write-off'
   >('all');
@@ -475,7 +557,11 @@ const Stock: React.FC = () => {
   const [showTypeahead, setShowTypeahead] = useState(false);
   const [typeaheadSuggestions, setTypeaheadSuggestions] = useState<string[]>([]);
   const [unsoldFilter, setUnsoldFilter] = useState<'off' | '3' | '6' | '12'>('off');
+  const [selectedDepartmentFilter, setSelectedDepartmentFilter] = useState<string>('');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('');
+  const [selectedSizeFilter, setSelectedSizeFilter] = useState<string>('');
+  const [selectedBrandFilter, setSelectedBrandFilter] = useState<string>('');
+  const [filterSizes, setFilterSizes] = useState<CategorySizeRow[]>([]);
   const [showSoldPlatformDropdown, setShowSoldPlatformDropdown] = useState(false);
   const soldPlatformDropdownRef = useRef<HTMLDivElement>(null);
   const [listingPackDownloading, setListingPackDownloading] = useState<null | 'ebay' | 'vinted'>(
@@ -483,6 +569,10 @@ const Stock: React.FC = () => {
   );
   /** True while POST /api/orders is in flight from Add to order, save & close. */
   const [addingToOrder, setAddingToOrder] = useState(false);
+  /** Stock IDs currently in the To Pack orders queue. */
+  const [orderStockIds, setOrderStockIds] = useState<Set<number>>(() => new Set());
+  /** Stock id currently being added from the list Actions column. */
+  const [addingOrderStockId, setAddingOrderStockId] = useState<number | null>(null);
   /** Cross-platform still-listed warning after Add to order (same checks as To Pack Posted). */
   const [crossListUnlistModal, setCrossListUnlistModal] =
     useState<StockCrossListUnlistModalState | null>(null);
@@ -515,7 +605,6 @@ const Stock: React.FC = () => {
   const [stockPage, setStockPage] = useState(1);
   const [stockTotalCount, setStockTotalCount] = useState(0);
   const [stockTotalPages, setStockTotalPages] = useState(1);
-  const [summaryTotals, setSummaryTotals] = useState({ purchase: 0, sale: 0, profit: 0 });
   const [nextSku, setNextSku] = useState(1);
   const stockFiltersRef = useRef<HTMLDivElement>(null);
   /** Sold sale prices for other items with the same brand + category as the edit form (excludes the row being edited). */
@@ -630,22 +719,20 @@ const Stock: React.FC = () => {
         params.set('unsold', unsoldFilter);
       } else if (!searchTerm.trim()) {
         params.set('view', viewMode);
-        params.set('year', selectedYear);
-        if (selectedYear !== 'all-time' && selectedYear !== 'last-30-days') {
-          params.set('month', selectedMonth);
-        }
-        if (selectedWeek !== 'off') {
-          params.set('week_start', selectedWeek);
-        }
+        params.set('year', 'all-time');
       }
 
+      if (selectedDepartmentFilter) {
+        params.set('department_id', selectedDepartmentFilter);
+      }
       if (selectedCategoryFilter) {
-        const selectedCategory = categories.find(
-          (cat) => cat.category_name === selectedCategoryFilter
-        );
-        if (selectedCategory) {
-          params.set('category_id', String(selectedCategory.id));
-        }
+        params.set('category_id', selectedCategoryFilter);
+      }
+      if (selectedSizeFilter) {
+        params.set('category_size_id', selectedSizeFilter);
+      }
+      if (selectedBrandFilter) {
+        params.set('brand_id', selectedBrandFilter);
       }
 
       const toListCategory = categories.find((cat) => cat.category_name === 'To List');
@@ -667,41 +754,14 @@ const Stock: React.FC = () => {
       searchTerm,
       unsoldFilter,
       viewMode,
-      selectedYear,
-      selectedMonth,
-      selectedWeek,
+      selectedDepartmentFilter,
       selectedCategoryFilter,
+      selectedSizeFilter,
+      selectedBrandFilter,
       categories,
       searchParams,
     ]
   );
-
-  const loadStockSummary = useCallback(async () => {
-    try {
-      const params = new URLSearchParams();
-      params.set('year', selectedYear);
-      if (selectedYear !== 'all-time' && selectedYear !== 'last-30-days') {
-        params.set('month', selectedMonth);
-      }
-      if (selectedWeek !== 'off') {
-        params.set('week_start', selectedWeek);
-      }
-
-      const response = await fetch(`${API_BASE}/api/stock/summary?${params.toString()}`, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (!response.ok) return;
-      const data: StockSummaryResponse = await response.json();
-      setSummaryTotals({
-        purchase: Number(data.total_purchase ?? 0),
-        sale: Number(data.total_sales ?? 0),
-        profit: Number(data.total_profit ?? 0),
-      });
-    } catch (err) {
-      console.error('Stock summary load error:', err);
-    }
-  }, [selectedMonth, selectedYear, selectedWeek]);
 
   const loadNextSku = useCallback(async () => {
     try {
@@ -778,11 +838,31 @@ const Stock: React.FC = () => {
     [buildStockListQueryParams]
   );
 
+  const loadOrderStockIds = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/orders`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!response.ok) return;
+      const data = await response.json();
+      const rows = Array.isArray(data.rows) ? data.rows : [];
+      const next = new Set<number>();
+      for (const row of rows) {
+        const id = Number(row.stock_id ?? row.id);
+        if (Number.isFinite(id) && id >= 1) next.add(id);
+      }
+      setOrderStockIds(next);
+    } catch (err) {
+      console.error('Failed to load order stock ids:', err);
+    }
+  }, []);
+
   const loadStock = useCallback(() => {
     void loadStockPage(stockPage);
-    void loadStockSummary();
     void loadNextSku();
-  }, [loadStockPage, loadStockSummary, loadNextSku, stockPage]);
+    void loadOrderStockIds();
+  }, [loadStockPage, loadNextSku, loadOrderStockIds, stockPage]);
 
   const loadBrands = async () => {
     try {
@@ -847,26 +927,23 @@ const Stock: React.FC = () => {
     loadBrands();
     loadDepartments();
     void loadNextSku();
-  }, [loadNextSku]);
+    void loadOrderStockIds();
+  }, [loadNextSku, loadOrderStockIds]);
 
   useEffect(() => {
     void loadStockPage(stockPage, { includeEditId: Boolean(searchParams.get('editId')) });
   }, [loadStockPage, stockPage, searchParams]);
 
   useEffect(() => {
-    void loadStockSummary();
-  }, [loadStockSummary]);
-
-  useEffect(() => {
     setStockPage(1);
   }, [
-    selectedMonth,
-    selectedYear,
-    selectedWeek,
     viewMode,
     searchTerm,
     unsoldFilter,
+    selectedDepartmentFilter,
     selectedCategoryFilter,
+    selectedSizeFilter,
+    selectedBrandFilter,
     sortConfig,
   ]);
 
@@ -1298,100 +1375,98 @@ const Stock: React.FC = () => {
     return () => window.clearTimeout(timeout);
   }, [successMessage]);
 
-  const availableYears = useMemo(() => {
-    const years: string[] = ['all-time', 'last-30-days'];
-    const current = now.getFullYear();
-    for (let year = current; year >= current - 15; year -= 1) {
-      years.push(String(year));
+  const categoriesForFilter = useMemo(() => {
+    const list =
+      selectedDepartmentFilter === ''
+        ? categories
+        : categories.filter((c) => String(c.department_id ?? '') === selectedDepartmentFilter);
+    return [...list].sort((a, b) =>
+      a.category_name.localeCompare(b.category_name, undefined, { sensitivity: 'base' })
+    );
+  }, [categories, selectedDepartmentFilter]);
+
+  const brandsForFilter = useMemo(() => {
+    let list = brands;
+    if (selectedCategoryFilter) {
+      list = brands.filter(
+        (b) =>
+          String(b.category_id ?? '') === selectedCategoryFilter ||
+          (b.category_id == null &&
+            selectedDepartmentFilter !== '' &&
+            String(b.department_id ?? '') === selectedDepartmentFilter)
+      );
+    } else if (selectedDepartmentFilter) {
+      list = brands.filter(
+        (b) =>
+          String(b.department_id ?? '') === selectedDepartmentFilter ||
+          categories.some(
+            (c) =>
+              String(c.id) === String(b.category_id ?? '') &&
+              String(c.department_id ?? '') === selectedDepartmentFilter
+          )
+      );
     }
-    return years;
-  }, [now]);
+    return [...list].sort((a, b) =>
+      a.brand_name.localeCompare(b.brand_name, undefined, { sensitivity: 'base' })
+    );
+  }, [brands, categories, selectedCategoryFilter, selectedDepartmentFilter]);
 
   useEffect(() => {
-    if (availableYears.length === 0) {
+    if (!selectedCategoryFilter) {
+      setFilterSizes([]);
+      setSelectedSizeFilter('');
       return;
     }
-
-    // If selectedYear is not "all-time", "last-30-days", and not in available years, reset to all-time
-    if (selectedYear !== 'all-time' && selectedYear !== 'last-30-days' && !availableYears.includes(selectedYear) && selectedYear !== currentYear) {
-      setSelectedYear('all-time');
-    }
-  }, [availableYears, selectedYear, currentYear]);
-
-  // Generate weeks for the selected month and year
-  const availableWeeks = useMemo(() => {
-    if (selectedYear === 'all-time' || selectedYear === 'last-30-days') {
-      return [];
-    }
-
-    const year = parseInt(selectedYear, 10);
-    const month = parseInt(selectedMonth, 10) - 1; // JavaScript months are 0-indexed
-
-    if (Number.isNaN(year) || Number.isNaN(month)) {
-      return [];
-    }
-
-    const weeks: Array<{ value: string; label: string; startDate: Date; endDate: Date }> = [];
-    
-    // Get the first day of the month
-    const firstDay = new Date(year, month, 1);
-    
-    // Find the Monday of the week containing the first day
-    const firstMonday = new Date(firstDay);
-    const dayOfWeek = firstMonday.getDay();
-    const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // If Sunday, go back 6 days, otherwise go back (dayOfWeek - 1) days
-    firstMonday.setDate(firstMonday.getDate() - daysToMonday);
-    
-    // Get the last day of the month
-    const lastDay = new Date(year, month + 1, 0);
-    
-    // Find the Sunday of the week containing the last day
-    const lastSunday = new Date(lastDay);
-    const lastDayOfWeek = lastSunday.getDay();
-    const daysToSunday = lastDayOfWeek === 0 ? 0 : 7 - lastDayOfWeek;
-    lastSunday.setDate(lastSunday.getDate() + daysToSunday);
-    
-    // Generate all weeks from first Monday to last Sunday
-    let currentWeekStart = new Date(firstMonday);
-    
-    while (currentWeekStart <= lastSunday) {
-      const weekEnd = new Date(currentWeekStart);
-      weekEnd.setDate(weekEnd.getDate() + 6); // Sunday is 6 days after Monday
-      
-      // Format: "Mon DD - Sun DD MMM" or "Mon DD MMM - Sun DD MMM" if different months
-      const startDay = currentWeekStart.getDate();
-      const endDay = weekEnd.getDate();
-      const startMonth = currentWeekStart.toLocaleString('en-GB', { month: 'short' });
-      const endMonth = weekEnd.toLocaleString('en-GB', { month: 'short' });
-      
-      let label: string;
-      if (startMonth === endMonth) {
-        label = `${startDay} - ${endDay} ${startMonth}`;
-      } else {
-        label = `${startDay} ${startMonth} - ${endDay} ${endMonth}`;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(
+          `${API_BASE}/api/category-sizes?categoryId=${encodeURIComponent(selectedCategoryFilter)}`
+        );
+        if (!response.ok || cancelled) {
+          if (!cancelled) {
+            setFilterSizes([]);
+            setSelectedSizeFilter('');
+          }
+          return;
+        }
+        const data = await response.json();
+        const rows = Array.isArray(data.rows) ? (data.rows as CategorySizeRow[]) : [];
+        if (cancelled) return;
+        setFilterSizes(rows);
+        setSelectedSizeFilter((prev) =>
+          prev && rows.some((r) => String(r.id) === prev) ? prev : ''
+        );
+      } catch {
+        if (!cancelled) {
+          setFilterSizes([]);
+          setSelectedSizeFilter('');
+        }
       }
-      
-      // Use ISO date string for the Monday as the value
-      const value = currentWeekStart.toISOString().split('T')[0];
-      
-      weeks.push({
-        value,
-        label,
-        startDate: new Date(currentWeekStart),
-        endDate: new Date(weekEnd)
-      });
-      
-      // Move to next week (next Monday)
-      currentWeekStart.setDate(currentWeekStart.getDate() + 7);
-    }
-    
-    return weeks;
-  }, [selectedMonth, selectedYear]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCategoryFilter]);
 
-  const uniqueCategories = useMemo(
-    () => categories.map((cat) => cat.category_name).filter(Boolean).sort(),
-    [categories]
-  );
+  useEffect(() => {
+    if (
+      selectedCategoryFilter &&
+      !categoriesForFilter.some((c) => String(c.id) === selectedCategoryFilter)
+    ) {
+      setSelectedCategoryFilter('');
+      setSelectedSizeFilter('');
+    }
+  }, [categoriesForFilter, selectedCategoryFilter]);
+
+  useEffect(() => {
+    if (
+      selectedBrandFilter &&
+      !brandsForFilter.some((b) => String(b.id) === selectedBrandFilter)
+    ) {
+      setSelectedBrandFilter('');
+    }
+  }, [brandsForFilter, selectedBrandFilter]);
 
   useEffect(() => {
     if (!searchTerm.trim()) {
@@ -1428,8 +1503,6 @@ const Stock: React.FC = () => {
       window.clearTimeout(timer);
     };
   }, [searchTerm]);
-
-  const totals = summaryTotals;
 
   const goToStockPage = (nextPage: number) => {
     const clamped = Math.min(Math.max(1, nextPage), stockTotalPages);
@@ -1636,6 +1709,11 @@ const Stock: React.FC = () => {
           body: JSON.stringify({ stock_id: stockId }),
         });
         if (orderResponse.status === 409) {
+          setOrderStockIds((prev) => {
+            const next = new Set(prev);
+            next.add(Number(stockId));
+            return next;
+          });
           setSuccessMessage('Saved and closed — item was already in orders.');
         } else if (!orderResponse.ok) {
           let message = 'Saved, but could not add item to orders';
@@ -1648,6 +1726,11 @@ const Stock: React.FC = () => {
           }
           throw new Error(message);
         } else {
+          setOrderStockIds((prev) => {
+            const next = new Set(prev);
+            next.add(Number(stockId));
+            return next;
+          });
           setSuccessMessage('Saved, added to orders, and closed.');
         }
         setCrossListUnlistModal(null);
@@ -1655,7 +1738,6 @@ const Stock: React.FC = () => {
         closeStockEntryPanel();
         setSortConfig(null);
         void loadStockPage(stockPage);
-        void loadStockSummary();
         void loadNextSku();
         window.setTimeout(() => {
           stockFiltersRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1670,6 +1752,43 @@ const Stock: React.FC = () => {
     // closeStockEntryPanel / loaders are stable enough via closure for this form flow
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [stockPage]
+  );
+
+  const markStockInOrders = useCallback((stockId: number) => {
+    setOrderStockIds((prev) => {
+      if (prev.has(stockId)) return prev;
+      const next = new Set(prev);
+      next.add(stockId);
+      return next;
+    });
+  }, []);
+
+  const addStockToOrdersQueue = useCallback(
+    async (stockId: number): Promise<'added' | 'already'> => {
+      const orderResponse = await fetch(`${API_BASE}/api/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stock_id: stockId }),
+      });
+      if (orderResponse.status === 409) {
+        markStockInOrders(stockId);
+        return 'already';
+      }
+      if (!orderResponse.ok) {
+        let message = 'Could not add item to orders';
+        try {
+          const errorBody = await orderResponse.json();
+          message = errorBody?.error || message;
+        } catch {
+          const text = await orderResponse.text();
+          message = text || message;
+        }
+        throw new Error(message);
+      }
+      markStockInOrders(stockId);
+      return 'added';
+    },
+    [markStockInOrders]
   );
 
   const runCrossMarketplaceListingCheck = useCallback(
@@ -1760,6 +1879,50 @@ const Stock: React.FC = () => {
       return { ebayViolation, vintedStillListed };
     },
     []
+  );
+
+  const handleAddToOrderFromList = useCallback(
+    async (row: StockRow) => {
+      const stockId = Number(row.id);
+      if (!Number.isFinite(stockId) || stockId < 1) return;
+      if (orderStockIds.has(stockId) || addingOrderStockId != null || addingToOrder) return;
+
+      setAddingOrderStockId(stockId);
+      setError(null);
+      try {
+        const { ebayViolation, vintedStillListed } = await runCrossMarketplaceListingCheck(row);
+        if (ebayViolation || vintedStillListed) {
+          setCrossListUnlistModal({
+            stockId,
+            itemName: String(row.item_name ?? '').trim() || '—',
+            ebayViolation,
+            vintedStillListed,
+            unlistLoading: false,
+            unlistError: null,
+          });
+          return;
+        }
+
+        const result = await addStockToOrdersQueue(stockId);
+        setSuccessMessage(
+          result === 'already'
+            ? 'Item was already in orders.'
+            : 'Added to orders.'
+        );
+      } catch (err: unknown) {
+        console.error('Add to orders from list error:', err);
+        setError(err instanceof Error ? err.message : 'Unable to add item to orders');
+      } finally {
+        setAddingOrderStockId(null);
+      }
+    },
+    [
+      orderStockIds,
+      addingOrderStockId,
+      addingToOrder,
+      runCrossMarketplaceListingCheck,
+      addStockToOrdersQueue,
+    ]
   );
 
   const handleStockEbayUnlist = async () => {
@@ -1939,7 +2102,6 @@ const Stock: React.FC = () => {
       setSortConfig(null);
 
       void loadStockPage(isEditing ? stockPage : 1);
-      void loadStockSummary();
       void loadNextSku();
 
       window.setTimeout(() => {
@@ -2034,7 +2196,6 @@ const Stock: React.FC = () => {
 
       closeStockEntryPanel();
       void loadStockPage(stockPage);
-      void loadStockSummary();
       void loadNextSku();
     } catch (err: any) {
       console.error('Stock delete error:', err);
@@ -3727,11 +3888,11 @@ const Stock: React.FC = () => {
                 type="button"
                 onClick={() => {
                   setSearchTerm('');
-                  setSelectedMonth(String(now.getMonth() + 1));
-                  setSelectedYear('all-time');
-                  setSelectedWeek('off');
                   setViewMode('all');
+                  setSelectedDepartmentFilter('');
                   setSelectedCategoryFilter('');
+                  setSelectedSizeFilter('');
+                  setSelectedBrandFilter('');
                   setUnsoldFilter('off');
                   loadStock();
                 }}
@@ -3770,23 +3931,20 @@ const Stock: React.FC = () => {
               </button>
             </div>
             <select
-              value={selectedCategoryFilter}
-              onChange={(e) => setSelectedCategoryFilter(e.target.value)}
-              className="filter-select"
-              style={{
-                minWidth: '140px',
-                maxWidth: '140px',
-                fontSize: '0.9rem',
-                padding: '8px 12px',
-                height: 'auto',
-                flexShrink: 0
+              value={selectedDepartmentFilter}
+              onChange={(e) => {
+                setSelectedDepartmentFilter(e.target.value);
+                setSelectedCategoryFilter('');
+                setSelectedSizeFilter('');
+                setSelectedBrandFilter('');
               }}
-              title="Filter by category"
+              className="filter-select"
+              title="Filter by department"
             >
-              <option value="">All Categories</option>
-              {uniqueCategories.map((category) => (
-                <option key={category} value={category}>
-                  {category}
+              <option value="">Filter by Department</option>
+              {departments.map((department) => (
+                <option key={department.id} value={String(department.id)}>
+                  {department.department_name}
                 </option>
               ))}
             </select>
@@ -3812,15 +3970,19 @@ const Stock: React.FC = () => {
 
         <div className="filter-group">
           <select
-            value={selectedWeek}
-            onChange={(event) => setSelectedWeek(event.target.value)}
-            className="filter-select"
-            title="Filter By Week"
+            value={selectedCategoryFilter}
+            onChange={(event) => {
+              setSelectedCategoryFilter(event.target.value);
+              setSelectedSizeFilter('');
+              setSelectedBrandFilter('');
+            }}
+            className="filter-select filter-select--category"
+            title="Filter by category"
           >
-            <option value="off">Filter By Week</option>
-            {availableWeeks.map((week) => (
-              <option key={week.value} value={week.value}>
-                {week.label}
+            <option value="">Filter by Category</option>
+            {categoriesForFilter.map((category) => (
+              <option key={category.id} value={String(category.id)}>
+                {category.category_name}
               </option>
             ))}
           </select>
@@ -3828,16 +3990,16 @@ const Stock: React.FC = () => {
 
         <div className="filter-group">
           <select
-            value={selectedMonth}
-            onChange={(event) => {
-              setSelectedMonth(event.target.value);
-              setSelectedWeek('off'); // Reset week when month changes
-            }}
+            value={selectedSizeFilter}
+            onChange={(event) => setSelectedSizeFilter(event.target.value)}
             className="filter-select"
+            title="Filter by size"
+            disabled={!selectedCategoryFilter}
           >
-            {MONTHS.map((month) => (
-              <option key={month.value} value={month.value}>
-                {month.label}
+            <option value="">Filter by Size</option>
+            {filterSizes.map((size) => (
+              <option key={size.id} value={String(size.id)}>
+                {size.size_label}
               </option>
             ))}
           </select>
@@ -3845,18 +4007,15 @@ const Stock: React.FC = () => {
 
         <div className="filter-group">
           <select
-            value={selectedYear}
-            onChange={(event) => {
-              setSelectedYear(event.target.value);
-              setSelectedWeek('off'); // Reset week when year changes
-            }}
+            value={selectedBrandFilter}
+            onChange={(event) => setSelectedBrandFilter(event.target.value)}
             className="filter-select"
+            title="Filter by brand"
           >
-            <option value="last-30-days">Last 30 Days</option>
-            <option value="all-time">All Time</option>
-            {availableYears.map((year) => (
-              <option key={year} value={year}>
-                {year}
+            <option value="">Filter by Brand</option>
+            {brandsForFilter.map((brand) => (
+              <option key={brand.id} value={String(brand.id)}>
+                {brand.brand_name}
               </option>
             ))}
           </select>
@@ -3889,15 +4048,6 @@ const Stock: React.FC = () => {
             <option value="list-on-ebay">To List On eBay</option>
             <option value="inventory-write-off">Inventory write-off</option>
           </select>
-          <button
-            type="button"
-            className="stock-refresh-icon-button"
-            onClick={() => loadStock()}
-            title="Refresh stock list"
-            aria-label="Refresh stock list"
-          >
-            ↻
-          </button>
         </div>
 
         <div className="filter-group unsold-filter-group">
@@ -3906,15 +4056,15 @@ const Stock: React.FC = () => {
             onChange={(event) => {
               const value = event.target.value as 'off' | '3' | '6' | '12';
               setUnsoldFilter(value);
-              
+
               // Clear other filters when a non-"Off" option is selected
               if (value !== 'off') {
                 setSearchTerm('');
-                setSelectedMonth(String(now.getMonth() + 1));
-                setSelectedYear(String(now.getFullYear()));
-                setSelectedWeek('off');
                 setViewMode('all');
+                setSelectedDepartmentFilter('');
                 setSelectedCategoryFilter('');
+                setSelectedSizeFilter('');
+                setSelectedBrandFilter('');
               }
             }}
             className="filter-select unsold-filter-select"
@@ -3925,32 +4075,27 @@ const Stock: React.FC = () => {
             <option value="12">12 months</option>
           </select>
         </div>
-      </div>
 
-      <section className="stock-summary">
-        <div className="summary-card summary-card-next-sku">
-          <span className="summary-label">Next SKU</span>
-          <span className="summary-value">{nextSku}</span>
+        <div className="filter-group stock-filter-meta">
+          <div className="stock-filter-stat" title="Next SKU">
+            <span className="stock-filter-stat-label">Next SKU</span>
+            <span className="stock-filter-stat-value">{nextSku}</span>
+          </div>
+          <div className="stock-filter-stat" title="Matching records">
+            <span className="stock-filter-stat-label">Records</span>
+            <span className="stock-filter-stat-value">{stockTotalCount.toLocaleString()}</span>
+          </div>
+          <button
+            type="button"
+            className="stock-refresh-icon-button"
+            onClick={() => loadStock()}
+            title="Refresh stock list"
+            aria-label="Refresh stock list"
+          >
+            ↻
+          </button>
         </div>
-        <div className="summary-card">
-          <span className="summary-label">Stock Purchases</span>
-          <span className="summary-value">{formatCurrency(totals.purchase)}</span>
-        </div>
-        <div className="summary-card">
-          <span className="summary-label">Sales</span>
-          <span className="summary-value">{formatCurrency(totals.sale)}</span>
-        </div>
-        <div className="summary-card">
-          <span className="summary-label">Profit</span>
-          <span className={`summary-value ${totals.profit >= 0 ? 'positive' : 'negative'}`}>
-            {formatCurrency(totals.profit)}
-          </span>
-        </div>
-        <div className="summary-card">
-          <span className="summary-label">Records</span>
-          <span className="summary-value">{stockTotalCount.toLocaleString()}</span>
-        </div>
-      </section>
+      </div>
 
       {/* Desktop Table View + mobile cards — unmount while editing to avoid re-rendering thousands of rows on each keystroke */}
       {!showNewEntry && (
@@ -3996,31 +4141,13 @@ const Stock: React.FC = () => {
                   Purchase Price <span className="sort-indicator">{resolveSortIndicator('purchase_price')}</span>
                 </button>
               </th>
-              <th>
-                <button
-                  type="button"
-                  className={`sortable-header${sortConfig?.key === 'purchase_date' ? ` sorted-${sortConfig.direction}` : ''}`}
-                  onClick={() => handleSort('purchase_date')}
-                >
-                  Purchase Date <span className="sort-indicator">{resolveSortIndicator('purchase_date')}</span>
-                </button>
-              </th>
-              <th>
-                <button
-                  type="button"
-                  className={`sortable-header${sortConfig?.key === 'sale_date' ? ` sorted-${sortConfig.direction}` : ''}`}
-                  onClick={() => handleSort('sale_date')}
-                  title="Sort by sale date"
-                >
-                  Sold <span className="sort-indicator">{resolveSortIndicator('sale_date')}</span>
-                </button>
-              </th>
+              <th scope="col">Actions</th>
             </tr>
           </thead>
           <tbody>
             {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan={7} className="empty-state">
+                <td colSpan={6} className="empty-state">
                   No stock records found.
                 </td>
               </tr>
@@ -4064,27 +4191,13 @@ const Stock: React.FC = () => {
                   <td>{renderCellContent(row, 'category_id')}</td>
                   <td>{departmentNameForRow(row, categories, departments)}</td>
                   <td>{renderCellContent(row, 'purchase_price', formatCurrency)}</td>
-                  <td>
-                    {renderCellContent(
-                      row,
-                      'purchase_date',
-                      (val) => formatDate(val as Nullable<string>),
-                      true
-                    )}
-                  </td>
-                  <td className={soldColumnClass(row)}>
-                    <div className="stock-sold-cell-inner">
-                      <span className="stock-sold-line">
-                        {stockSaleDatePresent(row)
-                          ? formatDate(row.sale_date as string)
-                          : '—'}
-                      </span>
-                      <span className="stock-sold-line stock-sold-line--price">
-                        {stockSalePriceEmpty(row)
-                          ? '—'
-                          : formatCurrency(row.sale_price)}
-                      </span>
-                    </div>
+                  <td className="stock-actions-cell">
+                    <StockRowActions
+                      row={row}
+                      inOrders={orderStockIds.has(Number(row.id))}
+                      addingToOrder={addingOrderStockId === Number(row.id)}
+                      onAddToOrder={(r) => void handleAddToOrderFromList(r)}
+                    />
                   </td>
                 </tr>
               );
@@ -4171,20 +4284,14 @@ const Stock: React.FC = () => {
                   <span className="stock-card-value">{renderCellContent(row, 'purchase_price', formatCurrency)}</span>
                 </div>
                 <div className="stock-card-field">
-                  <span className="stock-card-label">Sold</span>
-                  <span className={`stock-card-value ${soldColumnClass(row)}`}>
-                    <span className="stock-sold-cell-inner stock-sold-cell-inner--card">
-                      <span className="stock-sold-line">
-                        {stockSaleDatePresent(row)
-                          ? formatDate(row.sale_date as string)
-                          : '—'}
-                      </span>
-                      <span className="stock-sold-line stock-sold-line--price">
-                        {stockSalePriceEmpty(row)
-                          ? '—'
-                          : formatCurrency(row.sale_price)}
-                      </span>
-                    </span>
+                  <span className="stock-card-label">Actions</span>
+                  <span className="stock-card-value">
+                    <StockRowActions
+                      row={row}
+                      inOrders={orderStockIds.has(Number(row.id))}
+                      addingToOrder={addingOrderStockId === Number(row.id)}
+                      onAddToOrder={(r) => void handleAddToOrderFromList(r)}
+                    />
                   </span>
                 </div>
               </div>

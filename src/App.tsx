@@ -18,24 +18,29 @@ const navItems = [
   { to: '/stock', label: 'Stock' },
   { to: '/orders', label: 'Orders' },
   { to: '/reporting', label: 'Reporting' },
-  { to: '/analytics', label: 'Analytics' },
+  { to: '/analytics?tab=department', label: 'Analytics' },
   { to: '/research', label: 'Research' },
   { to: '/expenses', label: 'Accounting' },
   { to: '/sniping', label: 'Sniping' },
 ] as const;
 
+function navItemPath(to: string): string {
+  const q = to.indexOf('?');
+  return q === -1 ? to : to.slice(0, q);
+}
+
 function mobileNavLabel(pathname: string): string {
   if (pathname === '/config') return 'Settings';
   if (pathname === '/sourcing') return 'Sniping';
   const match = navItems.find((item) =>
-    'end' in item && item.end ? pathname === '/' : pathname === item.to
+    'end' in item && item.end ? pathname === '/' : pathname === navItemPath(item.to)
   );
   return match?.label ?? 'Menu';
 }
 
 function isMobileNavItemActive(pathname: string, item: (typeof navItems)[number]): boolean {
   if ('end' in item && item.end) return pathname === '/';
-  return pathname === item.to;
+  return pathname === navItemPath(item.to);
 }
 
 function navLinkClassName(isActive: boolean, extra = '') {

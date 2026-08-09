@@ -2145,7 +2145,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       t === 'inventory-ageing'
     )
       return t;
-    return 'brand';
+    return 'department';
   }, [forcedView, searchParams]);
 
   /** When on menswear tab, category detail comes from `?menswearCategoryId=` (full reload on list pick). */

@@ -14,13 +14,18 @@
 
 .research-ebay-feed .stock-filters.research-ebay-feed-filters {
   margin-bottom: 1.1rem;
+  flex-wrap: wrap;
+  gap: 12px 14px;
+  align-items: flex-end;
 }
 
 .research-ebay-feed .research-ebay-feed-filter-group {
+  flex: 0 0 auto;
   flex-direction: column;
   align-items: flex-start;
   align-self: flex-end;
   gap: 0.35rem;
+  min-width: 0;
 }
 
 .research-ebay-feed .research-ebay-feed-filters-label {
@@ -32,8 +37,13 @@
   cursor: default;
 }
 
-.research-ebay-feed .research-ebay-feed-filter-select {
-  min-width: 7.25rem;
+.research-ebay-feed .filter-select.research-ebay-feed-filter-select {
+  width: auto;
+  min-width: 8.5rem;
+  max-width: none;
+  flex: 0 0 auto;
+  padding: 10px 14px;
+  font-size: 0.9rem;
   font-variant-numeric: tabular-nums;
 }
 

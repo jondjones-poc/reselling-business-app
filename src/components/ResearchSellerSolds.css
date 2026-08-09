@@ -53,8 +53,13 @@
   flex-shrink: 0;
 }
 
-.research-seller-solds-toolbar-select {
-  min-width: 6.5rem;
+.research-seller-solds .filter-select.research-seller-solds-toolbar-select {
+  width: auto;
+  min-width: 7.5rem;
+  max-width: none;
+  flex: 0 0 auto;
+  padding: 10px 14px;
+  font-size: 0.9rem;
   font-variant-numeric: tabular-nums;
 }
 

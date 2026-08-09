@@ -37,6 +37,21 @@ function parseStockListOptions(query = {}) {
     categoryIdRaw != null && String(categoryIdRaw).trim() !== ''
       ? parsePositiveInt(categoryIdRaw, 0)
       : null;
+  const departmentIdRaw = query.department_id ?? query.departmentId;
+  const departmentId =
+    departmentIdRaw != null && String(departmentIdRaw).trim() !== ''
+      ? parsePositiveInt(departmentIdRaw, 0)
+      : null;
+  const brandIdRaw = query.brand_id ?? query.brandId;
+  const brandId =
+    brandIdRaw != null && String(brandIdRaw).trim() !== ''
+      ? parsePositiveInt(brandIdRaw, 0)
+      : null;
+  const categorySizeIdRaw = query.category_size_id ?? query.categorySizeId;
+  const categorySizeId =
+    categorySizeIdRaw != null && String(categorySizeIdRaw).trim() !== ''
+      ? parsePositiveInt(categorySizeIdRaw, 0)
+      : null;
   const editId =
     query.edit_id != null && String(query.edit_id).trim() !== ''
       ? parsePositiveInt(query.edit_id, 0)
@@ -59,6 +74,9 @@ function parseStockListOptions(query = {}) {
     week,
     weekStart,
     categoryId: categoryId && categoryId > 0 ? categoryId : null,
+    departmentId: departmentId && departmentId > 0 ? departmentId : null,
+    brandId: brandId && brandId > 0 ? brandId : null,
+    categorySizeId: categorySizeId && categorySizeId > 0 ? categorySizeId : null,
     editId: editId && editId > 0 ? editId : null,
     toListCategoryId: toListCategoryId && toListCategoryId > 0 ? toListCategoryId : null,
     isExport: query.export === '1',
@@ -193,20 +211,37 @@ function buildUnsoldClause(unsold, params) {
   return `s.sale_date IS NULL AND s.purchase_date IS NOT NULL AND s.purchase_date::date <= (CURRENT_DATE - (${daysParam}::int * INTERVAL '1 day'))`;
 }
 
+function appendStockAttributeFilters(options, clauses, params) {
+  if (options.departmentId) {
+    const deptParam = addParam(params, options.departmentId);
+    clauses.push(`c.department_id = ${deptParam}`);
+  }
+  if (options.categoryId) {
+    const catParam = addParam(params, options.categoryId);
+    clauses.push(`s.category_id = ${catParam}`);
+  }
+  if (options.brandId) {
+    const brandParam = addParam(params, options.brandId);
+    clauses.push(`s.brand_id = ${brandParam}`);
+  }
+  if (options.categorySizeId) {
+    const sizeParam = addParam(params, options.categorySizeId);
+    clauses.push(`s.category_size_id = ${sizeParam}`);
+  }
+}
+
 function buildStockListWhere(options) {
   const params = [];
   const clauses = ['TRUE'];
-  const needsCategoryJoin = options.sort === 'category_id';
+  const needsCategoryJoin =
+    options.sort === 'category_id' || Boolean(options.departmentId);
 
   if (options.unsold !== 'off') {
     const unsoldClause = buildUnsoldClause(options.unsold, params);
     if (unsoldClause) clauses.push(unsoldClause);
     const searchClause = buildSearchClause(options.q, params);
     if (searchClause) clauses.push(searchClause);
-    if (options.categoryId) {
-      const catParam = addParam(params, options.categoryId);
-      clauses.push(`s.category_id = ${catParam}`);
-    }
+    appendStockAttributeFilters(options, clauses, params);
     return {
       whereSql: clauses.join(' AND '),
       params,
@@ -217,10 +252,7 @@ function buildStockListWhere(options) {
   if (options.q) {
     const searchClause = buildSearchClause(options.q, params);
     if (searchClause) clauses.push(searchClause);
-    if (options.categoryId) {
-      const catParam = addParam(params, options.categoryId);
-      clauses.push(`s.category_id = ${catParam}`);
-    }
+    appendStockAttributeFilters(options, clauses, params);
     return {
       whereSql: clauses.join(' AND '),
       params,
@@ -234,10 +266,7 @@ function buildStockListWhere(options) {
   const dateClause = buildDateClause(options, params);
   if (dateClause) clauses.push(dateClause);
 
-  if (options.categoryId) {
-    const catParam = addParam(params, options.categoryId);
-    clauses.push(`s.category_id = ${catParam}`);
-  }
+  appendStockAttributeFilters(options, clauses, params);
 
   return {
     whereSql: clauses.join(' AND '),
