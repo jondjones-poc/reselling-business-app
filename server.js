@@ -17423,6 +17423,7 @@ app.get('/api/expenses/projections', async (req, res) => {
       `
         SELECT
           EXTRACT(MONTH FROM sale_date)::int AS month,
+          COUNT(*)::int AS items_sold,
           SUM(
             CASE
               WHEN net_profit IS NOT NULL AND TRIM(net_profit::text) <> ''
@@ -17477,10 +17478,12 @@ app.get('/api/expenses/projections', async (req, res) => {
 
     const profitByMonth = new Map();
     const salesByMonth = new Map();
+    const itemsSoldByMonth = new Map();
     for (const row of soldByMonthResult.rows || []) {
       const m = Number(row.month);
       profitByMonth.set(m, Number(row.profit));
       salesByMonth.set(m, Number(row.sales));
+      itemsSoldByMonth.set(m, Number(row.items_sold) || 0);
     }
 
     let currentMonth;
@@ -17494,9 +17497,11 @@ app.get('/api/expenses/projections', async (req, res) => {
 
     let profitSumYtd = 0;
     let salesSumYtd = 0;
+    let itemsSoldYtd = 0;
     for (let m = 1; m <= currentMonth; m += 1) {
       profitSumYtd += profitByMonth.get(m) ?? 0;
       salesSumYtd += salesByMonth.get(m) ?? 0;
+      itemsSoldYtd += itemsSoldByMonth.get(m) ?? 0;
     }
 
     const divisor = currentMonth > 0 ? currentMonth : 1;
@@ -17512,27 +17517,26 @@ app.get('/api/expenses/projections', async (req, res) => {
     const monthShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const months = Array.from({ length: 12 }, (_v, i) => {
       const m = i + 1;
-      const profitActual =
-        targetYear > calendarYear || (targetYear === calendarYear && m > currentMonth)
-          ? null
-          : profitByMonth.get(m) ?? 0;
-      const salesActual =
-        targetYear > calendarYear || (targetYear === calendarYear && m > currentMonth)
-          ? null
-          : salesByMonth.get(m) ?? 0;
-      const salesProjected =
-        targetYear < calendarYear ||
-        m <= currentMonth ||
-        currentMonth === 0 ||
-        targetYear > calendarYear
-          ? null
-          : avgMonthlySales;
+      const isFuture =
+        targetYear > calendarYear || (targetYear === calendarYear && m > currentMonth);
+      const profitActual = isFuture ? null : profitByMonth.get(m) ?? 0;
+      const salesActual = isFuture ? null : salesByMonth.get(m) ?? 0;
+      const itemsSold = isFuture ? null : itemsSoldByMonth.get(m) ?? 0;
+      const canProject =
+        targetYear === calendarYear &&
+        currentMonth > 0 &&
+        currentMonth < 12 &&
+        m > currentMonth;
+      const salesProjected = canProject ? avgMonthlySales : null;
+      const profitProjected = canProject ? avgMonthlyProfit : null;
       return {
         month: m,
         label: monthShort[i],
         profitActual,
         salesActual,
-        salesProjected
+        itemsSold,
+        salesProjected,
+        profitProjected
       };
     });
 
@@ -17573,6 +17577,7 @@ app.get('/api/expenses/projections', async (req, res) => {
       summary: {
         profitYtd: profitSumYtd,
         salesYtd: salesSumYtd,
+        itemsSoldYtd,
         avgMonthlyProfit,
         avgMonthlySales,
         projectedYearEndProfit,

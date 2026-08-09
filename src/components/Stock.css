@@ -4613,13 +4613,58 @@ a.stock-action-icon:hover {
   width: 100%;
 }
 
+.expenses-projections-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px 20px;
+  margin-bottom: 20px;
+}
+
+.expenses-projections-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.22);
+  background: rgba(var(--theme-bg-rgb), 0.55);
+}
+
+.expenses-projections-view-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: rgba(var(--theme-text-rgb), 0.7);
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 8px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.expenses-projections-view-btn:hover {
+  color: rgba(var(--theme-text-rgb), 0.92);
+  background: rgba(var(--theme-accent-rgb), 0.08);
+}
+
+.expenses-projections-view-btn.is-active {
+  color: var(--text-strong);
+  background: rgba(var(--theme-accent-rgb), 0.18);
+  box-shadow: inset 0 0 0 1px rgba(var(--theme-accent-rgb), 0.28);
+}
+
 .expenses-projections-loading {
   color: var(--text-muted);
   margin: 0;
 }
 
 .expenses-projections-year {
-  margin-bottom: 20px;
+  margin-bottom: 0;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -4647,6 +4692,11 @@ a.stock-action-icon:hover {
   width: 100%;
   height: min(420px, 55vh);
   margin-bottom: 28px;
+}
+
+.expenses-projections-chart-wrap--listing {
+  height: min(460px, 58vh);
+  margin-top: 8px;
 }
 
 .expenses-projections-summary {
