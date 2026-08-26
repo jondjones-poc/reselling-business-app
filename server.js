@@ -17848,6 +17848,201 @@ app.delete('/api/expenses/:id', async (req, res) => {
 });
 
 /**
+ * Year calendar of Monday–Sunday weeks: cashflow profit.
+ * Money in = sale totals for items sold that week.
+ * Money out = purchase totals for stock bought that week (e.g. bootsale spend).
+ * Profit = sales − purchases in the same week (not COGS of what sold).
+ * GET /api/expenses/weekly-profit?year=2026
+ */
+app.get('/api/expenses/weekly-profit', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const now = new Date();
+    const calendarYear = now.getFullYear();
+    const yearParam = req.query.year !== undefined ? Number(req.query.year) : calendarYear;
+    if (!Number.isFinite(yearParam) || yearParam < 2000 || yearParam > calendarYear + 5) {
+      return res.status(400).json({ error: 'Invalid year' });
+    }
+    const year = Math.floor(yearParam);
+
+    const todayUtc = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+    const todayIso = formatDateOnlyUtc(todayUtc);
+    const jan1 = new Date(Date.UTC(year, 0, 1));
+    const dec31 = new Date(Date.UTC(year, 11, 31));
+    const rangeStart = formatDateOnlyUtc(mondayOfWeekUtc(jan1));
+    const rangeEnd = formatDateOnlyUtc(addDaysUtc(mondayOfWeekUtc(dec31), 6));
+
+    const [salesRes, purchasesRes, expensesRes, yearsRes] = await Promise.all([
+      pool.query(
+        `SELECT
+           s.sale_date::date AS sale_date,
+           COALESCE(s.sale_price::numeric, 0) AS sale_price
+         FROM stock s
+         WHERE s.sale_date IS NOT NULL
+           AND s.sale_date::date >= $1::date
+           AND s.sale_date::date <= $2::date
+           AND NOT COALESCE(s.is_inventory_write_off, false)`,
+        [rangeStart, rangeEnd]
+      ),
+      pool.query(
+        `SELECT
+           s.purchase_date::date AS purchase_date,
+           COALESCE(s.purchase_price::numeric, 0) AS purchase_price
+         FROM stock s
+         WHERE s.purchase_date IS NOT NULL
+           AND s.purchase_date::date >= $1::date
+           AND s.purchase_date::date <= $2::date
+           AND NOT COALESCE(s.is_inventory_write_off, false)`,
+        [rangeStart, rangeEnd]
+      ),
+      pool.query(
+        `SELECT
+           e.purchase_date::date AS purchase_date,
+           COALESCE(e.cost::numeric, 0) AS cost
+         FROM expenses e
+         WHERE e.purchase_date IS NOT NULL
+           AND e.purchase_date::date >= $1::date
+           AND e.purchase_date::date <= $2::date`,
+        [rangeStart, rangeEnd]
+      ).catch(() => ({ rows: [] })),
+      pool.query(
+        `SELECT y AS year FROM (
+           SELECT DISTINCT EXTRACT(YEAR FROM sale_date)::int AS y FROM stock WHERE sale_date IS NOT NULL
+           UNION
+           SELECT DISTINCT EXTRACT(YEAR FROM purchase_date)::int AS y FROM stock WHERE purchase_date IS NOT NULL
+         ) years
+         WHERE y IS NOT NULL
+         ORDER BY year DESC`
+      ),
+    ]);
+
+    const weekSpecs = enumerateMondayWeeksInRange(rangeStart, rangeEnd);
+    const byWeek = new Map();
+    for (const w of weekSpecs) {
+      byWeek.set(w.weekKey, {
+        saleCount: 0,
+        saleTotal: 0,
+        purchaseCount: 0,
+        spendTotal: 0,
+      });
+    }
+
+    for (const row of salesRes.rows ?? []) {
+      const saleDate = normalizeDateOnlyString(row.sale_date);
+      if (!saleDate) continue;
+      const saleDay = parseDateOnlyUtc(saleDate);
+      if (!saleDay) continue;
+      const weekKey = formatDateOnlyUtc(mondayOfWeekUtc(saleDay));
+      const bucket = byWeek.get(weekKey);
+      if (!bucket) continue;
+      bucket.saleCount += 1;
+      bucket.saleTotal += Number(row.sale_price) || 0;
+    }
+
+    for (const row of purchasesRes.rows ?? []) {
+      const purchaseDate = normalizeDateOnlyString(row.purchase_date);
+      if (!purchaseDate) continue;
+      const purchaseDay = parseDateOnlyUtc(purchaseDate);
+      if (!purchaseDay) continue;
+      const weekKey = formatDateOnlyUtc(mondayOfWeekUtc(purchaseDay));
+      const bucket = byWeek.get(weekKey);
+      if (!bucket) continue;
+      bucket.purchaseCount += 1;
+      bucket.spendTotal += Number(row.purchase_price) || 0;
+    }
+
+    for (const row of expensesRes.rows ?? []) {
+      const purchaseDate = normalizeDateOnlyString(row.purchase_date);
+      if (!purchaseDate) continue;
+      const purchaseDay = parseDateOnlyUtc(purchaseDate);
+      if (!purchaseDay) continue;
+      const weekKey = formatDateOnlyUtc(mondayOfWeekUtc(purchaseDay));
+      const bucket = byWeek.get(weekKey);
+      if (!bucket) continue;
+      bucket.spendTotal += Number(row.cost) || 0;
+    }
+
+    const monthShort = new Intl.DateTimeFormat('en-GB', { month: 'short', timeZone: 'UTC' });
+    let lastMonthKey = '';
+    let maxProfit = 0;
+    let maxLoss = 0;
+
+    const weeks = weekSpecs
+      .slice()
+      .sort((a, b) => a.weekStart.localeCompare(b.weekStart))
+      .map((w) => {
+        const mon = parseDateOnlyUtc(w.weekStart);
+        const month = mon ? mon.getUTCMonth() + 1 : 0;
+        const weekYear = mon ? mon.getUTCFullYear() : year;
+        const monthKey = `${weekYear}-${month}`;
+        const isMonthStart = monthKey !== lastMonthKey;
+        if (isMonthStart) lastMonthKey = monthKey;
+
+        const stats = byWeek.get(w.weekKey) ?? {
+          saleCount: 0,
+          saleTotal: 0,
+          purchaseCount: 0,
+          spendTotal: 0,
+        };
+        const saleTotal = Math.round(stats.saleTotal * 100) / 100;
+        const spendTotal = Math.round(stats.spendTotal * 100) / 100;
+        const profit = Math.round((saleTotal - spendTotal) * 100) / 100;
+        const hasActivity = stats.saleCount > 0 || stats.purchaseCount > 0 || spendTotal > 0;
+        const spendPerSale =
+          stats.saleCount > 0 ? Math.round((spendTotal / stats.saleCount) * 100) / 100 : null;
+
+        if (hasActivity) {
+          if (profit > 0) maxProfit = Math.max(maxProfit, profit);
+          if (profit < 0) maxLoss = Math.max(maxLoss, Math.abs(profit));
+        }
+
+        return {
+          weekStart: w.weekStart,
+          weekEnd: w.weekEnd,
+          label: formatSeasonalWeekLabel(w.weekStart, w.weekEnd),
+          isCurrentWeek: todayIso >= w.weekStart && todayIso <= w.weekEnd,
+          monthLabel: isMonthStart && mon ? monthShort.format(mon) : null,
+          saleCount: stats.saleCount,
+          purchaseCount: stats.purchaseCount,
+          saleTotal,
+          spendTotal,
+          spendPerSale,
+          profit,
+          hasActivity,
+        };
+      });
+
+    const years = (yearsRes.rows ?? [])
+      .map((r) => Number(r.year))
+      .filter((y) => Number.isFinite(y) && y >= 2000);
+    if (!years.includes(year) && year <= calendarYear) {
+      years.unshift(year);
+      years.sort((a, b) => b - a);
+    }
+    if (years.length === 0) {
+      years.push(calendarYear);
+    }
+
+    res.json({
+      year,
+      years,
+      rangeStart,
+      rangeEnd,
+      maxProfit: maxProfit || 1,
+      maxLoss: maxLoss || 1,
+      weeks,
+    });
+  } catch (error) {
+    console.error('expenses weekly-profit failed:', error);
+    res.status(500).json({ error: 'Failed to load weekly profit calendar', details: error.message });
+  }
+});
+
+/**
  * Calendar-year view for Expenses → Projections: monthly profit (sold lines), projected sales
  * for remaining months, purchase counts and per-week breakdown vs a listing target (default 10/wk).
  */

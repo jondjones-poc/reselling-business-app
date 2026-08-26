@@ -5,6 +5,7 @@ import '../react-datepicker-dark.css';
 import * as XLSX from 'xlsx';
 import { Navigate, useSearchParams } from 'react-router-dom';
 import { getApiBase } from '../utils/apiBase';
+import ExpensesWeeklyProfit from './ExpensesWeeklyProfit';
 import './Stock.css';
 
 const API_BASE = getApiBase();
@@ -136,7 +137,7 @@ const Expenses: React.FC = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const loadExpenses = async () => {
     try {
@@ -640,8 +641,58 @@ const Expenses: React.FC = () => {
     return <Navigate to="/reporting?tab=projections" replace />;
   }
 
+  const expensesTab =
+    searchParams.get('tab') === 'profit-per-month' ? 'profit-per-month' : 'expenses';
+
+  const setExpensesTab = (next: 'expenses' | 'profit-per-month') => {
+    const nextParams = new URLSearchParams(searchParams);
+    if (next === 'expenses') {
+      nextParams.delete('tab');
+    } else {
+      nextParams.set('tab', next);
+    }
+    setSearchParams(nextParams, { replace: true });
+  };
+
   return (
     <div className="stock-container">
+      <nav className="expenses-tabs" role="tablist" aria-label="Accounting sections">
+        <button
+          type="button"
+          role="tab"
+          id="expenses-tab-expenses"
+          aria-selected={expensesTab === 'expenses'}
+          aria-controls="expenses-panel-expenses"
+          className={`expenses-tab${expensesTab === 'expenses' ? ' expenses-tab--active' : ''}`}
+          onClick={() => setExpensesTab('expenses')}
+        >
+          Expenses
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="expenses-tab-profit-per-month"
+          aria-selected={expensesTab === 'profit-per-month'}
+          aria-controls="expenses-panel-profit-per-month"
+          className={`expenses-tab${
+            expensesTab === 'profit-per-month' ? ' expenses-tab--active' : ''
+          }`}
+          onClick={() => setExpensesTab('profit-per-month')}
+        >
+          Profit Per Month
+        </button>
+      </nav>
+
+      {expensesTab === 'profit-per-month' ? (
+        <div
+          id="expenses-panel-profit-per-month"
+          role="tabpanel"
+          aria-labelledby="expenses-tab-profit-per-month"
+        >
+          <ExpensesWeeklyProfit />
+        </div>
+      ) : (
+        <div id="expenses-panel-expenses" role="tabpanel" aria-labelledby="expenses-tab-expenses">
       {error && <div className="stock-error">{error}</div>}
       {successMessage && <div className="stock-success">{successMessage}</div>}
 
@@ -980,6 +1031,8 @@ const Expenses: React.FC = () => {
           </tbody>
         </table>
       </div>
+        </div>
+      )}
     </div>
   );
 };

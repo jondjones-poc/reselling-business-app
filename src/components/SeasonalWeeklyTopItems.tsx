@@ -79,7 +79,7 @@ type BangerRow = {
   saleTotal: number;
 };
 
-function buildBangersFromBimesters(bimesters: BimesterPeriod[]): BangerRow[] {
+function aggregateCategoriesFromBimesters(bimesters: BimesterPeriod[]): BangerRow[] {
   const byName = new Map<string, BangerRow>();
   for (const period of bimesters) {
     for (const row of period.topCategories ?? []) {
@@ -97,7 +97,11 @@ function buildBangersFromBimesters(bimesters: BimesterPeriod[]): BangerRow[] {
       byName.set(name, prev);
     }
   }
-  return Array.from(byName.values())
+  return Array.from(byName.values());
+}
+
+function buildAllYearRoundBangers(bimesters: BimesterPeriod[]): BangerRow[] {
+  return aggregateCategoriesFromBimesters(bimesters)
     .sort((a, b) => {
       if (b.appearances !== a.appearances) return b.appearances - a.appearances;
       if (b.totalSold !== a.totalSold) return b.totalSold - a.totalSold;
@@ -105,6 +109,66 @@ function buildBangersFromBimesters(bimesters: BimesterPeriod[]): BangerRow[] {
       return a.name.localeCompare(b.name);
     })
     .slice(0, 5);
+}
+
+function buildTotalSalesBangers(bimesters: BimesterPeriod[]): BangerRow[] {
+  return aggregateCategoriesFromBimesters(bimesters)
+    .sort((a, b) => {
+      if (b.saleTotal !== a.saleTotal) return b.saleTotal - a.saleTotal;
+      if (b.totalSold !== a.totalSold) return b.totalSold - a.totalSold;
+      if (b.appearances !== a.appearances) return b.appearances - a.appearances;
+      return a.name.localeCompare(b.name);
+    })
+    .slice(0, 5);
+}
+
+type BestBangerRow = BangerRow & {
+  score: number;
+  avgSale: number;
+};
+
+/**
+ * Best Banger from the two shortlists only.
+ * Score blends year-round appearances, £ sales, and avg sale/item
+ * (ASP used as the profitability signal — cost/profit is not in these sections).
+ */
+function pickBestBanger(
+  allYearRound: BangerRow[],
+  totalSales: BangerRow[]
+): BestBangerRow | null {
+  const byName = new Map<string, BangerRow>();
+  for (const row of allYearRound) byName.set(row.name, row);
+  for (const row of totalSales) byName.set(row.name, row);
+  const candidates = Array.from(byName.values());
+  if (candidates.length === 0) return null;
+
+  const maxSale = Math.max(...candidates.map((c) => c.saleTotal), 1);
+  const avgs = candidates.map((c) => (c.totalSold > 0 ? c.saleTotal / c.totalSold : 0));
+  const maxAvg = Math.max(...avgs, 1);
+
+  const inAllYear = new Set(allYearRound.map((r) => r.name));
+  const inTotalSales = new Set(totalSales.map((r) => r.name));
+
+  const scored: BestBangerRow[] = candidates.map((c) => {
+    const avgSale = c.totalSold > 0 ? c.saleTotal / c.totalSold : 0;
+    const periodScore = c.appearances / 6;
+    const salesScore = c.saleTotal / maxSale;
+    const valueScore = avgSale / maxAvg;
+    // Bonus if it lands in both shortlists.
+    const bothListsBonus = inAllYear.has(c.name) && inTotalSales.has(c.name) ? 0.08 : 0;
+    const score =
+      0.38 * periodScore + 0.38 * salesScore + 0.24 * valueScore + bothListsBonus;
+    return { ...c, score, avgSale };
+  });
+
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (b.saleTotal !== a.saleTotal) return b.saleTotal - a.saleTotal;
+    if (b.appearances !== a.appearances) return b.appearances - a.appearances;
+    return a.name.localeCompare(b.name);
+  });
+
+  return scored[0] ?? null;
 }
 
 type SeasonalWeeklyTopItemsProps = {
@@ -248,9 +312,17 @@ const SeasonalWeeklyTopItems: React.FC<SeasonalWeeklyTopItemsProps> = ({ departm
     };
   }, [departmentId, bimesterPage]);
 
-  const bangers = useMemo(
-    () => (bimesterData ? buildBangersFromBimesters(bimesterData.bimesters) : []),
+  const allYearRoundBangers = useMemo(
+    () => (bimesterData ? buildAllYearRoundBangers(bimesterData.bimesters) : []),
     [bimesterData]
+  );
+  const totalSalesBangers = useMemo(
+    () => (bimesterData ? buildTotalSalesBangers(bimesterData.bimesters) : []),
+    [bimesterData]
+  );
+  const bestBanger = useMemo(
+    () => pickBestBanger(allYearRoundBangers, totalSalesBangers),
+    [allYearRoundBangers, totalSalesBangers]
   );
 
   return (
@@ -494,17 +566,17 @@ const SeasonalWeeklyTopItems: React.FC<SeasonalWeeklyTopItemsProps> = ({ departm
               ))}
             </div>
 
-            <section className="research-seasonal-bangers" aria-label="Bangers">
+            <section className="research-seasonal-bangers" aria-label="All Year Round Bangers">
               <header className="research-seasonal-yearly-head">
-                <h3 className="research-seasonal-yearly-title">Bangers</h3>
+                <h3 className="research-seasonal-yearly-title">All Year Round Bangers</h3>
               </header>
-              {bangers.length === 0 ? (
+              {allYearRoundBangers.length === 0 ? (
                 <p className="research-seasonal-weekly-empty" role="status">
                   Not enough seasonal data yet to pick bangers.
                 </p>
               ) : (
                 <ol className="research-seasonal-bangers-list">
-                  {bangers.map((row, idx) => (
+                  {allYearRoundBangers.map((row, idx) => (
                     <li key={row.name} className="research-seasonal-bangers-item">
                       <span className="research-seasonal-bangers-rank" aria-hidden>
                         {idx + 1}
@@ -528,6 +600,84 @@ const SeasonalWeeklyTopItems: React.FC<SeasonalWeeklyTopItemsProps> = ({ departm
                     </li>
                   ))}
                 </ol>
+              )}
+            </section>
+
+            <section
+              className="research-seasonal-bangers research-seasonal-bangers--sales"
+              aria-label="Total Sales Banger"
+            >
+              <header className="research-seasonal-yearly-head">
+                <h3 className="research-seasonal-yearly-title">Total Sales Banger</h3>
+              </header>
+              {totalSalesBangers.length === 0 ? (
+                <p className="research-seasonal-weekly-empty" role="status">
+                  Not enough seasonal data yet for total sales bangers.
+                </p>
+              ) : (
+                <ol className="research-seasonal-bangers-list">
+                  {totalSalesBangers.map((row, idx) => (
+                    <li key={row.name} className="research-seasonal-bangers-item">
+                      <span className="research-seasonal-bangers-rank" aria-hidden>
+                        {idx + 1}
+                      </span>
+                      <div className="research-seasonal-bangers-item-body">
+                        <span className="research-seasonal-bangers-item-name">{row.name}</span>
+                        <span className="research-seasonal-bangers-item-meta">
+                          {row.saleTotal > 0 ? (
+                            <span className="research-seasonal-buy-now-item-meta-part">
+                              {formatGbp(row.saleTotal)}
+                            </span>
+                          ) : null}
+                          <span className="research-seasonal-buy-now-item-meta-part">
+                            {formatSoldCount(row.totalSold)}
+                          </span>
+                          <span className="research-seasonal-buy-now-item-meta-part">
+                            in {row.appearances} of 6 periods
+                          </span>
+                        </span>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+
+            <section className="research-seasonal-best-banger" aria-label="Best Banger">
+              <header className="research-seasonal-yearly-head">
+                <h3 className="research-seasonal-yearly-title">Best Banger</h3>
+              </header>
+              {!bestBanger ? (
+                <p className="research-seasonal-weekly-empty" role="status">
+                  Not enough banger data yet to pick a best category.
+                </p>
+              ) : (
+                <div className="research-seasonal-best-banger-card">
+                  <span className="research-seasonal-best-banger-crown" aria-hidden>
+                    1
+                  </span>
+                  <div className="research-seasonal-best-banger-body">
+                    <span className="research-seasonal-best-banger-name">{bestBanger.name}</span>
+                    <span className="research-seasonal-best-banger-meta">
+                      <span className="research-seasonal-buy-now-item-meta-part">
+                        in {bestBanger.appearances} of 6 periods
+                      </span>
+                      {bestBanger.saleTotal > 0 ? (
+                        <span className="research-seasonal-buy-now-item-meta-part">
+                          {formatGbp(bestBanger.saleTotal)} sales
+                        </span>
+                      ) : null}
+                      <span className="research-seasonal-buy-now-item-meta-part">
+                        {formatSoldCount(bestBanger.totalSold)}
+                      </span>
+                      {bestBanger.avgSale > 0 ? (
+                        <span className="research-seasonal-buy-now-item-meta-part">
+                          {formatGbp(bestBanger.avgSale)} avg
+                        </span>
+                      ) : null}
+                    </span>
+                  </div>
+                </div>
               )}
             </section>
 
