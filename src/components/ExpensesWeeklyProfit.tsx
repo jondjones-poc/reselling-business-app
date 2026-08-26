@@ -16,12 +16,24 @@ type WeeklyProfitCell = {
   hasActivity: boolean;
 };
 
+type MonthlyProfitRow = {
+  month: number;
+  label: string;
+  saleCount: number;
+  purchaseCount: number;
+  saleTotal: number;
+  spendTotal: number;
+  profit: number;
+  hasActivity: boolean;
+};
+
 type WeeklyProfitPayload = {
   year: number;
   years: number[];
   maxProfit: number;
   maxLoss: number;
   weeks: WeeklyProfitCell[];
+  months: MonthlyProfitRow[];
 };
 
 function friendlyApiError(err: unknown): string {
@@ -95,6 +107,7 @@ const ExpensesWeeklyProfit: React.FC = () => {
             maxProfit: Number(body.maxProfit) || 1,
             maxLoss: Number(body.maxLoss) || 1,
             weeks: Array.isArray(body.weeks) ? body.weeks : [],
+            months: Array.isArray(body.months) ? body.months : [],
           });
         }
       } catch (e) {
@@ -119,7 +132,20 @@ const ExpensesWeeklyProfit: React.FC = () => {
   }, [data, year]);
 
   const totals = useMemo(() => {
-    if (!data?.weeks?.length) return { sales: 0, spend: 0, profit: 0, salesCount: 0 };
+    const empty = { sales: 0, spend: 0, profit: 0, salesCount: 0 };
+    if (data?.months?.length) {
+      return data.months.reduce(
+        (acc, m) => {
+          acc.sales += Number(m.saleTotal) || 0;
+          acc.spend += Number(m.spendTotal) || 0;
+          acc.profit += Number(m.profit) || 0;
+          acc.salesCount += Number(m.saleCount) || 0;
+          return acc;
+        },
+        { ...empty }
+      );
+    }
+    if (!data?.weeks?.length) return empty;
     return data.weeks.reduce(
       (acc, w) => {
         acc.sales += Number(w.saleTotal) || 0;
@@ -128,7 +154,7 @@ const ExpensesWeeklyProfit: React.FC = () => {
         acc.salesCount += Number(w.saleCount) || 0;
         return acc;
       },
-      { sales: 0, spend: 0, profit: 0, salesCount: 0 }
+      { ...empty }
     );
   }, [data]);
 
@@ -217,6 +243,70 @@ const ExpensesWeeklyProfit: React.FC = () => {
               )}
             </article>
           ))}
+        </div>
+      ) : null}
+
+      {data && data.months.length > 0 ? (
+        <div className="expenses-profit-months" aria-label={`${year} monthly cashflow`}>
+          <table className="expenses-profit-months-table">
+            <thead>
+              <tr>
+                <th scope="col">Month</th>
+                <th scope="col" className="expenses-profit-months-num">
+                  Sales
+                </th>
+                <th scope="col" className="expenses-profit-months-num">
+                  Spend
+                </th>
+                <th scope="col" className="expenses-profit-months-num">
+                  Cashflow
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.months.map((month) => (
+                <tr
+                  key={month.month}
+                  className={
+                    month.hasActivity
+                      ? month.profit < 0
+                        ? 'expenses-profit-months-row--loss'
+                        : month.profit > 0
+                          ? 'expenses-profit-months-row--profit'
+                          : undefined
+                      : 'expenses-profit-months-row--empty'
+                  }
+                >
+                  <th scope="row">{month.label}</th>
+                  <td className="expenses-profit-months-num">{formatGbp(month.saleTotal)}</td>
+                  <td className="expenses-profit-months-num">{formatGbp(month.spendTotal)}</td>
+                  <td
+                    className={
+                      'expenses-profit-months-num expenses-profit-months-total' +
+                      (month.profit < 0 ? ' is-loss' : month.profit > 0 ? ' is-profit' : '')
+                    }
+                  >
+                    {formatGbp(month.profit)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <th scope="row">Year total</th>
+                <td className="expenses-profit-months-num">{formatGbp(totals.sales)}</td>
+                <td className="expenses-profit-months-num">{formatGbp(totals.spend)}</td>
+                <td
+                  className={
+                    'expenses-profit-months-num expenses-profit-months-total' +
+                    (totals.profit < 0 ? ' is-loss' : totals.profit > 0 ? ' is-profit' : '')
+                  }
+                >
+                  {formatGbp(totals.profit)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
       ) : null}
 

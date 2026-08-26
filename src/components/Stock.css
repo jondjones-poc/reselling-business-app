@@ -4911,6 +4911,70 @@ a.stock-action-icon:hover {
   box-shadow: inset 0 0 0 2px rgba(var(--theme-accent-rgb), 0.55);
 }
 
+.expenses-profit-months {
+  margin-top: 1.75rem;
+  overflow-x: auto;
+}
+
+.expenses-profit-months-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.expenses-profit-months-table th,
+.expenses-profit-months-table td {
+  padding: 0.7rem 0.85rem;
+  border-bottom: 1px solid rgba(var(--theme-text-rgb), 0.1);
+  text-align: left;
+}
+
+.expenses-profit-months-table thead th {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(var(--theme-text-rgb), 0.5);
+}
+
+.expenses-profit-months-num {
+  text-align: right !important;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.expenses-profit-months-total {
+  font-weight: 750;
+}
+
+.expenses-profit-months-total.is-profit,
+.expenses-profit-months-table tfoot .is-profit {
+  color: rgb(34, 140, 80);
+}
+
+.expenses-profit-months-total.is-loss,
+.expenses-profit-months-table tfoot .is-loss {
+  color: rgb(200, 55, 55);
+}
+
+.expenses-profit-months-row--empty th,
+.expenses-profit-months-row--empty td {
+  color: rgba(var(--theme-text-rgb), 0.4);
+}
+
+.expenses-profit-months-table tbody tr:hover th,
+.expenses-profit-months-table tbody tr:hover td {
+  background: rgba(var(--theme-text-rgb), 0.03);
+}
+
+.expenses-profit-months-table tfoot th,
+.expenses-profit-months-table tfoot td {
+  border-bottom: none;
+  border-top: 2px solid rgba(var(--theme-text-rgb), 0.16);
+  padding-top: 0.9rem;
+  font-weight: 750;
+}
+
 .expenses-projections {
   width: 100%;
 }

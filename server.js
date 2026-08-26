@@ -18016,6 +18016,61 @@ app.get('/api/expenses/weekly-profit', async (req, res) => {
         };
       });
 
+    const monthLong = new Intl.DateTimeFormat('en-GB', { month: 'long', timeZone: 'UTC' });
+    const byMonth = Array.from({ length: 12 }, (_, i) => ({
+      month: i + 1,
+      label: monthLong.format(new Date(Date.UTC(year, i, 1))),
+      saleCount: 0,
+      purchaseCount: 0,
+      saleTotal: 0,
+      spendTotal: 0,
+    }));
+
+    for (const row of salesRes.rows ?? []) {
+      const saleDate = normalizeDateOnlyString(row.sale_date);
+      if (!saleDate) continue;
+      const saleDay = parseDateOnlyUtc(saleDate);
+      if (!saleDay || saleDay.getUTCFullYear() !== year) continue;
+      const bucket = byMonth[saleDay.getUTCMonth()];
+      bucket.saleCount += 1;
+      bucket.saleTotal += Number(row.sale_price) || 0;
+    }
+
+    for (const row of purchasesRes.rows ?? []) {
+      const purchaseDate = normalizeDateOnlyString(row.purchase_date);
+      if (!purchaseDate) continue;
+      const purchaseDay = parseDateOnlyUtc(purchaseDate);
+      if (!purchaseDay || purchaseDay.getUTCFullYear() !== year) continue;
+      const bucket = byMonth[purchaseDay.getUTCMonth()];
+      bucket.purchaseCount += 1;
+      bucket.spendTotal += Number(row.purchase_price) || 0;
+    }
+
+    for (const row of expensesRes.rows ?? []) {
+      const purchaseDate = normalizeDateOnlyString(row.purchase_date);
+      if (!purchaseDate) continue;
+      const purchaseDay = parseDateOnlyUtc(purchaseDate);
+      if (!purchaseDay || purchaseDay.getUTCFullYear() !== year) continue;
+      const bucket = byMonth[purchaseDay.getUTCMonth()];
+      bucket.spendTotal += Number(row.cost) || 0;
+    }
+
+    const months = byMonth.map((m) => {
+      const saleTotal = Math.round(m.saleTotal * 100) / 100;
+      const spendTotal = Math.round(m.spendTotal * 100) / 100;
+      const profit = Math.round((saleTotal - spendTotal) * 100) / 100;
+      return {
+        month: m.month,
+        label: m.label,
+        saleCount: m.saleCount,
+        purchaseCount: m.purchaseCount,
+        saleTotal,
+        spendTotal,
+        profit,
+        hasActivity: m.saleCount > 0 || m.purchaseCount > 0 || spendTotal > 0,
+      };
+    });
+
     const years = (yearsRes.rows ?? [])
       .map((r) => Number(r.year))
       .filter((y) => Number.isFinite(y) && y >= 2000);
@@ -18035,6 +18090,7 @@ app.get('/api/expenses/weekly-profit', async (req, res) => {
       maxProfit: maxProfit || 1,
       maxLoss: maxLoss || 1,
       weeks,
+      months,
     });
   } catch (error) {
     console.error('expenses weekly-profit failed:', error);
