@@ -1981,27 +1981,31 @@ button.stock-close-circle-btn:disabled {
   line-height: 1.2;
 }
 
+/* eBay brand: red #E53238 / blue #0064D2 / yellow #F5AF02 */
 .stock-listing-pack-btn--ebay {
-  border: 1px solid rgba(96, 165, 250, 0.4);
-  background: rgba(59, 130, 246, 0.18);
-  color: #bfdbfe;
+  border: 1px solid #0064d2;
+  background: #0064d2;
+  color: #ffffff;
 }
 
 .stock-listing-pack-btn--ebay:hover:not(:disabled) {
-  background: rgba(59, 130, 246, 0.3);
-  border-color: rgba(96, 165, 250, 0.55);
+  background: #004ebb;
+  border-color: #004ebb;
+  color: #ffffff;
   transform: translateY(-1px);
 }
 
+/* Vinted brand teal #09B1BA */
 .stock-listing-pack-btn--vinted {
-  border: 1px solid rgba(9, 183, 148, 0.4);
-  background: rgba(9, 183, 148, 0.18);
-  color: #a7f3d0;
+  border: 1px solid #09b1ba;
+  background: #09b1ba;
+  color: #ffffff;
 }
 
 .stock-listing-pack-btn--vinted:hover:not(:disabled) {
-  background: rgba(9, 183, 148, 0.3);
-  border-color: rgba(9, 183, 148, 0.55);
+  background: #007782;
+  border-color: #007782;
+  color: #ffffff;
   transform: translateY(-1px);
 }
 

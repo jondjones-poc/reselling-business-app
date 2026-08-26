@@ -554,6 +554,8 @@ const Stock: React.FC = () => {
   const stockTagDropdownRef = useRef<HTMLDivElement>(null);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  /** Debounced search used for the stock table query (input updates instantly). */
+  const [listSearchTerm, setListSearchTerm] = useState('');
   const [showTypeahead, setShowTypeahead] = useState(false);
   const [typeaheadSuggestions, setTypeaheadSuggestions] = useState<string[]>([]);
   const [unsoldFilter, setUnsoldFilter] = useState<'off' | '3' | '6' | '12'>('off');
@@ -711,13 +713,13 @@ const Stock: React.FC = () => {
         params.set('order', 'desc');
       }
 
-      if (searchTerm.trim()) {
-        params.set('q', searchTerm.trim());
+      if (listSearchTerm.trim()) {
+        params.set('q', listSearchTerm.trim());
       }
 
       if (unsoldFilter !== 'off') {
         params.set('unsold', unsoldFilter);
-      } else if (!searchTerm.trim()) {
+      } else if (!listSearchTerm.trim()) {
         params.set('view', viewMode);
         params.set('year', 'all-time');
       }
@@ -751,7 +753,7 @@ const Stock: React.FC = () => {
     },
     [
       sortConfig,
-      searchTerm,
+      listSearchTerm,
       unsoldFilter,
       viewMode,
       selectedDepartmentFilter,
@@ -778,7 +780,11 @@ const Stock: React.FC = () => {
   }, []);
 
   const loadStockPage = useCallback(
-    async (page: number, options?: { includeEditId?: boolean }) => {
+    async (
+      page: number,
+      options?: { includeEditId?: boolean; signal?: AbortSignal }
+    ) => {
+      const signal = options?.signal;
       try {
         setLoading(true);
         setError(null);
@@ -789,7 +795,9 @@ const Stock: React.FC = () => {
         const response = await fetch(`${API_BASE}/api/stock?${params.toString()}`, {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' },
+          signal,
         });
+        if (signal?.aborted) return;
         if (!response.ok) {
           const message = await response.text();
           throw new Error(message || 'Failed to load stock data');
@@ -802,6 +810,8 @@ const Stock: React.FC = () => {
         }
 
         const data: StockApiResponse = await response.json();
+        if (signal?.aborted) return;
+
         const nextRows = (Array.isArray(data.rows) ? data.rows : []).map(normalizeStockRowDates);
         const total = Number(data.total ?? data.count ?? nextRows.length);
         const totalPages = Math.max(1, Number(data.total_pages ?? Math.ceil(total / STOCK_PAGE_SIZE)));
@@ -822,6 +832,7 @@ const Stock: React.FC = () => {
         setStockTotalPages(totalPages);
         setStockPage(resolvedPage);
       } catch (err: any) {
+        if (err?.name === 'AbortError' || signal?.aborted) return;
         console.error('Stock load error:', err);
         if (err.message === 'Failed to fetch' || err.name === 'TypeError') {
           setError('Unable to connect to server. Please ensure the backend server is running on port 5003.');
@@ -832,7 +843,7 @@ const Stock: React.FC = () => {
         setStockTotalCount(0);
         setStockTotalPages(1);
       } finally {
-        setLoading(false);
+        if (!signal?.aborted) setLoading(false);
       }
     },
     [buildStockListQueryParams]
@@ -931,14 +942,31 @@ const Stock: React.FC = () => {
   }, [loadNextSku, loadOrderStockIds]);
 
   useEffect(() => {
-    void loadStockPage(stockPage, { includeEditId: Boolean(searchParams.get('editId')) });
+    // Empty search applies immediately; typing/paste debounces so paste-replace races less.
+    if (!searchTerm.trim()) {
+      setListSearchTerm('');
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setListSearchTerm(searchTerm);
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [searchTerm]);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    void loadStockPage(stockPage, {
+      includeEditId: Boolean(searchParams.get('editId')),
+      signal: ac.signal,
+    });
+    return () => ac.abort();
   }, [loadStockPage, stockPage, searchParams]);
 
   useEffect(() => {
     setStockPage(1);
   }, [
     viewMode,
-    searchTerm,
+    listSearchTerm,
     unsoldFilter,
     selectedDepartmentFilter,
     selectedCategoryFilter,
@@ -2365,7 +2393,7 @@ const Stock: React.FC = () => {
   const handleDownloadEbayListingPack = async () => {
     if (!editingRowId || listingPackDownloading) return;
     const ebayId = createForm.ebay_id.trim();
-    if (!ebayId || createForm.ebay_draft) return;
+    if (!ebayId || createForm.ebay_draft || !/^\d+$/.test(ebayId)) return;
     setError(null);
     setListingPackDownloading('ebay');
     try {
@@ -2433,6 +2461,7 @@ const Stock: React.FC = () => {
   const showEbayListingDownload =
     Boolean(editingRowId) &&
     createForm.ebay_id.trim() !== '' &&
+    /^\d+$/.test(createForm.ebay_id.trim()) &&
     !createForm.ebay_draft;
   const showVintedListingDownload =
     Boolean(editingRowId) && createForm.vinted_id.trim() !== '';
@@ -2517,22 +2546,6 @@ const Stock: React.FC = () => {
               </div>
               {editingRowId ? (
                 <div className="stock-new-entry-top-bar-edit-actions">
-                  {showEbayListingDownload ? (
-                    <button
-                      type="button"
-                      className="stock-listing-pack-btn stock-listing-pack-btn--ebay"
-                      onClick={() => void handleDownloadEbayListingPack()}
-                      disabled={creating || deleting || listingPackDownloading != null}
-                      aria-label={
-                        listingPackDownloading === 'ebay'
-                          ? 'Downloading eBay listing zip'
-                          : 'Download eBay listing zip'
-                      }
-                      title="Download eBay listing photos + listing.txt as a zip"
-                    >
-                      {listingPackDownloading === 'ebay' ? 'Exporting…' : 'Download eBay'}
-                    </button>
-                  ) : null}
                   {showVintedListingDownload ? (
                     <button
                       type="button"
@@ -2601,6 +2614,22 @@ const Stock: React.FC = () => {
                     </svg>
                     Instagram Prompt
                   </button>
+                  {showEbayListingDownload ? (
+                    <button
+                      type="button"
+                      className="stock-listing-pack-btn stock-listing-pack-btn--ebay"
+                      onClick={() => void handleDownloadEbayListingPack()}
+                      disabled={creating || deleting || listingPackDownloading != null}
+                      aria-label={
+                        listingPackDownloading === 'ebay'
+                          ? 'Downloading eBay listing zip'
+                          : 'Download eBay listing zip'
+                      }
+                      title="Download eBay listing photos + listing.txt as a zip"
+                    >
+                      {listingPackDownloading === 'ebay' ? 'Exporting…' : 'Download eBay'}
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
               <div
@@ -3876,6 +3905,7 @@ const Stock: React.FC = () => {
                 placeholder="Search items..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
+                onInput={(e) => setSearchTerm((e.target as HTMLInputElement).value)}
                 onFocus={() => {
                   if (typeaheadSuggestions.length > 0) {
                     setShowTypeahead(true);
@@ -3884,19 +3914,22 @@ const Stock: React.FC = () => {
                 onBlur={() => {
                   setTimeout(() => setShowTypeahead(false), 200);
                 }}
+                autoComplete="off"
+                spellCheck={false}
                 style={{ paddingRight: '40px', width: '100%', boxSizing: 'border-box' }}
               />
               <button
                 type="button"
                 onClick={() => {
                   setSearchTerm('');
+                  setListSearchTerm('');
                   setViewMode('all');
                   setSelectedDepartmentFilter('');
                   setSelectedCategoryFilter('');
                   setSelectedSizeFilter('');
                   setSelectedBrandFilter('');
                   setUnsoldFilter('off');
-                  loadStock();
+                  setStockPage(1);
                 }}
                 title="Clear all filters"
                 style={{

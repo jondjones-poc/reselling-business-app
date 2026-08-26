@@ -28,6 +28,7 @@ import {
 import ResearchItemViews from './ResearchItemViews';
 import InventoryAgeing from './InventoryAgeing';
 import SeasonalWeeklyTopItems from './SeasonalWeeklyTopItems';
+import SeasonalYearlyCalendar from './SeasonalYearlyCalendar';
 import './BrandResearch.css';
 
 ChartJS.register(ArcElement, BarElement, CategoryScale, LinearScale, Tooltip, Legend);
@@ -2145,7 +2146,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       t === 'inventory-ageing'
     )
       return t;
-    return 'department';
+    return 'seasonal';
   }, [forcedView, searchParams]);
 
   /** When on menswear tab, category detail comes from `?menswearCategoryId=` (full reload on list pick). */
@@ -2351,6 +2352,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
   const [seasonalInsights, setSeasonalInsights] = useState<SeasonalInsightsPayload | null>(null);
   const [seasonalInsightsLoading, setSeasonalInsightsLoading] = useState(false);
   const [seasonalInsightsError, setSeasonalInsightsError] = useState<string | null>(null);
+  const [seasonalSubpanel, setSeasonalSubpanel] = useState<'weekly' | 'seasons' | 'yearly'>('weekly');
 
   type SourcedInsightWorstCategory = {
     name: string;
@@ -3190,7 +3192,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
   }, [researchTab]);
 
   useEffect(() => {
-    if (researchTab !== 'seasonal') return;
+    if (researchTab !== 'seasonal' || seasonalSubpanel !== 'seasons') return;
     const ac = new AbortController();
     let cancelled = false;
     const load = async () => {
@@ -3236,7 +3238,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       cancelled = true;
       ac.abort();
     };
-  }, [researchTab, seasonalDepartmentIdForApi]);
+  }, [researchTab, seasonalSubpanel, seasonalDepartmentIdForApi]);
 
   useEffect(() => {
     if (researchTab !== 'sourced') return;
@@ -3649,8 +3651,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
             const unsold_inventory_total =
               unsoldInvRaw == null || unsoldInvRaw === '' ? 0 : Number(unsoldInvRaw);
             return {
-              category_id: parseMenswearAggCategoryId(r.category_id),
-              category_name: String(r.category_name ?? '—'),
+            category_id: parseMenswearAggCategoryId(r.category_id),
+            category_name: String(r.category_name ?? '—'),
               sold_count: sold,
               unsold_count: unsold,
               total_count: total,
@@ -5168,50 +5170,50 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
   const clothingTypesInvestRiskModel = useMemo(() => {
     const minTotalListed = 2;
     const mapped = clothingTypesInventoryRows.map((r) => {
-      const bucketId = r.category_id == null ? -1 : Number(r.category_id);
-      const sold = Math.max(0, Math.floor(Number(r.sold_count) || 0));
-      const unsold = Math.max(0, Math.floor(Number(r.unsold_count) || 0));
-      const total =
-        r.total_count > 0 ? Math.floor(Number(r.total_count) || 0) : sold + unsold;
-      const ratio =
-        Number.isFinite(r.unsold_ratio) && total > 0
-          ? Math.min(1, Math.max(0, r.unsold_ratio))
-          : total > 0
-            ? unsold / total
-            : 0;
-      const strain = unsold * ratio;
-      const sellThroughPct = total > 0 ? (sold / total) * 100 : 0;
-      const profitRaw = r.total_net_profit;
-      const unsoldInvRaw = r.unsold_inventory_total;
-      const totalNetProfit =
-        profitRaw == null || profitRaw === ''
-          ? 0
-          : typeof profitRaw === 'number'
-            ? profitRaw
-            : parseFloat(String(profitRaw));
-      const unsoldInventoryTotal =
-        unsoldInvRaw == null || unsoldInvRaw === ''
-          ? 0
-          : typeof unsoldInvRaw === 'number'
-            ? unsoldInvRaw
-            : parseFloat(String(unsoldInvRaw));
+        const bucketId = r.category_id == null ? -1 : Number(r.category_id);
+        const sold = Math.max(0, Math.floor(Number(r.sold_count) || 0));
+        const unsold = Math.max(0, Math.floor(Number(r.unsold_count) || 0));
+        const total =
+          r.total_count > 0 ? Math.floor(Number(r.total_count) || 0) : sold + unsold;
+        const ratio =
+          Number.isFinite(r.unsold_ratio) && total > 0
+            ? Math.min(1, Math.max(0, r.unsold_ratio))
+            : total > 0
+              ? unsold / total
+              : 0;
+        const strain = unsold * ratio;
+        const sellThroughPct = total > 0 ? (sold / total) * 100 : 0;
+        const profitRaw = r.total_net_profit;
+        const unsoldInvRaw = r.unsold_inventory_total;
+        const totalNetProfit =
+          profitRaw == null || profitRaw === ''
+            ? 0
+            : typeof profitRaw === 'number'
+              ? profitRaw
+              : parseFloat(String(profitRaw));
+        const unsoldInventoryTotal =
+          unsoldInvRaw == null || unsoldInvRaw === ''
+            ? 0
+            : typeof unsoldInvRaw === 'number'
+              ? unsoldInvRaw
+              : parseFloat(String(unsoldInvRaw));
       const realizedProfit = Number.isFinite(totalNetProfit) ? totalNetProfit : 0;
       const inventoryTiedUp = Number.isFinite(unsoldInventoryTotal) ? unsoldInventoryTotal : 0;
       /** Sales P/L on sold lines minus purchase capital still in stock (matches department net). */
       const netPosition = realizedProfit - inventoryTiedUp;
-      return {
-        bucketId: Number.isFinite(bucketId) ? bucketId : -1,
-        label: String(r.category_name ?? '—'),
-        sold,
-        unsold,
-        total,
-        ratio,
-        strain,
-        sellThroughPct,
+        return {
+          bucketId: Number.isFinite(bucketId) ? bucketId : -1,
+          label: String(r.category_name ?? '—'),
+          sold,
+          unsold,
+          total,
+          ratio,
+          strain,
+          sellThroughPct,
         totalNetProfit: realizedProfit,
         unsoldInventoryTotal: inventoryTiedUp,
         netPosition,
-      };
+        };
     });
 
     /** Strain table / avoid strip: stuck inventory with enough listings. */
@@ -8573,18 +8575,18 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     const tableRows = [...mapped]
       .filter((r) => r.id >= 1)
       .sort((a, b) => {
-        if (a.total === 0 && b.total === 0) {
-          return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
-        }
-        if (a.total === 0) return 1;
-        if (b.total === 0) return -1;
-        return (
+      if (a.total === 0 && b.total === 0) {
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+      }
+      if (a.total === 0) return 1;
+      if (b.total === 0) return -1;
+      return (
           a.sellThroughPct - b.sellThroughPct ||
-          b.unsold - a.unsold ||
-          b.strain - a.strain ||
-          a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
-        );
-      });
+        b.unsold - a.unsold ||
+        b.strain - a.strain ||
+        a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+      );
+    });
 
     return {
       tableRows,
@@ -8888,6 +8890,17 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         <button
           type="button"
           role="tab"
+          id="research-tab-seasonal"
+          aria-selected={researchTab === 'seasonal'}
+          aria-controls="research-panel-seasonal"
+          className={`research-tab${researchTab === 'seasonal' ? ' active' : ''}`}
+          onClick={() => setResearchTab('seasonal')}
+        >
+          What To Buy Now
+        </button>
+        <button
+          type="button"
+          role="tab"
           id="research-tab-department"
           aria-selected={researchTab === 'department'}
           aria-controls="research-panel-department"
@@ -8928,17 +8941,6 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           onClick={goToClothingTypesTab}
         >
           Sales by type
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="research-tab-seasonal"
-          aria-selected={researchTab === 'seasonal'}
-          aria-controls="research-panel-seasonal"
-          className={`research-tab${researchTab === 'seasonal' ? ' active' : ''}`}
-          onClick={() => setResearchTab('seasonal')}
-        >
-          Sales by season
         </button>
         <button
           type="button"
@@ -11636,7 +11638,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                                   <a
                                     className="clothing-types-invest-risk-card clothing-types-invest-risk-card--heat"
                                     style={{ backgroundColor: heatBg, color: heatFg }}
-                                    title={
+                            title={
                                       heatByPrice
                                         ? `Net ${profitLabel} (sold P/L − stock tied up)`
                                         : heatBySignal
@@ -11654,8 +11656,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                                                 : r.unsold > r.sold
                                                   ? ' — more in stock than sold'
                                                   : ' — sold and stock even')
-                                            : undefined
-                                    }
+                                : undefined
+                            }
                                     href={menswearCategoryListHref(r.id)}
                                   >
                                     <span className="clothing-types-invest-risk-card-name">
@@ -11782,11 +11784,11 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                                         </span>
                                       </>
                                     )}
-                                  </a>
-                                </li>
+                          </a>
+                        </li>
                               );
                             })}
-                          </ul>
+                  </ul>
                         ) : menswearInvestRiskView === 'graph' ? (
                           menswearCategoryStrainModel.chartData ? (
                             <div className="clothing-types-invest-risk-chart-wrap">
@@ -11922,7 +11924,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                       </div>
                     </div>
                   ) : null}
-                  <div className="clothing-types-charts-below menswear-categories-list-charts-wrap">
+                <div className="clothing-types-charts-below menswear-categories-list-charts-wrap">
                   {renderMenswearPeriodFilter('clothing-types-charts-period-bar')}
                   <div className="clothing-types-three-pies-row">
                     <section
@@ -12026,19 +12028,19 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                         ))}
                     </div>
                   </div>
-                </div>
-                  <div className="menswear-categories-list-ask-all-wrap">
-                    <button
-                      type="button"
-                      className="menswear-categories-ask-ai-btn"
-                      disabled={menswearAskAiBusy}
-                      onClick={() => void runMenswearAllCategoriesAskAi()}
+                        </div>
+                      <div className="menswear-categories-list-ask-all-wrap">
+                        <button
+                          type="button"
+                          className="menswear-categories-ask-ai-btn"
+                          disabled={menswearAskAiBusy}
+                          onClick={() => void runMenswearAllCategoriesAskAi()}
                       aria-label="Ask AI for advice on Menswear category taxonomy"
-                    >
+                        >
                       Ask AI For Advice
-                    </button>
+                        </button>
                   </div>
-                </div>
+                      </div>
               </>
             )}
 
@@ -13348,11 +13350,11 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                       <div className="clothing-types-invest-risk-heading-controls">
                         <div
                           className="department-heat-mode-toggle"
-                          role="group"
+                    role="group"
                           aria-label="Category heat scale"
-                        >
-                          <button
-                            type="button"
+                  >
+                    <button
+                      type="button"
                             className={`department-heat-mode-btn${
                               clothingTypesHeatMode === 'buy-signal' ? ' is-active' : ''
                             }`}
@@ -13369,9 +13371,9 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                               </svg>
                             </span>
                             Buy signal
-                          </button>
-                          <button
-                            type="button"
+                    </button>
+                    <button
+                      type="button"
                             className={`department-heat-mode-btn${
                               clothingTypesHeatMode === 'price' ? ' is-active' : ''
                             }`}
@@ -13387,9 +13389,9 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                               </svg>
                             </span>
                             Price
-                          </button>
-                          <button
-                            type="button"
+                    </button>
+                    <button
+                      type="button"
                             className={`department-heat-mode-btn${
                               clothingTypesHeatMode === 'sell-through' ? ' is-active' : ''
                             }`}
@@ -13411,83 +13413,83 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                             Sell-through
                           </button>
                         </div>
-                        <div
-                          className="clothing-types-invest-risk-view-toggle"
-                          role="group"
-                          aria-label="Inventory strain view"
+                      <div
+                        className="clothing-types-invest-risk-view-toggle"
+                        role="group"
+                        aria-label="Inventory strain view"
+                      >
+                        <button
+                          type="button"
+                          className={`clothing-types-invest-risk-view-btn${
+                            clothingTypesInvestRiskView === 'cards' ? ' is-active' : ''
+                          }`}
+                          aria-pressed={clothingTypesInvestRiskView === 'cards'}
+                          aria-label="Card view"
+                          title="Card view"
+                          onClick={() => setClothingTypesInvestRiskView('cards')}
                         >
-                          <button
-                            type="button"
-                            className={`clothing-types-invest-risk-view-btn${
-                              clothingTypesInvestRiskView === 'cards' ? ' is-active' : ''
-                            }`}
-                            aria-pressed={clothingTypesInvestRiskView === 'cards'}
-                            aria-label="Card view"
-                            title="Card view"
-                            onClick={() => setClothingTypesInvestRiskView('cards')}
+                          <svg
+                            className="clothing-types-invest-risk-view-icon"
+                            viewBox="0 0 20 20"
+                            width="18"
+                            height="18"
+                            aria-hidden="true"
+                            focusable="false"
                           >
-                            <svg
-                              className="clothing-types-invest-risk-view-icon"
-                              viewBox="0 0 20 20"
-                              width="18"
-                              height="18"
-                              aria-hidden="true"
-                              focusable="false"
-                            >
-                              <rect x="2" y="2" width="7" height="7" rx="1.5" fill="currentColor" />
-                              <rect x="11" y="2" width="7" height="7" rx="1.5" fill="currentColor" />
-                              <rect x="2" y="11" width="7" height="7" rx="1.5" fill="currentColor" />
-                              <rect x="11" y="11" width="7" height="7" rx="1.5" fill="currentColor" />
-                            </svg>
-                          </button>
-                          <button
-                            type="button"
-                            className={`clothing-types-invest-risk-view-btn${
-                              clothingTypesInvestRiskView === 'graph' ? ' is-active' : ''
-                            }`}
-                            aria-pressed={clothingTypesInvestRiskView === 'graph'}
-                            aria-label="Graph view"
-                            title="Graph view"
-                            onClick={() => setClothingTypesInvestRiskView('graph')}
+                            <rect x="2" y="2" width="7" height="7" rx="1.5" fill="currentColor" />
+                            <rect x="11" y="2" width="7" height="7" rx="1.5" fill="currentColor" />
+                            <rect x="2" y="11" width="7" height="7" rx="1.5" fill="currentColor" />
+                            <rect x="11" y="11" width="7" height="7" rx="1.5" fill="currentColor" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          className={`clothing-types-invest-risk-view-btn${
+                            clothingTypesInvestRiskView === 'graph' ? ' is-active' : ''
+                          }`}
+                          aria-pressed={clothingTypesInvestRiskView === 'graph'}
+                          aria-label="Graph view"
+                          title="Graph view"
+                          onClick={() => setClothingTypesInvestRiskView('graph')}
+                        >
+                          <svg
+                            className="clothing-types-invest-risk-view-icon"
+                            viewBox="0 0 20 20"
+                            width="18"
+                            height="18"
+                            aria-hidden="true"
+                            focusable="false"
                           >
-                            <svg
-                              className="clothing-types-invest-risk-view-icon"
-                              viewBox="0 0 20 20"
-                              width="18"
-                              height="18"
-                              aria-hidden="true"
-                              focusable="false"
-                            >
                               <path
                                 fill="currentColor"
                                 d="M3 15.5V4.5a.75.75 0 0 1 1.5 0v9.25h2.25V8.5a.75.75 0 0 1 1.5 0v5.25h2.25V6.75a.75.75 0 0 1 1.5 0v6.75h2.25V10a.75.75 0 0 1 1.5 0v4.75H17a.75.75 0 0 1 0 1.5H3.75a.75.75 0 0 1-.75-.75Z"
                               />
-                            </svg>
-                          </button>
-                          <button
-                            type="button"
-                            className={`clothing-types-invest-risk-view-btn${
-                              clothingTypesInvestRiskView === 'table' ? ' is-active' : ''
-                            }`}
-                            aria-pressed={clothingTypesInvestRiskView === 'table'}
-                            aria-label="Table view"
-                            title="Table view"
-                            onClick={() => setClothingTypesInvestRiskView('table')}
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          className={`clothing-types-invest-risk-view-btn${
+                            clothingTypesInvestRiskView === 'table' ? ' is-active' : ''
+                          }`}
+                          aria-pressed={clothingTypesInvestRiskView === 'table'}
+                          aria-label="Table view"
+                          title="Table view"
+                          onClick={() => setClothingTypesInvestRiskView('table')}
+                        >
+                          <svg
+                            className="clothing-types-invest-risk-view-icon"
+                            viewBox="0 0 20 20"
+                            width="18"
+                            height="18"
+                            aria-hidden="true"
+                            focusable="false"
                           >
-                            <svg
-                              className="clothing-types-invest-risk-view-icon"
-                              viewBox="0 0 20 20"
-                              width="18"
-                              height="18"
-                              aria-hidden="true"
-                              focusable="false"
-                            >
-                              <path
+                            <path
                                 fill="currentColor"
                                 d="M3.5 4.25A1.75 1.75 0 0 1 5.25 2.5h9.5A1.75 1.75 0 0 1 16.5 4.25v11.5a1.75 1.75 0 0 1-1.75 1.75h-9.5A1.75 1.75 0 0 1 3.5 15.75V4.25Zm1.5 0v2h10v-2a.25.25 0 0 0-.25-.25h-9.5a.25.25 0 0 0-.25.25Zm0 3.5v2.5h10v-2.5H5Zm0 4v4h10v-4H5Z"
-                              />
-                            </svg>
-                          </button>
+                            />
+                          </svg>
+                        </button>
                         </div>
                       </div>
                     </div>
@@ -13503,18 +13505,18 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                       !clothingTypesInventoryError &&
                       (clothingTypesInvestRiskModel.buyOrderedRows.length > 0 ? (
                         clothingTypesInvestRiskView === 'cards' ? (
-                          <ul className="clothing-types-invest-risk-cards">
-                            {clothingTypesInvestRiskModel.buyOrderedRows.map((r) => {
-                              const sellThroughDisplay = (
-                                Math.round(r.sellThroughPct * 10) / 10
-                              ).toFixed(1);
-                              const netPct =
-                                r.total > 0 ? ((r.sold - r.unsold) / r.total) * 100 : 0;
-                              const netPctDisplay = (
-                                Math.round(Math.abs(netPct) * 10) / 10
-                              ).toFixed(1);
-                              const netPositive = netPct > 0;
-                              const netNegative = netPct < 0;
+                            <ul className="clothing-types-invest-risk-cards">
+                                {clothingTypesInvestRiskModel.buyOrderedRows.map((r) => {
+                                  const sellThroughDisplay = (
+                                    Math.round(r.sellThroughPct * 10) / 10
+                                  ).toFixed(1);
+                                  const netPct =
+                                    r.total > 0 ? ((r.sold - r.unsold) / r.total) * 100 : 0;
+                                  const netPctDisplay = (
+                                    Math.round(Math.abs(netPct) * 10) / 10
+                                  ).toFixed(1);
+                                  const netPositive = netPct > 0;
+                                  const netNegative = netPct < 0;
                               const heatByPrice = clothingTypesHeatMode === 'price';
                               const heatBySignal = clothingTypesHeatMode === 'buy-signal';
                               const profitHeatPct =
@@ -13550,9 +13552,9 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                               );
                               const volumeWeightDisplay = `${Math.round(signal.volumeWeight * 100)}%`;
                               const sampleWeightDisplay = `${Math.round(signal.sampleWeight * 100)}%`;
-                              return (
-                                <li key={`${r.bucketId}-${r.label}`}>
-                                  <a
+                                  return (
+                                    <li key={`${r.bucketId}-${r.label}`}>
+                                      <a
                                     className="clothing-types-invest-risk-card clothing-types-invest-risk-card--heat"
                                     style={{ backgroundColor: heatBg, color: heatFg }}
                                     title={
@@ -13575,14 +13577,14 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                                                   : ' — sold and stock even')
                                             : undefined
                                     }
-                                    href={clothingTypesDetailHref(
-                                      r.bucketId === -1 ? 'uncategorized' : r.bucketId,
-                                      clothingTypesListDepartmentIdForApi
-                                    )}
-                                  >
-                                    <span className="clothing-types-invest-risk-card-name">
-                                      {r.label}
-                                    </span>
+                                        href={clothingTypesDetailHref(
+                                          r.bucketId === -1 ? 'uncategorized' : r.bucketId,
+                                          clothingTypesListDepartmentIdForApi
+                                        )}
+                                      >
+                                        <span className="clothing-types-invest-risk-card-name">
+                                          {r.label}
+                                        </span>
                                     {heatByPrice ? (
                                       <>
                                         <span className="clothing-types-invest-risk-card-counts">
@@ -13678,14 +13680,14 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                                               {sellThroughDisplay}%
                                             </span>
                                             <span className="clothing-types-invest-risk-card-count-label">
-                                              Sell-through
-                                            </span>
+                                            Sell-through
                                           </span>
+                                        </span>
                                           <span className="clothing-types-invest-risk-card-count">
                                             <span className="clothing-types-invest-risk-card-count-value">
-                                              {netPositive ? '+' : netNegative ? '−' : ''}
+                                          {netPositive ? '+' : netNegative ? '−' : ''}
                                               {netPctDisplay}%
-                                            </span>
+                                        </span>
                                             <span className="clothing-types-invest-risk-card-count-label">
                                               Sold vs stock
                                             </span>
@@ -13704,23 +13706,23 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                                         </span>
                                       </>
                                     )}
-                                  </a>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        ) : clothingTypesInvestRiskView === 'graph' ? (
-                          clothingTypesInvestRiskModel.chartData ? (
-                            <div className="clothing-types-invest-risk-chart-wrap">
-                              <Bar
-                                data={clothingTypesInvestRiskModel.chartData}
-                                options={clothingTypesInvestRiskBarOptions}
-                              />
-                            </div>
+                                      </a>
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                          ) : clothingTypesInvestRiskView === 'graph' ? (
+                            clothingTypesInvestRiskModel.chartData ? (
+                              <div className="clothing-types-invest-risk-chart-wrap">
+                                <Bar
+                                  data={clothingTypesInvestRiskModel.chartData}
+                                  options={clothingTypesInvestRiskBarOptions}
+                                />
+                              </div>
+                            ) : (
+                              <div className="menswear-categories-muted">No graph data for this view.</div>
+                            )
                           ) : (
-                            <div className="menswear-categories-muted">No graph data for this view.</div>
-                          )
-                        ) : (
                           <div className="clothing-types-invest-risk-table-wrap">
                             <table className="menswear-categories-avoid-drilldown-table clothing-types-invest-risk-table">
                               <thead>
@@ -13791,7 +13793,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                               </tbody>
                             </table>
                           </div>
-                        )
+                          )
                       ) : (
                         <div className="menswear-categories-muted">
                           No categories to show for {clothingTypesResearchDepartmentLabel}.
@@ -14927,145 +14929,237 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           className="research-tab-panel"
         >
           <div className="research-seasonal-page">
-            {seasonalInsightsLoading && (
-              <p className="menswear-categories-muted">Loading sales by season…</p>
-            )}
-            {seasonalInsightsError && (
-              <div className="menswear-categories-error" role="alert">
-                {seasonalInsightsError}
+            <nav
+              className="menswear-categories-subpanel-tabs research-seasonal-subpanel-tabs"
+              role="tablist"
+              aria-label="Seasonal views"
+            >
+              <button
+                type="button"
+                role="tab"
+                id="seasonal-subpanel-weekly"
+                aria-selected={seasonalSubpanel === 'weekly'}
+                aria-controls="seasonal-subpanel-weekly-panel"
+                className={`menswear-categories-subpanel-tab${
+                  seasonalSubpanel === 'weekly' ? ' menswear-categories-subpanel-tab--active' : ''
+                }`}
+                onClick={() => setSeasonalSubpanel('weekly')}
+              >
+                Trending
+              </button>
+              <button
+                type="button"
+                role="tab"
+                id="seasonal-subpanel-seasons"
+                aria-selected={seasonalSubpanel === 'seasons'}
+                aria-controls="seasonal-subpanel-seasons-panel"
+                className={`menswear-categories-subpanel-tab${
+                  seasonalSubpanel === 'seasons' ? ' menswear-categories-subpanel-tab--active' : ''
+                }`}
+                onClick={() => setSeasonalSubpanel('seasons')}
+              >
+                By season
+              </button>
+              <button
+                type="button"
+                role="tab"
+                id="seasonal-subpanel-yearly"
+                aria-selected={seasonalSubpanel === 'yearly'}
+                aria-controls="seasonal-subpanel-yearly-panel"
+                className={`menswear-categories-subpanel-tab${
+                  seasonalSubpanel === 'yearly' ? ' menswear-categories-subpanel-tab--active' : ''
+                }`}
+                onClick={() => setSeasonalSubpanel('yearly')}
+              >
+                Yearly calendar
+              </button>
+            </nav>
+
+            {seasonalSubpanel === 'weekly' ? (
+              <div
+                id="seasonal-subpanel-weekly-panel"
+                role="tabpanel"
+                aria-labelledby="seasonal-subpanel-weekly"
+              >
+                <SeasonalWeeklyTopItems departmentId={seasonalDepartmentIdForApi} />
+              </div>
+            ) : seasonalSubpanel === 'yearly' ? (
+              <div
+                id="seasonal-subpanel-yearly-panel"
+                role="tabpanel"
+                aria-labelledby="seasonal-subpanel-yearly"
+              >
+                <SeasonalYearlyCalendar departmentId={seasonalDepartmentIdForApi} />
+              </div>
+            ) : (
+              <div
+                id="seasonal-subpanel-seasons-panel"
+                role="tabpanel"
+                aria-labelledby="seasonal-subpanel-seasons"
+              >
+                {seasonalInsightsLoading && (
+                  <p className="menswear-categories-muted">Loading sales by season…</p>
+                )}
+                {seasonalInsightsError && (
+                  <div className="menswear-categories-error" role="alert">
+                    {seasonalInsightsError}
+                  </div>
+                )}
+                {!seasonalInsightsLoading && !seasonalInsightsError && seasonalInsights && (
+                  <>
+                    {seasonalInsights.emptyMessage ? (
+                      <div className="research-seasonal-banner" role="status">
+                        {seasonalInsights.emptyMessage}
+                      </div>
+                    ) : null}
+                    {(() => {
+                      const t = new Date();
+                      const cy = t.getFullYear();
+                      const cm = t.getMonth() + 1;
+                      return (
+                        <div className="research-seasonal-grid">
+                          {seasonalInsights.columns.map((col) => {
+                            const monthCells = buildMeteorologicalSeasonMonthCells(
+                              col.seasonKey,
+                              col.refYear
+                            );
+                            return (
+                              <section
+                                key={`${col.seasonKey}-${col.refYear}`}
+                                className={
+                                  'research-seasonal-col' +
+                                  (col.isCurrentSeason ? ' research-seasonal-col--current' : '')
+                                }
+                                aria-label={`${col.displayLabel}${
+                                  col.isCurrentSeason ? ', current season' : ''
+                                }`}
+                              >
+                                <div className="research-seasonal-col-head">
+                                  <div
+                                    className="research-seasonal-badge-slot"
+                                    aria-hidden={!col.isCurrentSeason}
+                                  >
+                                    {col.isCurrentSeason ? (
+                                      <span className="research-seasonal-badge">Current season</span>
+                                    ) : null}
+                                  </div>
+                                  <div
+                                    className={`research-seasonal-season-icon-wrap research-seasonal-season-icon-wrap--${col.seasonKey}`}
+                                  >
+                                    <SeasonalInsightSeasonIcon seasonKey={col.seasonKey} />
+                                  </div>
+                                  <h3 className="research-seasonal-col-title">{col.displayLabel}</h3>
+                                  <p className="research-seasonal-col-range">
+                                    {formatResearchShortDate(col.rangeStart)} —{' '}
+                                    {formatResearchShortDate(col.rangeEnd)}
+                                  </p>
+                                  <div
+                                    className="research-seasonal-months"
+                                    aria-label="Months in this season"
+                                  >
+                                    {monthCells.map((cell) => {
+                                      const isCurrentMonth = cy === cell.year && cm === cell.month;
+                                      return (
+                                        <span
+                                          key={`${cell.year}-${cell.month}`}
+                                          className={
+                                            'research-seasonal-month-pill' +
+                                            (isCurrentMonth
+                                              ? ' research-seasonal-month-pill--current'
+                                              : '')
+                                          }
+                                        >
+                                          {cell.label}
+                                          {cell.year !== cy
+                                            ? ` ’${String(cell.year).slice(-2)}`
+                                            : ''}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                                <div className="research-seasonal-block">
+                                  <h4 className="research-seasonal-block-title">Top categories</h4>
+                                  {col.hasSalesData && col.topCategories.length > 0 ? (
+                                    <ol className="research-seasonal-list">
+                                      {col.topCategories.map((row) => (
+                                        <li key={row.name} className="research-seasonal-list-item">
+                                          <span className="research-seasonal-list-name">
+                                            {row.name}
+                                          </span>
+                                          <span className="research-seasonal-list-count">
+                                            {row.count}
+                                          </span>
+                                        </li>
+                                      ))}
+                                    </ol>
+                                  ) : (
+                                    <p className="research-seasonal-empty" role="status">
+                                      No sales in this season in your data yet.
+                                    </p>
+                                  )}
+                                </div>
+                                <div className="research-seasonal-block">
+                                  <h4 className="research-seasonal-block-title">Worst categories</h4>
+                                  {col.hasSalesData && col.worstCategories.length > 0 ? (
+                                    <ol className="research-seasonal-list">
+                                      {col.worstCategories.map((row) => (
+                                        <li
+                                          key={`worst-${row.name}`}
+                                          className="research-seasonal-list-item"
+                                        >
+                                          <span className="research-seasonal-list-name">
+                                            {row.name}
+                                          </span>
+                                          <span className="research-seasonal-list-count research-seasonal-list-count--worst">
+                                            {row.count}
+                                          </span>
+                                        </li>
+                                      ))}
+                                    </ol>
+                                  ) : (
+                                    <p className="research-seasonal-empty" role="status">
+                                      No sales in this season in your data yet.
+                                    </p>
+                                  )}
+                                </div>
+                                <div className="research-seasonal-block">
+                                  <h4 className="research-seasonal-block-title">Top brands</h4>
+                                  {col.hasSalesData && col.topBrands.length > 0 ? (
+                                    <ol className="research-seasonal-list">
+                                      {col.topBrands.map((row) => (
+                                        <li key={row.name} className="research-seasonal-list-item">
+                                          <span className="research-seasonal-list-name">
+                                            {row.name}
+                                          </span>
+                                          <span className="research-seasonal-list-count">
+                                            {row.count}
+                                          </span>
+                                        </li>
+                                      ))}
+                                    </ol>
+                                  ) : (
+                                    <p className="research-seasonal-empty" role="status">
+                                      No sales in this season in your data yet.
+                                    </p>
+                                  )}
+                                </div>
+                                {col.hasSalesData ? (
+                                  <p className="research-seasonal-foot">
+                                    {col.saleCount} sold line{col.saleCount === 1 ? '' : 's'} in
+                                    window
+                                  </p>
+                                ) : null}
+                              </section>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+                  </>
+                )}
               </div>
             )}
-            {!seasonalInsightsLoading && !seasonalInsightsError && seasonalInsights && (
-              <>
-                {seasonalInsights.emptyMessage ? (
-                  <div className="research-seasonal-banner" role="status">
-                    {seasonalInsights.emptyMessage}
-                  </div>
-                ) : null}
-                {(() => {
-                  const t = new Date();
-                  const cy = t.getFullYear();
-                  const cm = t.getMonth() + 1;
-                  return (
-                    <div className="research-seasonal-grid">
-                      {seasonalInsights.columns.map((col) => {
-                        const monthCells = buildMeteorologicalSeasonMonthCells(
-                          col.seasonKey,
-                          col.refYear
-                        );
-                        return (
-                          <section
-                            key={`${col.seasonKey}-${col.refYear}`}
-                            className={
-                              'research-seasonal-col' +
-                              (col.isCurrentSeason ? ' research-seasonal-col--current' : '')
-                            }
-                            aria-label={`${col.displayLabel}${col.isCurrentSeason ? ', current season' : ''}`}
-                          >
-                            <div className="research-seasonal-col-head">
-                              <div
-                                className="research-seasonal-badge-slot"
-                                aria-hidden={!col.isCurrentSeason}
-                              >
-                                {col.isCurrentSeason ? (
-                                  <span className="research-seasonal-badge">Current season</span>
-                                ) : null}
-                              </div>
-                              <div
-                                className={`research-seasonal-season-icon-wrap research-seasonal-season-icon-wrap--${col.seasonKey}`}
-                              >
-                                <SeasonalInsightSeasonIcon seasonKey={col.seasonKey} />
-                              </div>
-                              <h3 className="research-seasonal-col-title">{col.displayLabel}</h3>
-                              <p className="research-seasonal-col-range">
-                                {formatResearchShortDate(col.rangeStart)} —{' '}
-                                {formatResearchShortDate(col.rangeEnd)}
-                              </p>
-                              <div className="research-seasonal-months" aria-label="Months in this season">
-                                {monthCells.map((cell) => {
-                                  const isCurrentMonth = cy === cell.year && cm === cell.month;
-                                  return (
-                                    <span
-                                      key={`${cell.year}-${cell.month}`}
-                                      className={
-                                        'research-seasonal-month-pill' +
-                                        (isCurrentMonth ? ' research-seasonal-month-pill--current' : '')
-                                      }
-                                    >
-                                      {cell.label}
-                                      {cell.year !== cy ? ` ’${String(cell.year).slice(-2)}` : ''}
-                                    </span>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                            <div className="research-seasonal-block">
-                              <h4 className="research-seasonal-block-title">Top categories</h4>
-                              {col.hasSalesData && col.topCategories.length > 0 ? (
-                                <ol className="research-seasonal-list">
-                                  {col.topCategories.map((row) => (
-                                    <li key={row.name} className="research-seasonal-list-item">
-                                      <span className="research-seasonal-list-name">{row.name}</span>
-                                      <span className="research-seasonal-list-count">{row.count}</span>
-                                    </li>
-                                  ))}
-                                </ol>
-                              ) : (
-                                <p className="research-seasonal-empty" role="status">
-                                  No sales in this season in your data yet.
-                                </p>
-                              )}
-                            </div>
-                            <div className="research-seasonal-block">
-                              <h4 className="research-seasonal-block-title">Worst categories</h4>
-                              {col.hasSalesData && col.worstCategories.length > 0 ? (
-                                <ol className="research-seasonal-list">
-                                  {col.worstCategories.map((row) => (
-                                    <li key={`worst-${row.name}`} className="research-seasonal-list-item">
-                                      <span className="research-seasonal-list-name">{row.name}</span>
-                                      <span className="research-seasonal-list-count research-seasonal-list-count--worst">
-                                        {row.count}
-                                      </span>
-                                    </li>
-                                  ))}
-                                </ol>
-                              ) : (
-                                <p className="research-seasonal-empty" role="status">
-                                  No sales in this season in your data yet.
-                                </p>
-                              )}
-                            </div>
-                            <div className="research-seasonal-block">
-                              <h4 className="research-seasonal-block-title">Top brands</h4>
-                              {col.hasSalesData && col.topBrands.length > 0 ? (
-                                <ol className="research-seasonal-list">
-                                  {col.topBrands.map((row) => (
-                                    <li key={row.name} className="research-seasonal-list-item">
-                                      <span className="research-seasonal-list-name">{row.name}</span>
-                                      <span className="research-seasonal-list-count">{row.count}</span>
-                                    </li>
-                                  ))}
-                                </ol>
-                              ) : (
-                                <p className="research-seasonal-empty" role="status">
-                                  No sales in this season in your data yet.
-                                </p>
-                              )}
-                            </div>
-                            {col.hasSalesData ? (
-                              <p className="research-seasonal-foot">
-                                {col.saleCount} sold line{col.saleCount === 1 ? '' : 's'} in window
-                              </p>
-                            ) : null}
-                          </section>
-                        );
-                      })}
-                    </div>
-                  );
-                })()}
-              </>
-            )}
-            <SeasonalWeeklyTopItems departmentId={seasonalDepartmentIdForApi} />
           </div>
         </div>
       )}

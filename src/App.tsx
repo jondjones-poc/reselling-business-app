@@ -18,7 +18,7 @@ const navItems = [
   { to: '/stock', label: 'Stock' },
   { to: '/orders', label: 'Orders' },
   { to: '/reporting', label: 'Reporting' },
-  { to: '/analytics?tab=department', label: 'Analytics' },
+  { to: '/analytics?tab=seasonal', label: 'Analytics' },
   { to: '/research', label: 'Research' },
   { to: '/expenses', label: 'Accounting' },
   { to: '/sniping', label: 'Sniping' },

@@ -8322,44 +8322,28 @@ function calendarMonthSpecsInRange(startIso, endIso) {
   return specs;
 }
 
-/** Monday–Sunday window of `page` × 6 calendar months (page 0 = through this week). */
-function seasonalWeeklyRollingRange(ref = new Date(), page = 0) {
+/** Calendar year window: page 0 = current year, 1 = prior year, … */
+function seasonalWeeklyYearRange(ref = new Date(), page = 0) {
   const pageIndex = Math.max(0, Math.floor(Number(page) || 0));
   const todayUtc = new Date(Date.UTC(ref.getFullYear(), ref.getMonth(), ref.getDate()));
   const todayIso = formatDateOnlyUtc(todayUtc);
+  const year = todayUtc.getUTCFullYear() - pageIndex;
 
-  let rangeEndIso;
-  if (pageIndex === 0) {
-    const currentWeekMon = mondayOfWeekUtc(todayUtc);
-    rangeEndIso = formatDateOnlyUtc(addDaysUtc(currentWeekMon, 6));
-  } else {
-    let end = parseDateOnlyUtc(formatDateOnlyUtc(addDaysUtc(mondayOfWeekUtc(todayUtc), 6)));
-    for (let p = 0; p < pageIndex; p += 1) {
-      const sixMonthsBack = new Date(end.getTime());
-      sixMonthsBack.setUTCMonth(sixMonthsBack.getUTCMonth() - 6);
-      const start = parseDateOnlyUtc(formatDateOnlyUtc(mondayOfWeekUtc(sixMonthsBack)));
-      end = addDaysUtc(start, -1);
-    }
-    rangeEndIso = formatDateOnlyUtc(end);
-  }
+  const jan1 = new Date(Date.UTC(year, 0, 1));
+  const dec31 = new Date(Date.UTC(year, 11, 31));
+  const rangeStart = formatDateOnlyUtc(mondayOfWeekUtc(jan1));
+  const rangeEnd = formatDateOnlyUtc(addDaysUtc(mondayOfWeekUtc(dec31), 6));
 
-  const endDate = parseDateOnlyUtc(rangeEndIso);
-  const sixMonthsBack = new Date(endDate.getTime());
-  sixMonthsBack.setUTCMonth(sixMonthsBack.getUTCMonth() - 6);
-  const rangeStart = formatDateOnlyUtc(mondayOfWeekUtc(sixMonthsBack));
-
-  return { rangeStart, rangeEnd: rangeEndIso, todayIso, page: pageIndex };
+  return { rangeStart, rangeEnd, todayIso, page: pageIndex, year };
 }
 
-function seasonalWeeklyDisplayLabel(rangeStart, rangeEnd, page) {
-  if (page === 0) return 'Last 6 months';
-  return `${rangeStart} – ${rangeEnd}`;
+function seasonalWeeklyDisplayLabel(year) {
+  return String(year);
 }
 
 /**
- * Rolling 6-month windows of Monday–Sunday weeks with top 3 sold categories per week (by count).
- * Weeks are returned newest first. Query `page` (0 = current 6 months, 1 = prior 6 months, …).
- * Optional `department_id` filter.
+ * Full calendar-year windows of Monday–Sunday weeks with top 3 sold categories per week (by count).
+ * Query `page` (0 = current year, 1 = prior year, …). Optional `department_id` filter.
  */
 app.get('/api/stock/seasonal-weekly-top-items', async (req, res) => {
   try {
@@ -8371,7 +8355,7 @@ app.get('/api/stock/seasonal-weekly-top-items', async (req, res) => {
     const filterDeptId = parseOptionalBrandDepartmentFilter(req);
     const pageRaw = parseInt(String(req.query.page ?? '0'), 10);
     const page = Number.isFinite(pageRaw) && pageRaw >= 0 ? pageRaw : 0;
-    const { rangeStart, rangeEnd, todayIso } = seasonalWeeklyRollingRange(new Date(), page);
+    const { rangeStart, rangeEnd, todayIso, year } = seasonalWeeklyYearRange(new Date(), page);
 
     const salesRes = await pool.query(
       `SELECT
@@ -8408,41 +8392,52 @@ app.get('/api/stock/seasonal-weekly-top-items', async (req, res) => {
       bucket.set(categoryName, (bucket.get(categoryName) ?? 0) + 1);
     }
 
-    const monthShort = new Intl.DateTimeFormat('en-GB', { month: 'long' });
-    const months = calendarMonthSpecsInRange(rangeStart, rangeEnd)
-      .map(({ year, month }) => {
-        const weeks = weekSpecs
-          .filter((w) => {
-            const mon = parseDateOnlyUtc(w.weekStart);
-            if (!mon) return false;
-            return mon.getUTCFullYear() === year && mon.getUTCMonth() + 1 === month;
+    const monthShort = new Intl.DateTimeFormat('en-GB', { month: 'short', timeZone: 'UTC' });
+    const monthLong = new Intl.DateTimeFormat('en-GB', { month: 'long', timeZone: 'UTC' });
+    let lastMonthKey = '';
+
+    const weeks = weekSpecs
+      .slice()
+      .sort((a, b) => a.weekStart.localeCompare(b.weekStart))
+      .map((w) => {
+        const mon = parseDateOnlyUtc(w.weekStart);
+        const month = mon ? mon.getUTCMonth() + 1 : 0;
+        const weekYear = mon ? mon.getUTCFullYear() : year;
+        const monthKey = `${weekYear}-${month}`;
+        const isMonthStart = monthKey !== lastMonthKey;
+        if (isMonthStart) lastMonthKey = monthKey;
+
+        const topCategories = [...(salesByWeek.get(w.weekKey) ?? new Map()).entries()]
+          .map(([name, count]) => ({ name, count }))
+          .sort((a, b) => {
+            if (b.count !== a.count) return b.count - a.count;
+            return a.name.localeCompare(b.name);
           })
-          .map((w) => {
-            const topCategories = [...(salesByWeek.get(w.weekKey) ?? new Map()).entries()]
-              .map(([name, count]) => ({ name, count }))
-              .sort((a, b) => {
-                if (b.count !== a.count) return b.count - a.count;
-                return a.name.localeCompare(b.name);
-              })
-              .slice(0, 3);
-            return {
-              weekStart: w.weekStart,
-              weekEnd: w.weekEnd,
-              label: formatSeasonalWeekLabel(w.weekStart, w.weekEnd),
-              isCurrentWeek: todayIso >= w.weekStart && todayIso <= w.weekEnd,
-              topCategories,
-            };
-          })
-          .sort((a, b) => b.weekStart.localeCompare(a.weekStart));
+          .slice(0, 3);
+
         return {
-          year,
+          weekStart: w.weekStart,
+          weekEnd: w.weekEnd,
+          label: formatSeasonalWeekLabel(w.weekStart, w.weekEnd),
+          isCurrentWeek: todayIso >= w.weekStart && todayIso <= w.weekEnd,
           month,
-          label: monthShort.format(new Date(Date.UTC(year, month - 1, 1))),
-          weeks,
+          year: weekYear,
+          monthLabel: isMonthStart && mon ? monthShort.format(mon) : null,
+          topCategories,
+        };
+      });
+
+    const months = calendarMonthSpecsInRange(rangeStart, rangeEnd)
+      .map(({ year: y, month }) => {
+        const monthWeeks = weeks.filter((w) => w.year === y && w.month === month);
+        return {
+          year: y,
+          month,
+          label: monthLong.format(new Date(Date.UTC(y, month - 1, 1))),
+          weeks: monthWeeks.map(({ month: _m, year: _y, monthLabel: _ml, ...rest }) => rest),
         };
       })
-      .filter((m) => m.weeks.length > 0)
-      .sort((a, b) => b.year - a.year || b.month - a.month);
+      .filter((m) => m.weeks.length > 0);
 
     const hasMoreRes = await pool.query(
       `SELECT EXISTS (
@@ -8459,17 +8454,348 @@ app.get('/api/stock/seasonal-weekly-top-items', async (req, res) => {
     const hasNextPage = Boolean(hasMoreRes.rows[0]?.has_more);
 
     res.json({
-      displayLabel: seasonalWeeklyDisplayLabel(rangeStart, rangeEnd, page),
+      displayLabel: seasonalWeeklyDisplayLabel(year),
+      year,
       rangeStart,
       rangeEnd,
       page,
       hasPreviousPage: page > 0,
       hasNextPage,
+      weeks,
       months,
     });
   } catch (error) {
     console.error('seasonal-weekly-top-items failed:', error);
     res.status(500).json({ error: 'Failed to load weekly top categories', details: error.message });
+  }
+});
+
+const SEASONAL_BIMESTER_SPECS = [
+  { index: 1, startMonth: 1, endMonth: 2, label: 'Jan–Feb' },
+  { index: 2, startMonth: 3, endMonth: 4, label: 'Mar–Apr' },
+  { index: 3, startMonth: 5, endMonth: 6, label: 'May–Jun' },
+  { index: 4, startMonth: 7, endMonth: 8, label: 'Jul–Aug' },
+  { index: 5, startMonth: 9, endMonth: 10, label: 'Sep–Oct' },
+  { index: 6, startMonth: 11, endMonth: 12, label: 'Nov–Dec' },
+];
+
+/** Last day of a calendar month (1–12) in UTC. */
+function lastDayOfMonthUtc(year, month) {
+  return new Date(Date.UTC(year, month, 0));
+}
+
+/**
+ * Latest fully completed calendar year for a bimester relative to `viewYear`.
+ * Incomplete / future periods fall back to the prior year (e.g. Sep–Oct in Aug 2026 → 2025).
+ */
+function completedBimesterDataYear(viewYear, startMonth, endMonth, todayUtc) {
+  const periodEnd = lastDayOfMonthUtc(viewYear, endMonth);
+  if (todayUtc.getTime() > periodEnd.getTime()) {
+    return viewYear;
+  }
+  return viewYear - 1;
+}
+
+/**
+ * Year split into 6 bimesters (2-month periods). Top categories by item count per bimester.
+ * Each period uses the latest completed data for that slot (falls back to prior year if the
+ * view-year period is not finished yet). Query `page` (0 = current year, 1 = prior, …).
+ * GET /api/stock/seasonal-yearly-bimesters?page=0&department_id=
+ */
+app.get('/api/stock/seasonal-yearly-bimesters', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const filterDeptId = parseOptionalBrandDepartmentFilter(req);
+    const pageRaw = parseInt(String(req.query.page ?? '0'), 10);
+    const page = Number.isFinite(pageRaw) && pageRaw >= 0 ? pageRaw : 0;
+    const today = new Date();
+    const todayUtc = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+    const todayIso = formatDateOnlyUtc(todayUtc);
+    const year = todayUtc.getUTCFullYear() - page;
+    const todayMonth = todayUtc.getUTCMonth() + 1;
+
+    const periodPlans = SEASONAL_BIMESTER_SPECS.map((spec) => {
+      const dataYear = completedBimesterDataYear(
+        year,
+        spec.startMonth,
+        spec.endMonth,
+        todayUtc
+      );
+      const start = formatDateOnlyUtc(new Date(Date.UTC(dataYear, spec.startMonth - 1, 1)));
+      const end = formatDateOnlyUtc(lastDayOfMonthUtc(dataYear, spec.endMonth));
+      return {
+        ...spec,
+        dataYear,
+        start,
+        end,
+        byCategory: new Map(),
+      };
+    });
+
+    const dataYears = periodPlans.map((p) => p.dataYear);
+    const fetchYearStart = Math.min(...dataYears);
+    const fetchYearEnd = Math.max(...dataYears);
+    const rangeStart = formatDateOnlyUtc(new Date(Date.UTC(fetchYearStart, 0, 1)));
+    const rangeEndRaw = formatDateOnlyUtc(new Date(Date.UTC(fetchYearEnd, 11, 31)));
+    const rangeEnd = rangeEndRaw > todayIso ? todayIso : rangeEndRaw;
+
+    const salesRes = await pool.query(
+      `SELECT
+         COALESCE(NULLIF(TRIM(cat.category_name), ''), 'Uncategorized') AS category_name,
+         s.sale_date::date AS sale_date,
+         COALESCE(s.sale_price::numeric, 0) AS sale_price
+       FROM stock s
+       LEFT JOIN brand b ON b.id = s.brand_id
+       LEFT JOIN category cat ON cat.id = s.category_id
+       WHERE s.sale_date IS NOT NULL
+         AND s.sale_date::date >= $1::date
+         AND s.sale_date::date <= $2::date
+         AND ($3::int IS NULL OR b.department_id = $3::int)
+         AND ($3::int IS NULL OR s.category_id IS NULL OR cat.department_id = $3::int)
+         AND NOT COALESCE(s.is_inventory_write_off, false)`,
+      [rangeStart, rangeEnd, filterDeptId]
+    );
+
+    for (const row of salesRes.rows ?? []) {
+      const saleDate = normalizeDateOnlyString(row.sale_date);
+      if (!saleDate) continue;
+      const saleDay = parseDateOnlyUtc(saleDate);
+      if (!saleDay) continue;
+      const saleYear = saleDay.getUTCFullYear();
+      const month = saleDay.getUTCMonth() + 1;
+      const bucket = periodPlans.find(
+        (b) =>
+          b.dataYear === saleYear && month >= b.startMonth && month <= b.endMonth
+      );
+      if (!bucket) continue;
+      const name = String(row.category_name ?? 'Uncategorized');
+      const prev = bucket.byCategory.get(name) ?? { count: 0, saleTotal: 0 };
+      prev.count += 1;
+      prev.saleTotal += Number(row.sale_price) || 0;
+      bucket.byCategory.set(name, prev);
+    }
+
+    const bimesters = periodPlans.map((bucket) => {
+      const topCategories = Array.from(bucket.byCategory.entries())
+        .map(([name, stats]) => ({
+          name,
+          count: stats.count,
+          saleTotal: Math.round(stats.saleTotal * 100) / 100,
+        }))
+        .sort((a, b) => {
+          if (b.count !== a.count) return b.count - a.count;
+          if (b.saleTotal !== a.saleTotal) return b.saleTotal - a.saleTotal;
+          return a.name.localeCompare(b.name);
+        })
+        .slice(0, 10);
+
+      const isCurrent =
+        page === 0 && todayMonth >= bucket.startMonth && todayMonth <= bucket.endMonth;
+
+      return {
+        index: bucket.index,
+        label: bucket.label,
+        periodLabel: `Bimester ${bucket.index}`,
+        startMonth: bucket.startMonth,
+        endMonth: bucket.endMonth,
+        dataYear: bucket.dataYear,
+        start: bucket.start,
+        end: bucket.end,
+        isCurrent,
+        usedPriorYear: bucket.dataYear < year,
+        topCategories,
+      };
+    });
+
+    const hasMoreRes = await pool.query(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM stock s
+         LEFT JOIN brand b ON b.id = s.brand_id
+         WHERE s.sale_date IS NOT NULL
+           AND s.sale_date::date < $1::date
+           AND ($2::int IS NULL OR b.department_id = $2::int)
+           AND NOT COALESCE(s.is_inventory_write_off, false)
+       ) AS has_more`,
+      [rangeStart, filterDeptId]
+    );
+
+    res.json({
+      year,
+      displayLabel: String(year),
+      rangeStart,
+      rangeEnd,
+      page,
+      hasPreviousPage: page > 0,
+      hasNextPage: Boolean(hasMoreRes.rows[0]?.has_more),
+      bimesters,
+    });
+  } catch (error) {
+    console.error('seasonal-yearly-bimesters failed:', error);
+    res.status(500).json({ error: 'Failed to load yearly bimester calendar', details: error.message });
+  }
+});
+
+/**
+ * What to buy / trending / start buying ahead:
+ * - recommendations + trending: last 4 weeks (vs prior 4)
+ * - startBuying: last year's sales in the calendar months 3–5 months ahead
+ *   (e.g. August → last year’s Nov–Jan category totals)
+ * GET /api/stock/seasonal-buy-now?department_id=
+ */
+app.get('/api/stock/seasonal-buy-now', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const filterDeptId = parseOptionalBrandDepartmentFilter(req);
+    const today = new Date();
+    const todayUtc = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+
+    // Last 28 days (≈4 weeks) ending today; prior 28 days for trend.
+    const recentEnd = formatDateOnlyUtc(todayUtc);
+    const recentStart = formatDateOnlyUtc(addDaysUtc(todayUtc, -27));
+    const priorEnd = formatDateOnlyUtc(addDaysUtc(todayUtc, -28));
+    const priorStart = formatDateOnlyUtc(addDaysUtc(todayUtc, -55));
+
+    // Months +3 through +5 from today, mirrored onto last year (full calendar months).
+    const forwardStartDate = new Date(
+      Date.UTC(todayUtc.getUTCFullYear(), todayUtc.getUTCMonth() + 3, 1)
+    );
+    const forwardEndDate = new Date(
+      Date.UTC(todayUtc.getUTCFullYear(), todayUtc.getUTCMonth() + 6, 0)
+    );
+    const startBuyStartDate = new Date(
+      Date.UTC(forwardStartDate.getUTCFullYear() - 1, forwardStartDate.getUTCMonth(), 1)
+    );
+    const startBuyEndDate = new Date(
+      Date.UTC(forwardEndDate.getUTCFullYear() - 1, forwardEndDate.getUTCMonth() + 1, 0)
+    );
+    const startBuyStart = formatDateOnlyUtc(startBuyStartDate);
+    const startBuyEnd = formatDateOnlyUtc(startBuyEndDate);
+    const monthFmt = new Intl.DateTimeFormat('en-GB', { month: 'short', timeZone: 'UTC' });
+    const startBuyMonthLabel = `${monthFmt.format(startBuyStartDate)}–${monthFmt.format(startBuyEndDate)}`;
+
+    const catAggSql = `
+      SELECT
+        COALESCE(NULLIF(TRIM(cat.category_name), ''), 'Uncategorized') AS category_name,
+        COUNT(*)::int AS sold_count,
+        COALESCE(SUM(COALESCE(s.sale_price::numeric, 0)), 0)::numeric AS sale_total
+      FROM stock s
+      LEFT JOIN brand b ON b.id = s.brand_id
+      LEFT JOIN category cat ON cat.id = s.category_id
+      WHERE s.sale_date IS NOT NULL
+        AND s.sale_date::date >= $1::date
+        AND s.sale_date::date <= $2::date
+        AND NOT COALESCE(s.is_inventory_write_off, false)
+        AND ($3::int IS NULL OR b.department_id = $3::int)
+        AND ($3::int IS NULL OR s.category_id IS NULL OR cat.department_id = $3::int)
+      GROUP BY COALESCE(NULLIF(TRIM(cat.category_name), ''), 'Uncategorized')
+      ORDER BY sold_count DESC NULLS LAST, category_name ASC
+    `;
+
+    const [recentRes, priorRes, startBuyRes, inventoryRes] = await Promise.all([
+      pool.query(catAggSql, [recentStart, recentEnd, filterDeptId]),
+      pool.query(catAggSql, [priorStart, priorEnd, filterDeptId]),
+      pool.query(`${catAggSql} LIMIT 8`, [startBuyStart, startBuyEnd, filterDeptId]),
+      pool.query(
+        `SELECT
+           COALESCE(NULLIF(TRIM(cat.category_name), ''), 'Uncategorized') AS category_name,
+           COUNT(*)::int AS unsold_count
+         FROM stock s
+         LEFT JOIN brand b ON b.id = s.brand_id
+         LEFT JOIN category cat ON cat.id = s.category_id
+         WHERE s.sale_date IS NULL
+           AND NOT COALESCE(s.is_inventory_write_off, false)
+           AND ($1::int IS NULL OR b.department_id = $1::int)
+           AND ($1::int IS NULL OR s.category_id IS NULL OR cat.department_id = $1::int)
+         GROUP BY COALESCE(NULLIF(TRIM(cat.category_name), ''), 'Uncategorized')`,
+        [filterDeptId]
+      ),
+    ]);
+
+    const unsoldByName = new Map();
+    for (const row of inventoryRes.rows ?? []) {
+      unsoldByName.set(String(row.category_name), Number(row.unsold_count) || 0);
+    }
+
+    const priorByName = new Map();
+    for (const row of priorRes.rows ?? []) {
+      priorByName.set(String(row.category_name), {
+        soldCount: Number(row.sold_count) || 0,
+        saleTotal: Number(row.sale_total) || 0,
+      });
+    }
+
+    const recommendations = (recentRes.rows ?? []).slice(0, 8).map((r) => {
+      const name = String(r.category_name ?? 'Uncategorized');
+      return {
+        name,
+        soldCount: Number(r.sold_count) || 0,
+        saleTotal: Number(r.sale_total) || 0,
+        unsoldInStock: unsoldByName.get(name) ?? 0,
+      };
+    });
+
+    const trending = (recentRes.rows ?? [])
+      .map((r) => {
+        const name = String(r.category_name ?? 'Uncategorized');
+        const soldCount = Number(r.sold_count) || 0;
+        const saleTotal = Number(r.sale_total) || 0;
+        const prior = priorByName.get(name);
+        const priorSold = prior?.soldCount ?? 0;
+        let direction = 'flat';
+        if (soldCount > priorSold) direction = 'up';
+        else if (soldCount < priorSold) direction = 'down';
+        return {
+          name,
+          soldCount,
+          saleTotal,
+          priorSoldCount: priorSold,
+          direction,
+          delta: soldCount - priorSold,
+        };
+      })
+      .sort((a, b) => {
+        if (b.delta !== a.delta) return b.delta - a.delta;
+        return b.soldCount - a.soldCount;
+      })
+      .slice(0, 8)
+      .map(({ delta: _delta, ...row }) => row);
+
+    const startBuying = (startBuyRes.rows ?? []).map((r) => {
+      const name = String(r.category_name ?? 'Uncategorized');
+      return {
+        name,
+        soldCount: Number(r.sold_count) || 0,
+        saleTotal: Number(r.sale_total) || 0,
+        unsoldInStock: unsoldByName.get(name) ?? 0,
+      };
+    });
+
+    res.json({
+      windowLabel: 'Last 4 weeks',
+      recentWindow: { start: recentStart, end: recentEnd },
+      priorWindow: { start: priorStart, end: priorEnd },
+      startBuyingWindow: {
+        start: startBuyStart,
+        end: startBuyEnd,
+        monthLabel: startBuyMonthLabel,
+      },
+      recommendations,
+      trending,
+      startBuying,
+      asOf: formatDateOnlyUtc(todayUtc),
+    });
+  } catch (error) {
+    console.error('seasonal-buy-now failed:', error);
+    res.status(500).json({ error: 'Failed to load buy-now seasonal tips', details: error.message });
   }
 });
 

@@ -1,53 +1,110 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { apiUrl } from '../utils/apiBase';
 
-type WeeklyTopCategory = {
+type BuyNowRecommendation = {
+  name: string;
+  soldCount: number;
+  saleTotal: number;
+  unsoldInStock: number;
+};
+
+type TrendingRow = {
+  name: string;
+  soldCount: number;
+  saleTotal: number;
+  priorSoldCount: number;
+  direction: 'up' | 'down' | 'flat';
+};
+
+type BuyNowPayload = {
+  recommendations: BuyNowRecommendation[];
+  trending: TrendingRow[];
+  startBuying: BuyNowRecommendation[];
+  startBuyingMonthLabel: string;
+};
+
+type BimesterCategory = {
   name: string;
   count: number;
+  saleTotal: number;
 };
 
-type WeeklyCell = {
-  weekStart: string;
-  weekEnd: string;
+type BimesterPeriod = {
+  index: number;
   label: string;
-  isCurrentWeek: boolean;
-  topCategories: WeeklyTopCategory[];
+  periodLabel: string;
+  isCurrent: boolean;
+  dataYear?: number;
+  usedPriorYear?: boolean;
+  topCategories: BimesterCategory[];
 };
 
-type WeeklyMonth = {
+type YearlyBimesterPayload = {
   year: number;
-  month: number;
-  label: string;
-  weeks: WeeklyCell[];
-};
-
-type WeeklyPayload = {
   displayLabel: string;
-  rangeStart: string;
-  rangeEnd: string;
   page: number;
   hasPreviousPage: boolean;
   hasNextPage: boolean;
-  months: WeeklyMonth[];
+  bimesters: BimesterPeriod[];
 };
 
 function friendlyApiError(err: unknown): string {
   if (err instanceof Error && err.message) return err.message;
-  return 'Could not load weekly top categories';
+  return 'Could not load buy tips';
 }
 
-function formatWeeklyCategorySoldCount(count: number): string {
-  const unit = count === 1 ? 'pair' : 'pairs';
-  return `${count} ${unit}`;
+function formatGbp(value: number): string {
+  if (!Number.isFinite(value)) return '—';
+  return new Intl.NumberFormat('en-GB', {
+    style: 'currency',
+    currency: 'GBP',
+    maximumFractionDigits: 0,
+  }).format(value);
 }
 
-function formatWeeklyRangeLabel(rangeStart: string, rangeEnd: string): string {
-  const fmt = (iso: string) => {
-    const d = new Date(`${iso}T12:00:00`);
-    if (Number.isNaN(d.getTime())) return iso;
-    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-  };
-  return `${fmt(rangeStart)} – ${fmt(rangeEnd)}`;
+function formatSoldCount(count: number): string {
+  return `${count} ${count === 1 ? 'sale' : 'sales'}`;
+}
+
+function trendDirectionLabel(direction: TrendingRow['direction']): string {
+  if (direction === 'up') return 'Rising';
+  if (direction === 'down') return 'Cooling';
+  return 'Steady';
+}
+
+type BangerRow = {
+  name: string;
+  appearances: number;
+  totalSold: number;
+  saleTotal: number;
+};
+
+function buildBangersFromBimesters(bimesters: BimesterPeriod[]): BangerRow[] {
+  const byName = new Map<string, BangerRow>();
+  for (const period of bimesters) {
+    for (const row of period.topCategories ?? []) {
+      const name = String(row.name ?? '').trim();
+      if (!name) continue;
+      const prev = byName.get(name) ?? {
+        name,
+        appearances: 0,
+        totalSold: 0,
+        saleTotal: 0,
+      };
+      prev.appearances += 1;
+      prev.totalSold += Number(row.count) || 0;
+      prev.saleTotal += Number(row.saleTotal) || 0;
+      byName.set(name, prev);
+    }
+  }
+  return Array.from(byName.values())
+    .sort((a, b) => {
+      if (b.appearances !== a.appearances) return b.appearances - a.appearances;
+      if (b.totalSold !== a.totalSold) return b.totalSold - a.totalSold;
+      if (b.saleTotal !== a.saleTotal) return b.saleTotal - a.saleTotal;
+      return a.name.localeCompare(b.name);
+    })
+    .slice(0, 5);
 }
 
 type SeasonalWeeklyTopItemsProps = {
@@ -55,36 +112,42 @@ type SeasonalWeeklyTopItemsProps = {
 };
 
 const SeasonalWeeklyTopItems: React.FC<SeasonalWeeklyTopItemsProps> = ({ departmentId }) => {
-  const [data, setData] = useState<WeeklyPayload | null>(null);
-  const [page, setPage] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [buyNow, setBuyNow] = useState<BuyNowPayload | null>(null);
+  const [buyNowLoading, setBuyNowLoading] = useState(true);
+  const [buyNowError, setBuyNowError] = useState<string | null>(null);
+  const [bimesterData, setBimesterData] = useState<YearlyBimesterPayload | null>(null);
+  const [bimesterPage, setBimesterPage] = useState(0);
+  const [bimesterLoading, setBimesterLoading] = useState(true);
+  const [bimesterError, setBimesterError] = useState<string | null>(null);
 
   useEffect(() => {
-    setPage(0);
+    setBimesterPage(0);
   }, [departmentId]);
 
   useEffect(() => {
     const ac = new AbortController();
     let cancelled = false;
 
-    const load = async () => {
-      setLoading(true);
-      setError(null);
+    const loadBuyNow = async () => {
+      setBuyNowLoading(true);
+      setBuyNowError(null);
       try {
         const params = new URLSearchParams();
-        params.set('page', String(page));
         if (departmentId != null) {
           params.set('department_id', String(departmentId));
         }
-        const res = await fetch(
-          apiUrl(`/api/stock/seasonal-weekly-top-items?${params.toString()}`),
-          { signal: ac.signal }
-        );
+        const qs = params.toString();
+        const res = await fetch(apiUrl(`/api/stock/seasonal-buy-now${qs ? `?${qs}` : ''}`), {
+          signal: ac.signal,
+        });
         const text = await res.text();
-        let body: WeeklyPayload & { error?: string; details?: string };
+        let body: BuyNowPayload & {
+          startBuyingWindow?: { monthLabel?: string };
+          error?: string;
+          details?: string;
+        };
         try {
-          body = JSON.parse(text) as WeeklyPayload & { error?: string };
+          body = JSON.parse(text) as typeof body;
         } catch {
           throw new Error(text.slice(0, 200) || res.statusText);
         }
@@ -92,141 +155,410 @@ const SeasonalWeeklyTopItems: React.FC<SeasonalWeeklyTopItemsProps> = ({ departm
           throw new Error(body.error || body.details || res.statusText);
         }
         if (!cancelled) {
-          setData({
-            displayLabel: body.displayLabel,
-            rangeStart: body.rangeStart,
-            rangeEnd: body.rangeEnd,
-            page: Number(body.page) || 0,
-            hasPreviousPage: Boolean(body.hasPreviousPage),
-            hasNextPage: Boolean(body.hasNextPage),
-            months: Array.isArray(body.months) ? body.months : [],
+          const trending: TrendingRow[] = Array.isArray(body.trending)
+            ? body.trending.map((row) => {
+                const direction =
+                  row.direction === 'up' || row.direction === 'down' || row.direction === 'flat'
+                    ? row.direction
+                    : 'flat';
+                return {
+                  name: String(row.name ?? 'Uncategorized'),
+                  soldCount: Number(row.soldCount) || 0,
+                  saleTotal: Number(row.saleTotal) || 0,
+                  priorSoldCount: Number(row.priorSoldCount) || 0,
+                  direction,
+                };
+              })
+            : [];
+          setBuyNow({
+            recommendations: Array.isArray(body.recommendations) ? body.recommendations : [],
+            trending,
+            startBuying: Array.isArray(body.startBuying) ? body.startBuying : [],
+            startBuyingMonthLabel: String(
+              body.startBuyingWindow?.monthLabel || body.startBuyingMonthLabel || ''
+            ),
           });
         }
       } catch (e) {
         if (cancelled || (e instanceof DOMException && e.name === 'AbortError')) return;
-        setData(null);
-        setError(friendlyApiError(e));
+        setBuyNow(null);
+        setBuyNowError(friendlyApiError(e));
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setBuyNowLoading(false);
       }
     };
 
-    void load();
+    void loadBuyNow();
     return () => {
       cancelled = true;
       ac.abort();
     };
-  }, [departmentId, page]);
+  }, [departmentId]);
 
-  const showPagination =
-    data != null && (data.hasNextPage || data.hasPreviousPage || page > 0);
+  useEffect(() => {
+    const ac = new AbortController();
+    let cancelled = false;
 
-  if (loading && !data) {
-    return <p className="research-seasonal-weekly-muted">Loading weekly top categories…</p>;
-  }
+    const loadBimesters = async () => {
+      setBimesterLoading(true);
+      setBimesterError(null);
+      try {
+        const params = new URLSearchParams();
+        params.set('page', String(bimesterPage));
+        if (departmentId != null) {
+          params.set('department_id', String(departmentId));
+        }
+        const res = await fetch(
+          apiUrl(`/api/stock/seasonal-yearly-bimesters?${params.toString()}`),
+          { signal: ac.signal }
+        );
+        const text = await res.text();
+        let body: YearlyBimesterPayload & { error?: string; details?: string };
+        try {
+          body = JSON.parse(text) as YearlyBimesterPayload & { error?: string };
+        } catch {
+          throw new Error(text.slice(0, 200) || res.statusText);
+        }
+        if (!res.ok) {
+          throw new Error(body.error || body.details || res.statusText);
+        }
+        if (!cancelled) {
+          setBimesterData({
+            year: Number(body.year) || new Date().getFullYear(),
+            displayLabel: String(body.displayLabel ?? body.year ?? ''),
+            page: Number(body.page) || 0,
+            hasPreviousPage: Boolean(body.hasPreviousPage),
+            hasNextPage: Boolean(body.hasNextPage),
+            bimesters: Array.isArray(body.bimesters) ? body.bimesters : [],
+          });
+        }
+      } catch (e) {
+        if (cancelled || (e instanceof DOMException && e.name === 'AbortError')) return;
+        setBimesterData(null);
+        setBimesterError(friendlyApiError(e));
+      } finally {
+        if (!cancelled) setBimesterLoading(false);
+      }
+    };
 
-  if (error) {
-    return (
-      <div className="menswear-categories-error research-seasonal-weekly-error" role="alert">
-        {error}
-      </div>
-    );
-  }
+    void loadBimesters();
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [departmentId, bimesterPage]);
 
-  if (!data) return null;
+  const bangers = useMemo(
+    () => (bimesterData ? buildBangersFromBimesters(bimesterData.bimesters) : []),
+    [bimesterData]
+  );
 
   return (
-    <section className="research-seasonal-weekly" aria-label="Weekly top categories calendar">
-      <header className="research-seasonal-weekly-head">
-        <h3 className="research-seasonal-weekly-title">Weekly top categories</h3>
-      </header>
+    <div className="research-seasonal-weekly-stack">
+      <div className="research-seasonal-insights-split" aria-label="Buy and trending insights">
+        <section className="research-seasonal-buy-now" aria-label="What to buy now">
+          <header className="research-seasonal-buy-now-head">
+            <h3 className="research-seasonal-buy-now-title">What To Buy</h3>
+          </header>
 
-      {loading && data.months.length === 0 ? (
-        <p className="research-seasonal-weekly-muted" role="status">
-          Loading…
-        </p>
-      ) : null}
+          {buyNowLoading && !buyNow ? (
+            <p className="research-seasonal-weekly-muted">Loading buy tips…</p>
+          ) : null}
 
-      {data.months.length === 0 && !loading ? (
-        <p className="research-seasonal-weekly-empty" role="status">
-          No sold items in this date range yet.
-        </p>
-      ) : null}
+          {buyNowError ? (
+            <div className="menswear-categories-error research-seasonal-weekly-error" role="alert">
+              {buyNowError}
+            </div>
+          ) : null}
 
-      {data.months.map((month) => (
-            <div key={`${month.year}-${month.month}`} className="research-seasonal-weekly-month">
-              <h4 className="research-seasonal-weekly-month-title">
-                {month.label} {month.year}
-              </h4>
-              <div className="research-seasonal-weekly-grid">
-                {month.weeks.map((week) => (
-                  <article
-                    key={week.weekStart}
-                    className={
-                      'research-seasonal-weekly-cell' +
-                      (week.isCurrentWeek ? ' research-seasonal-weekly-cell--current' : '')
-                    }
-                  >
-                    <header className="research-seasonal-weekly-cell-head">
-                      <span className="research-seasonal-weekly-cell-label">{week.label}</span>
-                      {week.isCurrentWeek ? (
-                        <span className="research-seasonal-weekly-cell-badge">This week</span>
-                      ) : null}
-                    </header>
-                    {week.topCategories.length > 0 ? (
-                      <ol className="research-seasonal-weekly-items">
-                        {week.topCategories.map((row, idx) => (
-                          <li key={`${row.name}-${idx}`} className="research-seasonal-weekly-item">
-                            <span className="research-seasonal-weekly-item-rank" aria-hidden>
+          {buyNow ? (
+            buyNow.recommendations.length === 0 ? (
+              <p className="research-seasonal-weekly-empty" role="status">
+                Not enough sales in the last 4 weeks to recommend buys.
+              </p>
+            ) : (
+              <ol className="research-seasonal-buy-now-list">
+                {buyNow.recommendations.map((row, idx) => (
+                  <li key={row.name} className="research-seasonal-buy-now-item">
+                    <span className="research-seasonal-buy-now-rank" aria-hidden>
+                      {idx + 1}
+                    </span>
+                    <div className="research-seasonal-buy-now-item-body">
+                      <span className="research-seasonal-buy-now-item-name">{row.name}</span>
+                      <span className="research-seasonal-buy-now-item-meta">
+                        <span className="research-seasonal-buy-now-item-meta-part">
+                          {row.soldCount} sold
+                        </span>
+                        {row.saleTotal > 0 ? (
+                          <span className="research-seasonal-buy-now-item-meta-part">
+                            {formatGbp(row.saleTotal)}
+                          </span>
+                        ) : null}
+                        <span className="research-seasonal-buy-now-item-meta-part">
+                          {row.unsoldInStock} in stock
+                        </span>
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            )
+          ) : null}
+        </section>
+
+        <section className="research-seasonal-trending" aria-label="What's trending currently">
+          <header className="research-seasonal-buy-now-head">
+            <h3 className="research-seasonal-buy-now-title">What&apos;s Trending</h3>
+          </header>
+
+          {buyNowLoading && !buyNow ? (
+            <p className="research-seasonal-weekly-muted">Loading trends…</p>
+          ) : null}
+
+          {buyNowError ? (
+            <div className="menswear-categories-error research-seasonal-weekly-error" role="alert">
+              {buyNowError}
+            </div>
+          ) : null}
+
+          {buyNow ? (
+            buyNow.trending.length === 0 ? (
+              <p className="research-seasonal-weekly-empty" role="status">
+                No recent sales to show trends yet.
+              </p>
+            ) : (
+              <ol className="research-seasonal-buy-now-list">
+                {buyNow.trending.map((row, idx) => (
+                  <li key={row.name} className="research-seasonal-buy-now-item">
+                    <span className="research-seasonal-buy-now-rank" aria-hidden>
+                      {idx + 1}
+                    </span>
+                    <div className="research-seasonal-buy-now-item-body">
+                      <span className="research-seasonal-buy-now-item-name">
+                        {row.name}
+                        <span
+                          className={
+                            'research-seasonal-trend-pill research-seasonal-trend-pill--' +
+                            row.direction
+                          }
+                        >
+                          {trendDirectionLabel(row.direction)}
+                        </span>
+                      </span>
+                      <span className="research-seasonal-buy-now-item-meta">
+                        <span className="research-seasonal-buy-now-item-meta-part">
+                          {row.soldCount} sold recently
+                        </span>
+                        {row.saleTotal > 0 ? (
+                          <span className="research-seasonal-buy-now-item-meta-part">
+                            {formatGbp(row.saleTotal)}
+                          </span>
+                        ) : null}
+                        <span className="research-seasonal-buy-now-item-meta-part">
+                          was {row.priorSoldCount} prior
+                        </span>
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            )
+          ) : null}
+        </section>
+
+        <section className="research-seasonal-start-buying" aria-label="What to start buying">
+          <header className="research-seasonal-buy-now-head">
+            <h3 className="research-seasonal-buy-now-title">What To Start Buying</h3>
+          </header>
+
+          {buyNowLoading && !buyNow ? (
+            <p className="research-seasonal-weekly-muted">Loading forward buys…</p>
+          ) : null}
+
+          {buyNowError ? (
+            <div className="menswear-categories-error research-seasonal-weekly-error" role="alert">
+              {buyNowError}
+            </div>
+          ) : null}
+
+          {buyNow ? (
+            buyNow.startBuying.length === 0 ? (
+              <p className="research-seasonal-weekly-empty" role="status">
+                Not enough last-year sales in the +3–5 month window yet.
+              </p>
+            ) : (
+              <ol className="research-seasonal-buy-now-list">
+                {buyNow.startBuying.map((row, idx) => (
+                  <li key={row.name} className="research-seasonal-buy-now-item">
+                    <span className="research-seasonal-buy-now-rank" aria-hidden>
+                      {idx + 1}
+                    </span>
+                    <div className="research-seasonal-buy-now-item-body">
+                      <span className="research-seasonal-buy-now-item-name">{row.name}</span>
+                      <span className="research-seasonal-buy-now-item-meta">
+                        <span className="research-seasonal-buy-now-item-meta-part">
+                          {row.soldCount} sold
+                          {buyNow.startBuyingMonthLabel
+                            ? ` ${buyNow.startBuyingMonthLabel} last year`
+                            : ' in +3–5 mo last year'}
+                        </span>
+                        {row.saleTotal > 0 ? (
+                          <span className="research-seasonal-buy-now-item-meta-part">
+                            {formatGbp(row.saleTotal)}
+                          </span>
+                        ) : null}
+                        <span className="research-seasonal-buy-now-item-meta-part">
+                          {row.unsoldInStock} in stock
+                        </span>
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            )
+          ) : null}
+        </section>
+      </div>
+
+      <section className="research-seasonal-yearly" aria-label="Bimester breakdown">
+        <header className="research-seasonal-yearly-head">
+          <h3 className="research-seasonal-yearly-title">Trends Per Season</h3>
+        </header>
+
+        {bimesterLoading && !bimesterData ? (
+          <p className="research-seasonal-weekly-muted">Loading bimesters…</p>
+        ) : null}
+
+        {bimesterError ? (
+          <div className="menswear-categories-error research-seasonal-weekly-error" role="alert">
+            {bimesterError}
+          </div>
+        ) : null}
+
+        {bimesterData ? (
+          <>
+            <div className="research-seasonal-bimester-grid">
+              {bimesterData.bimesters.map((period) => (
+                <article
+                  key={period.index}
+                  className={
+                    'research-seasonal-bimester' +
+                    (period.isCurrent ? ' research-seasonal-bimester--current' : '')
+                  }
+                >
+                  <header className="research-seasonal-bimester-head">
+                    <div className="research-seasonal-bimester-titles">
+                      <h4 className="research-seasonal-bimester-label">{period.label}</h4>
+                      <span className="research-seasonal-bimester-period">
+                        {period.periodLabel}
+                        {period.dataYear != null ? ` · ${period.dataYear}` : ''}
+                      </span>
+                    </div>
+                    <span
+                      className={
+                        'research-seasonal-bimester-badge' +
+                        (period.isCurrent ? '' : ' research-seasonal-bimester-badge--placeholder')
+                      }
+                      aria-hidden={!period.isCurrent}
+                    >
+                      {period.isCurrent ? 'Now' : '\u00a0'}
+                    </span>
+                  </header>
+
+                  {period.topCategories.length > 0 ? (
+                    <ol className="research-seasonal-bimester-list">
+                      {period.topCategories.map((row, idx) => (
+                        <li
+                          key={`${period.index}-${row.name}`}
+                          className="research-seasonal-bimester-item"
+                        >
+                          <div className="research-seasonal-bimester-item-main">
+                            <span className="research-seasonal-bimester-rank" aria-hidden>
                               {idx + 1}
                             </span>
-                            <span className="research-seasonal-weekly-item-label">{row.name}</span>
-                            <span className="research-seasonal-weekly-item-count">
-                              {formatWeeklyCategorySoldCount(row.count)}
-                            </span>
-                          </li>
-                        ))}
-                      </ol>
-                    ) : (
-                      <p className="research-seasonal-weekly-empty">No sales this week</p>
-                    )}
-                  </article>
-                ))}
-              </div>
+                            <span className="research-seasonal-bimester-item-name">{row.name}</span>
+                          </div>
+                          <span className="research-seasonal-bimester-item-meta">
+                            {formatSoldCount(row.count)}
+                            {row.saleTotal > 0 ? ` · ${formatGbp(row.saleTotal)}` : ''}
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <p className="research-seasonal-weekly-empty" role="status">
+                      No sales in this bimester
+                    </p>
+                  )}
+                </article>
+              ))}
             </div>
-          ))}
 
-      {showPagination ? (
-        <nav
-          className="research-seasonal-weekly-pagination"
-          aria-label="Weekly top categories date range pagination"
-        >
-          {data.hasPreviousPage ? (
-            <button
-              type="button"
-              className="research-seasonal-weekly-pagination-button"
-              disabled={loading}
-              onClick={() => setPage((p) => Math.max(0, p - 1))}
+            <section className="research-seasonal-bangers" aria-label="Bangers">
+              <header className="research-seasonal-yearly-head">
+                <h3 className="research-seasonal-yearly-title">Bangers</h3>
+              </header>
+              {bangers.length === 0 ? (
+                <p className="research-seasonal-weekly-empty" role="status">
+                  Not enough seasonal data yet to pick bangers.
+                </p>
+              ) : (
+                <ol className="research-seasonal-bangers-list">
+                  {bangers.map((row, idx) => (
+                    <li key={row.name} className="research-seasonal-bangers-item">
+                      <span className="research-seasonal-bangers-rank" aria-hidden>
+                        {idx + 1}
+                      </span>
+                      <div className="research-seasonal-bangers-item-body">
+                        <span className="research-seasonal-bangers-item-name">{row.name}</span>
+                        <span className="research-seasonal-bangers-item-meta">
+                          <span className="research-seasonal-buy-now-item-meta-part">
+                            in {row.appearances} of 6 periods
+                          </span>
+                          <span className="research-seasonal-buy-now-item-meta-part">
+                            {formatSoldCount(row.totalSold)}
+                          </span>
+                          {row.saleTotal > 0 ? (
+                            <span className="research-seasonal-buy-now-item-meta-part">
+                              {formatGbp(row.saleTotal)}
+                            </span>
+                          ) : null}
+                        </span>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+
+            <nav
+              className="research-seasonal-weekly-pagination"
+              aria-label="Bimester year pagination"
             >
-              Previous 6 months
-            </button>
-          ) : null}
-          <span className="research-seasonal-weekly-pagination-status">
-            {formatWeeklyRangeLabel(data.rangeStart, data.rangeEnd)}
-          </span>
-          {data.hasNextPage ? (
-            <button
-              type="button"
-              className="research-seasonal-weekly-pagination-button"
-              disabled={loading}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Next 6 months
-            </button>
-          ) : null}
-        </nav>
-      ) : null}
-    </section>
+              <button
+                type="button"
+                className="research-seasonal-weekly-pagination-button"
+                disabled={bimesterLoading || !bimesterData.hasNextPage}
+                onClick={() => setBimesterPage((p) => p + 1)}
+              >
+                Previous year
+              </button>
+              <span className="research-seasonal-weekly-pagination-status">
+                {bimesterData.displayLabel || String(bimesterData.year)}
+              </span>
+              <button
+                type="button"
+                className="research-seasonal-weekly-pagination-button"
+                disabled={bimesterLoading || !bimesterData.hasPreviousPage}
+                onClick={() => setBimesterPage((p) => Math.max(0, p - 1))}
+              >
+                Next year
+              </button>
+            </nav>
+          </>
+        ) : null}
+      </section>
+    </div>
   );
 };
 
