@@ -1619,9 +1619,9 @@ const Reporting: React.FC = () => {
     }
     if (salesDateFilter === 'last-30-days') return 'Last 30 days';
     if (salesDateFilter === 'last-3-months') return 'Last 3 months';
-    if (salesDateFilter === 'current-year') return `Current year (${now.getFullYear()})`;
+    if (salesDateFilter === 'current-year') return `Current Year ${now.getFullYear()}`;
     if (salesDateFilter === 'previous-year') {
-      return previousDataYear != null ? `Previous year (${previousDataYear})` : 'Previous year';
+      return previousDataYear != null ? `Previous Year ${previousDataYear}` : 'Previous Year';
     }
     return 'All time';
   }, [salesFilterMode, salesDateFilter, monthlySummaryYear, monthlySummaryMonth, now, previousDataYear]);
