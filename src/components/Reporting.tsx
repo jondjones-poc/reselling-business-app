@@ -1668,6 +1668,7 @@ const Reporting: React.FC = () => {
         totalProfitFromSoldItems: yearSpecificTotals?.totalProfitFromSoldItems,
         unsoldInventoryValue: unsoldInventoryValue?.value ?? null,
         soldCount: yearItemsStats?.sold ?? null,
+        listedCount: yearItemsStats?.listed ?? null,
         activeListingsCount: activeListingsCount?.count ?? null,
         averageProfitMultiple: allTimeAverageProfitMultiple,
         averageDaysToSell: averageDaysToSell?.days ?? null,
@@ -1682,6 +1683,7 @@ const Reporting: React.FC = () => {
     let totalProfitFromSoldItems = 0;
     let costOfSoldItems = 0;
     let soldCount = 0;
+    let listedCount = 0;
     let profitMultipleSum = 0;
     let profitMultipleCount = 0;
     let daysToSellSum = 0;
@@ -1700,6 +1702,7 @@ const Reporting: React.FC = () => {
 
       if (isDateInSalesRange(row.purchase_date)) {
         totalPurchase += parseStockNumber(row.purchase_price) ?? 0;
+        listedCount += 1;
       }
 
       if (isDateInSalesRange(row.sale_date)) {
@@ -1750,6 +1753,7 @@ const Reporting: React.FC = () => {
       totalProfitFromSoldItems,
       unsoldInventoryValue: null,
       soldCount,
+      listedCount,
       activeListingsCount: null,
       averageProfitMultiple: profitMultipleCount > 0 ? profitMultipleSum / profitMultipleCount : null,
       averageDaysToSell: daysToSellCount > 0 ? daysToSellSum / daysToSellCount : null,
@@ -2997,6 +3001,22 @@ const Reporting: React.FC = () => {
                 <div className="total-profit-description">Sold in selected period</div>
               </div>
             ) : null}
+            {salesSummaryDisplay.listedCount != null && (
+              <div className="total-profit-card">
+                <div className="total-profit-label">
+                  Items Listed
+                  {salesSummaryDisplay.isFiltered ? ` (${salesSummaryDisplay.periodLabel})` : ' (All Time)'}
+                </div>
+                <div className="total-profit-value positive">
+                  {salesSummaryDisplay.listedCount.toLocaleString()}
+                </div>
+                <div className="total-profit-description">
+                  {salesSummaryDisplay.isFiltered
+                    ? `Stock listed in ${salesSummaryDisplay.periodLabel.toLowerCase()}`
+                    : 'Stock lines with a purchase date'}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="reporting-summary reporting-summary--grid-4 reporting-summary--grid-3">
