@@ -28,6 +28,7 @@ import {
 import ResearchItemViews from './ResearchItemViews';
 import InventoryAgeing from './InventoryAgeing';
 import SeasonalWeeklyTopItems from './SeasonalWeeklyTopItems';
+import BrandTrendingOverview from './BrandTrendingOverview';
 import SeasonalYearlyCalendar from './SeasonalYearlyCalendar';
 import './BrandResearch.css';
 
@@ -998,7 +999,17 @@ type BrandSalesOverviewCategory = {
   brands: BrandSalesOverviewBrandCard[];
 };
 
-type BrandSalesOverviewSort = 'all' | 'net_profit' | 'net_loss';
+type BrandSalesOverviewSort = 'all' | 'net_profit' | 'net_loss' | 'heat_best' | 'heat_worst';
+
+/**
+ * The score behind a brand card's heat colour: sold minus unsold, as a share of
+ * items bought. Sorting on this makes the grid run green-to-red (or the reverse).
+ * Cards with nothing bought have no colour, so they sort last either way.
+ */
+function brandCardHeatScore(card: BrandSalesOverviewBrandCard): number | null {
+  if (!Number.isFinite(card.itemsBought) || card.itemsBought <= 0) return null;
+  return ((card.itemsSold - card.itemsForSale) / card.itemsBought) * 100;
+}
 
 type BrandSalesOverviewAskAiStockItem = {
   itemName: string;
@@ -2137,6 +2148,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     const t = searchParams.get('tab');
     if (
       t === 'offline' ||
+      t === 'brand' ||
       t === 'department' ||
       t === 'menswear-categories' ||
       t === 'clothing-types' ||
@@ -2146,6 +2158,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       t === 'inventory-ageing'
     )
       return t;
+    // Legacy deep links (/analytics?brand=<id>) carry no tab but mean Sales by Brand.
+    if (searchParams.get('brand')?.trim()) return 'brand';
     return 'seasonal';
   }, [forcedView, searchParams]);
 
@@ -2207,6 +2221,36 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     return Number.isFinite(n) && n >= 1 ? n : null;
   }, [researchTab, clothingTypeSelection, searchParams]);
 
+  /**
+   * Sales by Brand tab: `brandPanel` selects the subpanel, defaulting to the trending
+   * overview. A `?brand=` deep link always means a specific brand's page, so it lands
+   * on the brands subpanel even when `brandPanel` is absent.
+   */
+  const brandSubpanel = useMemo<'trending' | 'brands'>(() => {
+    const p = searchParams.get('brandPanel')?.trim().toLowerCase();
+    if (p === 'brands') return 'brands';
+    if (p === 'trending') return 'trending';
+    return searchParams.get('brand')?.trim() ? 'brands' : 'trending';
+  }, [searchParams]);
+
+  const setBrandSubpanel = useCallback(
+    (panel: 'trending' | 'brands') => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set('tab', 'brand');
+          next.set('brandPanel', panel);
+          // Leaving the brands subpanel drops the selected brand, so returning
+          // to it later shows the card grid rather than a stale brand page.
+          if (panel === 'trending') next.delete('brand');
+          return next;
+        },
+        { replace: true }
+      );
+    },
+    [setSearchParams]
+  );
+
   const setResearchTab = useCallback(
     (
       tab:
@@ -2231,7 +2275,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         (prev) => {
           const next = new URLSearchParams(prev);
           if (tab === 'brand') {
-            next.delete('tab');
+            next.set('tab', 'brand');
             next.delete('brand');
             next.delete('menswearCategoryId');
             next.delete('menswearBrandId');
@@ -2239,8 +2283,11 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
             next.delete('clothingTypeId');
             next.delete('clothingTypeBrandId');
             next.delete('mcPanel');
+            // Clicking the tab lands on the trending overview.
+            next.delete('brandPanel');
           } else {
             next.set('tab', tab);
+            next.delete('brandPanel');
             if (tab !== 'clothing-types' && tab !== 'seasonal' && tab !== 'menswear-categories') {
               next.delete('departmentId');
             }
@@ -2265,6 +2312,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         next.delete('departmentId');
         next.delete('mcPanel');
         next.delete('mcView');
+        next.delete('brandPanel');
         return next;
       },
       { replace: false }
@@ -2278,7 +2326,9 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
   const openBrandResearchInUrl = useCallback(
     (brandId: number) => {
       const qs = new URLSearchParams();
+      qs.set('tab', 'brand');
       qs.set('brand', String(brandId));
+      qs.set('brandPanel', 'brands');
       window.location.assign(`/analytics?${qs.toString()}`);
     },
     []
@@ -2888,6 +2938,11 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     useState<BrandSalesOverviewSort>('all');
   const [brandSalesOverviewSortMenuOpen, setBrandSalesOverviewSortMenuOpen] = useState(false);
   const brandSalesOverviewSortMenuRef = useRef<HTMLDivElement>(null);
+  /**
+   * A brand sits in one card per category, so a brand with trousers and a top appears twice.
+   * Combined (default) totals those into a single card; off restores the per-category split.
+   */
+  const [brandCardsCombined, setBrandCardsCombined] = useState(true);
   const [brandCardAskAiBusyId, setBrandCardAskAiBusyId] = useState<number | null>(null);
   const [brandCardAskAiHint, setBrandCardAskAiHint] = useState<string | null>(null);
   /**
@@ -6121,25 +6176,85 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     researchTab === 'brand' && brandTagBrandId === '' && brandTabQuery.trim() === '';
 
   const brandSalesOverviewDisplayCategories = useMemo((): BrandSalesOverviewCategory[] => {
-    if (brandSalesOverviewSort === 'all') return brandSalesOverviewCategories;
-    const flat = brandSalesOverviewCategories.flatMap((c) => c.brands);
-    const sorted = [...flat].sort((a, b) => {
+    const byName = (a: BrandSalesOverviewBrandCard, b: BrandSalesOverviewBrandCard) =>
+      a.brandName.localeCompare(b.brandName, undefined, { sensitivity: 'base' });
+
+    const byNet = (a: BrandSalesOverviewBrandCard, b: BrandSalesOverviewBrandCard) => {
       const netDiff =
         brandSalesOverviewSort === 'net_profit'
           ? b.brandNetPosition - a.brandNetPosition
           : a.brandNetPosition - b.brandNetPosition;
       if (netDiff !== 0) return netDiff;
-      return a.brandName.localeCompare(b.brandName, undefined, { sensitivity: 'base' });
-    });
+      return byName(a, b);
+    };
+
+    const byHeat = (a: BrandSalesOverviewBrandCard, b: BrandSalesOverviewBrandCard) => {
+      const sa = brandCardHeatScore(a);
+      const sb = brandCardHeatScore(b);
+      if (sa == null && sb == null) return byName(a, b);
+      if (sa == null) return 1;
+      if (sb == null) return -1;
+      const diff = brandSalesOverviewSort === 'heat_best' ? sb - sa : sa - sb;
+      if (diff !== 0) return diff;
+      return byName(a, b);
+    };
+
+    const comparator =
+      brandSalesOverviewSort === 'heat_best' || brandSalesOverviewSort === 'heat_worst'
+        ? byHeat
+        : byNet;
+
+    // Nothing bought means no history to judge, and those cards render an
+    // uninformative grey. Hide them so the grid is only real signal.
+    const hasStock = (card: BrandSalesOverviewBrandCard) =>
+      Number.isFinite(card.itemsBought) && card.itemsBought > 0;
+
+    const flat = brandSalesOverviewCategories.flatMap((c) => c.brands).filter(hasStock);
+
+    if (brandCardsCombined) {
+      /*
+       * The same brand name exists as several brand rows, one per category
+       * (e.g. Ralph Lauren under both Trousers and Shirt), so it gets a card
+       * each. Merge on name and total them; the first id represents the group
+       * for click-through. Totals are additive, so summing net is correct.
+       */
+      const merged = new Map<string, BrandSalesOverviewBrandCard>();
+      for (const card of flat) {
+        const key = card.brandName.trim().toLowerCase();
+        const existing = merged.get(key);
+        if (!existing) {
+          merged.set(key, { ...card });
+          continue;
+        }
+        existing.itemsBought += card.itemsBought;
+        existing.itemsSold += card.itemsSold;
+        existing.itemsForSale += card.itemsForSale;
+        existing.totalPurchaseSpend += card.totalPurchaseSpend;
+        existing.totalSoldRevenue += card.totalSoldRevenue;
+        existing.brandNetPosition += card.brandNetPosition;
+      }
+      const combined = Array.from(merged.values()).sort(
+        brandSalesOverviewSort === 'all' ? byName : comparator
+      );
+      return [
+        { categoryId: 0, categoryName: '', categoryKind: 'stock_category', brands: combined },
+      ];
+    }
+
+    if (brandSalesOverviewSort === 'all') {
+      return brandSalesOverviewCategories
+        .map((cat) => ({ ...cat, brands: cat.brands.filter(hasStock) }))
+        .filter((cat) => cat.brands.length > 0);
+    }
     return [
       {
         categoryId: 0,
         categoryName: '',
         categoryKind: 'stock_category',
-        brands: sorted,
+        brands: [...flat].sort(comparator),
       },
     ];
-  }, [brandSalesOverviewCategories, brandSalesOverviewSort]);
+  }, [brandSalesOverviewCategories, brandSalesOverviewSort, brandCardsCombined]);
 
   useEffect(() => {
     if (researchTab !== 'brand') return;
@@ -6363,7 +6478,9 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       setBrandTagBrandId(b.id);
       setBrandTabTypeaheadOpen(false);
       const next = new URLSearchParams(searchParams);
+      next.set('tab', 'brand');
       next.set('brand', String(b.id));
+      next.set('brandPanel', 'brands');
       setSearchParams(next, { replace: true });
     },
     [searchParams, setSearchParams]
@@ -8878,6 +8995,203 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     return <Navigate to="/research?view=category-research" replace />;
   }
 
+  /**
+   * Brand search lives above the Sales by Brand subpanel tabs so it is reachable
+   * from both Trending and Brands. Picking a result routes to that brand's page.
+   */
+  const brandSearchField = (
+    <div className="brand-tag-examples-brand-select-wrap brand-research-brand-typeahead-wrap">
+      <div className="brand-research-brand-typeahead-inner">
+        <input
+          id="brand-tag-brand-select"
+          type="text"
+          role="combobox"
+          aria-expanded={brandTabTypeaheadOpen}
+          aria-controls="brand-research-brand-typeahead-listbox"
+          aria-autocomplete="list"
+          autoComplete="off"
+          aria-label="Search or select brand"
+          className="brand-tag-examples-select brand-research-brand-typeahead-input"
+          placeholder="Search or select a brand…"
+          value={brandTabQuery}
+          disabled={!brandsLoaded || researchDepartmentsLoading}
+          onChange={(e) => {
+            const v = e.target.value;
+            setBrandTabQuery(v);
+            setBrandTabTypeaheadOpen(true);
+            if (v.trim() === '') {
+              clearBrandTabSelection();
+              return;
+            }
+            const selected = brandsWithWebsites.find((br) => br.id === brandTagBrandId);
+            if (brandTagBrandId !== '' && selected && v !== selected.brand_name) {
+              brandTabInputUserEditRef.current = true;
+              setBrandTagBrandId('');
+              const next = new URLSearchParams(searchParams);
+              next.delete('brand');
+              setSearchParams(next, { replace: true });
+            }
+          }}
+          onFocus={() => setBrandTabTypeaheadOpen(true)}
+          onBlur={() => {
+            window.setTimeout(() => setBrandTabTypeaheadOpen(false), 120);
+          }}
+        />
+        {brandTabTypeaheadOpen && brandsLoaded && (
+          <ul
+            id="brand-research-brand-typeahead-listbox"
+            role="listbox"
+            className="brand-research-typeahead-dropdown"
+          >
+            {brandsWithWebsites.length === 0 ? (
+              <li className="brand-research-typeahead-empty" role="presentation">
+                No brands yet — use + to add one
+              </li>
+            ) : brandsForBrandResearchTypeahead.length === 0 ? (
+              <li className="brand-research-typeahead-empty" role="presentation">
+                No brands in this department
+              </li>
+            ) : brandTabTypeaheadList.length === 0 ? (
+              <li className="brand-research-typeahead-empty" role="presentation">
+                No matching brands
+              </li>
+            ) : (
+              brandTabTypeaheadList.map((b) => (
+                <li
+                  key={b.id}
+                  role="option"
+                  aria-selected={brandTagBrandId === b.id}
+                  className="brand-research-typeahead-option"
+                  onMouseDown={(ev) => {
+                    ev.preventDefault();
+                    selectBrandFromBrandTabTypeahead(b);
+                  }}
+                >
+                  {b.brand_name}
+                </li>
+              ))
+            )}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+
+  /**
+   * Grid controls for the Brands subpanel. Rendered beside the subpanel tabs
+   * rather than inside the panel, so the brand cards start directly below them.
+   */
+  const brandGridFilters = (
+    <>
+      <button
+        type="button"
+        className="brand-research-new-brand-icon-btn"
+        aria-label="Create new brand"
+        title="New brand"
+        disabled={!brandsLoaded}
+        onClick={() => {
+          setBrandCreateOpen((o) => !o);
+          setBrandCreateError(null);
+          setBrandSalesOverviewSortMenuOpen(false);
+        }}
+      >
+        <svg
+          width="22"
+          height="22"
+          viewBox="0 0 24 24"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          aria-hidden
+        >
+          <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      </button>
+      <label
+        className="brand-sales-overview-combine-toggle"
+        title="Combine a brand's categories into one card showing its total items"
+      >
+        <input
+          type="checkbox"
+          checked={brandCardsCombined}
+          onChange={(ev) => setBrandCardsCombined(ev.target.checked)}
+        />
+        <span>Combine by brand</span>
+      </label>
+      <div
+        className="menswear-categories-sort-menu-wrap brand-sales-overview-sort-wrap"
+        ref={brandSalesOverviewSortMenuRef}
+      >
+        <button
+          type="button"
+          className={
+            'menswear-categories-icon-circle-btn menswear-categories-filter-sort-btn' +
+            (brandSalesOverviewSortMenuOpen || brandSalesOverviewSort !== 'all'
+              ? ' menswear-categories-icon-circle-btn--active'
+              : '')
+          }
+          aria-expanded={brandSalesOverviewSortMenuOpen}
+          aria-haspopup="listbox"
+          aria-label="Filter and sort brand cards"
+          title="Filter and sort"
+          disabled={!brandsLoaded}
+          onClick={() => setBrandSalesOverviewSortMenuOpen((o) => !o)}
+        >
+          <svg
+            className="menswear-categories-icon-circle-svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
+          </svg>
+        </button>
+        {brandSalesOverviewSortMenuOpen ? (
+          <ul
+            className="menswear-categories-sort-menu brand-sales-overview-sort-menu"
+            role="listbox"
+            aria-label="Sort brand cards"
+          >
+            {(
+              [
+                ['all', 'Show All'],
+                ['net_profit', 'Order by net profit'],
+                ['net_loss', 'Order by Net Loss'],
+                ['heat_best', 'Best to worst (green first)'],
+                ['heat_worst', 'Worst to best (red first)'],
+              ] as [BrandSalesOverviewSort, string][]
+            ).map(([value, label]) => (
+              <li role="presentation" key={value}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={brandSalesOverviewSort === value}
+                  className={
+                    'menswear-categories-sort-menu-option' +
+                    (brandSalesOverviewSort === value
+                      ? ' menswear-categories-sort-menu-option--active'
+                      : '')
+                  }
+                  onClick={() => {
+                    setBrandSalesOverviewSort(value);
+                    setBrandSalesOverviewSortMenuOpen(false);
+                  }}
+                >
+                  {label}
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </>
+  );
+
   return (
     <div className="research-page-container">
       {researchApiOfflineMessage && (
@@ -9648,7 +9962,73 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           aria-labelledby="research-tab-brand"
           className="research-tab-panel"
         >
-      <div className="brand-tag-examples-container">
+          <div className="brand-research-search-above-tabs">{brandSearchField}</div>
+
+          <div className="brand-research-subtab-row">
+          <nav
+            className="menswear-categories-subpanel-tabs research-seasonal-subpanel-tabs"
+            role="tablist"
+            aria-label="Brand views"
+          >
+            <button
+              type="button"
+              role="tab"
+              id="brand-subpanel-trending"
+              aria-selected={brandSubpanel === 'trending'}
+              aria-controls="brand-subpanel-trending-panel"
+              className={`menswear-categories-subpanel-tab${
+                brandSubpanel === 'trending' ? ' menswear-categories-subpanel-tab--active' : ''
+              }`}
+              onClick={() => setBrandSubpanel('trending')}
+            >
+              Trending
+            </button>
+            <button
+              type="button"
+              role="tab"
+              id="brand-subpanel-brands"
+              aria-selected={brandSubpanel === 'brands'}
+              aria-controls="brand-subpanel-brands-panel"
+              className={`menswear-categories-subpanel-tab${
+                brandSubpanel === 'brands' ? ' menswear-categories-subpanel-tab--active' : ''
+              }`}
+              onClick={() => setBrandSubpanel('brands')}
+            >
+              Brands
+            </button>
+          </nav>
+          </div>
+
+          {brandSubpanel === 'trending' ? (
+            <div
+              id="brand-subpanel-trending-panel"
+              role="tabpanel"
+              aria-labelledby="brand-subpanel-trending"
+            >
+              <BrandTrendingOverview
+                departmentId={brandResearchDepartmentFilterEffective}
+                onSelectBrand={openBrandResearchInUrl}
+              />
+            </div>
+          ) : (
+          <div
+            id="brand-subpanel-brands-panel"
+            role="tabpanel"
+            aria-labelledby="brand-subpanel-brands"
+            className={showBrandSalesOverviewGrid ? 'brand-research-brands-overlay-host' : undefined}
+          >
+            {/* Floats over the grid, so the cards below keep the full width. */}
+            {showBrandSalesOverviewGrid ? (
+              <aside className="brand-research-filters-sidebar" aria-label="Brand grid filters">
+                {brandGridFilters}
+              </aside>
+            ) : null}
+      <div
+        className={
+          'brand-tag-examples-container' +
+          (showBrandSalesOverviewGrid ? ' brand-tag-examples-container--flush' : '')
+        }
+      >
         <div
           className={
             'brand-tag-examples-form' +
@@ -9683,215 +10063,17 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
             </div>
           )}
           <div className="brand-tag-examples-brand-stack">
-            <div className="brand-tag-examples-brand-toolbar brand-tag-examples-brand-toolbar--split">
+            <div
+              className={
+                'brand-tag-examples-brand-toolbar brand-tag-examples-brand-toolbar--split' +
+                // Its controls now live beside the subpanel tabs, so the row only
+                // holds anything for a selected brand or the open create panel.
+                (brandTagBrandId === '' && !brandCreateOpen
+                  ? ' brand-tag-examples-brand-toolbar--collapsed'
+                  : '')
+              }
+            >
               <div className="brand-research-brand-toolbar-row">
-                <div className="brand-tag-examples-brand-select-wrap brand-research-brand-typeahead-wrap">
-                  <div className="brand-research-brand-typeahead-inner">
-            <input
-                      id="brand-tag-brand-select"
-                      type="text"
-                      role="combobox"
-                      aria-expanded={brandTabTypeaheadOpen}
-                      aria-controls="brand-research-brand-typeahead-listbox"
-                      aria-autocomplete="list"
-                      autoComplete="off"
-                      aria-label="Search or select brand"
-                      className="brand-tag-examples-select brand-research-brand-typeahead-input"
-                      placeholder="Search or select a brand…"
-                      value={brandTabQuery}
-                      disabled={!brandsLoaded || researchDepartmentsLoading}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setBrandTabQuery(v);
-                        setBrandTabTypeaheadOpen(true);
-                        if (v.trim() === '') {
-                          clearBrandTabSelection();
-                          return;
-                        }
-                        const selected = brandsWithWebsites.find((br) => br.id === brandTagBrandId);
-                        if (brandTagBrandId !== '' && selected && v !== selected.brand_name) {
-                          brandTabInputUserEditRef.current = true;
-                          setBrandTagBrandId('');
-                          const next = new URLSearchParams(searchParams);
-                          next.delete('brand');
-                          setSearchParams(next, { replace: true });
-                        }
-                      }}
-                      onFocus={() => setBrandTabTypeaheadOpen(true)}
-                      onBlur={() => {
-                        window.setTimeout(() => setBrandTabTypeaheadOpen(false), 120);
-                      }}
-                    />
-                    {brandTabTypeaheadOpen && brandsLoaded && (
-                      <ul
-                        id="brand-research-brand-typeahead-listbox"
-                        role="listbox"
-                        className="brand-research-typeahead-dropdown"
-                      >
-                        {brandsWithWebsites.length === 0 ? (
-                          <li className="brand-research-typeahead-empty" role="presentation">
-                            No brands yet — use + to add one
-                          </li>
-                        ) : brandsForBrandResearchTypeahead.length === 0 ? (
-                          <li className="brand-research-typeahead-empty" role="presentation">
-                            No brands in this department
-                          </li>
-                        ) : brandTabTypeaheadList.length === 0 ? (
-                          <li className="brand-research-typeahead-empty" role="presentation">
-                            No matching brands
-                          </li>
-                        ) : (
-                          brandTabTypeaheadList.map((b) => (
-                            <li
-                              key={b.id}
-                              role="option"
-                              aria-selected={brandTagBrandId === b.id}
-                              className="brand-research-typeahead-option"
-                              onMouseDown={(ev) => {
-                                ev.preventDefault();
-                                selectBrandFromBrandTabTypeahead(b);
-                              }}
-                            >
-                              {b.brand_name}
-                            </li>
-                          ))
-                        )}
-                      </ul>
-                    )}
-                  </div>
-                </div>
-                {brandTagBrandId === '' && (
-                  <button
-                    type="button"
-                    className="brand-research-new-brand-icon-btn"
-                    aria-label="Create new brand"
-                    title="New brand"
-                    disabled={!brandsLoaded}
-                    onClick={() => {
-                      setBrandCreateOpen((o) => !o);
-                      setBrandCreateError(null);
-                      setBrandSalesOverviewSortMenuOpen(false);
-                    }}
-                  >
-                    <svg
-                      width="22"
-                      height="22"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      xmlns="http://www.w3.org/2000/svg"
-                      aria-hidden
-                    >
-                      <path
-                        d="M12 5v14M5 12h14"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                  </button>
-                )}
-                {brandTagBrandId === '' && (
-                  <div
-                    className="menswear-categories-sort-menu-wrap brand-sales-overview-sort-wrap"
-                    ref={brandSalesOverviewSortMenuRef}
-                  >
-                    <button
-                      type="button"
-                      className={
-                        'menswear-categories-icon-circle-btn menswear-categories-filter-sort-btn' +
-                        (brandSalesOverviewSortMenuOpen || brandSalesOverviewSort !== 'all'
-                          ? ' menswear-categories-icon-circle-btn--active'
-                          : '')
-                      }
-                      aria-expanded={brandSalesOverviewSortMenuOpen}
-                      aria-haspopup="listbox"
-                      aria-label="Filter and sort brand cards"
-                      title="Filter and sort"
-                      disabled={!brandsLoaded}
-                      onClick={() => setBrandSalesOverviewSortMenuOpen((o) => !o)}
-                    >
-                      <svg
-                        className="menswear-categories-icon-circle-svg"
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden
-                      >
-                        <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
-                      </svg>
-                    </button>
-                    {brandSalesOverviewSortMenuOpen ? (
-                      <ul
-                        className="menswear-categories-sort-menu brand-sales-overview-sort-menu"
-                        role="listbox"
-                        aria-label="Sort brand cards"
-                      >
-                        <li role="presentation">
-                          <button
-                            type="button"
-                            role="option"
-                            aria-selected={brandSalesOverviewSort === 'all'}
-                            className={
-                              'menswear-categories-sort-menu-option' +
-                              (brandSalesOverviewSort === 'all'
-                                ? ' menswear-categories-sort-menu-option--active'
-                                : '')
-                            }
-                            onClick={() => {
-                              setBrandSalesOverviewSort('all');
-                              setBrandSalesOverviewSortMenuOpen(false);
-                            }}
-                          >
-                            Show All
-                          </button>
-                        </li>
-                        <li role="presentation">
-                          <button
-                            type="button"
-                            role="option"
-                            aria-selected={brandSalesOverviewSort === 'net_profit'}
-                            className={
-                              'menswear-categories-sort-menu-option' +
-                              (brandSalesOverviewSort === 'net_profit'
-                                ? ' menswear-categories-sort-menu-option--active'
-                                : '')
-                            }
-                            onClick={() => {
-                              setBrandSalesOverviewSort('net_profit');
-                              setBrandSalesOverviewSortMenuOpen(false);
-                            }}
-                          >
-                            Order by net profit
-                          </button>
-                        </li>
-                        <li role="presentation">
-                          <button
-                            type="button"
-                            role="option"
-                            aria-selected={brandSalesOverviewSort === 'net_loss'}
-                            className={
-                              'menswear-categories-sort-menu-option' +
-                              (brandSalesOverviewSort === 'net_loss'
-                                ? ' menswear-categories-sort-menu-option--active'
-                                : '')
-                            }
-                            onClick={() => {
-                              setBrandSalesOverviewSort('net_loss');
-                              setBrandSalesOverviewSortMenuOpen(false);
-                            }}
-                          >
-                            Order by Net Loss
-                          </button>
-                        </li>
-                      </ul>
-                    ) : null}
-                  </div>
-                )}
                 {brandTagBrandId !== '' && (
                   <div className="brand-tag-examples-brand-toolbar-actions">
                     <button
@@ -10078,7 +10260,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                             card.itemsBought
                           );
                           return (
-                            <li key={card.brandId}>
+                            // A brand can repeat across categories when the list is flattened.
+                            <li key={`${cat.categoryKind}-${cat.categoryId}-${card.brandId}`}>
                               <div
                                 className="brand-sales-overview-card brand-sales-overview-card--heat"
                                 role="button"
@@ -11173,6 +11356,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           </section>
         )}
       </div>
+          </div>
+          )}
         </div>
       )}
 

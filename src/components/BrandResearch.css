@@ -840,6 +840,28 @@
   background: rgba(var(--theme-accent-rgb), 0.05);
 }
 
+/* Sales by Brand → Trending: the avoid column reads as a warning, not a suggestion. */
+.research-brand-trending-avoid {
+  border-color: rgba(200, 70, 70, 0.28);
+  background: rgba(200, 70, 70, 0.05);
+}
+
+.research-brand-trending-link {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: rgba(var(--theme-text-rgb), 0.3);
+  text-underline-offset: 2px;
+}
+
+.research-brand-trending-link:hover {
+  text-decoration-color: currentColor;
+}
+
 .research-seasonal-trend-pill {
   display: inline-block;
   margin-left: 8px;
@@ -2983,6 +3005,34 @@ a.research-tab {
   align-self: center;
 }
 
+.brand-sales-overview-combine-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  align-self: center;
+  white-space: nowrap;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: rgba(var(--theme-text-rgb), 0.75);
+}
+
+.brand-sales-overview-combine-toggle input {
+  margin: 0;
+  cursor: pointer;
+  accent-color: rgba(var(--theme-accent-rgb), 0.9);
+}
+
+.brand-sales-overview-combine-toggle:hover {
+  color: var(--theme-text);
+}
+
+@media (max-width: 900px) {
+  .brand-sales-overview-combine-toggle span {
+    display: none;
+  }
+}
+
 .brand-sales-overview-sort-menu {
   right: 0;
   left: auto;
@@ -3202,6 +3252,125 @@ a.research-tab {
 .brand-research-brand-typeahead-wrap {
   position: relative;
   z-index: 5;
+}
+
+/* Brand search hoisted above the Trending / Brands subpanel tabs. */
+.brand-research-search-above-tabs {
+  display: flex;
+  justify-content: center;
+  margin: 0 auto 14px;
+  width: 100%;
+  max-width: 100%;
+}
+
+.brand-research-search-above-tabs .brand-research-brand-typeahead-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Subpanel tabs on the left, grid controls on the right of the same row. */
+.brand-research-subtab-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 18px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.brand-research-subtab-row .menswear-categories-subpanel-tabs {
+  margin-bottom: 0;
+}
+
+/* Anchor for the floating filter bar; the grid itself stays full width. */
+.brand-research-brands-overlay-host {
+  position: relative;
+  width: 100%;
+}
+
+/*
+ * Pinned to the viewport rather than the flow, so the cards keep the full width
+ * and the controls stay reachable while scrolling a long grid. Backdrop blur
+ * keeps it legible over whatever card it passes over.
+ */
+.brand-research-filters-sidebar {
+  position: fixed;
+  top: 50%;
+  right: 18px;
+  transform: translateY(-50%);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.28);
+  background: rgba(12, 10, 8, 0.82);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.42);
+}
+
+/* Stacked in a narrow column, the label reads better under its checkbox. */
+.brand-research-filters-sidebar .brand-sales-overview-combine-toggle {
+  flex-direction: column;
+  gap: 6px;
+  text-align: center;
+  max-width: 72px;
+  white-space: normal;
+  line-height: 1.2;
+}
+
+/* A 200px menu would overflow the column, so hang it to the left instead. */
+.brand-research-filters-sidebar .brand-sales-overview-sort-menu {
+  top: 0;
+  right: calc(100% + 12px);
+  left: auto;
+}
+
+@media (max-width: 900px) {
+  /* Too narrow to float without covering cards, so let it sit in the flow. */
+  .brand-research-filters-sidebar {
+    position: static;
+    transform: none;
+    flex-direction: row;
+    justify-content: flex-end;
+    margin: 0 0 12px auto;
+    padding: 8px 12px;
+    width: fit-content;
+  }
+
+  .brand-research-filters-sidebar .brand-sales-overview-combine-toggle {
+    flex-direction: row;
+    max-width: none;
+  }
+
+  .brand-research-filters-sidebar .brand-sales-overview-sort-menu {
+    top: calc(100% + 8px);
+    right: 0;
+  }
+}
+
+/*
+ * The brand card grid is the whole panel, so the surrounding card chrome only
+ * adds a gap under the tabs. Drop it and let the cards butt up to the tab row.
+ */
+.brand-tag-examples-container.brand-tag-examples-container--flush {
+  max-width: 100%;
+  margin-top: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.brand-tag-examples-container--flush .brand-sales-overview {
+  margin-top: 0;
+}
+
+.brand-tag-examples-brand-toolbar.brand-tag-examples-brand-toolbar--collapsed {
+  display: none;
 }
 
 .brand-research-brand-typeahead-inner {

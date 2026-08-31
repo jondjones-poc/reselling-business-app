@@ -5822,6 +5822,694 @@ app.delete('/api/research-feed/tags/:id', async (req, res) => {
   }
 });
 
+/* ---------------------------------------------------------------------------
+ * Research → Topics (database/research_topic.sql)
+ * Research a category of goods before a buying season, import a structured
+ * ChatGPT answer, and keep brands / models / personal notes per topic.
+ * ------------------------------------------------------------------------- */
+
+const RESEARCH_TOPIC_SCHEMA_VERSION = 1;
+const RESEARCH_TOPIC_STATUSES = ['researching', 'ready', 'buying', 'parked'];
+const RESEARCH_TOPIC_BRAND_TIERS = ['premium', 'mid', 'budget', 'avoid'];
+const RESEARCH_TOPIC_ITEM_VERDICTS = ['buy', 'maybe', 'avoid', 'unknown'];
+
+function researchTopicTableHint(error) {
+  if (error && error.code === '42P01') {
+    return {
+      status: 503,
+      body: {
+        error: 'research_topic tables missing',
+        details: 'Run database/research_topic.sql in your database.'
+      }
+    };
+  }
+  return null;
+}
+
+function sendResearchTopicError(res, error, message) {
+  const hint = researchTopicTableHint(error);
+  if (hint) {
+    return res.status(hint.status).json(hint.body);
+  }
+  console.error(`${message}:`, error);
+  return res.status(500).json({ error: message, details: error.message });
+}
+
+function researchTopicText(raw, maxLength) {
+  if (raw == null) return null;
+  const s = String(raw).replace(/\u0000/g, '').trim();
+  if (!s) return null;
+  return maxLength && s.length > maxLength ? s.slice(0, maxLength).trim() : s;
+}
+
+function researchTopicMoney(raw) {
+  if (raw == null || raw === '') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n * 100) / 100;
+}
+
+function researchTopicEnum(raw, allowed, fallback) {
+  const s = String(raw ?? '').trim().toLowerCase();
+  return allowed.includes(s) ? s : fallback;
+}
+
+function mapResearchTopicRow(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    status: row.status,
+    summary: row.summary,
+    seasonality: row.seasonality,
+    myNotes: row.my_notes,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    tagCount: row.tag_count != null ? Number(row.tag_count) : undefined,
+    brandCount: row.brand_count != null ? Number(row.brand_count) : undefined,
+    itemCount: row.item_count != null ? Number(row.item_count) : undefined,
+    lastImportAt: row.last_import_at ?? undefined
+  };
+}
+
+function mapResearchTopicBrandRow(row) {
+  return {
+    id: row.id,
+    topicId: row.topic_id,
+    name: row.name,
+    tier: row.tier,
+    resaleLowGbp: row.resale_low_gbp != null ? Number(row.resale_low_gbp) : null,
+    resaleHighGbp: row.resale_high_gbp != null ? Number(row.resale_high_gbp) : null,
+    buyMaxGbp: row.buy_max_gbp != null ? Number(row.buy_max_gbp) : null,
+    models: Array.isArray(row.models) ? row.models : [],
+    notes: row.notes,
+    updatedAt: row.updated_at
+  };
+}
+
+function mapResearchTopicItemRow(row) {
+  return {
+    id: row.id,
+    topicId: row.topic_id,
+    name: row.name,
+    brandName: row.brand_name,
+    whatToLookFor: row.what_to_look_for,
+    redFlags: row.red_flags,
+    howToIdentify: row.how_to_identify,
+    valueLowGbp: row.value_low_gbp != null ? Number(row.value_low_gbp) : null,
+    valueHighGbp: row.value_high_gbp != null ? Number(row.value_high_gbp) : null,
+    verdict: row.verdict,
+    myNotes: row.my_notes,
+    updatedAt: row.updated_at
+  };
+}
+
+async function loadResearchTopicOr404(pool, res, topicId) {
+  const found = await pool.query(
+    `SELECT id, name, status, summary, seasonality, my_notes, created_at, updated_at
+     FROM research_topic WHERE id = $1`,
+    [topicId]
+  );
+  if (!found.rowCount) {
+    res.status(404).json({ error: 'Topic not found' });
+    return null;
+  }
+  return found.rows[0];
+}
+
+app.get('/api/research/topics', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const result = await pool.query(`
+      SELECT t.id, t.name, t.status, t.summary, t.seasonality, t.my_notes,
+             t.created_at, t.updated_at,
+             (SELECT COUNT(*) FROM research_topic_tag g WHERE g.topic_id = t.id) AS tag_count,
+             (SELECT COUNT(*) FROM research_topic_brand b WHERE b.topic_id = t.id) AS brand_count,
+             (SELECT COUNT(*) FROM research_topic_item i WHERE i.topic_id = t.id) AS item_count,
+             (SELECT MAX(created_at) FROM research_topic_import m WHERE m.topic_id = t.id) AS last_import_at
+      FROM research_topic t
+      ORDER BY t.updated_at DESC, t.id DESC
+    `);
+    res.json({ rows: (result.rows ?? []).map(mapResearchTopicRow) });
+  } catch (error) {
+    sendResearchTopicError(res, error, 'Failed to load research topics');
+  }
+});
+
+app.post('/api/research/topics', async (req, res) => {
+  const name = researchTopicText(req.body?.name, 120);
+  if (!name) {
+    return res.status(400).json({ error: 'name is required (max 120 characters)' });
+  }
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const dup = await pool.query(
+      `SELECT id FROM research_topic WHERE lower(trim(name)) = lower(trim($1)) LIMIT 1`,
+      [name]
+    );
+    if (dup.rowCount) {
+      return res.status(409).json({ error: `Topic "${name}" already exists`, id: dup.rows[0].id });
+    }
+    const ins = await pool.query(
+      `INSERT INTO research_topic (name) VALUES ($1)
+       RETURNING id, name, status, summary, seasonality, my_notes, created_at, updated_at`,
+      [name]
+    );
+    res.status(201).json({ row: mapResearchTopicRow(ins.rows[0]) });
+  } catch (error) {
+    sendResearchTopicError(res, error, 'Failed to create research topic');
+  }
+});
+
+app.get('/api/research/topics/:id', async (req, res) => {
+  const topicId = parseInt(String(req.params.id ?? ''), 10);
+  if (!Number.isFinite(topicId) || topicId < 1) {
+    return res.status(400).json({ error: 'Invalid topic id' });
+  }
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const topic = await loadResearchTopicOr404(pool, res, topicId);
+    if (!topic) return undefined;
+
+    const [tags, brands, items, imports] = await Promise.all([
+      pool.query(
+        `SELECT id, term, created_at FROM research_topic_tag
+         WHERE topic_id = $1 ORDER BY created_at ASC, id ASC`,
+        [topicId]
+      ),
+      pool.query(
+        `SELECT id, topic_id, name, tier, resale_low_gbp, resale_high_gbp, buy_max_gbp,
+                models, notes, updated_at
+         FROM research_topic_brand WHERE topic_id = $1
+         ORDER BY CASE tier WHEN 'premium' THEN 0 WHEN 'mid' THEN 1 WHEN 'budget' THEN 2 ELSE 3 END,
+                  lower(name) ASC`,
+        [topicId]
+      ),
+      pool.query(
+        `SELECT id, topic_id, name, brand_name, what_to_look_for, red_flags, how_to_identify,
+                value_low_gbp, value_high_gbp, verdict, my_notes, updated_at
+         FROM research_topic_item WHERE topic_id = $1 ORDER BY lower(name) ASC`,
+        [topicId]
+      ),
+      pool.query(
+        `SELECT id, schema_version, summary, created_at FROM research_topic_import
+         WHERE topic_id = $1 ORDER BY created_at DESC LIMIT 10`,
+        [topicId]
+      )
+    ]);
+
+    res.json({
+      topic: mapResearchTopicRow(topic),
+      tags: tags.rows ?? [],
+      brands: (brands.rows ?? []).map(mapResearchTopicBrandRow),
+      items: (items.rows ?? []).map(mapResearchTopicItemRow),
+      imports: imports.rows ?? []
+    });
+  } catch (error) {
+    sendResearchTopicError(res, error, 'Failed to load research topic');
+  }
+});
+
+app.patch('/api/research/topics/:id', async (req, res) => {
+  const topicId = parseInt(String(req.params.id ?? ''), 10);
+  if (!Number.isFinite(topicId) || topicId < 1) {
+    return res.status(400).json({ error: 'Invalid topic id' });
+  }
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const existing = await loadResearchTopicOr404(pool, res, topicId);
+    if (!existing) return undefined;
+
+    const has = (prop) => Object.prototype.hasOwnProperty.call(req.body ?? {}, prop);
+    const name = has('name') ? researchTopicText(req.body.name, 120) : existing.name;
+    if (!name) {
+      return res.status(400).json({ error: 'name cannot be empty' });
+    }
+    const status = has('status')
+      ? researchTopicEnum(req.body.status, RESEARCH_TOPIC_STATUSES, existing.status)
+      : existing.status;
+    const summary = has('summary') ? researchTopicText(req.body.summary) : existing.summary;
+    const seasonality = has('seasonality')
+      ? researchTopicText(req.body.seasonality)
+      : existing.seasonality;
+    const myNotes = has('myNotes') ? researchTopicText(req.body.myNotes) : existing.my_notes;
+
+    const upd = await pool.query(
+      `UPDATE research_topic
+       SET name = $1, status = $2, summary = $3, seasonality = $4, my_notes = $5, updated_at = NOW()
+       WHERE id = $6
+       RETURNING id, name, status, summary, seasonality, my_notes, created_at, updated_at`,
+      [name, status, summary, seasonality, myNotes, topicId]
+    );
+    res.json({ row: mapResearchTopicRow(upd.rows[0]) });
+  } catch (error) {
+    sendResearchTopicError(res, error, 'Failed to update research topic');
+  }
+});
+
+app.delete('/api/research/topics/:id', async (req, res) => {
+  const topicId = parseInt(String(req.params.id ?? ''), 10);
+  if (!Number.isFinite(topicId) || topicId < 1) {
+    return res.status(400).json({ error: 'Invalid topic id' });
+  }
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const del = await pool.query(`DELETE FROM research_topic WHERE id = $1 RETURNING id`, [topicId]);
+    if (!del.rowCount) {
+      return res.status(404).json({ error: 'Topic not found' });
+    }
+    res.json({ ok: true, id: del.rows[0].id });
+  } catch (error) {
+    sendResearchTopicError(res, error, 'Failed to delete research topic');
+  }
+});
+
+app.get('/api/research/topics/:id/tags', async (req, res) => {
+  const topicId = parseInt(String(req.params.id ?? ''), 10);
+  if (!Number.isFinite(topicId) || topicId < 1) {
+    return res.status(400).json({ error: 'Invalid topic id' });
+  }
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const result = await pool.query(
+      `SELECT id, term, created_at FROM research_topic_tag
+       WHERE topic_id = $1 ORDER BY created_at ASC, id ASC`,
+      [topicId]
+    );
+    res.json({ rows: result.rows ?? [] });
+  } catch (error) {
+    sendResearchTopicError(res, error, 'Failed to load topic tags');
+  }
+});
+
+app.post('/api/research/topics/:id/tags', async (req, res) => {
+  const topicId = parseInt(String(req.params.id ?? ''), 10);
+  if (!Number.isFinite(topicId) || topicId < 1) {
+    return res.status(400).json({ error: 'Invalid topic id' });
+  }
+  const term = sanitizeEbayFeedSearchTerm(req.body?.term ?? '');
+  if (!term) {
+    return res.status(400).json({ error: 'term is required (non-empty string, max 120 characters)' });
+  }
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const dup = await pool.query(
+      `SELECT id, term, created_at FROM research_topic_tag
+       WHERE topic_id = $1 AND lower(trim(term)) = lower(trim($2)) LIMIT 1`,
+      [topicId, term]
+    );
+    if (dup.rowCount) {
+      return res.json({ row: dup.rows[0], created: false });
+    }
+    const ins = await pool.query(
+      `INSERT INTO research_topic_tag (topic_id, term) VALUES ($1, $2)
+       RETURNING id, term, created_at`,
+      [topicId, term]
+    );
+    res.status(201).json({ row: ins.rows[0], created: true });
+  } catch (error) {
+    if (error && error.code === '23503') {
+      return res.status(404).json({ error: 'Topic not found' });
+    }
+    sendResearchTopicError(res, error, 'Failed to save topic tag');
+  }
+});
+
+app.delete('/api/research/topic-tags/:tagId', async (req, res) => {
+  const tagId = parseInt(String(req.params.tagId ?? ''), 10);
+  if (!Number.isFinite(tagId) || tagId < 1) {
+    return res.status(400).json({ error: 'Invalid tag id' });
+  }
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const del = await pool.query(
+      `DELETE FROM research_topic_tag WHERE id = $1 RETURNING id`,
+      [tagId]
+    );
+    if (!del.rowCount) {
+      return res.status(404).json({ error: 'Tag not found' });
+    }
+    res.json({ ok: true, id: del.rows[0].id });
+  } catch (error) {
+    sendResearchTopicError(res, error, 'Failed to delete topic tag');
+  }
+});
+
+app.patch('/api/research/topic-brands/:brandId', async (req, res) => {
+  const brandId = parseInt(String(req.params.brandId ?? ''), 10);
+  if (!Number.isFinite(brandId) || brandId < 1) {
+    return res.status(400).json({ error: 'Invalid brand id' });
+  }
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const found = await pool.query(
+      `SELECT id, topic_id, name, tier, resale_low_gbp, resale_high_gbp, buy_max_gbp,
+              models, notes, updated_at
+       FROM research_topic_brand WHERE id = $1`,
+      [brandId]
+    );
+    if (!found.rowCount) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+    const existing = found.rows[0];
+    const has = (prop) => Object.prototype.hasOwnProperty.call(req.body ?? {}, prop);
+    const name = has('name') ? researchTopicText(req.body.name, 160) : existing.name;
+    if (!name) {
+      return res.status(400).json({ error: 'name cannot be empty' });
+    }
+
+    const upd = await pool.query(
+      `UPDATE research_topic_brand
+       SET name = $1, tier = $2, resale_low_gbp = $3, resale_high_gbp = $4, buy_max_gbp = $5,
+           notes = $6, updated_at = NOW()
+       WHERE id = $7
+       RETURNING id, topic_id, name, tier, resale_low_gbp, resale_high_gbp, buy_max_gbp,
+                 models, notes, updated_at`,
+      [
+        name,
+        has('tier')
+          ? researchTopicEnum(req.body.tier, RESEARCH_TOPIC_BRAND_TIERS, existing.tier)
+          : existing.tier,
+        has('resaleLowGbp') ? researchTopicMoney(req.body.resaleLowGbp) : existing.resale_low_gbp,
+        has('resaleHighGbp') ? researchTopicMoney(req.body.resaleHighGbp) : existing.resale_high_gbp,
+        has('buyMaxGbp') ? researchTopicMoney(req.body.buyMaxGbp) : existing.buy_max_gbp,
+        has('notes') ? researchTopicText(req.body.notes) : existing.notes,
+        brandId
+      ]
+    );
+    res.json({ row: mapResearchTopicBrandRow(upd.rows[0]) });
+  } catch (error) {
+    sendResearchTopicError(res, error, 'Failed to update topic brand');
+  }
+});
+
+app.delete('/api/research/topic-brands/:brandId', async (req, res) => {
+  const brandId = parseInt(String(req.params.brandId ?? ''), 10);
+  if (!Number.isFinite(brandId) || brandId < 1) {
+    return res.status(400).json({ error: 'Invalid brand id' });
+  }
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const del = await pool.query(
+      `DELETE FROM research_topic_brand WHERE id = $1 RETURNING id`,
+      [brandId]
+    );
+    if (!del.rowCount) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+    res.json({ ok: true, id: del.rows[0].id });
+  } catch (error) {
+    sendResearchTopicError(res, error, 'Failed to delete topic brand');
+  }
+});
+
+app.patch('/api/research/topic-items/:itemId', async (req, res) => {
+  const itemId = parseInt(String(req.params.itemId ?? ''), 10);
+  if (!Number.isFinite(itemId) || itemId < 1) {
+    return res.status(400).json({ error: 'Invalid item id' });
+  }
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const found = await pool.query(
+      `SELECT id, topic_id, name, brand_name, what_to_look_for, red_flags, how_to_identify,
+              value_low_gbp, value_high_gbp, verdict, my_notes, updated_at
+       FROM research_topic_item WHERE id = $1`,
+      [itemId]
+    );
+    if (!found.rowCount) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+    const existing = found.rows[0];
+    const has = (prop) => Object.prototype.hasOwnProperty.call(req.body ?? {}, prop);
+    const name = has('name') ? researchTopicText(req.body.name, 200) : existing.name;
+    if (!name) {
+      return res.status(400).json({ error: 'name cannot be empty' });
+    }
+
+    const upd = await pool.query(
+      `UPDATE research_topic_item
+       SET name = $1, brand_name = $2, what_to_look_for = $3, red_flags = $4, how_to_identify = $5,
+           value_low_gbp = $6, value_high_gbp = $7, verdict = $8, my_notes = $9, updated_at = NOW()
+       WHERE id = $10
+       RETURNING id, topic_id, name, brand_name, what_to_look_for, red_flags, how_to_identify,
+                 value_low_gbp, value_high_gbp, verdict, my_notes, updated_at`,
+      [
+        name,
+        has('brandName') ? researchTopicText(req.body.brandName, 160) : existing.brand_name,
+        has('whatToLookFor') ? researchTopicText(req.body.whatToLookFor) : existing.what_to_look_for,
+        has('redFlags') ? researchTopicText(req.body.redFlags) : existing.red_flags,
+        has('howToIdentify') ? researchTopicText(req.body.howToIdentify) : existing.how_to_identify,
+        has('valueLowGbp') ? researchTopicMoney(req.body.valueLowGbp) : existing.value_low_gbp,
+        has('valueHighGbp') ? researchTopicMoney(req.body.valueHighGbp) : existing.value_high_gbp,
+        has('verdict')
+          ? researchTopicEnum(req.body.verdict, RESEARCH_TOPIC_ITEM_VERDICTS, existing.verdict)
+          : existing.verdict,
+        has('myNotes') ? researchTopicText(req.body.myNotes) : existing.my_notes,
+        itemId
+      ]
+    );
+    res.json({ row: mapResearchTopicItemRow(upd.rows[0]) });
+  } catch (error) {
+    sendResearchTopicError(res, error, 'Failed to update topic item');
+  }
+});
+
+app.delete('/api/research/topic-items/:itemId', async (req, res) => {
+  const itemId = parseInt(String(req.params.itemId ?? ''), 10);
+  if (!Number.isFinite(itemId) || itemId < 1) {
+    return res.status(400).json({ error: 'Invalid item id' });
+  }
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    const del = await pool.query(
+      `DELETE FROM research_topic_item WHERE id = $1 RETURNING id`,
+      [itemId]
+    );
+    if (!del.rowCount) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+    res.json({ ok: true, id: del.rows[0].id });
+  } catch (error) {
+    sendResearchTopicError(res, error, 'Failed to delete topic item');
+  }
+});
+
+/**
+ * Import a structured ChatGPT research answer for a topic.
+ * Upserts brands/items/tags by name so re-importing refines rather than duplicates,
+ * and never overwrites my_notes (my own observations survive a re-import).
+ */
+app.post('/api/research/topics/:id/import', async (req, res) => {
+  const topicId = parseInt(String(req.params.id ?? ''), 10);
+  if (!Number.isFinite(topicId) || topicId < 1) {
+    return res.status(400).json({ error: 'Invalid topic id' });
+  }
+
+  let payload = req.body?.payload;
+  if (typeof payload === 'string') {
+    try {
+      payload = JSON.parse(payload);
+    } catch (e) {
+      return res.status(400).json({ error: 'payload is not valid JSON', details: e.message });
+    }
+  }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return res.status(400).json({ error: 'payload must be a JSON object' });
+  }
+
+  const brands = Array.isArray(payload.brands) ? payload.brands : [];
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  const searchTags = Array.isArray(payload.searchTags) ? payload.searchTags : [];
+  if (brands.length === 0 && items.length === 0 && searchTags.length === 0) {
+    return res.status(400).json({
+      error: 'Nothing to import',
+      details: 'Expected at least one of: brands[], items[], searchTags[].'
+    });
+  }
+
+  const pool = getDatabasePool();
+  if (!pool) {
+    return res.status(503).json({ error: 'Database not configured' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const topicRes = await client.query(`SELECT id FROM research_topic WHERE id = $1`, [topicId]);
+    if (!topicRes.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Topic not found' });
+    }
+
+    const counts = { brands: 0, items: 0, tags: 0 };
+
+    const summary = researchTopicText(payload.summary);
+    const seasonality =
+      researchTopicText(payload.seasonality) ??
+      researchTopicText(
+        payload.seasonalityNote ??
+          (payload.seasonality && typeof payload.seasonality === 'object'
+            ? JSON.stringify(payload.seasonality)
+            : null)
+      );
+    if (summary || seasonality) {
+      await client.query(
+        `UPDATE research_topic
+         SET summary = COALESCE($1, summary), seasonality = COALESCE($2, seasonality), updated_at = NOW()
+         WHERE id = $3`,
+        [summary, seasonality, topicId]
+      );
+    }
+
+    for (const raw of searchTags) {
+      const term = sanitizeEbayFeedSearchTerm(typeof raw === 'string' ? raw : raw?.term ?? '');
+      if (!term) continue;
+      const ins = await client.query(
+        `INSERT INTO research_topic_tag (topic_id, term)
+         SELECT $1, $2
+         WHERE NOT EXISTS (
+           SELECT 1 FROM research_topic_tag
+           WHERE topic_id = $1 AND lower(trim(term)) = lower(trim($2))
+         )
+         RETURNING id`,
+        [topicId, term]
+      );
+      if (ins.rowCount) counts.tags += 1;
+    }
+
+    for (const raw of brands) {
+      const name = researchTopicText(raw?.name, 160);
+      if (!name) continue;
+      const models = Array.isArray(raw?.modelsToLookFor)
+        ? raw.modelsToLookFor.filter((m) => typeof m === 'string')
+        : [];
+      await client.query(
+        `INSERT INTO research_topic_brand
+           (topic_id, name, tier, resale_low_gbp, resale_high_gbp, buy_max_gbp, models, notes, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, NOW())
+         ON CONFLICT (topic_id, lower(trim(name))) DO UPDATE SET
+           tier = EXCLUDED.tier,
+           resale_low_gbp = COALESCE(EXCLUDED.resale_low_gbp, research_topic_brand.resale_low_gbp),
+           resale_high_gbp = COALESCE(EXCLUDED.resale_high_gbp, research_topic_brand.resale_high_gbp),
+           buy_max_gbp = COALESCE(EXCLUDED.buy_max_gbp, research_topic_brand.buy_max_gbp),
+           models = EXCLUDED.models,
+           notes = COALESCE(EXCLUDED.notes, research_topic_brand.notes),
+           updated_at = NOW()`,
+        [
+          topicId,
+          name,
+          researchTopicEnum(raw?.tier, RESEARCH_TOPIC_BRAND_TIERS, 'mid'),
+          researchTopicMoney(raw?.resaleLowGbp),
+          researchTopicMoney(raw?.resaleHighGbp),
+          researchTopicMoney(raw?.buyMaxGbp),
+          JSON.stringify(models),
+          researchTopicText(raw?.notes)
+        ]
+      );
+      counts.brands += 1;
+    }
+
+    for (const raw of items) {
+      const name = researchTopicText(raw?.name, 200);
+      if (!name) continue;
+      const existing = await client.query(
+        `SELECT id FROM research_topic_item
+         WHERE topic_id = $1 AND lower(trim(name)) = lower(trim($2)) LIMIT 1`,
+        [topicId, name]
+      );
+      const values = [
+        researchTopicText(raw?.brand ?? raw?.brandName, 160),
+        researchTopicText(raw?.whatToLookFor),
+        researchTopicText(raw?.redFlags),
+        researchTopicText(raw?.howToIdentify),
+        researchTopicMoney(raw?.valueLowGbp),
+        researchTopicMoney(raw?.valueHighGbp)
+      ];
+      if (existing.rowCount) {
+        // my_notes and verdict are mine — an import refreshes the research, not my opinion.
+        await client.query(
+          `UPDATE research_topic_item
+           SET brand_name = COALESCE($1, brand_name),
+               what_to_look_for = COALESCE($2, what_to_look_for),
+               red_flags = COALESCE($3, red_flags),
+               how_to_identify = COALESCE($4, how_to_identify),
+               value_low_gbp = COALESCE($5, value_low_gbp),
+               value_high_gbp = COALESCE($6, value_high_gbp),
+               updated_at = NOW()
+           WHERE id = $7`,
+          [...values, existing.rows[0].id]
+        );
+      } else {
+        await client.query(
+          `INSERT INTO research_topic_item
+             (topic_id, name, brand_name, what_to_look_for, red_flags, how_to_identify,
+              value_low_gbp, value_high_gbp)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [topicId, name, ...values]
+        );
+      }
+      counts.items += 1;
+    }
+
+    const summaryLine = `Imported ${counts.brands} brand(s), ${counts.items} item(s), ${counts.tags} new tag(s)`;
+    await client.query(
+      `INSERT INTO research_topic_import (topic_id, schema_version, payload, summary)
+       VALUES ($1, $2, $3::jsonb, $4)`,
+      [
+        topicId,
+        Number(payload.schemaVersion) || RESEARCH_TOPIC_SCHEMA_VERSION,
+        JSON.stringify(payload),
+        summaryLine
+      ]
+    );
+    await client.query(`UPDATE research_topic SET updated_at = NOW() WHERE id = $1`, [topicId]);
+    await client.query('COMMIT');
+
+    res.status(201).json({ ok: true, counts, summary: summaryLine });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    sendResearchTopicError(res, error, 'Failed to import topic research');
+  } finally {
+    client.release();
+  }
+});
+
 const YOUTUBE_PUBLIC_FETCH_HEADERS = {
   'User-Agent':
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
@@ -7253,9 +7941,18 @@ app.get('/api/research-feed/items', async (req, res) => {
       return res.status(503).json({ error: 'Database not configured', items: [], tags: [], hasMore: false });
     }
 
-    const tagsResult = await pool.query(
-      `SELECT id, term, created_at FROM ebay_research_feed_tag ORDER BY created_at ASC, id ASC`
-    );
+    // ?topicId= narrows the feed to one Research → Topic's tags instead of the global tag list.
+    const topicId = parseInt(String(req.query.topicId ?? ''), 10);
+    const scopedToTopic = Number.isFinite(topicId) && topicId > 0;
+    const tagsResult = scopedToTopic
+      ? await pool.query(
+          `SELECT id, term, created_at FROM research_topic_tag
+           WHERE topic_id = $1 ORDER BY created_at ASC, id ASC`,
+          [topicId]
+        )
+      : await pool.query(
+          `SELECT id, term, created_at FROM ebay_research_feed_tag ORDER BY created_at ASC, id ASC`
+        );
     const tagRows = tagsResult.rows ?? [];
     if (tagRows.length === 0) {
       return res.json({ items: [], tags: [], hasMore: false, page: 0, pageSize });
@@ -14950,6 +15647,172 @@ function parseOptionalBrandDepartmentFilter(req) {
   if (!Number.isInteger(n) || n < 1) return null;
   return n;
 }
+
+/**
+ * Brand trending overview for Analytics → Sales by Brand → Trending.
+ * GET /api/research/brands/trending?department_id=&months=2&lookbackMonths=12
+ *
+ * Three lists, all excluding write-offs and the "misc" catch-all brand:
+ *  - buy / avoid: ranked on items PURCHASED in the lookback window, so the
+ *    signal is "how did the stock I actually bought perform".
+ *  - trending: revenue from items SOLD in the recent window, compared with the
+ *    immediately preceding window of equal length to give a direction.
+ */
+app.get('/api/research/brands/trending', async (req, res) => {
+  const departmentId = parseOptionalBrandDepartmentFilter(req);
+
+  const monthsRaw = parseInt(String(req.query.months ?? '2'), 10);
+  const months = Number.isFinite(monthsRaw) ? Math.min(12, Math.max(1, monthsRaw)) : 2;
+  const lookbackRaw = parseInt(String(req.query.lookbackMonths ?? '12'), 10);
+  const lookbackMonths = Number.isFinite(lookbackRaw) ? Math.min(60, Math.max(3, lookbackRaw)) : 12;
+  // A brand needs a few items before sell-through means anything.
+  const minItemsRaw = parseInt(String(req.query.minItems ?? '3'), 10);
+  const minItems = Number.isFinite(minItemsRaw) ? Math.min(50, Math.max(1, minItemsRaw)) : 3;
+
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+
+    // sale_price / net_profit are not reliably numeric in this table, hence the casts.
+    const performanceSql = `
+      WITH scoped AS (
+        SELECT s.id, s.brand_id, s.purchase_date, s.sale_date,
+               NULLIF(TRIM(s.purchase_price::text), '')::numeric AS purchase_price,
+               NULLIF(TRIM(s.sale_price::text), '')::numeric AS sale_price,
+               NULLIF(TRIM(s.net_profit::text), '')::numeric AS net_profit
+        FROM stock s
+        INNER JOIN brand b ON b.id = s.brand_id
+        WHERE NOT COALESCE(s.is_inventory_write_off, false)
+          AND s.brand_id IS NOT NULL
+          AND LOWER(TRIM(COALESCE(b.brand_name, ''))) <> 'misc'
+          AND s.purchase_date IS NOT NULL
+          AND s.purchase_date >= (CURRENT_DATE - ($1::int * INTERVAL '1 month'))
+          AND ($2::int IS NULL OR b.department_id = $2::int)
+      )
+      SELECT b.id AS brand_id,
+             b.brand_name,
+             COUNT(*)::int AS items_listed,
+             COUNT(*) FILTER (WHERE sc.sale_date IS NOT NULL)::int AS items_sold,
+             COUNT(*) FILTER (WHERE sc.sale_date IS NULL)::int AS unsold_count,
+             ROUND(
+               (COUNT(*) FILTER (WHERE sc.sale_date IS NOT NULL))::numeric
+               / NULLIF(COUNT(*), 0)::numeric * 100, 1
+             ) AS sell_through_rate,
+             COALESCE(SUM(sc.sale_price) FILTER (WHERE sc.sale_date IS NOT NULL), 0) AS revenue,
+             COALESCE(SUM(sc.net_profit) FILTER (WHERE sc.sale_date IS NOT NULL), 0) AS net_profit,
+             ROUND(
+               COALESCE(SUM(sc.net_profit) FILTER (WHERE sc.sale_date IS NOT NULL), 0)
+               / NULLIF(COUNT(*) FILTER (WHERE sc.sale_date IS NOT NULL), 0)::numeric, 2
+             ) AS avg_net_profit,
+             COALESCE(SUM(sc.purchase_price) FILTER (WHERE sc.sale_date IS NULL), 0) AS capital_tied_up
+      FROM scoped sc
+      INNER JOIN brand b ON b.id = sc.brand_id
+      GROUP BY b.id, b.brand_name
+      HAVING COUNT(*) >= $3::int
+    `;
+
+    const trendingSql = `
+      SELECT b.id AS brand_id,
+             b.brand_name,
+             COUNT(*) FILTER (WHERE s.sale_date >= (CURRENT_DATE - ($1::int * INTERVAL '1 month')))::int
+               AS sold_count,
+             COALESCE(SUM(NULLIF(TRIM(s.sale_price::text), '')::numeric)
+               FILTER (WHERE s.sale_date >= (CURRENT_DATE - ($1::int * INTERVAL '1 month'))), 0)
+               AS sale_total,
+             COALESCE(SUM(NULLIF(TRIM(s.net_profit::text), '')::numeric)
+               FILTER (WHERE s.sale_date >= (CURRENT_DATE - ($1::int * INTERVAL '1 month'))), 0)
+               AS net_profit,
+             COUNT(*) FILTER (
+               WHERE s.sale_date >= (CURRENT_DATE - (2 * $1::int * INTERVAL '1 month'))
+                 AND s.sale_date < (CURRENT_DATE - ($1::int * INTERVAL '1 month'))
+             )::int AS prior_sold_count
+      FROM stock s
+      INNER JOIN brand b ON b.id = s.brand_id
+      WHERE NOT COALESCE(s.is_inventory_write_off, false)
+        AND s.brand_id IS NOT NULL
+        AND LOWER(TRIM(COALESCE(b.brand_name, ''))) <> 'misc'
+        AND s.sale_date IS NOT NULL
+        AND s.sale_date >= (CURRENT_DATE - (2 * $1::int * INTERVAL '1 month'))
+        AND ($2::int IS NULL OR b.department_id = $2::int)
+      GROUP BY b.id, b.brand_name
+    `;
+
+    const [perf, trend] = await Promise.all([
+      pool.query(performanceSql, [lookbackMonths, departmentId, minItems]),
+      pool.query(trendingSql, [months, departmentId])
+    ]);
+
+    const perfRows = (perf.rows ?? []).map((r) => ({
+      brandId: r.brand_id,
+      brandName: r.brand_name,
+      itemsListed: Number(r.items_listed) || 0,
+      itemsSold: Number(r.items_sold) || 0,
+      unsoldCount: Number(r.unsold_count) || 0,
+      sellThroughRate: r.sell_through_rate != null ? Number(r.sell_through_rate) : 0,
+      revenue: Number(r.revenue) || 0,
+      netProfit: Number(r.net_profit) || 0,
+      avgNetProfit: r.avg_net_profit != null ? Number(r.avg_net_profit) : 0,
+      capitalTiedUp: Number(r.capital_tied_up) || 0
+    }));
+
+    // Buy: shifts reliably and earns per item. Avoid: sits unsold, or loses money.
+    const topBuy = perfRows
+      .filter((r) => r.itemsSold > 0 && r.netProfit > 0)
+      .sort(
+        (a, b) =>
+          b.sellThroughRate - a.sellThroughRate ||
+          b.avgNetProfit - a.avgNetProfit ||
+          b.netProfit - a.netProfit
+      )
+      .slice(0, 10);
+
+    const topAvoid = perfRows
+      .filter((r) => r.unsoldCount > 0 || r.netProfit < 0)
+      .sort(
+        (a, b) =>
+          a.sellThroughRate - b.sellThroughRate ||
+          b.capitalTiedUp - a.capitalTiedUp ||
+          a.netProfit - b.netProfit
+      )
+      .slice(0, 10);
+
+    const trending = (trend.rows ?? [])
+      .map((r) => {
+        const soldCount = Number(r.sold_count) || 0;
+        const priorSoldCount = Number(r.prior_sold_count) || 0;
+        let direction = 'flat';
+        if (soldCount > priorSoldCount) direction = 'up';
+        else if (soldCount < priorSoldCount) direction = 'down';
+        return {
+          brandId: r.brand_id,
+          brandName: r.brand_name,
+          soldCount,
+          saleTotal: Number(r.sale_total) || 0,
+          netProfit: Number(r.net_profit) || 0,
+          priorSoldCount,
+          direction
+        };
+      })
+      .filter((r) => r.soldCount > 0)
+      .sort((a, b) => b.saleTotal - a.saleTotal || b.soldCount - a.soldCount)
+      .slice(0, 10);
+
+    res.json({
+      departmentId,
+      months,
+      lookbackMonths,
+      minItems,
+      topBuy,
+      topAvoid,
+      trending
+    });
+  } catch (error) {
+    console.error('brand trending overview failed:', error);
+    res.status(500).json({ error: 'Failed to load brand trends', details: error.message });
+  }
+});
 
 /**
  * Brands with stock in this clothing type (stock.category_id), most sold first.

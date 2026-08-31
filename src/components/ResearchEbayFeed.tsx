@@ -88,7 +88,13 @@ function clearTagsCookie() {
   }
 }
 
-const ResearchEbayFeed: React.FC = () => {
+type ResearchEbayFeedProps = {
+  /** Scope the feed to one Research → Topic's tags; tags are then managed on the topic. */
+  topicId?: number;
+};
+
+const ResearchEbayFeed: React.FC<ResearchEbayFeedProps> = ({ topicId }) => {
+  const scopedToTopic = typeof topicId === 'number' && topicId > 0;
   const [tags, setTags] = useState<FeedTag[]>([]);
   const [tagsLoading, setTagsLoading] = useState(true);
   const [tagsError, setTagsError] = useState<string | null>(null);
@@ -110,7 +116,8 @@ const ResearchEbayFeed: React.FC = () => {
 
   const loadTags = useCallback(async (options?: { skipCookie?: boolean }): Promise<FeedTag[]> => {
     const skipCookie = options?.skipCookie === true;
-    if (!skipCookie) {
+    // The cookie cache is for the global feed only; topic tags are small and topic-specific.
+    if (!skipCookie && !scopedToTopic) {
       const cached = readTagsCookie();
       if (cached) {
         setTags(cached);
@@ -119,25 +126,29 @@ const ResearchEbayFeed: React.FC = () => {
     setTagsLoading(true);
     setTagsError(null);
     try {
-      const res = await fetch(apiUrl('/api/research-feed/tags'));
+      const res = await fetch(
+        apiUrl(scopedToTopic ? `/api/research/topics/${topicId}/tags` : '/api/research-feed/tags')
+      );
       const data = await readJson<{ rows?: FeedTag[] }>(res);
       if (!res.ok) {
         throw new Error((data as { error?: string }).error || res.statusText);
       }
       const rows = Array.isArray(data.rows) ? data.rows : [];
       setTags(rows);
-      writeTagsCookie(rows);
+      if (!scopedToTopic) {
+        writeTagsCookie(rows);
+      }
       return rows;
     } catch (e) {
       setTagsError(e instanceof Error ? e.message : 'Could not load tags');
-      if (skipCookie || !readTagsCookie()) {
+      if (scopedToTopic || skipCookie || !readTagsCookie()) {
         setTags([]);
       }
       return [];
     } finally {
       setTagsLoading(false);
     }
-  }, []);
+  }, [scopedToTopic, topicId]);
 
   useEffect(() => {
     void loadTags();
@@ -164,6 +175,9 @@ const ResearchEbayFeed: React.FC = () => {
       });
       if (maxPriceGbp != null) {
         params.set('maxPriceGbp', String(maxPriceGbp));
+      }
+      if (scopedToTopic) {
+        params.set('topicId', String(topicId));
       }
       const res = await fetch(apiUrl(`/api/research-feed/items?${params.toString()}`));
       const data = await readJson<{
@@ -193,7 +207,7 @@ const ResearchEbayFeed: React.FC = () => {
       setFeedLoading(false);
       loadInFlight.current = false;
     }
-  }, [tags.length, minPriceGbp, maxPriceGbp]);
+  }, [tags.length, minPriceGbp, maxPriceGbp, scopedToTopic, topicId]);
 
   useEffect(() => {
     if (tagsLoading) return;
@@ -290,19 +304,21 @@ const ResearchEbayFeed: React.FC = () => {
 
   return (
     <div className="research-ebay-feed">
-      <form className="research-ebay-feed-toolbar" onSubmit={handleAdd}>
-        <input
-          className="search-input research-ebay-feed-toolbar-search"
-          value={newTag}
-          onChange={(ev) => setNewTag(ev.target.value)}
-          placeholder='e.g. Vintage IKEA, "designer coat"'
-          maxLength={120}
-          aria-label="New feed tag"
-        />
-        <button type="submit" className="new-entry-button" disabled={addBusy || !newTag.trim()}>
-          {addBusy ? 'Adding…' : 'Add tag'}
-        </button>
-      </form>
+      {!scopedToTopic && (
+        <form className="research-ebay-feed-toolbar" onSubmit={handleAdd}>
+          <input
+            className="search-input research-ebay-feed-toolbar-search"
+            value={newTag}
+            onChange={(ev) => setNewTag(ev.target.value)}
+            placeholder='e.g. Vintage IKEA, "designer coat"'
+            maxLength={120}
+            aria-label="New feed tag"
+          />
+          <button type="submit" className="new-entry-button" disabled={addBusy || !newTag.trim()}>
+            {addBusy ? 'Adding…' : 'Add tag'}
+          </button>
+        </form>
+      )}
 
       <div className="stock-filters research-ebay-feed-filters" role="group" aria-label="Feed filters">
         <div className="filter-group research-ebay-feed-filter-group">
@@ -385,14 +401,16 @@ const ResearchEbayFeed: React.FC = () => {
             <span className="research-ebay-feed-chip-label" title={t.term}>
               {t.term}
             </span>
-            <button
-              type="button"
-              className="research-ebay-feed-chip-remove"
-              onClick={() => void handleRemove(t.id)}
-              aria-label={`Remove tag ${t.term}`}
-            >
-              ×
-            </button>
+            {!scopedToTopic && (
+              <button
+                type="button"
+                className="research-ebay-feed-chip-remove"
+                onClick={() => void handleRemove(t.id)}
+                aria-label={`Remove tag ${t.term}`}
+              >
+                ×
+              </button>
+            )}
           </span>
         ))}
       </div>
