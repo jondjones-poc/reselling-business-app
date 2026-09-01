@@ -8,14 +8,20 @@ const API_BASE = getApiBase();
 const DEFAULT_EBAY_FEE_PERCENT = 10;
 const DEFAULT_EBAY_STORE_FEE_MONTHLY = 27;
 
-const STORAGE_KEY = 'planner.inputs.v5';
+const STORAGE_KEY = 'planner.inputs.v6';
 
 const DEFAULT_LISTINGS_PER_DAY = 10;
 const DEFAULT_LISTING_DAYS_PER_WEEK = 5;
 const DEFAULT_TARGET_INCOME = 100000;
 const DEFAULT_BOOT_SALE_VISITS_PER_WEEK = 3;
+const DEFAULT_PACKING_HOURS_PER_DAY = 1;
+const DEFAULT_PACKING_DAYS_PER_WEEK = 7;
 /** Apr–Oct boot sale season (~7 months). */
 const BOOT_SALE_SEASON_WEEKS = 30;
+/** Minutes to photograph, measure, and publish one listing. */
+const MINUTES_PER_LISTING = 12;
+/** Hours per boot sale visit (travel, browsing, buying). */
+const HOURS_PER_BOOT_SALE = 4;
 
 type PlannerInputs = {
   targetIncome: string;
@@ -24,6 +30,8 @@ type PlannerInputs = {
   bootSaleVisitsPerWeek: string;
   listingsPerDay: string;
   listingDaysPerWeek: string;
+  packingHoursPerDay: string;
+  packingDaysPerWeek: string;
 };
 
 type SourcedColumn = {
@@ -117,18 +125,21 @@ function normalizeStoredStoreFee(value: string | undefined): string {
 }
 
 function loadStoredInputs(): PlannerInputs {
+  const defaults: PlannerInputs = {
+    targetIncome: String(DEFAULT_TARGET_INCOME),
+    ebayFeePercent: String(DEFAULT_EBAY_FEE_PERCENT),
+    ebayStoreFeeMonthly: String(DEFAULT_EBAY_STORE_FEE_MONTHLY),
+    bootSaleVisitsPerWeek: String(DEFAULT_BOOT_SALE_VISITS_PER_WEEK),
+    listingsPerDay: String(DEFAULT_LISTINGS_PER_DAY),
+    listingDaysPerWeek: String(DEFAULT_LISTING_DAYS_PER_WEEK),
+    packingHoursPerDay: String(DEFAULT_PACKING_HOURS_PER_DAY),
+    packingDaysPerWeek: String(DEFAULT_PACKING_DAYS_PER_WEEK),
+  };
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return {
-        targetIncome: String(DEFAULT_TARGET_INCOME),
-        ebayFeePercent: String(DEFAULT_EBAY_FEE_PERCENT),
-        ebayStoreFeeMonthly: String(DEFAULT_EBAY_STORE_FEE_MONTHLY),
-        bootSaleVisitsPerWeek: String(DEFAULT_BOOT_SALE_VISITS_PER_WEEK),
-        listingsPerDay: String(DEFAULT_LISTINGS_PER_DAY),
-        listingDaysPerWeek: String(DEFAULT_LISTING_DAYS_PER_WEEK),
-      };
-    }
+    const raw =
+      window.localStorage.getItem(STORAGE_KEY) ??
+      window.localStorage.getItem('planner.inputs.v5');
+    if (!raw) return defaults;
     const parsed = JSON.parse(raw) as Partial<PlannerInputs>;
     return {
       targetIncome: normalizeStoredIncome(parsed.targetIncome),
@@ -137,16 +148,11 @@ function loadStoredInputs(): PlannerInputs {
       bootSaleVisitsPerWeek: migrateBootSaleVisitsPerWeek(parsed),
       listingsPerDay: parsed.listingsPerDay ?? String(DEFAULT_LISTINGS_PER_DAY),
       listingDaysPerWeek: parsed.listingDaysPerWeek ?? String(DEFAULT_LISTING_DAYS_PER_WEEK),
+      packingHoursPerDay: parsed.packingHoursPerDay ?? String(DEFAULT_PACKING_HOURS_PER_DAY),
+      packingDaysPerWeek: parsed.packingDaysPerWeek ?? String(DEFAULT_PACKING_DAYS_PER_WEEK),
     };
   } catch {
-    return {
-      targetIncome: String(DEFAULT_TARGET_INCOME),
-      ebayFeePercent: String(DEFAULT_EBAY_FEE_PERCENT),
-      ebayStoreFeeMonthly: String(DEFAULT_EBAY_STORE_FEE_MONTHLY),
-      bootSaleVisitsPerWeek: String(DEFAULT_BOOT_SALE_VISITS_PER_WEEK),
-      listingsPerDay: String(DEFAULT_LISTINGS_PER_DAY),
-      listingDaysPerWeek: String(DEFAULT_LISTING_DAYS_PER_WEEK),
-    };
+    return defaults;
   }
 }
 
@@ -172,6 +178,73 @@ function netAfterAllFees(
   annualStoreFee: number
 ): number {
   return netAfterEbayFees(grossProfit, totalSales, ebayFeePercent) - annualStoreFee;
+}
+
+function clampDecimalInput(raw: string, min: number, max: number): string {
+  const cleaned = raw.replace(/[^\d.]/g, '');
+  if (cleaned === '' || cleaned === '.') return cleaned;
+  const n = Math.min(max, Math.max(min, parseFloat(cleaned)));
+  return Number.isFinite(n) ? String(n) : '';
+}
+
+function estimateAnnualWorkHours(
+  listingsPerDay: number,
+  listingDaysPerWeek: number,
+  packingHoursPerDay: number,
+  packingDaysPerWeek: number,
+  bootSaleVisitsPerWeek: number | null
+): {
+  total: number;
+  listingHours: number;
+  packingHours: number;
+  bootSaleHours: number;
+  listingDaysPerWeek: number;
+  listingHoursPerDay: number;
+  packingDaysPerWeek: number;
+  packingHoursPerDay: number;
+  bootSaleVisitsPerWeek: number | null;
+  bootSaleHoursPerVisit: number;
+} {
+  const listingHoursPerDay = (listingsPerDay * MINUTES_PER_LISTING) / 60;
+  const listingHours = listingDaysPerWeek * listingHoursPerDay * 52;
+  const packingHours = packingDaysPerWeek * packingHoursPerDay * 52;
+  const bootSaleHoursPerVisit = HOURS_PER_BOOT_SALE;
+  const bootSaleHours =
+    bootSaleVisitsPerWeek != null
+      ? bootSaleVisitsPerWeek * BOOT_SALE_SEASON_WEEKS * bootSaleHoursPerVisit
+      : 0;
+  return {
+    total: listingHours + packingHours + bootSaleHours,
+    listingHours,
+    packingHours,
+    bootSaleHours,
+    listingDaysPerWeek,
+    listingHoursPerDay,
+    packingDaysPerWeek,
+    packingHoursPerDay,
+    bootSaleVisitsPerWeek,
+    bootSaleHoursPerVisit,
+  };
+}
+
+function formatHoursShort(hours: number): string {
+  const rounded = Math.round(hours * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+function formatWorkTimeDetail(work: ReturnType<typeof estimateAnnualWorkHours>): string {
+  const parts = [
+    `${work.listingDaysPerWeek} days × ${formatHoursShort(work.listingHoursPerDay)} hrs/day listing`,
+  ];
+  if (work.packingDaysPerWeek > 0 && work.packingHoursPerDay > 0) {
+    parts.push(
+      `${work.packingDaysPerWeek} days × ${formatHoursShort(work.packingHoursPerDay)} hrs/day packing`
+    );
+  }
+  if (work.bootSaleVisitsPerWeek != null && work.bootSaleVisitsPerWeek > 0) {
+    parts.push(`${work.bootSaleVisitsPerWeek} boot visits × ${work.bootSaleHoursPerVisit} hrs`);
+  }
+  return parts.join(' · ');
 }
 
 const formatPeriodDate = (iso: string) =>
@@ -844,6 +917,9 @@ const Planner: React.FC = () => {
         maxSalesAtPace: 0,
         incomeAtCurrentPace: 0,
         incomeGapAtPace: 0,
+        annualWorkHours: 0,
+        workTimeDetail: '',
+        hourlyWageAtCurrentPace: null as number | null,
         targetAchievableAtPace: false,
         requiredNetPerItemAtPace: null as number | null,
         requiredAvgSaleAtPace: null as number | null,
@@ -872,6 +948,16 @@ const Planner: React.FC = () => {
       Number.isFinite(listingDaysPerWeek) && listingDaysPerWeek > 0
         ? listingDaysPerWeek
         : DEFAULT_LISTING_DAYS_PER_WEEK;
+    const packingHoursPerDay = parseFloat(inputs.packingHoursPerDay);
+    const packingDaysPerWeek = parseInt(inputs.packingDaysPerWeek, 10);
+    const perPackingDay =
+      Number.isFinite(packingHoursPerDay) && packingHoursPerDay > 0
+        ? packingHoursPerDay
+        : DEFAULT_PACKING_HOURS_PER_DAY;
+    const packingDays =
+      Number.isFinite(packingDaysPerWeek) && packingDaysPerWeek > 0
+        ? packingDaysPerWeek
+        : DEFAULT_PACKING_DAYS_PER_WEEK;
     const listingsPerWeek = perDay * daysPerWeek;
     const listingsPerYear = Math.round(listingsPerWeek * 52);
     const weeksToListAll =
@@ -898,6 +984,15 @@ const Planner: React.FC = () => {
     const incomeAtCurrentPace = maxSalesAtPace * netPerItem - annualStoreFee;
     const incomeGapAtPace = target - incomeAtCurrentPace;
     const targetAchievableAtPace = incomeGapAtPace <= 0;
+    const workHours = estimateAnnualWorkHours(
+      perDay,
+      daysPerWeek,
+      perPackingDay,
+      packingDays,
+      bootSaleVisitsPerWeek
+    );
+    const hourlyWageAtCurrentPace =
+      workHours.total > 0 ? incomeAtCurrentPace / workHours.total : null;
     const requiredNetPerItemAtPace =
       maxSalesAtPace > 0 ? grossProfitTarget / maxSalesAtPace : null;
     const requiredAvgSaleAtPace =
@@ -958,6 +1053,9 @@ const Planner: React.FC = () => {
       maxSalesAtPace,
       incomeAtCurrentPace,
       incomeGapAtPace,
+      annualWorkHours: workHours.total,
+      workTimeDetail: formatWorkTimeDetail(workHours),
+      hourlyWageAtCurrentPace,
       targetAchievableAtPace,
       requiredNetPerItemAtPace,
       requiredAvgSaleAtPace,
@@ -1209,6 +1307,44 @@ const Planner: React.FC = () => {
             />
             <span className="planner-hint">Default {DEFAULT_LISTING_DAYS_PER_WEEK}.</span>
           </label>
+
+          <label className="planner-field">
+            <span className="planner-label">Packing hours per day</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              className="planner-input planner-input--plain"
+              value={inputs.packingHoursPerDay}
+              onChange={(e) =>
+                setField('packingHoursPerDay', clampDecimalInput(e.target.value, 0, 24))
+              }
+              onBlur={() => {
+                if (inputs.packingHoursPerDay.trim() === '') {
+                  setField('packingHoursPerDay', String(DEFAULT_PACKING_HOURS_PER_DAY));
+                }
+              }}
+            />
+            <span className="planner-hint">Default {DEFAULT_PACKING_HOURS_PER_DAY} hr.</span>
+          </label>
+
+          <label className="planner-field">
+            <span className="planner-label">Packing days per week</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              className="planner-input planner-input--plain"
+              value={inputs.packingDaysPerWeek}
+              onChange={(e) =>
+                setField('packingDaysPerWeek', clampIntInput(e.target.value, 0, 7))
+              }
+              onBlur={() => {
+                if (inputs.packingDaysPerWeek === '') {
+                  setField('packingDaysPerWeek', String(DEFAULT_PACKING_DAYS_PER_WEEK));
+                }
+              }}
+            />
+            <span className="planner-hint">Default {DEFAULT_PACKING_DAYS_PER_WEEK} days.</span>
+          </label>
         </div>
 
         <div className="planner-panel planner-panel--results">
@@ -1411,6 +1547,15 @@ const Planner: React.FC = () => {
                           )}
                         </span>
                       </article>
+                      {plan.hourlyWageAtCurrentPace != null && (
+                        <article className="planner-stat">
+                          <span className="planner-stat-label">Effective hourly wage</span>
+                          <span className="planner-stat-value">
+                            {formatCurrencyPrecise(plan.hourlyWageAtCurrentPace)}/hr
+                          </span>
+                          <span className="planner-stat-detail">{plan.workTimeDetail}</span>
+                        </article>
+                      )}
                       <article className="planner-stat">
                         <span className="planner-stat-label">Source spend per week</span>
                         <span className="planner-stat-value">
