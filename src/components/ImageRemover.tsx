@@ -179,21 +179,129 @@ function findOpaqueBounds(canvas: HTMLCanvasElement): Bounds | null {
   return { left, top, width: right - left + 1, height: bottom - top + 1 };
 }
 
-function drawGreyGradient(ctx: CanvasRenderingContext2D, size: number): void {
-  // Brighter in the middle to draw the eye to the garment, per the brief.
+/** White spotlight on the garment; edges stay noticeably greyer. */
+function drawStudioGradient(
+  ctx: CanvasRenderingContext2D,
+  size: number,
+  focalX: number,
+  focalY: number
+): void {
   const gradient = ctx.createRadialGradient(
-    size / 2,
-    size * 0.45,
-    size * 0.05,
-    size / 2,
-    size * 0.5,
-    size * 0.75
+    focalX,
+    focalY,
+    0,
+    focalX,
+    focalY,
+    size * 0.68
   );
-  gradient.addColorStop(0, '#f4f4f4');
-  gradient.addColorStop(0.55, '#e2e2e2');
-  gradient.addColorStop(1, '#c4c4c4');
+  gradient.addColorStop(0, '#ffffff');
+  gradient.addColorStop(0.22, '#f2f2f2');
+  gradient.addColorStop(0.48, '#dcdcdc');
+  gradient.addColorStop(0.78, '#c4c4c4');
+  gradient.addColorStop(1, '#aeaeae');
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, size, size);
+}
+
+/**
+ * Clean up the bottom cutout edge: white halos, shadow fringe, and narrow smudges
+ * (e.g. stand remnants). Fully opaque garment pixels are never altered.
+ */
+function cleanCutoutBottomEdge(canvas: HTMLCanvasElement, bounds: Bounds): void {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const { width } = canvas;
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const { data } = imageData;
+
+  const bandTop = bounds.top + Math.floor(bounds.height * 0.86);
+  const bandBottom = bounds.top + bounds.height;
+  const minWideSpan = bounds.width * 0.36;
+  const narrowSpan = bounds.width * 0.16;
+
+  for (let y = bandTop; y < bandBottom; y += 1) {
+    for (let x = bounds.left; x < bounds.left + bounds.width; x += 1) {
+      const i = (y * width + x) * 4;
+      const alpha = data[i + 3];
+      if (alpha < 12 || alpha >= 245) continue;
+
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      const sat = Math.max(r, g, b) - Math.min(r, g, b);
+
+      // Grey/white matte halo left by the cutout model.
+      if (lum > 188 && sat < 42 && alpha < 235) {
+        data[i + 3] = 0;
+        continue;
+      }
+
+      // Dark shadow fringe — only when not fully opaque.
+      if (lum < 78 && alpha < 210) {
+        data[i + 3] = 0;
+      }
+    }
+  }
+
+  // Drop narrow protrusions below the main hem (stand smudges, stray pixels).
+  const rowSpans: number[] = [];
+  for (let y = bandTop; y < bandBottom; y += 1) {
+    let left = bounds.left + bounds.width;
+    let right = bounds.left;
+    for (let x = bounds.left; x < bounds.left + bounds.width; x += 1) {
+      if (data[(y * width + x) * 4 + 3] > 36) {
+        left = Math.min(left, x);
+        right = Math.max(right, x);
+      }
+    }
+    rowSpans.push(right >= left ? right - left + 1 : 0);
+  }
+
+  let hemIdx = -1;
+  for (let i = rowSpans.length - 1; i >= 0; i -= 1) {
+    if (rowSpans[i] >= minWideSpan) {
+      hemIdx = i;
+      break;
+    }
+  }
+
+  if (hemIdx >= 0) {
+    for (let i = hemIdx + 1; i < rowSpans.length; i += 1) {
+      if (rowSpans[i] === 0) continue;
+      if (rowSpans[i] >= narrowSpan) continue;
+      const y = bandTop + i;
+      for (let x = bounds.left; x < bounds.left + bounds.width; x += 1) {
+        const alphaIdx = (y * width + x) * 4 + 3;
+        if (data[alphaIdx] > 12) data[alphaIdx] = 0;
+      }
+    }
+  }
+
+  // Last-resort: opaque dark specks in the very bottom strip (shadow blobs).
+  const smudgeTop = bounds.top + Math.floor(bounds.height * 0.975);
+  for (let y = smudgeTop; y < bandBottom; y += 1) {
+    let left = bounds.left + bounds.width;
+    let right = bounds.left;
+    for (let x = bounds.left; x < bounds.left + bounds.width; x += 1) {
+      const i = (y * width + x) * 4;
+      if (data[i + 3] > 160 && 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2] < 55) {
+        left = Math.min(left, x);
+        right = Math.max(right, x);
+      }
+    }
+    const darkSpan = right >= left ? right - left + 1 : 0;
+    if (darkSpan > 0 && darkSpan < bounds.width * 0.12) {
+      for (let x = bounds.left; x < bounds.left + bounds.width; x += 1) {
+        const i = (y * width + x) * 4;
+        if (data[i + 3] > 160 && 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2] < 55) {
+          data[i + 3] = 0;
+        }
+      }
+    }
+  }
+
+  ctx.putImageData(imageData, 0, 0);
 }
 
 type ComposeOptions = {
@@ -206,49 +314,61 @@ function composeListingImage(
   cutout: HTMLCanvasElement,
   { size, logo, format }: ComposeOptions
 ): Promise<Blob> {
+  const bounds =
+    findOpaqueBounds(cutout) ?? {
+      left: 0,
+      top: 0,
+      width: cutout.width,
+      height: cutout.height,
+    };
+  cleanCutoutBottomEdge(cutout, bounds);
+
+  const cleanedBounds = findOpaqueBounds(cutout) ?? bounds;
+
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas is unavailable in this browser.');
 
-  drawGreyGradient(ctx, size);
-
   const margin = size * EDGE_MARGIN_FRACTION;
-  let garmentTop = margin;
+  const logoHeight = logo && logo.naturalWidth > 0 ? size * LOGO_MAX_HEIGHT_FRACTION : 0;
+  const logoWidth =
+    logo && logo.naturalWidth > 0
+      ? logoHeight * (logo.naturalWidth / logo.naturalHeight)
+      : 0;
+  const garmentTop = margin + logoHeight + (logoHeight > 0 ? size * LOGO_GAP_FRACTION : 0);
 
-  if (logo && logo.naturalWidth > 0) {
-    const logoHeight = size * LOGO_MAX_HEIGHT_FRACTION;
-    const logoWidth = logoHeight * (logo.naturalWidth / logo.naturalHeight);
-    ctx.drawImage(logo, (size - logoWidth) / 2, margin, logoWidth, logoHeight);
-    garmentTop = margin + logoHeight + size * LOGO_GAP_FRACTION;
-  }
-
-  // Whatever is left after the logo and margins belongs to the garment, which is
-  // scaled to fill it so the product dominates and the logo stays secondary.
   const availableWidth = size - margin * 2;
   const availableHeight = size - garmentTop - margin;
-  const bounds = findOpaqueBounds(cutout) ?? {
-    left: 0,
-    top: 0,
-    width: cutout.width,
-    height: cutout.height,
-  };
 
-  const scale = Math.min(availableWidth / bounds.width, availableHeight / bounds.height);
-  const drawWidth = bounds.width * scale;
-  const drawHeight = bounds.height * scale;
+  const scale = Math.min(
+    availableWidth / cleanedBounds.width,
+    availableHeight / cleanedBounds.height
+  );
+  const drawWidth = cleanedBounds.width * scale;
+  const drawHeight = cleanedBounds.height * scale;
+  const drawX = (size - drawWidth) / 2;
+  const drawY = garmentTop + (availableHeight - drawHeight) / 2;
+
+  const focalX = drawX + drawWidth / 2;
+  const focalY = drawY + drawHeight * 0.42;
+  drawStudioGradient(ctx, size, focalX, focalY);
+
+  if (logo && logo.naturalWidth > 0) {
+    ctx.drawImage(logo, (size - logoWidth) / 2, margin, logoWidth, logoHeight);
+  }
 
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(
     cutout,
-    bounds.left,
-    bounds.top,
-    bounds.width,
-    bounds.height,
-    (size - drawWidth) / 2,
-    garmentTop + (availableHeight - drawHeight) / 2,
+    cleanedBounds.left,
+    cleanedBounds.top,
+    cleanedBounds.width,
+    cleanedBounds.height,
+    drawX,
+    drawY,
     drawWidth,
     drawHeight
   );
@@ -461,21 +581,6 @@ const ImageRemover: React.FC = () => {
 
   return (
     <section className="image-remover" aria-label="Image Remover">
-      <header className="image-remover-header">
-        <h2 className="image-remover-title">Image Remover</h2>
-        <p className="image-remover-intro">
-          Cuts the background from product photos and rebuilds them on a neutral grey gradient
-          with your logo, ready for listing. Everything runs in this browser — the photos are
-          never uploaded.
-        </p>
-      </header>
-
-      <div className="image-remover-accuracy" role="note">
-        The garment itself is never altered: the model only produces a cutout mask, and the rest
-        is plain compositing. Check each result before listing — if a hanger or stand was cut out
-        when it should have stayed, use the original photo instead.
-      </div>
-
       <div className="image-remover-controls">
         <div className="image-remover-control">
           <span className="image-remover-control-label">Photos</span>
