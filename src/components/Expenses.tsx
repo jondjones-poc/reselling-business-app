@@ -5,7 +5,8 @@ import '../react-datepicker-dark.css';
 import * as XLSX from 'xlsx';
 import { Navigate, useSearchParams } from 'react-router-dom';
 import { getApiBase } from '../utils/apiBase';
-import ExpensesWeeklyProfit from './ExpensesWeeklyProfit';
+import ImageRemover from './ImageRemover';
+import Planner from './Planner';
 import './Stock.css';
 
 const API_BASE = getApiBase();
@@ -641,10 +642,19 @@ const Expenses: React.FC = () => {
     return <Navigate to="/reporting?tab=projections" replace />;
   }
 
-  const expensesTab =
-    searchParams.get('tab') === 'profit-per-month' ? 'profit-per-month' : 'expenses';
+  // Profit Per Month moved to Reporting, where the other period views live.
+  if (searchParams.get('tab') === 'profit-per-month') {
+    return <Navigate to="/reporting?tab=profit-per-month" replace />;
+  }
 
-  const setExpensesTab = (next: 'expenses' | 'profit-per-month') => {
+  const expensesTab =
+    searchParams.get('tab') === 'image-remover'
+      ? 'image-remover'
+      : searchParams.get('tab') === 'planner'
+        ? 'planner'
+        : 'expenses';
+
+  const setExpensesTab = (next: 'expenses' | 'image-remover' | 'planner') => {
     const nextParams = new URLSearchParams(searchParams);
     if (next === 'expenses') {
       nextParams.delete('tab');
@@ -656,7 +666,7 @@ const Expenses: React.FC = () => {
 
   return (
     <div className="stock-container">
-      <nav className="expenses-tabs" role="tablist" aria-label="Accounting sections">
+      <nav className="expenses-tabs" role="tablist" aria-label="Tools sections">
         <button
           type="button"
           role="tab"
@@ -671,25 +681,44 @@ const Expenses: React.FC = () => {
         <button
           type="button"
           role="tab"
-          id="expenses-tab-profit-per-month"
-          aria-selected={expensesTab === 'profit-per-month'}
-          aria-controls="expenses-panel-profit-per-month"
+          id="expenses-tab-image-remover"
+          aria-selected={expensesTab === 'image-remover'}
+          aria-controls="expenses-panel-image-remover"
           className={`expenses-tab${
-            expensesTab === 'profit-per-month' ? ' expenses-tab--active' : ''
+            expensesTab === 'image-remover' ? ' expenses-tab--active' : ''
           }`}
-          onClick={() => setExpensesTab('profit-per-month')}
+          onClick={() => setExpensesTab('image-remover')}
         >
-          Profit Per Month
+          Image Remover
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="expenses-tab-planner"
+          aria-selected={expensesTab === 'planner'}
+          aria-controls="expenses-panel-planner"
+          className={`expenses-tab${expensesTab === 'planner' ? ' expenses-tab--active' : ''}`}
+          onClick={() => setExpensesTab('planner')}
+        >
+          Planner
         </button>
       </nav>
 
-      {expensesTab === 'profit-per-month' ? (
+      {expensesTab === 'planner' ? (
         <div
-          id="expenses-panel-profit-per-month"
+          id="expenses-panel-planner"
           role="tabpanel"
-          aria-labelledby="expenses-tab-profit-per-month"
+          aria-labelledby="expenses-tab-planner"
         >
-          <ExpensesWeeklyProfit />
+          <Planner />
+        </div>
+      ) : expensesTab === 'image-remover' ? (
+        <div
+          id="expenses-panel-image-remover"
+          role="tabpanel"
+          aria-labelledby="expenses-tab-image-remover"
+        >
+          <ImageRemover />
         </div>
       ) : (
         <div id="expenses-panel-expenses" role="tabpanel" aria-labelledby="expenses-tab-expenses">

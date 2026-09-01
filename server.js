@@ -20654,6 +20654,88 @@ app.get('/api/analytics/monthly-platform', async (req, res) => {
   }
 });
 
+/**
+ * Planner: sold-line stats for the rolling 12 months ending today (by sale_date).
+ */
+app.get('/api/planner/trailing-12m', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+
+    const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const today = new Date();
+    const periodTo = today.toISOString().slice(0, 10);
+    const periodFromDate = new Date(today);
+    periodFromDate.setFullYear(periodFromDate.getFullYear() - 1);
+    periodFromDate.setDate(periodFromDate.getDate() + 1);
+    const periodFrom = periodFromDate.toISOString().slice(0, 10);
+
+    const [totalsRes, monthlyRes] = await Promise.all([
+      pool.query(
+        `
+          SELECT
+            COUNT(*)::int AS items_sold,
+            COALESCE(SUM(COALESCE(sale_price, 0)), 0)::numeric AS total_sales,
+            COALESCE(SUM(COALESCE(purchase_price, 0)), 0)::numeric AS total_purchases
+          FROM stock
+          WHERE NOT COALESCE(is_inventory_write_off, false)
+            AND sale_date IS NOT NULL
+            AND sale_date >= (CURRENT_DATE - INTERVAL '12 months')
+        `
+      ),
+      pool.query(
+        `
+          SELECT
+            EXTRACT(YEAR FROM sale_date)::int AS year,
+            EXTRACT(MONTH FROM sale_date)::int AS month,
+            COUNT(*)::int AS items_sold,
+            COALESCE(SUM(COALESCE(sale_price, 0)), 0)::numeric AS total_sales,
+            COALESCE(SUM(COALESCE(purchase_price, 0)), 0)::numeric AS total_purchases
+          FROM stock
+          WHERE NOT COALESCE(is_inventory_write_off, false)
+            AND sale_date IS NOT NULL
+            AND sale_date >= (CURRENT_DATE - INTERVAL '12 months')
+          GROUP BY 1, 2
+          ORDER BY 1, 2
+        `
+      ),
+    ]);
+
+    const row = totalsRes.rows[0] ?? {};
+    const itemsSold = Number(row.items_sold) || 0;
+    const totalSales = Number(row.total_sales) || 0;
+    const totalPurchases = Number(row.total_purchases) || 0;
+    const grossProfit = totalSales - totalPurchases;
+    const profitMultiple = totalPurchases > 0 ? totalSales / totalPurchases : null;
+
+    const months = (monthlyRes.rows ?? []).map((r) => ({
+      year: Number(r.year),
+      month: Number(r.month),
+      label: `${monthLabels[Number(r.month) - 1]} ${r.year}`,
+      itemsSold: Number(r.items_sold) || 0,
+      totalSales: Number(r.total_sales) || 0,
+      totalPurchases: Number(r.total_purchases) || 0,
+      grossProfit: Number(r.total_sales) - Number(r.total_purchases),
+    }));
+
+    res.json({
+      periodFrom,
+      periodTo,
+      itemsSold,
+      totalSales,
+      totalPurchases,
+      grossProfit,
+      profitMultiple: profitMultiple != null ? Math.round(profitMultiple * 100) / 100 : null,
+      months,
+    });
+  } catch (error) {
+    console.error('planner trailing-12m failed:', error);
+    res.status(500).json({ error: 'Failed to load trailing 12-month sales', details: error.message });
+  }
+});
+
 // Endpoint for trailing inventory (last 12 months of unsold inventory)
 app.get('/api/analytics/trailing-inventory', async (req, res) => {
   try {

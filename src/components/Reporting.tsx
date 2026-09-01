@@ -16,6 +16,7 @@ import { getApiBase } from '../utils/apiBase';
 import { themeAccentRgba, themeNegativeRgba, themePositiveRgba, themeTextRgba } from '../utils/themeColors';
 import { parseDateOnlyParts } from '../utils/dateOnly';
 import { ExpensesProjectionsPanel } from './ExpensesProjectionsPanel';
+import ExpensesWeeklyProfit from './ExpensesWeeklyProfit';
 import { StockFormDropdown } from './StockFormDropdown';
 import './Reporting.css';
 import './Stock.css';
@@ -182,7 +183,12 @@ interface ReportingCategoryRow {
   category_name: string;
 }
 
-type ReportingViewMode = 'sales-data' | 'stock-analysis' | 'cash-flow-analysis' | 'projections';
+type ReportingViewMode =
+  | 'sales-data'
+  | 'stock-analysis'
+  | 'cash-flow-analysis'
+  | 'projections'
+  | 'profit-per-month';
 
 type SalesDataSubTab = 'current-sales' | 'all-time-sales' | 'graphs';
 
@@ -199,6 +205,7 @@ function parseReportingViewMode(tab: string | null): ReportingViewMode {
   if (tab === 'stock-analysis') return 'stock-analysis';
   if (tab === 'cash-flow-analysis') return 'cash-flow-analysis';
   if (tab === 'projections' || tab === 'item-analysis') return 'projections';
+  if (tab === 'profit-per-month') return 'profit-per-month';
   return 'sales-data';
 }
 
@@ -2444,6 +2451,12 @@ const Reporting: React.FC = () => {
         >
           Cash Flow Analysis
         </button>
+        <button
+          className={`view-toggle-button ${viewMode === 'profit-per-month' ? 'active' : ''}`}
+          onClick={() => setViewMode('profit-per-month')}
+        >
+          Profit Per Month
+        </button>
       </div>
 
       {/* Sales Data View */}
@@ -3947,6 +3960,13 @@ const Reporting: React.FC = () => {
       <div className={`view-content ${viewMode === 'projections' ? 'active' : ''}`}>
         <ExpensesProjectionsPanel labelledBy="reporting-tab-projections" />
       </div>
+
+      {/* Mounted only when active: it fetches its own data on mount. */}
+      {viewMode === 'profit-per-month' && (
+        <div className="view-content active">
+          <ExpensesWeeklyProfit />
+        </div>
+      )}
 
     </div>
   );

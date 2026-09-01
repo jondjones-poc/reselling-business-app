@@ -20,7 +20,7 @@ const navItems = [
   { to: '/reporting', label: 'Reporting' },
   { to: '/analytics?tab=seasonal', label: 'Analytics' },
   { to: '/research', label: 'Research' },
-  { to: '/expenses', label: 'Accounting' },
+  { to: '/expenses', label: 'Tools' },
   { to: '/sniping', label: 'Sniping' },
 ] as const;
 
