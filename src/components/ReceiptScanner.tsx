@@ -36,7 +36,7 @@ type DragMode =
   | null;
 
 type ReceiptDocType = 'charity' | 'postage';
-type PostageCarrier = 'dpd' | 'royal-mail' | 'evri';
+type PostageCarrier = 'dpd' | 'royal-mail' | 'evri' | 'inpost';
 type ReceiptScannerPanel = 'create' | 'uploaded';
 
 type ReceiptUploadRow = {
@@ -53,12 +53,13 @@ type ReceiptUploadRow = {
 
 const MIN_CROP_PX = 24;
 
-const POSTAGE_CARRIERS: PostageCarrier[] = ['dpd', 'royal-mail', 'evri'];
+const POSTAGE_CARRIERS: PostageCarrier[] = ['dpd', 'royal-mail', 'evri', 'inpost'];
 
 const POSTAGE_CARRIER_LABELS: Record<PostageCarrier, string> = {
   dpd: 'DPD',
   'royal-mail': 'Royal Mail',
   evri: 'Evri',
+  inpost: 'InPost',
 };
 
 const DOWNLOADED_RECEIPTS_STORAGE_KEY = 'receipt-scanner-downloaded-ids';
@@ -207,6 +208,41 @@ function buildDownloadBaseName(
 
 function receiptExportNeedsDate(docType: ReceiptDocType, carrier: PostageCarrier): boolean {
   return !(docType === 'postage' && carrier === 'dpd');
+}
+
+/** Strip .pdf/.png/.jpg and a trailing duplicate suffix like " - 2". */
+function receiptFileNameBase(name: string): string {
+  return String(name || '')
+    .trim()
+    .replace(/\.(pdf|png|jpe?g)$/i, '')
+    .replace(/ - \d+$/, '');
+}
+
+/**
+ * First file for a base name stays plain; further same-day saves get " - 1", " - 2", …
+ */
+function allocateReceiptFileName(
+  baseName: string,
+  existingFileNames: string[],
+  ext: 'pdf' | 'png' = 'pdf'
+): string {
+  const base = receiptFileNameBase(baseName);
+  if (!base) return `receipt.${ext}`;
+  const plain = `${base}.${ext}`;
+  const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const numberedRe = new RegExp(`^${escape(base)} - (\\d+)\\.${escape(ext)}$`, 'i');
+  let hasPlain = false;
+  const used = new Set<number>();
+  for (const name of existingFileNames) {
+    const n = String(name || '');
+    if (n.toLowerCase() === plain.toLowerCase()) hasPlain = true;
+    const m = n.match(numberedRe);
+    if (m) used.add(Number(m[1]));
+  }
+  if (!hasPlain && used.size === 0) return plain;
+  let i = 1;
+  while (used.has(i)) i += 1;
+  return `${base} - ${i}.${ext}`;
 }
 
 function loadImageElement(src: string): Promise<HTMLImageElement> {
@@ -381,6 +417,28 @@ function HintWrap({ hint, place = 'above', children }: HintWrapProps) {
     >
       {children}
     </span>
+  );
+}
+
+function SaveCloudIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+      <polyline points="17 21 17 13 7 13 7 21" />
+      <polyline points="7 3 7 8 15 8" />
+    </svg>
   );
 }
 
@@ -714,6 +772,7 @@ const ReceiptScanner: React.FC = () => {
       return [];
     });
     setActiveId(null);
+    setReceiptDate(null);
     setError(null);
   }, []);
 
@@ -815,8 +874,14 @@ const ReceiptScanner: React.FC = () => {
     [docType, postageCarrier, receiptDate]
   );
 
+  const finishedFileName = useMemo(() => {
+    if (!downloadBaseName) return null;
+    const existing = uploads.map((r) => r.file_name);
+    return allocateReceiptFileName(downloadBaseName, existing, 'pdf').replace(/\.pdf$/i, '');
+  }, [downloadBaseName, uploads]);
+
   const requireExportBaseName = useCallback((): string | null => {
-    if (!downloadBaseName) {
+    if (!finishedFileName) {
       setError(
         receiptExportNeedsDate(docType, postageCarrier)
           ? 'Choose a date before downloading.'
@@ -825,8 +890,8 @@ const ReceiptScanner: React.FC = () => {
       return null;
     }
     setError(null);
-    return downloadBaseName;
-  }, [downloadBaseName, docType, postageCarrier]);
+    return finishedFileName;
+  }, [finishedFileName, docType, postageCarrier]);
 
   const downloadActivePng = useCallback(async () => {
     if (!activeItem) return;
@@ -889,10 +954,8 @@ const ReceiptScanner: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (panel === 'uploaded') {
-      void loadUploads();
-    }
-  }, [panel, loadUploads]);
+    void loadUploads();
+  }, [loadUploads]);
 
   const savePdfToCloud = useCallback(async () => {
     if (items.length === 0) return;
@@ -938,6 +1001,7 @@ const ReceiptScanner: React.FC = () => {
       }
 
       await cacheReceiptPdfLocally(data.id, data.file_name || `${baseName}.pdf`, blob);
+      clearAll();
       setPanel('uploaded');
       setUploads((prev) => [data, ...prev.filter((r) => r.id !== data.id)]);
     } catch (err) {
@@ -946,7 +1010,7 @@ const ReceiptScanner: React.FC = () => {
       setSavingToCloud(false);
       setBusy(false);
     }
-  }, [items, requireExportBaseName, docType, postageCarrier, receiptDate]);
+  }, [items, requireExportBaseName, docType, postageCarrier, receiptDate, clearAll]);
 
   const markDownloaded = useCallback((id: number) => {
     setDownloadedIds((prev) => {
@@ -1269,7 +1333,7 @@ const ReceiptScanner: React.FC = () => {
             className="receipt-scanner-button receipt-scanner-carrier-toggle"
             onClick={() => setPostageCarrier((prev) => nextPostageCarrier(prev))}
             disabled={busy}
-            title="Toggle courier: DPD, Royal Mail, Evri"
+            title="Toggle courier: DPD, Royal Mail, Evri, InPost"
           >
             {POSTAGE_CARRIER_LABELS[postageCarrier]}
           </button>
@@ -1288,10 +1352,11 @@ const ReceiptScanner: React.FC = () => {
           <HintWrap hint={pdfExportHint} place="below">
             <button
               type="button"
-              className="receipt-scanner-button receipt-scanner-button--primary"
+              className="receipt-scanner-button receipt-scanner-button--primary receipt-scanner-button--with-icon"
               onClick={() => void savePdfToCloud()}
               disabled={!!pdfExportHint}
             >
+              <SaveCloudIcon className="receipt-scanner-button-icon" />
               {savingToCloud ? 'Saving…' : 'Save PDF to cloud'}
             </button>
           </HintWrap>
@@ -1391,13 +1456,13 @@ const ReceiptScanner: React.FC = () => {
           <div
             className={
               'receipt-scanner-filename-preview' +
-              (!downloadBaseName ? ' receipt-scanner-filename-preview--missing' : '')
+              (!finishedFileName ? ' receipt-scanner-filename-preview--missing' : '')
             }
-            title={downloadBaseName ?? 'Select a date to set the finished file name'}
+            title={finishedFileName ?? 'Select a date to set the finished file name'}
           >
             <span className="receipt-scanner-control-label">Finished file name</span>
             <span className="receipt-scanner-filename-value">
-              {downloadBaseName ?? 'Select a date'}
+              {finishedFileName ?? 'Select a date'}
             </span>
           </div>
         </div>

@@ -2541,13 +2541,37 @@ async function ensureReceiptUploadBucket(sb) {
 function slugForReceiptFileName(name) {
   let s = String(name ?? '')
     .trim()
-    .replace(/\.pdf$/i, '')
+    .replace(/\.(pdf|png|jpe?g)$/i, '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-zA-Z0-9._-]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 120);
   return s || 'receipt';
+}
+
+/** First file stays plain; further saves for the same base name get " - 1", " - 2", … */
+function allocateReceiptFileName(baseName, existingFileNames, ext = 'pdf') {
+  const base = String(baseName || '')
+    .trim()
+    .replace(/\.(pdf|png|jpe?g)$/i, '')
+    .replace(/ - \d+$/, '');
+  if (!base) return `receipt.${ext}`;
+  const plain = `${base}.${ext}`;
+  const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const numberedRe = new RegExp(`^${escape(base)} - (\\d+)\\.${escape(ext)}$`, 'i');
+  let hasPlain = false;
+  const used = new Set();
+  for (const name of existingFileNames || []) {
+    const n = String(name || '');
+    if (n.toLowerCase() === plain.toLowerCase()) hasPlain = true;
+    const m = n.match(numberedRe);
+    if (m) used.add(Number(m[1]));
+  }
+  if (!hasPlain && used.size === 0) return plain;
+  let i = 1;
+  while (used.has(i)) i += 1;
+  return `${base} - ${i}.${ext}`;
 }
 
 const runReceiptUploadMulter = (req, res, next) => {
@@ -2634,16 +2658,22 @@ const handleReceiptUploadsPost = async (req, res) => {
       typeof req.body?.fileName === 'string' && req.body.fileName.trim()
         ? req.body.fileName.trim()
         : req.file.originalname || 'receipt.pdf';
-    const safeBase = slugForReceiptFileName(rawName);
     const ext =
       req.file.mimetype === 'image/png'
         ? 'png'
         : req.file.mimetype === 'image/jpeg'
           ? 'jpg'
           : 'pdf';
-    const displayName = rawName.toLowerCase().endsWith(`.${ext}`)
-      ? rawName.slice(0, 255)
-      : `${rawName.replace(/\.[^.]+$/, '')}.${ext}`.slice(0, 255);
+
+    const existingNames = await pool.query(`SELECT file_name FROM receipt_upload`);
+    const nameExt = ext === 'png' ? 'png' : ext === 'jpg' ? 'jpg' : 'pdf';
+    const finalDisplayName = allocateReceiptFileName(
+      rawName,
+      (existingNames.rows || []).map((r) => r.file_name),
+      nameExt
+    ).slice(0, 255);
+
+    const safeBase = slugForReceiptFileName(finalDisplayName);
 
     let docType = null;
     const docRaw = req.body?.docType ?? req.body?.doc_type;
@@ -2695,7 +2725,7 @@ const handleReceiptUploadsPost = async (req, res) => {
          RETURNING id, file_name, storage_path, content_type, doc_type, receipt_date, byte_size, created_at`,
         [
           rowId,
-          displayName,
+          finalDisplayName,
           storagePath,
           req.file.mimetype,
           docType,

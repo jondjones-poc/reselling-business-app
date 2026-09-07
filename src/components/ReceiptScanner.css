@@ -411,6 +411,16 @@
   font-weight: 600;
 }
 
+.receipt-scanner-button--with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.receipt-scanner-button-icon {
+  flex-shrink: 0;
+}
+
 .receipt-scanner-button--quiet {
   border-color: rgba(var(--theme-text-rgb, 240, 240, 240), 0.22);
   background: transparent;
