@@ -6,6 +6,100 @@
   box-sizing: border-box;
 }
 
+.receipt-scanner-subtabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 14px;
+  border-bottom: 1px solid rgba(var(--theme-accent-rgb, 200, 160, 90), 0.28);
+}
+
+.receipt-scanner-subtab {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: rgba(var(--theme-text-rgb, 240, 240, 240), 0.65);
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 8px 14px 10px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.receipt-scanner-subtab:hover {
+  color: var(--text-strong, #f4f4f4);
+}
+
+.receipt-scanner-subtab--active {
+  color: var(--text-strong, #f4f4f4);
+  border-bottom-color: rgba(var(--theme-accent-rgb, 200, 160, 90), 0.9);
+}
+
+.receipt-scanner-uploads {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.receipt-scanner-uploads-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.receipt-scanner-uploads-empty {
+  margin: 24px 0;
+  color: rgba(var(--theme-text-rgb, 240, 240, 240), 0.55);
+  font-size: 0.92rem;
+}
+
+.receipt-scanner-uploads-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.receipt-scanner-uploads-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(var(--theme-accent-rgb, 200, 160, 90), 0.22);
+  background: rgba(255, 255, 255, 0.03);
+  flex-wrap: wrap;
+}
+
+.receipt-scanner-uploads-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 200px;
+}
+
+.receipt-scanner-uploads-name {
+  font-size: 0.92rem;
+  color: var(--text-strong, #f4f4f4);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.receipt-scanner-uploads-sub {
+  font-size: 0.75rem;
+  color: rgba(var(--theme-text-rgb, 240, 240, 240), 0.55);
+}
+
+.receipt-scanner-uploads-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .receipt-scanner-dropzone {
   display: flex;
   flex-direction: column;
@@ -169,12 +263,18 @@
 }
 
 .receipt-scanner-type-toggle {
-  min-width: 140px;
+  min-width: 150px;
 }
 
 .receipt-scanner-type-toggle--postage {
   border-color: rgba(96, 165, 250, 0.55);
   background: rgba(37, 99, 235, 0.28);
+}
+
+.receipt-scanner-carrier-toggle {
+  min-width: 110px;
+  border-color: rgba(96, 165, 250, 0.4);
+  background: rgba(37, 99, 235, 0.16);
 }
 
 .receipt-scanner-filename-preview {
@@ -243,6 +343,62 @@
 .receipt-scanner-button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.receipt-scanner-hint-wrap {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+}
+
+.receipt-scanner-hint-wrap[data-hint]:hover::after,
+.receipt-scanner-hint-wrap[data-hint]:focus-within::after {
+  content: attr(data-hint);
+  position: absolute;
+  z-index: 40;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: min(260px, 70vw);
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(var(--theme-accent-rgb, 200, 160, 90), 0.45);
+  background: #1a1a1a;
+  color: var(--text-strong, #f4f4f4);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  text-align: center;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  white-space: normal;
+}
+
+.receipt-scanner-hint-wrap[data-hint]:hover::before,
+.receipt-scanner-hint-wrap[data-hint]:focus-within::before {
+  content: '';
+  position: absolute;
+  z-index: 40;
+  left: 50%;
+  bottom: calc(100% + 2px);
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: rgba(var(--theme-accent-rgb, 200, 160, 90), 0.45);
+  pointer-events: none;
+}
+
+.receipt-scanner-hint-wrap--below[data-hint]:hover::after,
+.receipt-scanner-hint-wrap--below[data-hint]:focus-within::after {
+  bottom: auto;
+  top: calc(100% + 8px);
+}
+
+.receipt-scanner-hint-wrap--below[data-hint]:hover::before,
+.receipt-scanner-hint-wrap--below[data-hint]:focus-within::before {
+  bottom: auto;
+  top: calc(100% + 2px);
+  border-top-color: transparent;
+  border-bottom-color: rgba(var(--theme-accent-rgb, 200, 160, 90), 0.45);
 }
 
 .receipt-scanner-button--primary {

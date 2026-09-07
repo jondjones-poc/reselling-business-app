@@ -3,6 +3,7 @@ import DatePicker from 'react-datepicker';
 import { jsPDF } from 'jspdf';
 import 'react-datepicker/dist/react-datepicker.css';
 import '../react-datepicker-dark.css';
+import { apiFetch } from '../utils/apiBase';
 import './ReceiptScanner.css';
 
 type CropRect = {
@@ -35,8 +36,35 @@ type DragMode =
   | null;
 
 type ReceiptDocType = 'charity' | 'postage';
+type PostageCarrier = 'dpd' | 'royal-mail' | 'evri';
+type ReceiptScannerPanel = 'create' | 'uploaded';
+
+type ReceiptUploadRow = {
+  id: number;
+  file_name: string;
+  storage_path: string;
+  content_type: string;
+  doc_type: string | null;
+  receipt_date: string | null;
+  byte_size: number | null;
+  created_at: string;
+  download_url: string | null;
+};
 
 const MIN_CROP_PX = 24;
+
+const POSTAGE_CARRIERS: PostageCarrier[] = ['dpd', 'royal-mail', 'evri'];
+
+const POSTAGE_CARRIER_LABELS: Record<PostageCarrier, string> = {
+  dpd: 'DPD',
+  'royal-mail': 'Royal Mail',
+  evri: 'Evri',
+};
+
+function nextPostageCarrier(current: PostageCarrier): PostageCarrier {
+  const idx = POSTAGE_CARRIERS.indexOf(current);
+  return POSTAGE_CARRIERS[(idx + 1) % POSTAGE_CARRIERS.length];
+}
 
 function isMobileUploadDevice(): boolean {
   if (typeof window === 'undefined') return false;
@@ -54,10 +82,16 @@ function formatReceiptDate(date: Date): string {
   return `${dd}-${mm}-${yyyy}`;
 }
 
-function buildDownloadBaseName(docType: ReceiptDocType, date: Date | null): string | null {
+function buildDownloadBaseName(
+  docType: ReceiptDocType,
+  carrier: PostageCarrier,
+  date: Date | null
+): string | null {
   if (!date) return null;
-  const label = docType === 'postage' ? 'Postage' : 'Charity Shop';
-  return `${label} - ${formatReceiptDate(date)}`;
+  if (docType === 'postage') {
+    return `Postage Receipts - ${POSTAGE_CARRIER_LABELS[carrier]} - ${formatReceiptDate(date)}`;
+  }
+  return `Charity Shop - ${formatReceiptDate(date)}`;
 }
 
 function loadImageElement(src: string): Promise<HTMLImageElement> {
@@ -149,6 +183,89 @@ function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   });
 }
 
+async function buildReceiptPdfBlob(items: ReceiptItem[]): Promise<Blob> {
+  let pdf: jsPDF | null = null;
+  for (let i = 0; i < items.length; i += 1) {
+    const item = items[i];
+    const canvas = await renderCroppedCanvas(item);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+    const widthMm = (canvas.width * 25.4) / 96;
+    const heightMm = (canvas.height * 25.4) / 96;
+    const orientation = widthMm >= heightMm ? 'landscape' : 'portrait';
+
+    if (!pdf) {
+      pdf = new jsPDF({
+        orientation,
+        unit: 'mm',
+        format: [widthMm, heightMm],
+        compress: true,
+      });
+    } else {
+      pdf.addPage([widthMm, heightMm], orientation);
+    }
+
+    pdf.addImage(dataUrl, 'JPEG', 0, 0, widthMm, heightMm, undefined, 'FAST');
+  }
+
+  if (!pdf) throw new Error('No pages to export.');
+  return pdf.output('blob');
+}
+
+function formatUploadTimestamp(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString(undefined, {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function formatByteSize(bytes: number | null | undefined): string {
+  if (bytes == null || !Number.isFinite(bytes)) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** Why export/save is blocked — shown as a hover tip on a wrapper (disabled buttons skip native title). */
+function exportBlockedHint(opts: {
+  busy?: boolean;
+  saving?: boolean;
+  hasItems: boolean;
+  hasDate: boolean;
+}): string | null {
+  if (opts.busy || opts.saving) return 'Wait for the current action to finish.';
+  if (!opts.hasItems) return 'Add at least one receipt image first.';
+  if (!opts.hasDate) return 'Select a date first — it sets the finished file name.';
+  return null;
+}
+
+type HintWrapProps = {
+  hint: string | null;
+  /** Show tip below the button (better for top toolbars). */
+  place?: 'above' | 'below';
+  children: React.ReactNode;
+};
+
+function HintWrap({ hint, place = 'above', children }: HintWrapProps) {
+  if (!hint) return <>{children}</>;
+  return (
+    <span
+      className={
+        'receipt-scanner-hint-wrap' +
+        (place === 'below' ? ' receipt-scanner-hint-wrap--below' : '')
+      }
+      data-hint={hint}
+      title={hint}
+    >
+      {children}
+    </span>
+  );
+}
+
 const HANDLE_MODES: Exclude<DragMode, 'move' | null>[] = [
   'nw',
   'ne',
@@ -161,16 +278,23 @@ const HANDLE_MODES: Exclude<DragMode, 'move' | null>[] = [
 ];
 
 const ReceiptScanner: React.FC = () => {
+  const [panel, setPanel] = useState<ReceiptScannerPanel>('create');
   const [items, setItems] = useState<ReceiptItem[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [receiptDate, setReceiptDate] = useState<Date | null>(null);
   const [docType, setDocType] = useState<ReceiptDocType>('charity');
+  const [postageCarrier, setPostageCarrier] = useState<PostageCarrier>('dpd');
   const [dragActive, setDragActive] = useState(false);
   const [showCameraOption, setShowCameraOption] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraStarting, setCameraStarting] = useState(false);
+  const [uploads, setUploads] = useState<ReceiptUploadRow[]>([]);
+  const [uploadsLoading, setUploadsLoading] = useState(false);
+  const [uploadsError, setUploadsError] = useState<string | null>(null);
+  const [uploadBusyId, setUploadBusyId] = useState<number | null>(null);
+  const [savingToCloud, setSavingToCloud] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
@@ -568,8 +692,8 @@ const ReceiptScanner: React.FC = () => {
   }, []);
 
   const downloadBaseName = useMemo(
-    () => buildDownloadBaseName(docType, receiptDate),
-    [docType, receiptDate]
+    () => buildDownloadBaseName(docType, postageCarrier, receiptDate),
+    [docType, postageCarrier, receiptDate]
   );
 
   const requireReceiptDate = useCallback((): string | null => {
@@ -605,37 +729,156 @@ const ReceiptScanner: React.FC = () => {
     setBusy(true);
     setError(null);
     try {
-      let pdf: jsPDF | null = null;
-      for (let i = 0; i < items.length; i += 1) {
-        const item = items[i];
-        const canvas = await renderCroppedCanvas(item);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
-        const widthMm = (canvas.width * 25.4) / 96;
-        const heightMm = (canvas.height * 25.4) / 96;
-        const orientation = widthMm >= heightMm ? 'landscape' : 'portrait';
-
-        if (!pdf) {
-          pdf = new jsPDF({
-            orientation,
-            unit: 'mm',
-            format: [widthMm, heightMm],
-            compress: true,
-          });
-        } else {
-          pdf.addPage([widthMm, heightMm], orientation);
-        }
-
-        pdf.addImage(dataUrl, 'JPEG', 0, 0, widthMm, heightMm, undefined, 'FAST');
-      }
-
-      if (!pdf) return;
-      pdf.save(`${baseName}.pdf`);
+      const blob = await buildReceiptPdfBlob(items);
+      triggerDownload(blob, `${baseName}.pdf`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not build PDF.');
     } finally {
       setBusy(false);
     }
   }, [items, requireReceiptDate]);
+
+  const loadUploads = useCallback(async () => {
+    setUploadsLoading(true);
+    setUploadsError(null);
+    try {
+      const response = await apiFetch('/api/receipt-uploads');
+      const text = await response.text();
+      let data: { rows?: ReceiptUploadRow[]; error?: string; hint?: string } = {};
+      try {
+        data = text ? (JSON.parse(text) as typeof data) : {};
+      } catch {
+        throw new Error(text || 'Could not load uploaded files.');
+      }
+      if (!response.ok) {
+        throw new Error(
+          [data.error, data.hint].filter(Boolean).join(' — ') ||
+            `Could not load uploaded files (${response.status}).`
+        );
+      }
+      setUploads(Array.isArray(data.rows) ? data.rows : []);
+    } catch (err) {
+      setUploads([]);
+      setUploadsError(err instanceof Error ? err.message : 'Could not load uploaded files.');
+    } finally {
+      setUploadsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (panel === 'uploaded') {
+      void loadUploads();
+    }
+  }, [panel, loadUploads]);
+
+  const savePdfToCloud = useCallback(async () => {
+    if (items.length === 0) return;
+    const baseName = requireReceiptDate();
+    if (!baseName) return;
+    setSavingToCloud(true);
+    setBusy(true);
+    setError(null);
+    try {
+      const blob = await buildReceiptPdfBlob(items);
+      const pdfFile = new File([blob], `${baseName}.pdf`, { type: 'application/pdf' });
+      const formData = new FormData();
+      formData.append('file', pdfFile);
+      formData.append('fileName', `${baseName}.pdf`);
+      formData.append('docType', docType);
+      if (docType === 'postage') {
+        formData.append('carrier', postageCarrier);
+      }
+      if (receiptDate) {
+        const yyyy = receiptDate.getFullYear();
+        const mm = String(receiptDate.getMonth() + 1).padStart(2, '0');
+        const dd = String(receiptDate.getDate()).padStart(2, '0');
+        formData.append('receiptDate', `${yyyy}-${mm}-${dd}`);
+      }
+
+      const response = await apiFetch('/api/receipt-uploads', {
+        method: 'POST',
+        body: formData,
+      });
+      const text = await response.text();
+      let data: ReceiptUploadRow & { error?: string; hint?: string; details?: string } =
+        {} as ReceiptUploadRow & { error?: string; hint?: string; details?: string };
+      try {
+        data = text ? (JSON.parse(text) as typeof data) : data;
+      } catch {
+        throw new Error(text || 'Upload failed.');
+      }
+      if (!response.ok) {
+        throw new Error(
+          [data.error, data.details || data.hint].filter(Boolean).join(' — ') ||
+            `Upload failed (${response.status}).`
+        );
+      }
+
+      setPanel('uploaded');
+      setUploads((prev) => [data, ...prev.filter((r) => r.id !== data.id)]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save to cloud.');
+    } finally {
+      setSavingToCloud(false);
+      setBusy(false);
+    }
+  }, [items, requireReceiptDate, docType, postageCarrier, receiptDate]);
+
+  const downloadUploadedFile = useCallback(async (row: ReceiptUploadRow) => {
+    if (!row.download_url) {
+      setUploadsError('No download link for that file. Try refreshing the list.');
+      return;
+    }
+    setUploadBusyId(row.id);
+    setUploadsError(null);
+    try {
+      const response = await fetch(row.download_url);
+      if (!response.ok) {
+        throw new Error(`Download failed (${response.status}).`);
+      }
+      const blob = await response.blob();
+      triggerDownload(blob, row.file_name || 'receipt.pdf');
+    } catch (err) {
+      // Signed URL may be cross-origin; fall back to opening the link.
+      try {
+        window.open(row.download_url, '_blank', 'noopener,noreferrer');
+      } catch {
+        setUploadsError(err instanceof Error ? err.message : 'Could not download file.');
+      }
+    } finally {
+      setUploadBusyId(null);
+    }
+  }, []);
+
+  const deleteUploadedFile = useCallback(async (row: ReceiptUploadRow) => {
+    const label = row.file_name || `receipt #${row.id}`;
+    if (!window.confirm(`Delete “${label}” from cloud storage? This cannot be undone.`)) {
+      return;
+    }
+    setUploadBusyId(row.id);
+    setUploadsError(null);
+    try {
+      const response = await apiFetch(`/api/receipt-uploads/${row.id}`, { method: 'DELETE' });
+      const text = await response.text();
+      let data: { error?: string; details?: string } = {};
+      try {
+        data = text ? (JSON.parse(text) as typeof data) : {};
+      } catch {
+        /* empty */
+      }
+      if (!response.ok) {
+        throw new Error(
+          [data.error, data.details].filter(Boolean).join(' — ') ||
+            `Delete failed (${response.status}).`
+        );
+      }
+      setUploads((prev) => prev.filter((r) => r.id !== row.id));
+    } catch (err) {
+      setUploadsError(err instanceof Error ? err.message : 'Could not delete file.');
+    } finally {
+      setUploadBusyId(null);
+    }
+  }, []);
 
   // Re-render crop box when the image finishes laying out / resizing.
   const [layoutTick, setLayoutTick] = useState(0);
@@ -665,8 +908,132 @@ const ReceiptScanner: React.FC = () => {
     };
   }, [activeItem, layoutTick]);
 
+  const pdfExportHint = exportBlockedHint({
+    busy,
+    saving: savingToCloud,
+    hasItems: items.length > 0,
+    hasDate: !!receiptDate,
+  });
+  const downloadPdfHint = exportBlockedHint({
+    busy,
+    hasItems: items.length > 0,
+    hasDate: !!receiptDate,
+  });
+  const downloadPngHint = exportBlockedHint({
+    busy,
+    hasItems: !!activeItem,
+    hasDate: !!receiptDate,
+  });
+
   return (
     <section className="receipt-scanner" aria-label="Receipt Scanner">
+      <div className="receipt-scanner-subtabs" role="tablist" aria-label="Receipt Scanner sections">
+        <button
+          type="button"
+          role="tab"
+          id="receipt-scanner-tab-create"
+          aria-selected={panel === 'create'}
+          aria-controls="receipt-scanner-panel-create"
+          className={
+            'receipt-scanner-subtab' + (panel === 'create' ? ' receipt-scanner-subtab--active' : '')
+          }
+          onClick={() => setPanel('create')}
+        >
+          Create
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="receipt-scanner-tab-uploaded"
+          aria-selected={panel === 'uploaded'}
+          aria-controls="receipt-scanner-panel-uploaded"
+          className={
+            'receipt-scanner-subtab' +
+            (panel === 'uploaded' ? ' receipt-scanner-subtab--active' : '')
+          }
+          onClick={() => setPanel('uploaded')}
+        >
+          Uploaded files
+          {uploads.length > 0 ? ` (${uploads.length})` : ''}
+        </button>
+      </div>
+
+      {panel === 'uploaded' ? (
+        <div
+          id="receipt-scanner-panel-uploaded"
+          role="tabpanel"
+          aria-labelledby="receipt-scanner-tab-uploaded"
+          className="receipt-scanner-uploads"
+        >
+          <div className="receipt-scanner-uploads-toolbar">
+            <button
+              type="button"
+              className="receipt-scanner-button"
+              onClick={() => void loadUploads()}
+              disabled={uploadsLoading}
+            >
+              {uploadsLoading ? 'Refreshing…' : 'Refresh'}
+            </button>
+          </div>
+
+          {uploadsError && <div className="receipt-scanner-error">{uploadsError}</div>}
+
+          {uploadsLoading && uploads.length === 0 ? (
+            <p className="receipt-scanner-uploads-empty">Loading uploaded files…</p>
+          ) : uploads.length === 0 ? (
+            <p className="receipt-scanner-uploads-empty">
+              No files in cloud storage yet. Create a receipt and use Save PDF to cloud.
+            </p>
+          ) : (
+            <ul className="receipt-scanner-uploads-list">
+              {uploads.map((row) => {
+                const busyRow = uploadBusyId === row.id;
+                return (
+                  <li key={row.id} className="receipt-scanner-uploads-row">
+                    <div className="receipt-scanner-uploads-meta">
+                      <span className="receipt-scanner-uploads-name" title={row.file_name}>
+                        {row.file_name}
+                      </span>
+                      <span className="receipt-scanner-uploads-sub">
+                        {formatUploadTimestamp(row.created_at)}
+                        {row.byte_size != null ? ` · ${formatByteSize(row.byte_size)}` : ''}
+                        {row.doc_type === 'postage'
+                          ? ' · Postage Receipts'
+                          : row.doc_type === 'charity'
+                            ? ' · Charity Shop'
+                            : ''}
+                      </span>
+                    </div>
+                    <div className="receipt-scanner-uploads-actions">
+                      <button
+                        type="button"
+                        className="receipt-scanner-button receipt-scanner-button--small receipt-scanner-button--primary"
+                        onClick={() => void downloadUploadedFile(row)}
+                        disabled={busyRow || !row.download_url}
+                      >
+                        {busyRow ? 'Working…' : 'Download'}
+                      </button>
+                      <button
+                        type="button"
+                        className="receipt-scanner-button receipt-scanner-button--small receipt-scanner-button--quiet"
+                        onClick={() => void deleteUploadedFile(row)}
+                        disabled={busyRow}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      ) : (
+        <div
+          id="receipt-scanner-panel-create"
+          role="tabpanel"
+          aria-labelledby="receipt-scanner-tab-create"
+        >
       <div className="receipt-scanner-controls">
         <button
           type="button"
@@ -708,20 +1075,42 @@ const ReceiptScanner: React.FC = () => {
           }
           disabled={busy}
           aria-pressed={docType === 'postage'}
-          title="Toggle between Charity Shop and Postage Label"
+          title="Toggle between Charity Shop and Postage Receipts"
         >
-          {docType === 'postage' ? 'Postage Label' : 'Charity Shop'}
+          {docType === 'postage' ? 'Postage Receipts' : 'Charity Shop'}
         </button>
-        <div className="receipt-scanner-controls-end">
+        {docType === 'postage' && (
           <button
             type="button"
-            className="receipt-scanner-button"
-            onClick={() => void downloadAllPdf()}
-            disabled={busy || items.length === 0 || !receiptDate}
-            title={!receiptDate ? 'Select a date first' : undefined}
+            className="receipt-scanner-button receipt-scanner-carrier-toggle"
+            onClick={() => setPostageCarrier((prev) => nextPostageCarrier(prev))}
+            disabled={busy}
+            title="Toggle courier: DPD, Royal Mail, Evri"
           >
-            Download all as PDF ({items.length})
+            {POSTAGE_CARRIER_LABELS[postageCarrier]}
           </button>
+        )}
+        <div className="receipt-scanner-controls-end">
+          <HintWrap hint={downloadPdfHint} place="below">
+            <button
+              type="button"
+              className="receipt-scanner-button"
+              onClick={() => void downloadAllPdf()}
+              disabled={!!downloadPdfHint}
+            >
+              Download all as PDF ({items.length})
+            </button>
+          </HintWrap>
+          <HintWrap hint={pdfExportHint} place="below">
+            <button
+              type="button"
+              className="receipt-scanner-button receipt-scanner-button--primary"
+              onClick={() => void savePdfToCloud()}
+              disabled={!!pdfExportHint}
+            >
+              {savingToCloud ? 'Saving…' : 'Save PDF to cloud'}
+            </button>
+          </HintWrap>
           <button
             type="button"
             className="receipt-scanner-button receipt-scanner-button--quiet"
@@ -854,15 +1243,16 @@ const ReceiptScanner: React.FC = () => {
               >
                 Reset crop
               </button>
-              <button
-                type="button"
-                className="receipt-scanner-button receipt-scanner-button--small receipt-scanner-button--primary"
-                onClick={() => void downloadActivePng()}
-                disabled={busy || !receiptDate}
-                title={!receiptDate ? 'Select a date first' : undefined}
-              >
-                Download PNG
-              </button>
+              <HintWrap hint={downloadPngHint}>
+                <button
+                  type="button"
+                  className="receipt-scanner-button receipt-scanner-button--small receipt-scanner-button--primary"
+                  onClick={() => void downloadActivePng()}
+                  disabled={!!downloadPngHint}
+                >
+                  Download PNG
+                </button>
+              </HintWrap>
               <button
                 type="button"
                 className="receipt-scanner-button receipt-scanner-button--small receipt-scanner-button--quiet"
@@ -916,6 +1306,8 @@ const ReceiptScanner: React.FC = () => {
           <div className="receipt-scanner-editor receipt-scanner-editor--empty" />
         )}
       </div>
+        </div>
+      )}
 
       {cameraOpen && (
         <div className="receipt-scanner-camera-overlay" role="dialog" aria-modal="true" aria-label="Camera">

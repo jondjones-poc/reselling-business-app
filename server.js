@@ -252,6 +252,7 @@ const getDatabasePool = () => {
 };
 
 const BRAND_TAG_IMAGE_BUCKET = process.env.SUPABASE_STORAGE_BRAND_TAGS_BUCKET || 'brand-tag-images';
+const RECEIPT_UPLOAD_BUCKET = process.env.SUPABASE_STORAGE_RECEIPTS_BUCKET || 'receipt-uploads';
 
 let supabaseAdmin = null;
 const getSupabaseAdmin = () => {
@@ -974,6 +975,19 @@ const brandTagImageUpload = multer({
   },
 });
 
+const receiptUploadMulter = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = ['application/pdf', 'image/png', 'image/jpeg'];
+    if (allowed.includes(file.mimetype)) {
+      cb(null, true);
+      return;
+    }
+    cb(new Error('Only PDF, PNG, or JPEG files are allowed'));
+  },
+});
+
 /**
  * URL for browser <img src> / links. Prefer signed URLs so private buckets work; fall back to public URL.
  * Returns null only if Supabase admin is not configured, path is empty, or both signed + public fail.
@@ -1024,7 +1038,22 @@ async function ensureDatabaseSchema() {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
-    console.log('Database schema ready: app_settings, ebay_oauth_token');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS receipt_upload (
+        id SERIAL PRIMARY KEY,
+        file_name VARCHAR(255) NOT NULL,
+        storage_path TEXT NOT NULL,
+        content_type VARCHAR(100) NOT NULL DEFAULT 'application/pdf',
+        doc_type VARCHAR(32),
+        receipt_date DATE,
+        byte_size INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_receipt_upload_created_at ON receipt_upload (created_at DESC)
+    `);
+    console.log('Database schema ready: app_settings, ebay_oauth_token, receipt_upload');
   } catch (error) {
     console.error('Could not initialize database tables:', error.message);
   }
@@ -2473,6 +2502,262 @@ app.delete('/api/brand-tag-images/:id', handleBrandTagImagesDelete);
 app.delete('/api/brandTagImages/:id', handleBrandTagImagesDelete);
 console.log(
   '[api] Brand tag routes registered: GET|POST /api/brand-tag-images and /api/brandTagImages; PATCH|DELETE …/:id'
+);
+
+async function resolveReceiptUploadUrl(storagePath) {
+  const sb = getSupabaseAdmin();
+  const path = storagePath != null ? String(storagePath).trim() : '';
+  if (!sb || !path) return null;
+
+  const bucket = sb.storage.from(RECEIPT_UPLOAD_BUCKET);
+  const { data: signed, error: signErr } = await bucket.createSignedUrl(path, 60 * 60 * 24 * 7);
+  if (!signErr && signed?.signedUrl) {
+    return signed.signedUrl;
+  }
+  if (signErr) {
+    console.warn('Receipt createSignedUrl failed (falling back to public URL):', path, signErr.message);
+  }
+  const { data: pub } = bucket.getPublicUrl(path);
+  return pub?.publicUrl ?? null;
+}
+
+async function ensureReceiptUploadBucket(sb) {
+  const { data: existing, error: getErr } = await sb.storage.getBucket(RECEIPT_UPLOAD_BUCKET);
+  if (existing) return;
+  if (getErr && !/not found|does not exist/i.test(String(getErr.message || ''))) {
+    console.warn('Receipt bucket lookup warning:', getErr.message);
+  }
+  const { error: createErr } = await sb.storage.createBucket(RECEIPT_UPLOAD_BUCKET, {
+    public: false,
+    fileSizeLimit: 20 * 1024 * 1024,
+    allowedMimeTypes: ['application/pdf', 'image/png', 'image/jpeg'],
+  });
+  if (createErr && !/already exists/i.test(String(createErr.message || ''))) {
+    throw createErr;
+  }
+}
+
+function slugForReceiptFileName(name) {
+  let s = String(name ?? '')
+    .trim()
+    .replace(/\.pdf$/i, '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 120);
+  return s || 'receipt';
+}
+
+const runReceiptUploadMulter = (req, res, next) => {
+  receiptUploadMulter.single('file')(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({ error: err.message || 'Upload failed' });
+    }
+    next();
+  });
+};
+
+const handleReceiptUploadsGet = async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const result = await pool.query(
+      `SELECT id, file_name, storage_path, content_type, doc_type, receipt_date, byte_size, created_at
+       FROM receipt_upload
+       ORDER BY created_at DESC, id DESC`
+    );
+
+    const rows = [];
+    for (const row of result.rows) {
+      rows.push({
+        ...row,
+        download_url: await resolveReceiptUploadUrl(row.storage_path),
+      });
+    }
+
+    res.json({
+      rows,
+      storageConfigured: !!getSupabaseAdmin(),
+      bucket: RECEIPT_UPLOAD_BUCKET,
+    });
+  } catch (error) {
+    console.error('Receipt uploads list failed:', error);
+    if (error?.code === '42P01') {
+      return res.status(503).json({
+        error: 'Table receipt_upload missing',
+        hint: 'Restart the API (schema auto-creates) or run database/receipt_upload.sql',
+      });
+    }
+    res.status(500).json({ error: 'Failed to load receipt uploads', details: error.message });
+  }
+};
+
+const handleReceiptUploadsPost = async (req, res) => {
+  try {
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ error: 'Missing file (form field name: file)' });
+    }
+
+    const sb = getSupabaseAdmin();
+    if (!sb) {
+      return res.status(503).json({
+        error: 'Supabase Storage not configured',
+        hint: 'Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY on the server',
+      });
+    }
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    await ensureReceiptUploadBucket(sb);
+
+    const rawName =
+      typeof req.body?.fileName === 'string' && req.body.fileName.trim()
+        ? req.body.fileName.trim()
+        : req.file.originalname || 'receipt.pdf';
+    const safeBase = slugForReceiptFileName(rawName);
+    const ext =
+      req.file.mimetype === 'image/png'
+        ? 'png'
+        : req.file.mimetype === 'image/jpeg'
+          ? 'jpg'
+          : 'pdf';
+    const displayName = rawName.toLowerCase().endsWith(`.${ext}`)
+      ? rawName.slice(0, 255)
+      : `${rawName.replace(/\.[^.]+$/, '')}.${ext}`.slice(0, 255);
+
+    let docType = null;
+    const docRaw = req.body?.docType ?? req.body?.doc_type;
+    if (typeof docRaw === 'string') {
+      const d = docRaw.trim().toLowerCase();
+      if (d === 'charity' || d === 'postage') docType = d;
+    }
+
+    let receiptDate = null;
+    const dateRaw = req.body?.receiptDate ?? req.body?.receipt_date;
+    if (typeof dateRaw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateRaw.trim())) {
+      receiptDate = dateRaw.trim();
+    }
+
+    const seqResult = await pool.query(
+      "SELECT nextval(pg_get_serial_sequence('public.receipt_upload', 'id'))::int AS id"
+    );
+    const rowId = seqResult.rows[0]?.id;
+    if (rowId == null || Number.isNaN(rowId)) {
+      return res.status(500).json({
+        error: 'Could not reserve receipt_upload id',
+        hint: 'Ensure table public.receipt_upload exists',
+      });
+    }
+
+    const yyyy = new Date().getUTCFullYear();
+    const mm = String(new Date().getUTCMonth() + 1).padStart(2, '0');
+    const storagePath = `${yyyy}/${mm}/${safeBase}-${rowId}.${ext}`;
+
+    const { error: uploadError } = await sb.storage
+      .from(RECEIPT_UPLOAD_BUCKET)
+      .upload(storagePath, req.file.buffer, {
+        contentType: req.file.mimetype,
+        upsert: false,
+      });
+
+    if (uploadError) {
+      console.error('Receipt storage upload failed:', uploadError);
+      return res.status(500).json({
+        error: 'Storage upload failed',
+        details: uploadError.message,
+      });
+    }
+
+    try {
+      const insertResult = await pool.query(
+        `INSERT INTO receipt_upload (id, file_name, storage_path, content_type, doc_type, receipt_date, byte_size)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id, file_name, storage_path, content_type, doc_type, receipt_date, byte_size, created_at`,
+        [
+          rowId,
+          displayName,
+          storagePath,
+          req.file.mimetype,
+          docType,
+          receiptDate,
+          req.file.buffer.length,
+        ]
+      );
+
+      const row = insertResult.rows[0];
+      res.status(201).json({
+        ...row,
+        download_url: await resolveReceiptUploadUrl(row.storage_path),
+      });
+    } catch (dbError) {
+      await sb.storage.from(RECEIPT_UPLOAD_BUCKET).remove([storagePath]);
+      console.error('Receipt DB insert failed:', dbError);
+      if (dbError.code === '42P01') {
+        return res.status(503).json({
+          error: 'Table receipt_upload missing',
+          hint: 'Restart the API or run database/receipt_upload.sql',
+        });
+      }
+      throw dbError;
+    }
+  } catch (error) {
+    console.error('Receipt upload failed:', error);
+    res.status(500).json({ error: 'Failed to save receipt upload', details: error.message });
+  }
+};
+
+const handleReceiptUploadsDelete = async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) {
+      return res.status(400).json({ error: 'Invalid id' });
+    }
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const found = await pool.query(
+      'SELECT id, storage_path FROM receipt_upload WHERE id = $1',
+      [id]
+    );
+    if (!found.rowCount) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    const storagePath = found.rows[0].storage_path;
+    const sb = getSupabaseAdmin();
+    if (sb) {
+      const { error: removeError } = await sb.storage.from(RECEIPT_UPLOAD_BUCKET).remove([storagePath]);
+      if (removeError) {
+        console.warn('Receipt storage remove warning:', removeError.message);
+      }
+    }
+
+    await pool.query('DELETE FROM receipt_upload WHERE id = $1', [id]);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Receipt upload delete failed:', error);
+    res.status(500).json({ error: 'Failed to delete receipt upload', details: error.message });
+  }
+};
+
+['/api/receipt-uploads', '/api/receiptUploads'].forEach((receiptPath) => {
+  app.get(receiptPath, handleReceiptUploadsGet);
+  app.post(receiptPath, runReceiptUploadMulter, handleReceiptUploadsPost);
+});
+app.delete('/api/receipt-uploads/:id', handleReceiptUploadsDelete);
+app.delete('/api/receiptUploads/:id', handleReceiptUploadsDelete);
+console.log(
+  '[api] Receipt upload routes registered: GET|POST /api/receipt-uploads; DELETE …/:id'
 );
 
 app.get('/api/settings', async (req, res) => {
