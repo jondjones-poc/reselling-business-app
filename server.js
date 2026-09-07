@@ -2515,10 +2515,11 @@ async function resolveReceiptUploadUrl(storagePath) {
     return signed.signedUrl;
   }
   if (signErr) {
-    console.warn('Receipt createSignedUrl failed (falling back to public URL):', path, signErr.message);
+    // Do not fall back to getPublicUrl — private buckets return a URL that 404s with
+    // {"statusCode":"404","error":"Bucket not found"} and confuse clients on other devices.
+    console.warn('Receipt createSignedUrl failed:', path, signErr.message);
   }
-  const { data: pub } = bucket.getPublicUrl(path);
-  return pub?.publicUrl ?? null;
+  return null;
 }
 
 async function ensureReceiptUploadBucket(sb) {
@@ -2563,6 +2564,18 @@ const handleReceiptUploadsGet = async (req, res) => {
     const pool = getDatabasePool();
     if (!pool) {
       return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const sb = getSupabaseAdmin();
+    if (sb) {
+      try {
+        await ensureReceiptUploadBucket(sb);
+      } catch (bucketErr) {
+        console.warn(
+          'Receipt bucket ensure on list failed:',
+          bucketErr?.message || bucketErr
+        );
+      }
     }
 
     const result = await pool.query(
@@ -2750,14 +2763,94 @@ const handleReceiptUploadsDelete = async (req, res) => {
   }
 };
 
+/** Stream file through the API so every device downloads same-origin (no broken public URLs). */
+const handleReceiptUploadsDownload = async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) {
+      return res.status(400).json({ error: 'Invalid id' });
+    }
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const sb = getSupabaseAdmin();
+    if (!sb) {
+      return res.status(503).json({
+        error: 'Supabase Storage not configured',
+        hint: 'Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY on the API host',
+      });
+    }
+
+    const found = await pool.query(
+      `SELECT id, file_name, storage_path, content_type
+       FROM receipt_upload WHERE id = $1`,
+      [id]
+    );
+    if (!found.rowCount) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    const row = found.rows[0];
+    const storagePath = String(row.storage_path || '').trim();
+    if (!storagePath) {
+      return res.status(404).json({ error: 'Missing storage path' });
+    }
+
+    try {
+      await ensureReceiptUploadBucket(sb);
+    } catch (bucketErr) {
+      console.warn('Receipt bucket ensure on download failed:', bucketErr?.message || bucketErr);
+    }
+
+    const { data, error: downloadError } = await sb.storage
+      .from(RECEIPT_UPLOAD_BUCKET)
+      .download(storagePath);
+
+    if (downloadError || !data) {
+      const msg = downloadError?.message || 'Storage download failed';
+      console.error('Receipt storage download failed:', storagePath, msg);
+      const bucketMissing = /bucket not found/i.test(msg);
+      return res.status(bucketMissing ? 503 : 404).json({
+        error: bucketMissing
+          ? `Storage bucket "${RECEIPT_UPLOAD_BUCKET}" not found`
+          : 'File not found in storage',
+        details: msg,
+        hint: bucketMissing
+          ? 'Create the bucket in Supabase Dashboard → Storage (name: receipt-uploads), or re-save the PDF from a device whose API can create buckets.'
+          : 'The DB row exists but the file is missing from Supabase Storage — re-upload from Create.',
+      });
+    }
+
+    const buffer = Buffer.from(await data.arrayBuffer());
+    const fileName = String(row.file_name || `receipt-${id}.pdf`).replace(/[\r\n"]/g, '');
+    const contentType = row.content_type || 'application/pdf';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Length', String(buffer.length));
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${fileName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`
+    );
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.status(200).send(buffer);
+  } catch (error) {
+    console.error('Receipt upload download failed:', error);
+    res.status(500).json({ error: 'Failed to download receipt', details: error.message });
+  }
+};
+
 ['/api/receipt-uploads', '/api/receiptUploads'].forEach((receiptPath) => {
   app.get(receiptPath, handleReceiptUploadsGet);
   app.post(receiptPath, runReceiptUploadMulter, handleReceiptUploadsPost);
 });
+app.get('/api/receipt-uploads/:id/download', handleReceiptUploadsDownload);
+app.get('/api/receiptUploads/:id/download', handleReceiptUploadsDownload);
 app.delete('/api/receipt-uploads/:id', handleReceiptUploadsDelete);
 app.delete('/api/receiptUploads/:id', handleReceiptUploadsDelete);
 console.log(
-  '[api] Receipt upload routes registered: GET|POST /api/receipt-uploads; DELETE …/:id'
+  '[api] Receipt upload routes registered: GET|POST /api/receipt-uploads; GET …/:id/download; DELETE …/:id'
 );
 
 app.get('/api/settings', async (req, res) => {

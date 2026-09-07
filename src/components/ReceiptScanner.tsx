@@ -61,6 +61,113 @@ const POSTAGE_CARRIER_LABELS: Record<PostageCarrier, string> = {
   evri: 'Evri',
 };
 
+const DOWNLOADED_RECEIPTS_STORAGE_KEY = 'receipt-scanner-downloaded-ids';
+
+function loadDownloadedReceiptIds(): Set<number> {
+  try {
+    const raw = window.localStorage.getItem(DOWNLOADED_RECEIPTS_STORAGE_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(
+      parsed
+        .map((v) => Number(v))
+        .filter((n) => Number.isFinite(n) && n > 0)
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+function persistDownloadedReceiptIds(ids: Set<number>): void {
+  try {
+    window.localStorage.setItem(
+      DOWNLOADED_RECEIPTS_STORAGE_KEY,
+      JSON.stringify(Array.from(ids))
+    );
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+const RECEIPT_PDF_CACHE_DB = 'receipt-scanner-pdf-cache';
+const RECEIPT_PDF_CACHE_STORE = 'pdfs';
+
+function openReceiptPdfCacheDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = window.indexedDB.open(RECEIPT_PDF_CACHE_DB, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(RECEIPT_PDF_CACHE_STORE)) {
+        db.createObjectStore(RECEIPT_PDF_CACHE_STORE, { keyPath: 'id' });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error ?? new Error('Could not open local PDF cache.'));
+  });
+}
+
+async function cacheReceiptPdfLocally(
+  id: number,
+  fileName: string,
+  blob: Blob
+): Promise<void> {
+  try {
+    const db = await openReceiptPdfCacheDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(RECEIPT_PDF_CACHE_STORE, 'readwrite');
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error('Could not save local PDF copy.'));
+      tx.objectStore(RECEIPT_PDF_CACHE_STORE).put({
+        id,
+        fileName,
+        blob,
+        savedAt: Date.now(),
+      });
+    });
+    db.close();
+  } catch {
+    /* local cache is best-effort */
+  }
+}
+
+async function getCachedReceiptPdf(
+  id: number
+): Promise<{ fileName: string; blob: Blob } | null> {
+  try {
+    const db = await openReceiptPdfCacheDb();
+    const row = await new Promise<{ id: number; fileName: string; blob: Blob } | undefined>(
+      (resolve, reject) => {
+        const tx = db.transaction(RECEIPT_PDF_CACHE_STORE, 'readonly');
+        const req = tx.objectStore(RECEIPT_PDF_CACHE_STORE).get(id);
+        req.onsuccess = () =>
+          resolve(req.result as { id: number; fileName: string; blob: Blob } | undefined);
+        req.onerror = () => reject(req.error ?? new Error('Could not read local PDF cache.'));
+      }
+    );
+    db.close();
+    if (!row?.blob) return null;
+    return { fileName: row.fileName || `receipt-${id}.pdf`, blob: row.blob };
+  } catch {
+    return null;
+  }
+}
+
+async function removeCachedReceiptPdf(id: number): Promise<void> {
+  try {
+    const db = await openReceiptPdfCacheDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(RECEIPT_PDF_CACHE_STORE, 'readwrite');
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error('Could not clear local PDF cache.'));
+      tx.objectStore(RECEIPT_PDF_CACHE_STORE).delete(id);
+    });
+    db.close();
+  } catch {
+    /* ignore */
+  }
+}
+
 function nextPostageCarrier(current: PostageCarrier): PostageCarrier {
   const idx = POSTAGE_CARRIERS.indexOf(current);
   return POSTAGE_CARRIERS[(idx + 1) % POSTAGE_CARRIERS.length];
@@ -87,11 +194,19 @@ function buildDownloadBaseName(
   carrier: PostageCarrier,
   date: Date | null
 ): string | null {
+  // DPD filenames intentionally omit the date.
+  if (docType === 'postage' && carrier === 'dpd') {
+    return 'Postage Receipts - DPD';
+  }
   if (!date) return null;
   if (docType === 'postage') {
     return `Postage Receipts - ${POSTAGE_CARRIER_LABELS[carrier]} - ${formatReceiptDate(date)}`;
   }
   return `Charity Shop - ${formatReceiptDate(date)}`;
+}
+
+function receiptExportNeedsDate(docType: ReceiptDocType, carrier: PostageCarrier): boolean {
+  return !(docType === 'postage' && carrier === 'dpd');
 }
 
 function loadImageElement(src: string): Promise<HTMLImageElement> {
@@ -235,11 +350,14 @@ function exportBlockedHint(opts: {
   busy?: boolean;
   saving?: boolean;
   hasItems: boolean;
+  needsDate: boolean;
   hasDate: boolean;
 }): string | null {
   if (opts.busy || opts.saving) return 'Wait for the current action to finish.';
   if (!opts.hasItems) return 'Add at least one receipt image first.';
-  if (!opts.hasDate) return 'Select a date first — it sets the finished file name.';
+  if (opts.needsDate && !opts.hasDate) {
+    return 'Select a date first — it sets the finished file name.';
+  }
   return null;
 }
 
@@ -295,6 +413,7 @@ const ReceiptScanner: React.FC = () => {
   const [uploadsError, setUploadsError] = useState<string | null>(null);
   const [uploadBusyId, setUploadBusyId] = useState<number | null>(null);
   const [savingToCloud, setSavingToCloud] = useState(false);
+  const [downloadedIds, setDownloadedIds] = useState<Set<number>>(() => loadDownloadedReceiptIds());
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
@@ -696,18 +815,22 @@ const ReceiptScanner: React.FC = () => {
     [docType, postageCarrier, receiptDate]
   );
 
-  const requireReceiptDate = useCallback((): string | null => {
+  const requireExportBaseName = useCallback((): string | null => {
     if (!downloadBaseName) {
-      setError('Choose a date before downloading.');
+      setError(
+        receiptExportNeedsDate(docType, postageCarrier)
+          ? 'Choose a date before downloading.'
+          : 'Could not build a file name.'
+      );
       return null;
     }
     setError(null);
     return downloadBaseName;
-  }, [downloadBaseName]);
+  }, [downloadBaseName, docType, postageCarrier]);
 
   const downloadActivePng = useCallback(async () => {
     if (!activeItem) return;
-    const baseName = requireReceiptDate();
+    const baseName = requireExportBaseName();
     if (!baseName) return;
     setBusy(true);
     setError(null);
@@ -720,11 +843,11 @@ const ReceiptScanner: React.FC = () => {
     } finally {
       setBusy(false);
     }
-  }, [activeItem, requireReceiptDate]);
+  }, [activeItem, requireExportBaseName]);
 
   const downloadAllPdf = useCallback(async () => {
     if (items.length === 0) return;
-    const baseName = requireReceiptDate();
+    const baseName = requireExportBaseName();
     if (!baseName) return;
     setBusy(true);
     setError(null);
@@ -736,7 +859,7 @@ const ReceiptScanner: React.FC = () => {
     } finally {
       setBusy(false);
     }
-  }, [items, requireReceiptDate]);
+  }, [items, requireExportBaseName]);
 
   const loadUploads = useCallback(async () => {
     setUploadsLoading(true);
@@ -773,7 +896,7 @@ const ReceiptScanner: React.FC = () => {
 
   const savePdfToCloud = useCallback(async () => {
     if (items.length === 0) return;
-    const baseName = requireReceiptDate();
+    const baseName = requireExportBaseName();
     if (!baseName) return;
     setSavingToCloud(true);
     setBusy(true);
@@ -814,6 +937,7 @@ const ReceiptScanner: React.FC = () => {
         );
       }
 
+      await cacheReceiptPdfLocally(data.id, data.file_name || `${baseName}.pdf`, blob);
       setPanel('uploaded');
       setUploads((prev) => [data, ...prev.filter((r) => r.id !== data.id)]);
     } catch (err) {
@@ -822,33 +946,74 @@ const ReceiptScanner: React.FC = () => {
       setSavingToCloud(false);
       setBusy(false);
     }
-  }, [items, requireReceiptDate, docType, postageCarrier, receiptDate]);
+  }, [items, requireExportBaseName, docType, postageCarrier, receiptDate]);
 
-  const downloadUploadedFile = useCallback(async (row: ReceiptUploadRow) => {
-    if (!row.download_url) {
-      setUploadsError('No download link for that file. Try refreshing the list.');
-      return;
-    }
-    setUploadBusyId(row.id);
-    setUploadsError(null);
-    try {
-      const response = await fetch(row.download_url);
-      if (!response.ok) {
-        throw new Error(`Download failed (${response.status}).`);
-      }
-      const blob = await response.blob();
-      triggerDownload(blob, row.file_name || 'receipt.pdf');
-    } catch (err) {
-      // Signed URL may be cross-origin; fall back to opening the link.
-      try {
-        window.open(row.download_url, '_blank', 'noopener,noreferrer');
-      } catch {
-        setUploadsError(err instanceof Error ? err.message : 'Could not download file.');
-      }
-    } finally {
-      setUploadBusyId(null);
-    }
+  const markDownloaded = useCallback((id: number) => {
+    setDownloadedIds((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      persistDownloadedReceiptIds(next);
+      return next;
+    });
   }, []);
+
+  const downloadUploadedFile = useCallback(
+    async (row: ReceiptUploadRow) => {
+      setUploadBusyId(row.id);
+      setUploadsError(null);
+      try {
+        const response = await apiFetch(`/api/receipt-uploads/${row.id}/download`);
+        if (response.ok) {
+          const blob = await response.blob();
+          const fileName = row.file_name || 'receipt.pdf';
+          triggerDownload(blob, fileName);
+          await cacheReceiptPdfLocally(row.id, fileName, blob);
+          markDownloaded(row.id);
+          return;
+        }
+
+        const text = await response.text();
+        let data: { error?: string; details?: string; hint?: string } = {};
+        try {
+          data = text ? (JSON.parse(text) as typeof data) : {};
+        } catch {
+          /* empty */
+        }
+
+        const cloudMsg = [data.error, data.details].filter(Boolean).join(' — ');
+        const missingInStorage =
+          response.status === 404 ||
+          response.status === 503 ||
+          /not found|object not found|bucket not found/i.test(cloudMsg);
+
+        if (missingInStorage) {
+          const local = await getCachedReceiptPdf(row.id);
+          if (local) {
+            triggerDownload(local.blob, local.fileName || row.file_name || 'receipt.pdf');
+            markDownloaded(row.id);
+            setUploadsError(
+              'Cloud file was missing — downloaded the local copy saved on this device.'
+            );
+            return;
+          }
+          throw new Error(
+            'File not found in cloud storage, and there is no local copy on this device. Recreate the receipt on Create, then Save PDF to cloud again.'
+          );
+        }
+
+        throw new Error(
+          [cloudMsg, data.hint].filter(Boolean).join(' — ') ||
+            `Download failed (${response.status}).`
+        );
+      } catch (err) {
+        setUploadsError(err instanceof Error ? err.message : 'Could not download file.');
+      } finally {
+        setUploadBusyId(null);
+      }
+    },
+    [markDownloaded]
+  );
 
   const deleteUploadedFile = useCallback(async (row: ReceiptUploadRow) => {
     const label = row.file_name || `receipt #${row.id}`;
@@ -873,6 +1038,14 @@ const ReceiptScanner: React.FC = () => {
         );
       }
       setUploads((prev) => prev.filter((r) => r.id !== row.id));
+      setDownloadedIds((prev) => {
+        if (!prev.has(row.id)) return prev;
+        const next = new Set(prev);
+        next.delete(row.id);
+        persistDownloadedReceiptIds(next);
+        return next;
+      });
+      void removeCachedReceiptPdf(row.id);
     } catch (err) {
       setUploadsError(err instanceof Error ? err.message : 'Could not delete file.');
     } finally {
@@ -908,20 +1081,24 @@ const ReceiptScanner: React.FC = () => {
     };
   }, [activeItem, layoutTick]);
 
+  const needsDate = receiptExportNeedsDate(docType, postageCarrier);
   const pdfExportHint = exportBlockedHint({
     busy,
     saving: savingToCloud,
     hasItems: items.length > 0,
+    needsDate,
     hasDate: !!receiptDate,
   });
   const downloadPdfHint = exportBlockedHint({
     busy,
     hasItems: items.length > 0,
+    needsDate,
     hasDate: !!receiptDate,
   });
   const downloadPngHint = exportBlockedHint({
     busy,
     hasItems: !!activeItem,
+    needsDate,
     hasDate: !!receiptDate,
   });
 
@@ -988,8 +1165,15 @@ const ReceiptScanner: React.FC = () => {
             <ul className="receipt-scanner-uploads-list">
               {uploads.map((row) => {
                 const busyRow = uploadBusyId === row.id;
+                const downloaded = downloadedIds.has(row.id);
                 return (
-                  <li key={row.id} className="receipt-scanner-uploads-row">
+                  <li
+                    key={row.id}
+                    className={
+                      'receipt-scanner-uploads-row' +
+                      (downloaded ? ' receipt-scanner-uploads-row--downloaded' : '')
+                    }
+                  >
                     <div className="receipt-scanner-uploads-meta">
                       <span className="receipt-scanner-uploads-name" title={row.file_name}>
                         {row.file_name}
@@ -1009,7 +1193,7 @@ const ReceiptScanner: React.FC = () => {
                         type="button"
                         className="receipt-scanner-button receipt-scanner-button--small receipt-scanner-button--primary"
                         onClick={() => void downloadUploadedFile(row)}
-                        disabled={busyRow || !row.download_url}
+                        disabled={busyRow}
                       >
                         {busyRow ? 'Working…' : 'Download'}
                       </button>

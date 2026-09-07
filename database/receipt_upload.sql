@@ -1,8 +1,11 @@
 -- Receipt Scanner cloud uploads (Supabase Storage metadata).
 -- Table is also auto-created on API startup via ensureDatabaseSchema().
--- Create the storage bucket separately (Dashboard → Storage) or let the API
--- create it on first upload: default name "receipt-uploads"
--- (override with SUPABASE_STORAGE_RECEIPTS_BUCKET).
+--
+-- Storage bucket (required): create once in Supabase Dashboard → Storage
+--   Name: receipt-uploads  (or SUPABASE_STORAGE_RECEIPTS_BUCKET)
+--   Public: OFF
+-- The API also tries to auto-create this bucket on upload/list/download.
+-- Downloads go through GET /api/receipt-uploads/:id/download (not a public URL).
 
 CREATE TABLE IF NOT EXISTS receipt_upload (
   id SERIAL PRIMARY KEY,
