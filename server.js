@@ -1053,9 +1053,75 @@ async function ensureDatabaseSchema() {
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_receipt_upload_created_at ON receipt_upload (created_at DESC)
     `);
+    // App uses the server DB role for metadata — never expose this table to anon clients.
+    await pool.query(`ALTER TABLE IF EXISTS receipt_upload DISABLE ROW LEVEL SECURITY`);
+    await ensureReceiptUploadStoragePolicies(pool);
     console.log('Database schema ready: app_settings, ebay_oauth_token, receipt_upload');
   } catch (error) {
     console.error('Could not initialize database tables:', error.message);
+  }
+}
+
+/**
+ * Storage uploads need INSERT (+ usually SELECT for RETURNING). Missing policies surface as
+ * "new row violates row-level security policy" even for some server keys.
+ */
+async function ensureReceiptUploadStoragePolicies(pool) {
+  if (!pool) return;
+  const statements = [
+    {
+      name: 'receipt_uploads_insert',
+      sql: `
+        CREATE POLICY receipt_uploads_insert ON storage.objects
+        FOR INSERT TO public
+        WITH CHECK (bucket_id = 'receipt-uploads')
+      `,
+    },
+    {
+      name: 'receipt_uploads_select',
+      sql: `
+        CREATE POLICY receipt_uploads_select ON storage.objects
+        FOR SELECT TO public
+        USING (bucket_id = 'receipt-uploads')
+      `,
+    },
+    {
+      name: 'receipt_uploads_update',
+      sql: `
+        CREATE POLICY receipt_uploads_update ON storage.objects
+        FOR UPDATE TO public
+        USING (bucket_id = 'receipt-uploads')
+        WITH CHECK (bucket_id = 'receipt-uploads')
+      `,
+    },
+    {
+      name: 'receipt_uploads_delete',
+      sql: `
+        CREATE POLICY receipt_uploads_delete ON storage.objects
+        FOR DELETE TO public
+        USING (bucket_id = 'receipt-uploads')
+      `,
+    },
+  ];
+
+  for (const { name, sql } of statements) {
+    try {
+      const exists = await pool.query(
+        `SELECT 1
+         FROM pg_policies
+         WHERE schemaname = 'storage'
+           AND tablename = 'objects'
+           AND policyname = $1
+         LIMIT 1`,
+        [name]
+      );
+      if (exists.rowCount) continue;
+      await pool.query(sql);
+      console.log(`[api] Created storage policy ${name}`);
+    } catch (err) {
+      // storage schema may be unavailable on some local DBs — non-fatal.
+      console.warn(`[api] Could not ensure storage policy ${name}:`, err?.message || err);
+    }
   }
 }
 
@@ -2522,19 +2588,29 @@ async function resolveReceiptUploadUrl(storagePath) {
   return null;
 }
 
+/**
+ * Bucket should already exist (Dashboard or first successful create).
+ * Never throw — create/update via the Storage management API can return a misleading
+ * RLS 403 with newer secret keys and was aborting receipt uploads entirely.
+ */
 async function ensureReceiptUploadBucket(sb) {
-  const { data: existing, error: getErr } = await sb.storage.getBucket(RECEIPT_UPLOAD_BUCKET);
-  if (existing) return;
-  if (getErr && !/not found|does not exist/i.test(String(getErr.message || ''))) {
-    console.warn('Receipt bucket lookup warning:', getErr.message);
-  }
-  const { error: createErr } = await sb.storage.createBucket(RECEIPT_UPLOAD_BUCKET, {
-    public: false,
-    fileSizeLimit: 20 * 1024 * 1024,
-    allowedMimeTypes: ['application/pdf', 'image/png', 'image/jpeg'],
-  });
-  if (createErr && !/already exists/i.test(String(createErr.message || ''))) {
-    throw createErr;
+  if (!sb) return;
+  try {
+    const { data: existing, error: getErr } = await sb.storage.getBucket(RECEIPT_UPLOAD_BUCKET);
+    if (existing) return;
+    if (getErr) {
+      console.warn('Receipt bucket lookup warning:', getErr.message);
+    }
+    const { error: createErr } = await sb.storage.createBucket(RECEIPT_UPLOAD_BUCKET, {
+      public: false,
+      fileSizeLimit: 20 * 1024 * 1024,
+    });
+    if (createErr) {
+      // Bucket may already exist, or management API may block create — uploads can still work.
+      console.warn('Receipt bucket create warning:', createErr.message);
+    }
+  } catch (e) {
+    console.warn('Receipt bucket ensure warning:', e?.message || e);
   }
 }
 
@@ -2652,7 +2728,11 @@ const handleReceiptUploadsPost = async (req, res) => {
       return res.status(500).json({ error: 'Database connection not configured' });
     }
 
-    await ensureReceiptUploadBucket(sb);
+    try {
+      await ensureReceiptUploadBucket(sb);
+    } catch (bucketErr) {
+      console.warn('Receipt bucket ensure on upload failed:', bucketErr?.message || bucketErr);
+    }
 
     const rawName =
       typeof req.body?.fileName === 'string' && req.body.fileName.trim()
@@ -2702,19 +2782,30 @@ const handleReceiptUploadsPost = async (req, res) => {
     const yyyy = new Date().getUTCFullYear();
     const mm = String(new Date().getUTCMonth() + 1).padStart(2, '0');
     const storagePath = `${yyyy}/${mm}/${safeBase}-${rowId}.${ext}`;
+    const contentType =
+      ext === 'png' ? 'image/png' : ext === 'jpg' ? 'image/jpeg' : 'application/pdf';
 
-    const { error: uploadError } = await sb.storage
-      .from(RECEIPT_UPLOAD_BUCKET)
-      .upload(storagePath, req.file.buffer, {
-        contentType: req.file.mimetype,
+    let uploadError = null;
+    try {
+      const uploaded = await sb.storage.from(RECEIPT_UPLOAD_BUCKET).upload(storagePath, req.file.buffer, {
+        contentType,
         upsert: false,
       });
+      uploadError = uploaded.error || null;
+    } catch (uploadThrown) {
+      uploadError = uploadThrown;
+    }
 
     if (uploadError) {
       console.error('Receipt storage upload failed:', uploadError);
-      return res.status(500).json({
-        error: 'Storage upload failed',
-        details: uploadError.message,
+      const details = uploadError.message || String(uploadError);
+      const rls = /row-level security|rls/i.test(details);
+      return res.status(rls ? 503 : 500).json({
+        error: rls ? 'Supabase Storage blocked the upload (RLS)' : 'Storage upload failed',
+        details,
+        hint: rls
+          ? 'Restart the API so it can create receipt-uploads storage policies, or run the policies in database/receipt_upload.sql. Also confirm SUPABASE_SERVICE_ROLE_KEY is the secret/service_role key on the API host.'
+          : undefined,
       });
     }
 
@@ -2727,7 +2818,7 @@ const handleReceiptUploadsPost = async (req, res) => {
           rowId,
           finalDisplayName,
           storagePath,
-          req.file.mimetype,
+          contentType,
           docType,
           receiptDate,
           req.file.buffer.length,

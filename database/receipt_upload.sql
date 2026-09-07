@@ -6,6 +6,9 @@
 --   Public: OFF
 -- The API also tries to auto-create this bucket on upload/list/download.
 -- Downloads go through GET /api/receipt-uploads/:id/download (not a public URL).
+--
+-- If uploads fail with "new row violates row-level security policy", run the
+-- storage policies below (or restart the API — it creates them on boot).
 
 CREATE TABLE IF NOT EXISTS receipt_upload (
   id SERIAL PRIMARY KEY,
@@ -19,3 +22,46 @@ CREATE TABLE IF NOT EXISTS receipt_upload (
 );
 
 CREATE INDEX IF NOT EXISTS idx_receipt_upload_created_at ON receipt_upload (created_at DESC);
+
+ALTER TABLE IF EXISTS receipt_upload DISABLE ROW LEVEL SECURITY;
+
+-- Storage RLS (storage.objects). Safe to re-run: skips existing policy names.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'receipt_uploads_insert'
+  ) THEN
+    CREATE POLICY receipt_uploads_insert ON storage.objects
+      FOR INSERT TO public
+      WITH CHECK (bucket_id = 'receipt-uploads');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'receipt_uploads_select'
+  ) THEN
+    CREATE POLICY receipt_uploads_select ON storage.objects
+      FOR SELECT TO public
+      USING (bucket_id = 'receipt-uploads');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'receipt_uploads_update'
+  ) THEN
+    CREATE POLICY receipt_uploads_update ON storage.objects
+      FOR UPDATE TO public
+      USING (bucket_id = 'receipt-uploads')
+      WITH CHECK (bucket_id = 'receipt-uploads');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'receipt_uploads_delete'
+  ) THEN
+    CREATE POLICY receipt_uploads_delete ON storage.objects
+      FOR DELETE TO public
+      USING (bucket_id = 'receipt-uploads');
+  END IF;
+END $$;
