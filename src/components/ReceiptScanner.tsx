@@ -169,8 +169,11 @@ const ReceiptScanner: React.FC = () => {
   const [docType, setDocType] = useState<ReceiptDocType>('charity');
   const [dragActive, setDragActive] = useState(false);
   const [showCameraOption, setShowCameraOption] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraStarting, setCameraStarting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const cameraVideoRef = useRef<HTMLVideoElement>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
   const dragDepthRef = useRef(0);
   const imageRef = useRef<HTMLImageElement>(null);
   const dragRef = useRef<{
@@ -199,6 +202,113 @@ const ReceiptScanner: React.FC = () => {
       narrow.removeEventListener('change', sync);
     };
   }, []);
+
+  const stopCameraStream = useCallback(() => {
+    const stream = cameraStreamRef.current;
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+      cameraStreamRef.current = null;
+    }
+    const video = cameraVideoRef.current;
+    if (video) {
+      video.srcObject = null;
+    }
+  }, []);
+
+  const closeCamera = useCallback(() => {
+    stopCameraStream();
+    setCameraOpen(false);
+    setCameraStarting(false);
+  }, [stopCameraStream]);
+
+  const openCamera = useCallback(() => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError('Camera is not supported in this browser. Try Chrome or Safari.');
+      return;
+    }
+    setError(null);
+    setCameraStarting(true);
+    setCameraOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (!cameraOpen) return undefined;
+    let cancelled = false;
+
+    const start = async () => {
+      if (cameraStreamRef.current) {
+        const video = cameraVideoRef.current;
+        if (video && video.srcObject !== cameraStreamRef.current) {
+          video.srcObject = cameraStreamRef.current;
+          video.setAttribute('playsinline', 'true');
+          video.muted = true;
+          try {
+            await video.play();
+          } catch {
+            /* ignore brief autoplay failures */
+          }
+        }
+        if (!cancelled) setCameraStarting(false);
+        return;
+      }
+
+      try {
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: {
+              facingMode: { ideal: 'environment' },
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+            },
+          });
+        } catch {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: true,
+          });
+        }
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        cameraStreamRef.current = stream;
+        const video = cameraVideoRef.current;
+        if (video) {
+          video.srcObject = stream;
+          video.setAttribute('playsinline', 'true');
+          video.muted = true;
+          await video.play();
+        }
+      } catch (err) {
+        if (cancelled) return;
+        stopCameraStream();
+        setCameraOpen(false);
+        const message =
+          err instanceof Error && /NotAllowedError|Permission/i.test(err.name + err.message)
+            ? 'Camera permission denied. Allow camera access for this site and try again.'
+            : err instanceof Error
+              ? `Could not open camera: ${err.message}`
+              : 'Could not open camera.';
+        setError(message);
+      } finally {
+        if (!cancelled) setCameraStarting(false);
+      }
+    };
+
+    void start();
+    return () => {
+      cancelled = true;
+    };
+  }, [cameraOpen, stopCameraStream]);
+
+  useEffect(
+    () => () => {
+      stopCameraStream();
+    },
+    [stopCameraStream]
+  );
 
   useEffect(
     () => () => {
@@ -272,6 +382,38 @@ const ReceiptScanner: React.FC = () => {
       setBusy(false);
     }
   }, []);
+
+  const captureFromCamera = useCallback(async () => {
+    const video = cameraVideoRef.current;
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      setError('Camera is still starting — wait a moment and try again.');
+      return;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      setError('Canvas is unavailable in this browser.');
+      return;
+    }
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    try {
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+          (result) => (result ? resolve(result) : reject(new Error('Could not capture photo.'))),
+          'image/jpeg',
+          0.92
+        );
+      });
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const file = new File([blob], `camera-${stamp}.jpg`, { type: 'image/jpeg' });
+      closeCamera();
+      await addFiles([file]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not capture photo.');
+    }
+  }, [addFiles, closeCamera]);
 
   const onDropZoneDragEnter = useCallback((event: React.DragEvent) => {
     event.preventDefault();
@@ -530,18 +672,18 @@ const ReceiptScanner: React.FC = () => {
           type="button"
           className="receipt-scanner-button receipt-scanner-button--primary"
           onClick={() => fileInputRef.current?.click()}
-          disabled={busy}
+          disabled={busy || cameraOpen}
         >
-          Add receipts
+          Add Receipt Image
         </button>
         {showCameraOption && (
           <button
             type="button"
             className="receipt-scanner-button"
-            onClick={() => cameraInputRef.current?.click()}
-            disabled={busy}
+            onClick={() => void openCamera()}
+            disabled={busy || cameraOpen}
           >
-            Use camera
+            Add Receipt From Camera
           </button>
         )}
         <DatePicker
@@ -626,23 +768,12 @@ const ReceiptScanner: React.FC = () => {
                 e.target.value = '';
               }}
             />
-            <input
-              ref={cameraInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="receipt-scanner-file-input"
-              onChange={(e) => {
-                void addFiles(e.target.files);
-                e.target.value = '';
-              }}
-            />
             <strong className="receipt-scanner-dropzone-title">
               {dragActive ? 'Drop to upload' : 'Drag & drop'}
             </strong>
             <span className="receipt-scanner-dropzone-hint">
               {showCameraOption
-                ? 'or browse / use camera'
+                ? 'or browse / take a photo'
                 : 'or click to browse'}
             </span>
             {showCameraOption && (
@@ -651,11 +782,11 @@ const ReceiptScanner: React.FC = () => {
                 className="receipt-scanner-button receipt-scanner-button--small receipt-scanner-dropzone-camera"
                 onClick={(e) => {
                   e.stopPropagation();
-                  cameraInputRef.current?.click();
+                  void openCamera();
                 }}
-                disabled={busy}
+                disabled={busy || cameraOpen}
               >
-                Use camera
+                Add Receipt From Camera
               </button>
             )}
           </div>
@@ -785,6 +916,40 @@ const ReceiptScanner: React.FC = () => {
           <div className="receipt-scanner-editor receipt-scanner-editor--empty" />
         )}
       </div>
+
+      {cameraOpen && (
+        <div className="receipt-scanner-camera-overlay" role="dialog" aria-modal="true" aria-label="Camera">
+          <div className="receipt-scanner-camera-panel">
+            <video
+              ref={cameraVideoRef}
+              className="receipt-scanner-camera-video"
+              autoPlay
+              playsInline
+              muted
+            />
+            {cameraStarting && (
+              <p className="receipt-scanner-camera-status">Starting camera…</p>
+            )}
+            <div className="receipt-scanner-camera-actions">
+              <button
+                type="button"
+                className="receipt-scanner-button receipt-scanner-button--quiet"
+                onClick={closeCamera}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="receipt-scanner-button receipt-scanner-button--primary"
+                onClick={() => void captureFromCamera()}
+                disabled={cameraStarting}
+              >
+                Take photo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 };
