@@ -195,6 +195,11 @@
   vertical-align: middle;
 }
 
+.orders-sales-summary-table th[title='Double-click to sort'] {
+  cursor: pointer;
+  user-select: none;
+}
+
 .orders-sales-summary-sortable {
   display: inline-flex;
   align-items: center;

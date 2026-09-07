@@ -4565,12 +4565,13 @@ a.stock-action-icon:hover {
   cursor: not-allowed;
 }
 
-/* Expenses secondary tabs (Expenses | Projections) */
+/* Tools secondary tabs (Expenses | Image Remover | Receipt Scanner | Listing Planner) */
 .expenses-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 0;
   width: 100%;
-  max-width: 520px;
+  max-width: 920px;
   margin: 0 auto 28px auto;
   padding: 0;
   border-radius: 16px;
@@ -4581,16 +4582,20 @@ a.stock-action-icon:hover {
 }
 
 .expenses-tab {
-  flex: 1 1 50%;
+  flex: 1 1 0;
+  min-width: 0;
   margin: 0;
-  padding: 14px 20px;
+  padding: 12px 14px;
   border: none;
   background: transparent;
   color: rgba(var(--theme-text-rgb), 0.65);
-  font-size: 0.95rem;
+  font-size: 0.82rem;
   font-weight: 600;
-  letter-spacing: 0.06rem;
+  letter-spacing: 0.04rem;
   text-transform: uppercase;
+  line-height: 1.25;
+  text-align: center;
+  white-space: normal;
   cursor: pointer;
   transition:
     background 0.2s ease,
@@ -4611,6 +4616,36 @@ a.stock-action-icon:hover {
   color: var(--neon-primary-strong);
   background: rgba(var(--theme-accent-rgb), 0.12);
   box-shadow: inset 0 -3px 0 0 rgba(var(--theme-accent-rgb), 0.55);
+}
+
+@media (max-width: 720px) {
+  .expenses-tabs {
+    max-width: 100%;
+  }
+
+  .expenses-tab {
+    flex: 1 1 50%;
+    padding: 11px 10px;
+    font-size: 0.74rem;
+    letter-spacing: 0.03rem;
+  }
+
+  /* 2×2 grid: drop right border on every second tab, add bottom rule on the first row */
+  .expenses-tab:nth-child(2n) {
+    border-right: none;
+  }
+
+  .expenses-tab:nth-child(-n + 2) {
+    border-bottom: 1px solid rgba(var(--theme-accent-rgb), 0.18);
+  }
+}
+
+@media (max-width: 380px) {
+  .expenses-tab {
+    font-size: 0.68rem;
+    padding: 10px 6px;
+    letter-spacing: 0.02rem;
+  }
 }
 
 .expenses-profit-calendar {

@@ -47,6 +47,10 @@
   color: rgba(var(--theme-text-rgb, 240, 240, 240), 0.55);
 }
 
+.receipt-scanner-dropzone-camera {
+  margin-top: 8px;
+}
+
 .receipt-scanner-controls {
   display: flex;
   flex-wrap: wrap;

@@ -38,6 +38,15 @@ type ReceiptDocType = 'charity' | 'postage';
 
 const MIN_CROP_PX = 24;
 
+function isMobileUploadDevice(): boolean {
+  if (typeof window === 'undefined') return false;
+  const coarse = window.matchMedia('(pointer: coarse)').matches;
+  const narrow = window.matchMedia('(max-width: 800px)').matches;
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+  const mobileUa = /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+  return coarse || narrow || mobileUa;
+}
+
 function formatReceiptDate(date: Date): string {
   const dd = String(date.getDate()).padStart(2, '0');
   const mm = String(date.getMonth() + 1).padStart(2, '0');
@@ -159,7 +168,9 @@ const ReceiptScanner: React.FC = () => {
   const [receiptDate, setReceiptDate] = useState<Date | null>(null);
   const [docType, setDocType] = useState<ReceiptDocType>('charity');
   const [dragActive, setDragActive] = useState(false);
+  const [showCameraOption, setShowCameraOption] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
   const imageRef = useRef<HTMLImageElement>(null);
   const dragRef = useRef<{
@@ -175,6 +186,19 @@ const ReceiptScanner: React.FC = () => {
     () => items.find((item) => item.id === activeId) ?? null,
     [items, activeId]
   );
+
+  useEffect(() => {
+    setShowCameraOption(isMobileUploadDevice());
+    const coarse = window.matchMedia('(pointer: coarse)');
+    const narrow = window.matchMedia('(max-width: 800px)');
+    const sync = () => setShowCameraOption(isMobileUploadDevice());
+    coarse.addEventListener('change', sync);
+    narrow.addEventListener('change', sync);
+    return () => {
+      coarse.removeEventListener('change', sync);
+      narrow.removeEventListener('change', sync);
+    };
+  }, []);
 
   useEffect(
     () => () => {
@@ -510,6 +534,16 @@ const ReceiptScanner: React.FC = () => {
         >
           Add receipts
         </button>
+        {showCameraOption && (
+          <button
+            type="button"
+            className="receipt-scanner-button"
+            onClick={() => cameraInputRef.current?.click()}
+            disabled={busy}
+          >
+            Use camera
+          </button>
+        )}
         <DatePicker
           selected={receiptDate}
           onChange={(date) => setReceiptDate(date)}
@@ -592,10 +626,38 @@ const ReceiptScanner: React.FC = () => {
                 e.target.value = '';
               }}
             />
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="receipt-scanner-file-input"
+              onChange={(e) => {
+                void addFiles(e.target.files);
+                e.target.value = '';
+              }}
+            />
             <strong className="receipt-scanner-dropzone-title">
               {dragActive ? 'Drop to upload' : 'Drag & drop'}
             </strong>
-            <span className="receipt-scanner-dropzone-hint">or click to browse</span>
+            <span className="receipt-scanner-dropzone-hint">
+              {showCameraOption
+                ? 'or browse / use camera'
+                : 'or click to browse'}
+            </span>
+            {showCameraOption && (
+              <button
+                type="button"
+                className="receipt-scanner-button receipt-scanner-button--small receipt-scanner-dropzone-camera"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  cameraInputRef.current?.click();
+                }}
+                disabled={busy}
+              >
+                Use camera
+              </button>
+            )}
           </div>
 
           {items.length > 0 && (

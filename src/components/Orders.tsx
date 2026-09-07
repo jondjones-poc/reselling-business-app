@@ -54,8 +54,15 @@ function stockIsBulky(row: StockRow | OrderItem): boolean {
 
 type OrdersTab = 'to-pack' | 'sales' | 'sales-summary' | 'schedule-listing';
 type SalesSummaryPeriodMode = 'week' | 'month';
-type SalesSummarySortKey = 'sale_price' | 'buy_price' | 'profit';
+type SalesSummarySortKey =
+  | 'id'
+  | 'item_name'
+  | 'sale_price'
+  | 'buy_price'
+  | 'profit'
+  | 'listing';
 type SalesSummarySortConfig = { key: SalesSummarySortKey; direction: 'asc' | 'desc' };
+const DEFAULT_SALES_SUMMARY_SORT: SalesSummarySortConfig = { key: 'id', direction: 'desc' };
 
 const SALES_SUMMARY_WEEKS_BACK = 9;
 const SALES_SUMMARY_MONTHS_BACK = 12;
@@ -1053,7 +1060,7 @@ const Orders: React.FC = () => {
   const [salesSummaryPeriodMode, setSalesSummaryPeriodMode] =
     useState<SalesSummaryPeriodMode>('week');
   const [salesSummarySortConfig, setSalesSummarySortConfig] =
-    useState<SalesSummarySortConfig | null>(null);
+    useState<SalesSummarySortConfig>(DEFAULT_SALES_SUMMARY_SORT);
   const [vintedEbayCheckLoading, setVintedEbayCheckLoading] = useState(false);
   const [vintedEbayViolations, setVintedEbayViolations] = useState<VintedEbayViolation[]>([]);
   const [vintedEbayCheckError, setVintedEbayCheckError] = useState<string | null>(null);
@@ -1903,13 +1910,28 @@ const Orders: React.FC = () => {
     const { rangeStart, rangeEnd } = salesSummaryPeriod;
     const rows = soldRows.filter((r) => soldRowInDateRange(r, rangeStart, rangeEnd));
 
-    const compareBySaleDateDesc = (a: StockRow, b: StockRow) => {
-      const da = parseSoldRowDate(a)?.getTime() ?? 0;
-      const db = parseSoldRowDate(b)?.getTime() ?? 0;
-      return db - da;
+    const compareByIdDesc = (a: StockRow, b: StockRow) => Number(b.id) - Number(a.id);
+
+    const listingLabel = (row: StockRow) =>
+      soldPlatformListingHref(row)?.platform?.toLowerCase() ?? '';
+
+    const stringSortValue = (row: StockRow, key: SalesSummarySortKey): string | null => {
+      if (key === 'item_name') {
+        const name = row.item_name?.trim();
+        return name ? name.toLowerCase() : null;
+      }
+      if (key === 'listing') {
+        const label = listingLabel(row);
+        return label || null;
+      }
+      return null;
     };
 
     const numericSortValue = (row: StockRow, key: SalesSummarySortKey): number | null => {
+      if (key === 'id') {
+        const id = Number(row.id);
+        return Number.isFinite(id) ? id : null;
+      }
       if (key === 'sale_price') {
         const { sale } = computeStockInfoPanelMetrics(row);
         return Number.isNaN(sale) ? null : sale;
@@ -1921,25 +1943,33 @@ const Orders: React.FC = () => {
             : NaN;
         return Number.isNaN(purchase) ? null : purchase;
       }
-      const { profit } = computeStockInfoPanelMetrics(row);
-      return Number.isNaN(profit) ? null : profit;
+      if (key === 'profit') {
+        const { profit } = computeStockInfoPanelMetrics(row);
+        return Number.isNaN(profit) ? null : profit;
+      }
+      return null;
     };
-
-    if (!salesSummarySortConfig) {
-      return [...rows].sort(compareBySaleDateDesc);
-    }
 
     const { key, direction } = salesSummarySortConfig;
     const multiplier = direction === 'asc' ? 1 : -1;
 
     return [...rows].sort((a, b) => {
+      if (key === 'item_name' || key === 'listing') {
+        const aValue = stringSortValue(a, key);
+        const bValue = stringSortValue(b, key);
+        if (aValue === null && bValue === null) return compareByIdDesc(a, b);
+        if (aValue === null) return 1;
+        if (bValue === null) return -1;
+        if (aValue === bValue) return compareByIdDesc(a, b);
+        return aValue.localeCompare(bValue) * multiplier;
+      }
+
       const aValue = numericSortValue(a, key);
       const bValue = numericSortValue(b, key);
-
-      if (aValue === null && bValue === null) return compareBySaleDateDesc(a, b);
+      if (aValue === null && bValue === null) return compareByIdDesc(a, b);
       if (aValue === null) return 1;
       if (bValue === null) return -1;
-      if (aValue === bValue) return compareBySaleDateDesc(a, b);
+      if (aValue === bValue) return compareByIdDesc(a, b);
       return (aValue - bValue) * multiplier;
     });
   }, [soldRows, salesSummaryPeriod, salesSummarySortConfig]);
@@ -1985,26 +2015,17 @@ const Orders: React.FC = () => {
   }, [salesSummaryRows]);
 
   useEffect(() => {
-    setSalesSummarySortConfig(null);
+    setSalesSummarySortConfig(DEFAULT_SALES_SUMMARY_SORT);
   }, [salesSummaryWeekKey, salesSummaryMonthKey, salesSummaryPeriodMode]);
 
   const handleSalesSummarySort = (key: SalesSummarySortKey) => {
     setSalesSummarySortConfig((current) => {
-      if (!current || current.key !== key) {
-        return { key, direction: 'asc' };
+      if (current.key !== key) {
+        // SKU defaults high→low; other columns start low→high on first double-click.
+        return { key, direction: key === 'id' ? 'desc' : 'asc' };
       }
-      if (current.direction === 'asc') {
-        return { key, direction: 'desc' };
-      }
-      return null;
+      return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' };
     });
-  };
-
-  const salesSummarySortIndicator = (key: SalesSummarySortKey) => {
-    if (!salesSummarySortConfig || salesSummarySortConfig.key !== key) {
-      return '⇅';
-    }
-    return salesSummarySortConfig.direction === 'asc' ? '↑' : '↓';
   };
 
   const exportSalesSummaryToCSV = useCallback(() => {
@@ -4999,81 +5020,84 @@ const Orders: React.FC = () => {
               <table className="orders-table orders-sales-summary-table">
                 <thead>
                   <tr>
-                    <th>SKU</th>
-                    <th>Products Sold</th>
                     <th
                       aria-sort={
-                        salesSummarySortConfig?.key === 'sale_price'
+                        salesSummarySortConfig.key === 'id'
                           ? salesSummarySortConfig.direction === 'asc'
                             ? 'ascending'
                             : 'descending'
                           : 'none'
                       }
+                      onDoubleClick={() => handleSalesSummarySort('id')}
+                      title="Double-click to sort"
                     >
-                      <button
-                        type="button"
-                        className={`orders-sales-summary-sortable${
-                          salesSummarySortConfig?.key === 'sale_price'
-                            ? ` sorted-${salesSummarySortConfig.direction}`
-                            : ''
-                        }`}
-                        onClick={() => handleSalesSummarySort('sale_price')}
-                      >
-                        Sale price
-                        <span className="orders-sales-summary-sort-indicator">
-                          {salesSummarySortIndicator('sale_price')}
-                        </span>
-                      </button>
+                      SKU
                     </th>
                     <th
                       aria-sort={
-                        salesSummarySortConfig?.key === 'buy_price'
+                        salesSummarySortConfig.key === 'item_name'
                           ? salesSummarySortConfig.direction === 'asc'
                             ? 'ascending'
                             : 'descending'
                           : 'none'
                       }
+                      onDoubleClick={() => handleSalesSummarySort('item_name')}
+                      title="Double-click to sort"
                     >
-                      <button
-                        type="button"
-                        className={`orders-sales-summary-sortable${
-                          salesSummarySortConfig?.key === 'buy_price'
-                            ? ` sorted-${salesSummarySortConfig.direction}`
-                            : ''
-                        }`}
-                        onClick={() => handleSalesSummarySort('buy_price')}
-                      >
-                        Buy price
-                        <span className="orders-sales-summary-sort-indicator">
-                          {salesSummarySortIndicator('buy_price')}
-                        </span>
-                      </button>
+                      Products Sold
                     </th>
                     <th
                       aria-sort={
-                        salesSummarySortConfig?.key === 'profit'
+                        salesSummarySortConfig.key === 'sale_price'
                           ? salesSummarySortConfig.direction === 'asc'
                             ? 'ascending'
                             : 'descending'
                           : 'none'
                       }
+                      onDoubleClick={() => handleSalesSummarySort('sale_price')}
+                      title="Double-click to sort"
                     >
-                      <button
-                        type="button"
-                        className={`orders-sales-summary-sortable${
-                          salesSummarySortConfig?.key === 'profit'
-                            ? ` sorted-${salesSummarySortConfig.direction}`
-                            : ''
-                        }`}
-                        onClick={() => handleSalesSummarySort('profit')}
-                      >
-                        Profit
-                        <span className="orders-sales-summary-sort-indicator">
-                          {salesSummarySortIndicator('profit')}
-                        </span>
-                      </button>
+                      Sale price
                     </th>
-                    <th>Listing</th>
+                    <th
+                      aria-sort={
+                        salesSummarySortConfig.key === 'buy_price'
+                          ? salesSummarySortConfig.direction === 'asc'
+                            ? 'ascending'
+                            : 'descending'
+                          : 'none'
+                      }
+                      onDoubleClick={() => handleSalesSummarySort('buy_price')}
+                      title="Double-click to sort"
+                    >
+                      Buy price
+                    </th>
+                    <th
+                      aria-sort={
+                        salesSummarySortConfig.key === 'profit'
+                          ? salesSummarySortConfig.direction === 'asc'
+                            ? 'ascending'
+                            : 'descending'
+                          : 'none'
+                      }
+                      onDoubleClick={() => handleSalesSummarySort('profit')}
+                      title="Double-click to sort"
+                    >
+                      Profit
+                    </th>
+                    <th
+                      aria-sort={
+                        salesSummarySortConfig.key === 'listing'
+                          ? salesSummarySortConfig.direction === 'asc'
+                            ? 'ascending'
+                            : 'descending'
+                          : 'none'
+                      }
+                      onDoubleClick={() => handleSalesSummarySort('listing')}
+                      title="Double-click to sort"
+                    >
+                      Listing
+                    </th>
                     <th>Actions</th>
                   </tr>
                 </thead>
