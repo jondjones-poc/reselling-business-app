@@ -1140,6 +1140,23 @@ const Orders: React.FC = () => {
     }
   }, []);
 
+  const reconnectEbaySeller = useCallback(
+    async (returnPath: string) => {
+      const confirmed = window.confirm(
+        'Clear the stored eBay connection and sign in again?\n\nUse this if you see invalid_grant / refresh token errors.'
+      );
+      if (!confirmed) return;
+      try {
+        await fetch(`${API_BASE}/api/ebay/oauth/disconnect`, { method: 'POST' });
+      } catch {
+        // Still send the user through OAuth; upsert will replace a bad token if disconnect failed.
+      }
+      setEbayOAuthStatus({ connected: false, reason: 'disconnected' });
+      window.location.assign(ebayOAuthStartUrl(returnPath));
+    },
+    []
+  );
+
   // Load all stock data
   const loadStock = async () => {
     try {
@@ -3596,22 +3613,25 @@ const Orders: React.FC = () => {
               </div>
               <div className="orders-ebay-seller-status">
                 {ebaySellerConnected ? (
-                  <span
+                  <button
+                    type="button"
                     className="orders-ebay-seller-status-icon orders-ebay-seller-status-icon--connected"
                     title={
                       ebayOAuthStatus?.user_name
-                        ? `eBay seller linked as ${ebayOAuthStatus.user_name}`
-                        : 'eBay seller linked'
+                        ? `eBay seller linked as ${ebayOAuthStatus.user_name}. Click to clear token and reconnect.`
+                        : 'eBay seller linked. Click to clear token and reconnect.'
                     }
                     aria-label={
                       ebayOAuthStatus?.user_name
-                        ? `eBay seller linked as ${ebayOAuthStatus.user_name}`
-                        : 'eBay seller linked'
+                        ? `eBay seller linked as ${ebayOAuthStatus.user_name}. Click to reconnect.`
+                        : 'eBay seller linked. Click to reconnect.'
                     }
-                    role="img"
+                    onClick={() =>
+                      void reconnectEbaySeller('/orders?tab=listing-management')
+                    }
                   >
                     <EbaySellerProfileIcon className="orders-ebay-seller-status-profile" />
-                  </span>
+                  </button>
                 ) : (
                   <a
                     href={ebayOAuthStartUrl('/orders?tab=listing-management')}
@@ -5152,22 +5172,23 @@ const Orders: React.FC = () => {
           <div className="orders-schedule-listing-status-row">
             <div className="orders-ebay-seller-status">
               {ebaySellerConnected && ebayOAuthStatus?.has_inventory_scope === true ? (
-                <span
+                <button
+                  type="button"
                   className="orders-ebay-seller-status-icon orders-ebay-seller-status-icon--connected"
                   title={
                     ebayOAuthStatus?.user_name
-                      ? `eBay seller linked as ${ebayOAuthStatus.user_name}`
-                      : 'eBay seller linked'
+                      ? `eBay seller linked as ${ebayOAuthStatus.user_name}. Click to clear token and reconnect.`
+                      : 'eBay seller linked. Click to clear token and reconnect.'
                   }
                   aria-label={
                     ebayOAuthStatus?.user_name
-                      ? `eBay seller linked as ${ebayOAuthStatus.user_name}`
-                      : 'eBay seller linked'
+                      ? `eBay seller linked as ${ebayOAuthStatus.user_name}. Click to reconnect.`
+                      : 'eBay seller linked. Click to reconnect.'
                   }
-                  role="img"
+                  onClick={() => void reconnectEbaySeller('/orders?tab=schedule-listing')}
                 >
                   <EbaySellerProfileIcon className="orders-ebay-seller-status-profile" />
-                </span>
+                </button>
               ) : (
                 <button
                   type="button"

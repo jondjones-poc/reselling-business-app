@@ -925,6 +925,7 @@ const Planner: React.FC = () => {
         requiredAvgSaleAtPace: null as number | null,
         requiredMultipleAtPace: null as number | null,
         itemsToListPerWeekNeeded: 0,
+        itemsToListPerMonthNeeded: 0,
         listingPaceShortfall: 0,
         altSellThroughPercent: 0,
         itemsToListAtAltStr: 0,
@@ -1005,6 +1006,8 @@ const Planner: React.FC = () => {
         : null;
     const itemsToListPerWeekNeeded =
       itemsToListForTarget > 0 ? Math.ceil(itemsToListForTarget / 52) : 0;
+    const itemsToListPerMonthNeeded =
+      itemsToListForTarget > 0 ? Math.ceil(itemsToListForTarget / 12) : 0;
     const listingPaceShortfall = itemsToListPerWeekNeeded - listingsPerWeek;
 
     const altSellThroughDecimal =
@@ -1061,6 +1064,7 @@ const Planner: React.FC = () => {
       requiredAvgSaleAtPace,
       requiredMultipleAtPace,
       itemsToListPerWeekNeeded,
+      itemsToListPerMonthNeeded,
       listingPaceShortfall,
       altSellThroughPercent,
       itemsToListAtAltStr,
@@ -1091,6 +1095,7 @@ const Planner: React.FC = () => {
     return {
       ebayFee,
       actualNet,
+      avgMonthlyNet: actualNet / 12,
       actualNetPerItem,
       incomeDelta,
       itemsDelta,
@@ -1182,7 +1187,7 @@ const Planner: React.FC = () => {
   }, [plan, inputs, reporting, trailing12m, comparison, theoryTrailing, sourced]);
 
   return (
-    <section className="planner" aria-label="Income planner">
+    <section className="planner" aria-label="Listing Planner">
       {error && <div className="planner-error">{error}</div>}
 
       <div className="planner-layout">
@@ -1700,6 +1705,18 @@ const Planner: React.FC = () => {
                           </article>
                           {comparison && (
                             <article className="planner-stat">
+                              <span className="planner-stat-label">Average monthly profit</span>
+                              <span className="planner-stat-value">
+                                {formatCurrency(comparison.avgMonthlyNet)}
+                              </span>
+                              <span className="planner-stat-detail">
+                                {formatCurrency(comparison.actualNet)} over 12 months after eBay fees
+                                {plan.annualStoreFee > 0 && ' & store'}
+                              </span>
+                            </article>
+                          )}
+                          {comparison && (
+                            <article className="planner-stat">
                               <span className="planner-stat-label">
                                 Net after eBay fees
                                 {plan.annualStoreFee > 0 && ' & store'}
@@ -1736,6 +1753,16 @@ const Planner: React.FC = () => {
                       </span>
                       <span className="planner-stat-detail">
                         {plan.itemsNeeded!.toLocaleString()} sales at sell-through
+                      </span>
+                    </article>
+                    <article className="planner-stat">
+                      <span className="planner-stat-label">Items to list per month</span>
+                      <span className="planner-stat-value">
+                        {plan.itemsToListPerMonthNeeded.toLocaleString()}/mo
+                      </span>
+                      <span className="planner-stat-detail">
+                        {plan.itemsToListForTarget.toLocaleString()} listings/yr ÷ 12 ·{' '}
+                        {(plan.sellThroughDecimal * 100).toFixed(0)}% sell-through
                       </span>
                     </article>
                     {plan.sourcePerBootSale != null && (

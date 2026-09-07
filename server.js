@@ -1256,6 +1256,28 @@ app.get('/api/ebay/oauth/status', async (req, res) => {
   }
 });
 
+/**
+ * Clear the stored eBay seller refresh token (e.g. after invalid_grant / corrupted key)
+ * so Connect eBay can issue a fresh one.
+ */
+app.post('/api/ebay/oauth/disconnect', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(503).json({ error: 'Database not configured', connected: false });
+    }
+    const deleted = await ebaySellerOAuth.deleteStoredRefreshToken(pool);
+    console.log(`[eBay OAuth] disconnect deleted_rows=${deleted}`);
+    return res.json({ connected: false, deleted });
+  } catch (e) {
+    console.error('/api/ebay/oauth/disconnect failed:', e);
+    return res.status(500).json({
+      error: e instanceof Error ? e.message : String(e),
+      connected: false,
+    });
+  }
+});
+
 let ebayScheduledListingsRunInFlight = false;
 let ebayScheduledListingsLastSummary = null;
 

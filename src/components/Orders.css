@@ -356,6 +356,11 @@
   color: rgba(130, 230, 165, 0.98);
 }
 
+.orders-ebay-seller-status-icon--connected:hover {
+  background: rgba(80, 190, 120, 0.22);
+  border-color: rgba(100, 210, 140, 0.9);
+}
+
 .orders-ebay-seller-status-icon--disconnected {
   border-color: rgba(220, 90, 70, 0.75);
   background: rgba(220, 80, 60, 0.12);

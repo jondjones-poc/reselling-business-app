@@ -7,6 +7,7 @@ import { Navigate, useSearchParams } from 'react-router-dom';
 import { getApiBase } from '../utils/apiBase';
 import ImageRemover from './ImageRemover';
 import Planner from './Planner';
+import ReceiptScanner from './ReceiptScanner';
 import './Stock.css';
 
 const API_BASE = getApiBase();
@@ -652,9 +653,13 @@ const Expenses: React.FC = () => {
       ? 'image-remover'
       : searchParams.get('tab') === 'planner'
         ? 'planner'
-        : 'expenses';
+        : searchParams.get('tab') === 'receipt-scanner'
+          ? 'receipt-scanner'
+          : 'expenses';
 
-  const setExpensesTab = (next: 'expenses' | 'image-remover' | 'planner') => {
+  const setExpensesTab = (
+    next: 'expenses' | 'image-remover' | 'planner' | 'receipt-scanner'
+  ) => {
     const nextParams = new URLSearchParams(searchParams);
     if (next === 'expenses') {
       nextParams.delete('tab');
@@ -694,13 +699,26 @@ const Expenses: React.FC = () => {
         <button
           type="button"
           role="tab"
+          id="expenses-tab-receipt-scanner"
+          aria-selected={expensesTab === 'receipt-scanner'}
+          aria-controls="expenses-panel-receipt-scanner"
+          className={`expenses-tab${
+            expensesTab === 'receipt-scanner' ? ' expenses-tab--active' : ''
+          }`}
+          onClick={() => setExpensesTab('receipt-scanner')}
+        >
+          Receipt Scanner
+        </button>
+        <button
+          type="button"
+          role="tab"
           id="expenses-tab-planner"
           aria-selected={expensesTab === 'planner'}
           aria-controls="expenses-panel-planner"
           className={`expenses-tab${expensesTab === 'planner' ? ' expenses-tab--active' : ''}`}
           onClick={() => setExpensesTab('planner')}
         >
-          Planner
+          Listing Planner
         </button>
       </nav>
 
@@ -711,6 +729,14 @@ const Expenses: React.FC = () => {
           aria-labelledby="expenses-tab-planner"
         >
           <Planner />
+        </div>
+      ) : expensesTab === 'receipt-scanner' ? (
+        <div
+          id="expenses-panel-receipt-scanner"
+          role="tabpanel"
+          aria-labelledby="expenses-tab-receipt-scanner"
+        >
+          <ReceiptScanner />
         </div>
       ) : expensesTab === 'image-remover' ? (
         <div

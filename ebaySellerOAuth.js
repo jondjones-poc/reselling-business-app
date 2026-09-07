@@ -317,6 +317,43 @@ async function updateStoredScope(pool, scope) {
   );
 }
 
+function isInvalidRefreshGrantError(err) {
+  const msg = String(err?.message || err).toLowerCase();
+  return (
+    msg.includes('invalid_grant') ||
+    msg.includes('the provided authorization refresh token is invalid') ||
+    msg.includes('refresh token not found') ||
+    msg.includes('token has been revoked')
+  );
+}
+
+/** Remove stored seller refresh token so the UI can reconnect cleanly. */
+async function deleteStoredRefreshToken(pool) {
+  if (!pool) return 0;
+  const key =
+    (process.env.EBAY_OAUTH_INTEGRATION_KEY || DEFAULT_INTEGRATION_KEY).trim() || DEFAULT_INTEGRATION_KEY;
+  const result = await pool.query(`DELETE FROM ebay_oauth_token WHERE integration_key = $1`, [key]);
+  invalidateAccessTokenCache();
+  return result.rowCount || 0;
+}
+
+async function throwMissingUserTokenAfterInvalidGrant(pool, cause) {
+  try {
+    await deleteStoredRefreshToken(pool);
+  } catch (clearErr) {
+    console.warn(
+      '[eBay OAuth] failed to clear invalid refresh token:',
+      clearErr instanceof Error ? clearErr.message : clearErr
+    );
+  }
+  const err = new Error(
+    'eBay seller refresh token is invalid or was issued to another client. Connect eBay seller again on Orders.'
+  );
+  err.code = 'EBAY_USER_TOKEN_MISSING';
+  err.cause = cause;
+  throw err;
+}
+
 /**
  * Returns a valid user access token for seller APIs (Fulfillment, Inventory, etc.).
  * Always refreshes with the app's current scope string so newly added scopes (e.g. sell.inventory)
@@ -356,13 +393,23 @@ async function getFulfillmentUserAccessToken(pool) {
   try {
     tok = await exchangeRefreshToken(row.refresh_token, desiredScope);
   } catch (wideErr) {
+    if (isInvalidRefreshGrantError(wideErr)) {
+      await throwMissingUserTokenAfterInvalidGrant(pool, wideErr);
+    }
     // Fall back to historically stored scopes if eBay rejects the expanded set.
     if (row.scope && String(row.scope).trim() !== desiredScope) {
       console.warn(
         '[eBay OAuth] refresh with app scopes failed, retrying stored scope:',
         wideErr instanceof Error ? wideErr.message : wideErr
       );
-      tok = await exchangeRefreshToken(row.refresh_token, row.scope);
+      try {
+        tok = await exchangeRefreshToken(row.refresh_token, row.scope);
+      } catch (narrowErr) {
+        if (isInvalidRefreshGrantError(narrowErr) || isInvalidRefreshGrantError(wideErr)) {
+          await throwMissingUserTokenAfterInvalidGrant(pool, narrowErr);
+        }
+        throw narrowErr;
+      }
     } else {
       throw wideErr;
     }
@@ -411,6 +458,8 @@ module.exports = {
   exchangeRefreshToken,
   fetchEbayIdentityUser,
   upsertRefreshToken,
+  deleteStoredRefreshToken,
+  isInvalidRefreshGrantError,
   invalidateAccessTokenCache,
   getFulfillmentUserAccessToken
 };
