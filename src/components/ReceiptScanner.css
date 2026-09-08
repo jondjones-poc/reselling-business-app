@@ -43,7 +43,46 @@
 
 .receipt-scanner-uploads-toolbar {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.receipt-scanner-refresh-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(90, 190, 120, 0.45);
+  background: rgba(90, 190, 120, 0.12);
+  color: rgba(90, 190, 120, 0.95);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.receipt-scanner-refresh-button:hover:not(:disabled) {
+  background: rgba(90, 190, 120, 0.22);
+}
+
+.receipt-scanner-refresh-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.receipt-scanner-refresh-icon--spinning {
+  animation: receipt-scanner-refresh-spin 0.9s linear infinite;
+}
+
+@keyframes receipt-scanner-refresh-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .receipt-scanner-uploads-empty {
@@ -103,6 +142,19 @@
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.receipt-scanner-uploads-select {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.receipt-scanner-uploads-select input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  accent-color: rgba(234, 179, 8, 0.9);
+  cursor: pointer;
 }
 
 .receipt-scanner-dropzone {
@@ -213,6 +265,13 @@
   gap: 12px;
   align-items: center;
   margin-left: auto;
+}
+
+.receipt-scanner-controls-divider {
+  width: 1px;
+  align-self: stretch;
+  min-height: 24px;
+  background: rgba(var(--theme-accent-rgb, 200, 160, 90), 0.25);
 }
 
 .receipt-scanner-control-label {
@@ -434,6 +493,26 @@
 .receipt-scanner-button--active {
   border-color: rgba(90, 190, 120, 0.55);
   background: rgba(90, 190, 120, 0.18);
+}
+
+.receipt-scanner-button--danger {
+  border-color: rgba(220, 80, 80, 0.55);
+  background: rgba(220, 80, 80, 0.18);
+  color: #ffd9d9;
+}
+
+.receipt-scanner-button--danger:hover:not(:disabled) {
+  background: rgba(220, 80, 80, 0.3);
+}
+
+.receipt-scanner-button--success {
+  border-color: rgba(90, 190, 120, 0.55);
+  background: rgba(90, 190, 120, 0.22);
+  color: #d8f5e2;
+}
+
+.receipt-scanner-button--success:hover:not(:disabled) {
+  background: rgba(90, 190, 120, 0.34);
 }
 
 .receipt-scanner-error {

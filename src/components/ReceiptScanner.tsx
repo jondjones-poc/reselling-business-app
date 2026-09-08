@@ -472,6 +472,8 @@ const ReceiptScanner: React.FC = () => {
   const [uploadBusyId, setUploadBusyId] = useState<number | null>(null);
   const [savingToCloud, setSavingToCloud] = useState(false);
   const [downloadedIds, setDownloadedIds] = useState<Set<number>>(() => loadDownloadedReceiptIds());
+  const [selectedDeleteIds, setSelectedDeleteIds] = useState<Set<number>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
@@ -944,7 +946,13 @@ const ReceiptScanner: React.FC = () => {
             `Could not load uploaded files (${response.status}).`
         );
       }
-      setUploads(Array.isArray(data.rows) ? data.rows : []);
+      const rows = Array.isArray(data.rows) ? data.rows : [];
+      setUploads(rows);
+      const rowIds = new Set(rows.map((row) => row.id));
+      setSelectedDeleteIds((prev) => {
+        const next = new Set(Array.from(prev).filter((id) => rowIds.has(id)));
+        return next.size === prev.size ? prev : next;
+      });
     } catch (err) {
       setUploads([]);
       setUploadsError(err instanceof Error ? err.message : 'Could not load uploaded files.');
@@ -1062,7 +1070,7 @@ const ReceiptScanner: React.FC = () => {
             return;
           }
           throw new Error(
-            'File not found in cloud storage, and there is no local copy on this device. Recreate the receipt on Create, then Save PDF to cloud again.'
+            'File not found in cloud storage, and there is no local copy on this device. Recreate the receipt on Scan Receipt, then Save PDF to cloud again.'
           );
         }
 
@@ -1109,6 +1117,12 @@ const ReceiptScanner: React.FC = () => {
         persistDownloadedReceiptIds(next);
         return next;
       });
+      setSelectedDeleteIds((prev) => {
+        if (!prev.has(row.id)) return prev;
+        const next = new Set(prev);
+        next.delete(row.id);
+        return next;
+      });
       void removeCachedReceiptPdf(row.id);
     } catch (err) {
       setUploadsError(err instanceof Error ? err.message : 'Could not delete file.');
@@ -1116,6 +1130,67 @@ const ReceiptScanner: React.FC = () => {
       setUploadBusyId(null);
     }
   }, []);
+
+  const toggleSelectedForDelete = useCallback((id: number, checked: boolean) => {
+    setSelectedDeleteIds((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const deleteSelectedUploadedFiles = useCallback(async () => {
+    const rowsToDelete = uploads.filter((row) => selectedDeleteIds.has(row.id));
+    if (rowsToDelete.length === 0) return;
+    const label =
+      rowsToDelete.length === 1
+        ? rowsToDelete[0].file_name || `receipt #${rowsToDelete[0].id}`
+        : `${rowsToDelete.length} files`;
+    if (!window.confirm(`Delete ${label} from cloud storage? This cannot be undone.`)) {
+      return;
+    }
+    setBulkDeleting(true);
+    setUploadsError(null);
+    const failed: string[] = [];
+    for (const row of rowsToDelete) {
+      try {
+        const response = await apiFetch(`/api/receipt-uploads/${row.id}`, { method: 'DELETE' });
+        const text = await response.text();
+        let data: { error?: string; details?: string } = {};
+        try {
+          data = text ? (JSON.parse(text) as typeof data) : {};
+        } catch {
+          /* empty */
+        }
+        if (!response.ok) {
+          throw new Error(
+            [data.error, data.details].filter(Boolean).join(' — ') ||
+              `Delete failed (${response.status}).`
+          );
+        }
+        setUploads((prev) => prev.filter((r) => r.id !== row.id));
+        setDownloadedIds((prev) => {
+          if (!prev.has(row.id)) return prev;
+          const next = new Set(prev);
+          next.delete(row.id);
+          persistDownloadedReceiptIds(next);
+          return next;
+        });
+        void removeCachedReceiptPdf(row.id);
+      } catch (err) {
+        failed.push(row.file_name || `receipt #${row.id}`);
+      }
+    }
+    setSelectedDeleteIds(new Set());
+    setBulkDeleting(false);
+    if (failed.length > 0) {
+      setUploadsError(`Could not delete: ${failed.join(', ')}`);
+    }
+  }, [uploads, selectedDeleteIds]);
 
   // Re-render crop box when the image finishes laying out / resizing.
   const [layoutTick, setLayoutTick] = useState(0);
@@ -1180,7 +1255,7 @@ const ReceiptScanner: React.FC = () => {
           }
           onClick={() => setPanel('create')}
         >
-          Create
+          Scan Receipt
         </button>
         <button
           type="button"
@@ -1194,7 +1269,7 @@ const ReceiptScanner: React.FC = () => {
           }
           onClick={() => setPanel('uploaded')}
         >
-          Uploaded files
+          My Receipts
           {uploads.length > 0 ? ` (${uploads.length})` : ''}
         </button>
       </div>
@@ -1209,12 +1284,42 @@ const ReceiptScanner: React.FC = () => {
           <div className="receipt-scanner-uploads-toolbar">
             <button
               type="button"
-              className="receipt-scanner-button"
+              className="receipt-scanner-refresh-button"
               onClick={() => void loadUploads()}
               disabled={uploadsLoading}
+              aria-label={uploadsLoading ? 'Refreshing' : 'Refresh'}
+              title={uploadsLoading ? 'Refreshing…' : 'Refresh'}
             >
-              {uploadsLoading ? 'Refreshing…' : 'Refresh'}
+              <svg
+                className={
+                  'receipt-scanner-refresh-icon' +
+                  (uploadsLoading ? ' receipt-scanner-refresh-icon--spinning' : '')
+                }
+                xmlns="http://www.w3.org/2000/svg"
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                <polyline points="21 3 21 9 15 9" />
+              </svg>
             </button>
+            {selectedDeleteIds.size > 0 && (
+              <button
+                type="button"
+                className="receipt-scanner-button receipt-scanner-button--small receipt-scanner-button--danger"
+                onClick={() => void deleteSelectedUploadedFiles()}
+                disabled={bulkDeleting}
+              >
+                {bulkDeleting ? 'Deleting…' : `Delete Selected (${selectedDeleteIds.size})`}
+              </button>
+            )}
           </div>
 
           {uploadsError && <div className="receipt-scanner-error">{uploadsError}</div>}
@@ -1238,6 +1343,19 @@ const ReceiptScanner: React.FC = () => {
                       (downloaded ? ' receipt-scanner-uploads-row--downloaded' : '')
                     }
                   >
+                    {downloaded && (
+                      <label className="receipt-scanner-uploads-select">
+                        <input
+                          type="checkbox"
+                          checked={selectedDeleteIds.has(row.id)}
+                          onChange={(event) =>
+                            toggleSelectedForDelete(row.id, event.target.checked)
+                          }
+                          disabled={busyRow || bulkDeleting}
+                          aria-label={`Select ${row.file_name || 'file'} for deletion`}
+                        />
+                      </label>
+                    )}
                     <div className="receipt-scanner-uploads-meta">
                       <span className="receipt-scanner-uploads-name" title={row.file_name}>
                         {row.file_name}
@@ -1283,14 +1401,6 @@ const ReceiptScanner: React.FC = () => {
           aria-labelledby="receipt-scanner-tab-create"
         >
       <div className="receipt-scanner-controls">
-        <button
-          type="button"
-          className="receipt-scanner-button receipt-scanner-button--primary"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={busy || cameraOpen}
-        >
-          Add Receipt Image
-        </button>
         {showCameraOption && (
           <button
             type="button"
@@ -1349,10 +1459,11 @@ const ReceiptScanner: React.FC = () => {
               Download all as PDF ({items.length})
             </button>
           </HintWrap>
+          <div className="receipt-scanner-controls-divider" aria-hidden />
           <HintWrap hint={pdfExportHint} place="below">
             <button
               type="button"
-              className="receipt-scanner-button receipt-scanner-button--primary receipt-scanner-button--with-icon"
+              className="receipt-scanner-button receipt-scanner-button--success receipt-scanner-button--with-icon"
               onClick={() => void savePdfToCloud()}
               disabled={!!pdfExportHint}
             >
@@ -1362,7 +1473,7 @@ const ReceiptScanner: React.FC = () => {
           </HintWrap>
           <button
             type="button"
-            className="receipt-scanner-button receipt-scanner-button--quiet"
+            className="receipt-scanner-button receipt-scanner-button--danger"
             onClick={clearAll}
             disabled={busy || items.length === 0}
           >

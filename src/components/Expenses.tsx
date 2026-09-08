@@ -675,26 +675,13 @@ const Expenses: React.FC = () => {
         <button
           type="button"
           role="tab"
-          id="expenses-tab-expenses"
-          aria-selected={expensesTab === 'expenses'}
-          aria-controls="expenses-panel-expenses"
-          className={`expenses-tab${expensesTab === 'expenses' ? ' expenses-tab--active' : ''}`}
-          onClick={() => setExpensesTab('expenses')}
+          id="expenses-tab-planner"
+          aria-selected={expensesTab === 'planner'}
+          aria-controls="expenses-panel-planner"
+          className={`expenses-tab${expensesTab === 'planner' ? ' expenses-tab--active' : ''}`}
+          onClick={() => setExpensesTab('planner')}
         >
-          Expenses
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="expenses-tab-image-remover"
-          aria-selected={expensesTab === 'image-remover'}
-          aria-controls="expenses-panel-image-remover"
-          className={`expenses-tab${
-            expensesTab === 'image-remover' ? ' expenses-tab--active' : ''
-          }`}
-          onClick={() => setExpensesTab('image-remover')}
-        >
-          Image Remover
+          Listing Planner
         </button>
         <button
           type="button"
@@ -712,13 +699,26 @@ const Expenses: React.FC = () => {
         <button
           type="button"
           role="tab"
-          id="expenses-tab-planner"
-          aria-selected={expensesTab === 'planner'}
-          aria-controls="expenses-panel-planner"
-          className={`expenses-tab${expensesTab === 'planner' ? ' expenses-tab--active' : ''}`}
-          onClick={() => setExpensesTab('planner')}
+          id="expenses-tab-image-remover"
+          aria-selected={expensesTab === 'image-remover'}
+          aria-controls="expenses-panel-image-remover"
+          className={`expenses-tab${
+            expensesTab === 'image-remover' ? ' expenses-tab--active' : ''
+          }`}
+          onClick={() => setExpensesTab('image-remover')}
         >
-          Listing Planner
+          Listing Image Creator
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="expenses-tab-expenses"
+          aria-selected={expensesTab === 'expenses'}
+          aria-controls="expenses-panel-expenses"
+          className={`expenses-tab${expensesTab === 'expenses' ? ' expenses-tab--active' : ''}`}
+          onClick={() => setExpensesTab('expenses')}
+        >
+          Expenses
         </button>
       </nav>
 
