@@ -6,6 +6,7 @@ import * as XLSX from 'xlsx';
 import { Navigate, useSearchParams } from 'react-router-dom';
 import { getApiBase } from '../utils/apiBase';
 import ImageRemover from './ImageRemover';
+import ListingImageRefresh from './ListingImageRefresh';
 import Planner from './Planner';
 import ReceiptScanner from './ReceiptScanner';
 import './Stock.css';
@@ -651,14 +652,16 @@ const Expenses: React.FC = () => {
   const expensesTab =
     searchParams.get('tab') === 'image-remover'
       ? 'image-remover'
-      : searchParams.get('tab') === 'planner'
-        ? 'planner'
-        : searchParams.get('tab') === 'receipt-scanner'
-          ? 'receipt-scanner'
-          : 'expenses';
+      : searchParams.get('tab') === 'listing-image-refresh'
+        ? 'listing-image-refresh'
+        : searchParams.get('tab') === 'planner'
+          ? 'planner'
+          : searchParams.get('tab') === 'receipt-scanner'
+            ? 'receipt-scanner'
+            : 'expenses';
 
   const setExpensesTab = (
-    next: 'expenses' | 'image-remover' | 'planner' | 'receipt-scanner'
+    next: 'expenses' | 'image-remover' | 'listing-image-refresh' | 'planner' | 'receipt-scanner'
   ) => {
     const nextParams = new URLSearchParams(searchParams);
     if (next === 'expenses') {
@@ -712,6 +715,19 @@ const Expenses: React.FC = () => {
         <button
           type="button"
           role="tab"
+          id="expenses-tab-listing-image-refresh"
+          aria-selected={expensesTab === 'listing-image-refresh'}
+          aria-controls="expenses-panel-listing-image-refresh"
+          className={`expenses-tab${
+            expensesTab === 'listing-image-refresh' ? ' expenses-tab--active' : ''
+          }`}
+          onClick={() => setExpensesTab('listing-image-refresh')}
+        >
+          Listing Image Refresh
+        </button>
+        <button
+          type="button"
+          role="tab"
           id="expenses-tab-expenses"
           aria-selected={expensesTab === 'expenses'}
           aria-controls="expenses-panel-expenses"
@@ -745,6 +761,14 @@ const Expenses: React.FC = () => {
           aria-labelledby="expenses-tab-image-remover"
         >
           <ImageRemover />
+        </div>
+      ) : expensesTab === 'listing-image-refresh' ? (
+        <div
+          id="expenses-panel-listing-image-refresh"
+          role="tabpanel"
+          aria-labelledby="expenses-tab-listing-image-refresh"
+        >
+          <ListingImageRefresh />
         </div>
       ) : (
         <div id="expenses-panel-expenses" role="tabpanel" aria-labelledby="expenses-tab-expenses">

@@ -11663,6 +11663,21 @@ function extractListingPhotoUrlsFromRscHtml(html, vintedIdRaw) {
   );
 }
 
+/**
+ * Vinted's item page shows "Uploaded X ago" (a relative age, e.g. "4 months
+ * ago") in the item details section — there's no exact upload date exposed
+ * on the public page, only this relative string, embedded the same way as
+ * the RSC-streamed photo data above (an escaped JSON blob in the raw HTML:
+ * {\"code\":\"upload_date\",\"data\":{\"title\":\"Uploaded\",\"value\":\"4
+ * months ago\"}}).
+ */
+function extractVintedUploadAgeFromRscHtml(html) {
+  const match = html.match(
+    /\\"code\\":\\"upload_date\\",\\"data\\":\{\\"title\\":\\"Uploaded\\",\\"value\\":\\"([^\\"]+)\\"/
+  );
+  return match ? match[1].trim() : null;
+}
+
 function extractListingPhotoUrlsFromVintedItem(item) {
   const urls = [];
   const seen = new Set();
@@ -11923,12 +11938,18 @@ function parseVintedListingFromHtml(html, pageUrl, vintedIdRaw) {
     description = htmlToPlainListingText(description) || description;
   }
 
+  const uploadedAgo = extractVintedUploadAgeFromRscHtml(html);
+  if (uploadedAgo) {
+    specifics.push({ name: 'Uploaded', value: uploadedAgo });
+  }
+
   return {
     title: title || null,
     description: description || null,
     priceLabel: priceLabel || null,
     pictureUrls,
     specifics,
+    uploadedAgo,
     pageUrl
   };
 }
@@ -21400,6 +21421,169 @@ app.post('/api/gemini/identify-item', async (req, res) => {
   } catch (error) {
     console.error('Gemini identify-item error:', error);
     res.status(500).json({ error: 'Failed to identify item', details: error.message });
+  }
+});
+
+/*
+ * Listing Image Refresh — a multi-image, JSON-out extension of the same
+ * Gemini integration used above by /api/gemini/identify-item, for the one
+ * step plain canvas code can't do: picking the strongest photo and ordering
+ * the set. Everything else in that feature (background swap, crop, tone,
+ * and the "Ask AI to improve the listing" title/description helper) is
+ * either deterministic client-side canvas work or a free copy-a-prompt flow
+ * with no server call at all — see src/components/ListingImageRefresh.tsx.
+ */
+
+const MAX_GEMINI_REFRESH_IMAGES = 10;
+/** Generous cap on a single base64 image payload (~6MB decoded). */
+const MAX_GEMINI_IMAGE_BASE64_CHARS = 8_000_000;
+
+function parseDataUrlImage(image) {
+  let mimeType = 'image/jpeg';
+  let base64Image = image;
+  if (image.startsWith('data:image/')) {
+    const mimeMatch = image.match(/data:image\/([a-z0-9+.-]+);base64,/i);
+    if (mimeMatch) mimeType = `image/${mimeMatch[1]}`;
+    base64Image = image.replace(/^data:image\/[a-z0-9+.-]+;base64,/i, '');
+  }
+  return { mimeType, base64Image };
+}
+
+function validateImagesInput(images) {
+  if (!Array.isArray(images) || images.length === 0) {
+    return 'At least one image is required.';
+  }
+  if (images.length > MAX_GEMINI_REFRESH_IMAGES) {
+    return `Too many images — send at most ${MAX_GEMINI_REFRESH_IMAGES}.`;
+  }
+  for (const image of images) {
+    if (typeof image !== 'string' || image.length === 0) {
+      return 'Each image must be a non-empty data URL or base64 string.';
+    }
+    if (image.length > MAX_GEMINI_IMAGE_BASE64_CHARS) {
+      return 'One of the images is too large.';
+    }
+  }
+  return null;
+}
+
+/** Strips markdown code fences (models often wrap JSON in ```json ... ```) and parses. */
+function extractJsonFromText(text) {
+  if (!text || typeof text !== 'string') return null;
+  const trimmed = text.trim();
+  const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenceMatch ? fenceMatch[1].trim() : trimmed;
+  try {
+    return JSON.parse(candidate);
+  } catch {
+    const start = candidate.indexOf('{');
+    const end = candidate.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(candidate.slice(start, end + 1));
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+}
+
+async function callGeminiForJson(images, instruction) {
+  const geminiApiKey = process.env.GEMINI_API_KEY;
+  if (!geminiApiKey) {
+    const err = new Error('Gemini API key not configured');
+    err.status = 500;
+    throw err;
+  }
+
+  const imageParts = images.map((image) => {
+    const { mimeType, base64Image } = parseDataUrlImage(image);
+    return { inline_data: { mime_type: mimeType, data: base64Image } };
+  });
+
+  const requestBody = {
+    contents: [{ parts: [{ text: instruction }, ...imageParts] }],
+  };
+
+  const modelName = 'gemini-2.5-flash';
+  const apiVersion = 'v1beta';
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/${apiVersion}/models/${modelName}:generateContent?key=${geminiApiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    const err = new Error('Failed to get a response from Gemini');
+    err.status = response.status;
+    err.details = errorText;
+    throw err;
+  }
+
+  const data = await response.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  const parsed = extractJsonFromText(text);
+  if (!parsed) {
+    const err = new Error('Gemini did not return a readable JSON response.');
+    err.status = 502;
+    throw err;
+  }
+  return parsed;
+}
+
+app.post('/api/gemini/analyze-photo-set', async (req, res) => {
+  try {
+    const { images } = req.body || {};
+    const validationError = validateImagesInput(images);
+    if (validationError) {
+      return res.status(400).json({ error: validationError });
+    }
+
+    const instruction = `You are helping a UK reseller refresh photos for an online marketplace listing. You are given ${images.length} photos of the same item, indexed 0 to ${images.length - 1} in the order given.
+
+Analyse the set and respond with ONLY strict JSON — no markdown, no commentary — matching exactly this shape:
+{"mainImageIndex": number, "order": number[], "notes": [{"index": number, "keep": boolean, "reason": string}]}
+
+- mainImageIndex: the single strongest photo to use as the primary listing image (well-lit, in focus, best represents the item as a whole).
+- order: every index from 0 to ${images.length - 1}, each exactly once, arranged in the best viewing order for a buyer.
+- notes: call out any photo that shows a fault, flaw, damage, stain, wear, missing part, or other condition detail worth keeping in the listing — set "keep" to true with a short reason for those. You may omit photos with nothing notable. Never suggest a photo should be deleted or excluded — this field is only for order and condition observations, not removal.`;
+
+    const parsed = await callGeminiForJson(images, instruction);
+
+    const mainImageIndex = Number(parsed?.mainImageIndex);
+    const order = Array.isArray(parsed?.order) ? parsed.order.map(Number) : null;
+    const validOrder =
+      order &&
+      order.length === images.length &&
+      order.every((n) => Number.isInteger(n) && n >= 0 && n < images.length) &&
+      new Set(order).size === images.length;
+
+    if (!Number.isInteger(mainImageIndex) || mainImageIndex < 0 || mainImageIndex >= images.length || !validOrder) {
+      return res.status(502).json({ error: 'Gemini returned an unusable photo-set analysis.' });
+    }
+
+    const notes = Array.isArray(parsed?.notes)
+      ? parsed.notes
+          .map((n) => ({
+            index: Number(n?.index),
+            keep: Boolean(n?.keep),
+            reason: typeof n?.reason === 'string' ? n.reason : '',
+          }))
+          .filter((n) => Number.isInteger(n.index) && n.index >= 0 && n.index < images.length)
+      : [];
+
+    res.json({ mainImageIndex, order, notes });
+  } catch (error) {
+    console.error('Gemini analyze-photo-set error:', error);
+    res
+      .status(error.status || 500)
+      .json({ error: error.message || 'Failed to analyse the photo set', details: error.details });
   }
 });
 

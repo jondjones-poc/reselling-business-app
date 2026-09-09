@@ -1,6 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import JSZip from 'jszip';
 import './ImageRemover.css';
+import {
+  cleanCutoutBottomEdge,
+  drawStudioGradient,
+  findOpaqueBounds,
+  loadImageElement,
+  loadSegmenter,
+  rawImageToCanvas,
+  triggerDownload,
+} from '../utils/listingImagePipeline';
 
 /*
  * Bulk listing-image preparation: cut the garment out of its background, drop it
@@ -12,15 +21,12 @@ import './ImageRemover.css';
  * marketplaces require accurate photos, and a generative "tidy up" would breach
  * that. Any hanger or stand the model leaves in the mask is kept as-is.
  *
- * Model choice is constrained by licensing rather than quality. The popular
- * RMBG-1.4/2.0 weights are non-commercial only, and @imgly/background-removal is
- * AGPL-3.0, which would force this app's source to be published. ORMBG is
- * Apache-2.0 and, being a CNN rather than a transformer, avoids the browser
- * out-of-memory failures that BiRefNet hits at full resolution.
+ * The cutout model itself, its CDN loading strategy, and the shared canvas
+ * helpers below (bounds-finding, gradient background, edge cleanup, download)
+ * live in ../utils/listingImagePipeline.ts, shared with the Listing Image
+ * Refresh tool.
  */
 
-const MODEL_ID = 'onnx-community/ormbg-ONNX';
-const TRANSFORMERS_URL = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3/dist/transformers.min.js';
 const LOGO_STORAGE_KEY = 'imageRemover.logoDataUrl';
 const LOGO_NAME_STORAGE_KEY = 'imageRemover.logoName';
 
@@ -44,265 +50,6 @@ type Job = {
   resultBlob: Blob | null;
   error: string | null;
 };
-
-/*
- * transformers.js is loaded from a CDN at runtime rather than bundled. This app is
- * on Create React App 5 with TypeScript 4.9, which cannot process the library's
- * modern ESM and its ONNX/WASM assets without ejecting the webpack config.
- * `new Function` is what keeps webpack from rewriting the import into a bundle
- * request; a plain `import()` would be transformed even with webpackIgnore.
- */
-// eslint-disable-next-line no-new-func -- the only way to reach a native dynamic import that webpack won't rewrite
-const runtimeImport = new Function('url', 'return import(url)') as (
-  url: string
-) => Promise<any>;
-
-let transformersPromise: Promise<any> | null = null;
-
-function loadTransformers(): Promise<any> {
-  if (!transformersPromise) {
-    transformersPromise = runtimeImport(TRANSFORMERS_URL).then((mod) => {
-      // Weights come from the Hugging Face hub; there are no models served locally.
-      if (mod?.env) mod.env.allowLocalModels = false;
-      return mod;
-    });
-  }
-  return transformersPromise;
-}
-
-let segmenterPromise: Promise<any> | null = null;
-
-function loadSegmenter(onProgress?: (msg: string) => void): Promise<any> {
-  if (!segmenterPromise) {
-    segmenterPromise = loadTransformers().then((mod) =>
-      mod.pipeline('background-removal', MODEL_ID, {
-        // WASM runs everywhere; WebGPU support is still uneven across browsers.
-        device: 'wasm',
-        progress_callback: (p: any) => {
-          if (p?.status === 'progress' && typeof p.progress === 'number') {
-            onProgress?.(`Downloading cutout model… ${Math.round(p.progress)}%`);
-          } else if (p?.status === 'ready') {
-            onProgress?.('Cutout model ready.');
-          }
-        },
-      })
-    );
-  }
-  return segmenterPromise;
-}
-
-function loadImageElement(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error('Could not decode that image.'));
-    img.src = src;
-  });
-}
-
-/**
- * transformers.js returns its own RawImage type. Newer builds can hand back a
- * canvas directly; older ones only expose the raw channel data.
- */
-function rawImageToCanvas(raw: any): HTMLCanvasElement {
-  if (raw && typeof raw.toCanvas === 'function') {
-    return raw.toCanvas();
-  }
-
-  const { data, width, height, channels } = raw ?? {};
-  if (!data || !width || !height) {
-    throw new Error('The cutout model returned an unreadable image.');
-  }
-
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('Canvas is unavailable in this browser.');
-
-  const rgba = new Uint8ClampedArray(width * height * 4);
-  for (let i = 0; i < width * height; i += 1) {
-    const s = i * channels;
-    if (channels === 4) {
-      rgba[i * 4] = data[s];
-      rgba[i * 4 + 1] = data[s + 1];
-      rgba[i * 4 + 2] = data[s + 2];
-      rgba[i * 4 + 3] = data[s + 3];
-    } else if (channels === 3) {
-      rgba[i * 4] = data[s];
-      rgba[i * 4 + 1] = data[s + 1];
-      rgba[i * 4 + 2] = data[s + 2];
-      rgba[i * 4 + 3] = 255;
-    } else {
-      // Single channel: a bare mask, so treat the value as opacity.
-      rgba[i * 4] = data[s];
-      rgba[i * 4 + 1] = data[s];
-      rgba[i * 4 + 2] = data[s];
-      rgba[i * 4 + 3] = data[s];
-    }
-  }
-  ctx.putImageData(new ImageData(rgba, width, height), 0, 0);
-  return canvas;
-}
-
-type Bounds = { left: number; top: number; width: number; height: number };
-
-/**
- * Tightest box around non-transparent pixels, so the garment can be scaled up to
- * fill the frame instead of being padded out by the original photo's empty space.
- */
-function findOpaqueBounds(canvas: HTMLCanvasElement): Bounds | null {
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-  const { width, height } = canvas;
-  const { data } = ctx.getImageData(0, 0, width, height);
-
-  // Ignore near-transparent fringe pixels, which would otherwise inflate the box.
-  const alphaFloor = 12;
-  let left = width;
-  let right = -1;
-  let top = height;
-  let bottom = -1;
-
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      if (data[(y * width + x) * 4 + 3] > alphaFloor) {
-        if (x < left) left = x;
-        if (x > right) right = x;
-        if (y < top) top = y;
-        if (y > bottom) bottom = y;
-      }
-    }
-  }
-
-  if (right < 0 || bottom < 0) return null;
-  return { left, top, width: right - left + 1, height: bottom - top + 1 };
-}
-
-/** White spotlight on the garment; edges stay noticeably greyer. */
-function drawStudioGradient(
-  ctx: CanvasRenderingContext2D,
-  size: number,
-  focalX: number,
-  focalY: number
-): void {
-  const gradient = ctx.createRadialGradient(
-    focalX,
-    focalY,
-    0,
-    focalX,
-    focalY,
-    size * 0.68
-  );
-  gradient.addColorStop(0, '#ffffff');
-  gradient.addColorStop(0.22, '#f2f2f2');
-  gradient.addColorStop(0.48, '#dcdcdc');
-  gradient.addColorStop(0.78, '#c4c4c4');
-  gradient.addColorStop(1, '#aeaeae');
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, size, size);
-}
-
-/**
- * Clean up the bottom cutout edge: white halos, shadow fringe, and narrow smudges
- * (e.g. stand remnants). Fully opaque garment pixels are never altered.
- */
-function cleanCutoutBottomEdge(canvas: HTMLCanvasElement, bounds: Bounds): void {
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-  const { width } = canvas;
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const { data } = imageData;
-
-  const bandTop = bounds.top + Math.floor(bounds.height * 0.86);
-  const bandBottom = bounds.top + bounds.height;
-  const minWideSpan = bounds.width * 0.36;
-  const narrowSpan = bounds.width * 0.16;
-
-  for (let y = bandTop; y < bandBottom; y += 1) {
-    for (let x = bounds.left; x < bounds.left + bounds.width; x += 1) {
-      const i = (y * width + x) * 4;
-      const alpha = data[i + 3];
-      if (alpha < 12 || alpha >= 245) continue;
-
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-      const sat = Math.max(r, g, b) - Math.min(r, g, b);
-
-      // Grey/white matte halo left by the cutout model.
-      if (lum > 188 && sat < 42 && alpha < 235) {
-        data[i + 3] = 0;
-        continue;
-      }
-
-      // Dark shadow fringe — only when not fully opaque.
-      if (lum < 78 && alpha < 210) {
-        data[i + 3] = 0;
-      }
-    }
-  }
-
-  // Drop narrow protrusions below the main hem (stand smudges, stray pixels).
-  const rowSpans: number[] = [];
-  for (let y = bandTop; y < bandBottom; y += 1) {
-    let left = bounds.left + bounds.width;
-    let right = bounds.left;
-    for (let x = bounds.left; x < bounds.left + bounds.width; x += 1) {
-      if (data[(y * width + x) * 4 + 3] > 36) {
-        left = Math.min(left, x);
-        right = Math.max(right, x);
-      }
-    }
-    rowSpans.push(right >= left ? right - left + 1 : 0);
-  }
-
-  let hemIdx = -1;
-  for (let i = rowSpans.length - 1; i >= 0; i -= 1) {
-    if (rowSpans[i] >= minWideSpan) {
-      hemIdx = i;
-      break;
-    }
-  }
-
-  if (hemIdx >= 0) {
-    for (let i = hemIdx + 1; i < rowSpans.length; i += 1) {
-      if (rowSpans[i] === 0) continue;
-      if (rowSpans[i] >= narrowSpan) continue;
-      const y = bandTop + i;
-      for (let x = bounds.left; x < bounds.left + bounds.width; x += 1) {
-        const alphaIdx = (y * width + x) * 4 + 3;
-        if (data[alphaIdx] > 12) data[alphaIdx] = 0;
-      }
-    }
-  }
-
-  // Last-resort: opaque dark specks in the very bottom strip (shadow blobs).
-  const smudgeTop = bounds.top + Math.floor(bounds.height * 0.975);
-  for (let y = smudgeTop; y < bandBottom; y += 1) {
-    let left = bounds.left + bounds.width;
-    let right = bounds.left;
-    for (let x = bounds.left; x < bounds.left + bounds.width; x += 1) {
-      const i = (y * width + x) * 4;
-      if (data[i + 3] > 160 && 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2] < 55) {
-        left = Math.min(left, x);
-        right = Math.max(right, x);
-      }
-    }
-    const darkSpan = right >= left ? right - left + 1 : 0;
-    if (darkSpan > 0 && darkSpan < bounds.width * 0.12) {
-      for (let x = bounds.left; x < bounds.left + bounds.width; x += 1) {
-        const i = (y * width + x) * 4;
-        if (data[i + 3] > 160 && 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2] < 55) {
-          data[i + 3] = 0;
-        }
-      }
-    }
-  }
-
-  ctx.putImageData(imageData, 0, 0);
-}
 
 type ComposeOptions = {
   size: number;
@@ -353,7 +100,7 @@ function composeListingImage(
 
   const focalX = drawX + drawWidth / 2;
   const focalY = drawY + drawHeight * 0.42;
-  drawStudioGradient(ctx, size, focalX, focalY);
+  drawStudioGradient(ctx, size, size, focalX, focalY);
 
   if (logo && logo.naturalWidth > 0) {
     ctx.drawImage(logo, (size - logoWidth) / 2, margin, logoWidth, logoHeight);
@@ -385,17 +132,6 @@ function composeListingImage(
 function outputFileName(original: string, format: OutputFormat): string {
   const base = original.replace(/\.[^.]+$/, '') || 'listing';
   return `${base}-listing.${format === 'png' ? 'png' : 'jpg'}`;
-}
-
-function triggerDownload(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
 }
 
 const ImageRemover: React.FC = () => {
