@@ -56,10 +56,6 @@ function parseStockListOptions(query = {}) {
     query.edit_id != null && String(query.edit_id).trim() !== ''
       ? parsePositiveInt(query.edit_id, 0)
       : null;
-  const toListCategoryId =
-    query.to_list_category_id != null && String(query.to_list_category_id).trim() !== ''
-      ? parsePositiveInt(query.to_list_category_id, 0)
-      : null;
 
   return {
     page,
@@ -78,13 +74,8 @@ function parseStockListOptions(query = {}) {
     brandId: brandId && brandId > 0 ? brandId : null,
     categorySizeId: categorySizeId && categorySizeId > 0 ? categorySizeId : null,
     editId: editId && editId > 0 ? editId : null,
-    toListCategoryId: toListCategoryId && toListCategoryId > 0 ? toListCategoryId : null,
     isExport: query.export === '1',
   };
-}
-
-function isUnsoldSalePriceSql(column = 's.sale_price') {
-  return `(${column} IS NULL OR TRIM(COALESCE(${column}::text, '')) = '' OR ${column}::numeric <= 0)`;
 }
 
 function addParam(params, value) {
@@ -122,28 +113,12 @@ function buildSearchClause(q, params) {
   return `(${parts.join(' OR ')})`;
 }
 
-function buildViewClause(view, toListCategoryId, params) {
+function buildViewClause(view) {
   switch (view) {
-    case 'active-listing':
-      return 's.purchase_date IS NOT NULL AND s.sale_date IS NULL';
-    case 'list-on-vinted':
-      return `${isUnsoldSalePriceSql()} AND (s.vinted_id IS NULL OR TRIM(s.vinted_id) = '')`;
-    case 'list-on-ebay':
-      return `${isUnsoldSalePriceSql()} AND (s.ebay_id IS NULL OR TRIM(s.ebay_id) = '')`;
-    case 'to-list': {
-      const unsold = isUnsoldSalePriceSql();
-      if (toListCategoryId) {
-        const catParam = addParam(params, toListCategoryId);
-        return `${unsold} AND (s.category_id = ${catParam} OR ((s.vinted_id IS NULL OR TRIM(s.vinted_id) = '') AND (s.ebay_id IS NULL OR TRIM(s.ebay_id) = '')))`;
-      }
-      return `${unsold} AND ((s.vinted_id IS NULL OR TRIM(s.vinted_id) = '') AND (s.ebay_id IS NULL OR TRIM(s.ebay_id) = ''))`;
-    }
-    case 'inventory-write-off':
-      return 'COALESCE(s.is_inventory_write_off, false) = true';
-    case 'sales':
-      return 's.sale_date IS NOT NULL';
-    case 'listing':
-      return 's.purchase_date IS NOT NULL';
+    case 'vinted':
+      return `(s.vinted_id IS NOT NULL AND TRIM(s.vinted_id) <> '') AND (s.ebay_id IS NULL OR TRIM(s.ebay_id) = '') AND (s.depop_id IS NULL OR TRIM(s.depop_id) = '')`;
+    case 'ebay':
+      return `(s.ebay_id IS NOT NULL AND TRIM(s.ebay_id) <> '') AND (s.vinted_id IS NULL OR TRIM(s.vinted_id) = '') AND (s.depop_id IS NULL OR TRIM(s.depop_id) = '')`;
     case 'all':
     default:
       return null;
@@ -151,26 +126,13 @@ function buildViewClause(view, toListCategoryId, params) {
 }
 
 function buildDateClause(options, params) {
-  const { view, year, month, weekStart } = options;
-  const usesPurchaseDate =
-    view === 'listing' ||
-    view === 'list-on-vinted' ||
-    view === 'list-on-ebay' ||
-    view === 'to-list' ||
-    view === 'active-listing';
-  const usesSaleDate = view === 'sales';
-  const usesBoth = view === 'all' || view === 'inventory-write-off';
-
+  const { year, month, weekStart } = options;
+  // Every remaining view ('all', 'vinted', 'ebay') is a platform/ownership
+  // filter, not a date bucket — all of them match on either date.
   if (weekStart) {
     const startParam = addParam(params, weekStart);
     const weekEndExpr = `${startParam}::date + INTERVAL '6 days'`;
-    if (usesBoth) {
-      return `(${dateInWeekSql('s.purchase_date', startParam, weekEndExpr)} OR ${dateInWeekSql('s.sale_date', startParam, weekEndExpr)})`;
-    }
-    if (usesSaleDate) {
-      return dateInWeekSql('s.sale_date', startParam, weekEndExpr);
-    }
-    return dateInWeekSql('s.purchase_date', startParam, weekEndExpr);
+    return `(${dateInWeekSql('s.purchase_date', startParam, weekEndExpr)} OR ${dateInWeekSql('s.sale_date', startParam, weekEndExpr)})`;
   }
 
   if (year === 'all-time') {
@@ -178,13 +140,7 @@ function buildDateClause(options, params) {
   }
 
   if (year === 'last-30-days') {
-    if (usesBoth) {
-      return `(${dateInLast30DaysSql('s.purchase_date')} OR ${dateInLast30DaysSql('s.sale_date')})`;
-    }
-    if (usesSaleDate) {
-      return dateInLast30DaysSql('s.sale_date');
-    }
-    return dateInLast30DaysSql('s.purchase_date');
+    return `(${dateInLast30DaysSql('s.purchase_date')} OR ${dateInLast30DaysSql('s.sale_date')})`;
   }
 
   const monthNum = parsePositiveInt(month, 0);
@@ -194,13 +150,7 @@ function buildDateClause(options, params) {
   }
   const monthParam = addParam(params, monthNum);
   const yearParam = addParam(params, yearNum);
-  if (usesBoth) {
-    return `(${dateInMonthYearSql('s.purchase_date', monthParam, yearParam)} OR ${dateInMonthYearSql('s.sale_date', monthParam, yearParam)})`;
-  }
-  if (usesSaleDate) {
-    return dateInMonthYearSql('s.sale_date', monthParam, yearParam);
-  }
-  return dateInMonthYearSql('s.purchase_date', monthParam, yearParam);
+  return `(${dateInMonthYearSql('s.purchase_date', monthParam, yearParam)} OR ${dateInMonthYearSql('s.sale_date', monthParam, yearParam)})`;
 }
 
 function buildUnsoldClause(unsold, params) {
@@ -260,7 +210,7 @@ function buildStockListWhere(options) {
     };
   }
 
-  const viewClause = buildViewClause(options.view, options.toListCategoryId, params);
+  const viewClause = buildViewClause(options.view);
   if (viewClause) clauses.push(viewClause);
 
   const dateClause = buildDateClause(options, params);

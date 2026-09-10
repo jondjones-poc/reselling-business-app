@@ -519,9 +519,7 @@ const Stock: React.FC = () => {
     key: keyof StockRow;
     direction: 'asc' | 'desc';
   } | null>(null);
-  const [viewMode, setViewMode] = useState<
-    'all' | 'active-listing' | 'sales' | 'listing' | 'to-list' | 'list-on-vinted' | 'list-on-ebay' | 'inventory-write-off'
-  >('all');
+  const [viewMode, setViewMode] = useState<'all' | 'vinted' | 'ebay'>('all');
   const [showNewEntry, setShowNewEntry] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createForm, setCreateForm] = useState<StockCreateFormState>({
@@ -737,11 +735,6 @@ const Stock: React.FC = () => {
         params.set('brand_id', selectedBrandFilter);
       }
 
-      const toListCategory = categories.find((cat) => cat.category_name === 'To List');
-      if (toListCategory) {
-        params.set('to_list_category_id', String(toListCategory.id));
-      }
-
       if (options?.includeEditId) {
         const editIdParam = searchParams.get('editId');
         if (editIdParam) {
@@ -760,7 +753,6 @@ const Stock: React.FC = () => {
       selectedCategoryFilter,
       selectedSizeFilter,
       selectedBrandFilter,
-      categories,
       searchParams,
     ]
   );
@@ -4059,29 +4051,12 @@ const Stock: React.FC = () => {
         <div className="filter-group view-group">
           <select
             value={viewMode}
-            onChange={(event) =>
-              setViewMode(
-                event.target.value as
-                  | 'all'
-                  | 'active-listing'
-                  | 'sales'
-                  | 'listing'
-                  | 'to-list'
-                  | 'list-on-vinted'
-                  | 'list-on-ebay'
-                  | 'inventory-write-off'
-              )
-            }
+            onChange={(event) => setViewMode(event.target.value as 'all' | 'vinted' | 'ebay')}
             className="filter-select"
           >
             <option value="all">All</option>
-            <option value="active-listing">Active</option>
-            <option value="sales">Sold Items</option>
-            <option value="listing">Add This Month</option>
-            <option value="to-list">To List</option>
-            <option value="list-on-vinted">To List On Vinted</option>
-            <option value="list-on-ebay">To List On eBay</option>
-            <option value="inventory-write-off">Inventory write-off</option>
+            <option value="vinted">Vinted</option>
+            <option value="ebay">eBay</option>
           </select>
         </div>
 

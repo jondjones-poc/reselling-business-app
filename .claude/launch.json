@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "reselling-app-3001",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:3001"],
+      "port": 3001
+    }
+  ]
+}
