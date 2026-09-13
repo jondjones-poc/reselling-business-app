@@ -20,7 +20,7 @@ const navItems = [
   { to: '/reporting', label: 'Reporting' },
   { to: '/analytics?tab=seasonal', label: 'Analytics' },
   { to: '/research', label: 'Research' },
-  { to: '/expenses', label: 'Tools' },
+  { to: '/tools', label: 'Tools' },
   { to: '/sniping', label: 'Sniping' },
 ] as const;
 
@@ -216,7 +216,8 @@ function App() {
           <Route path="/analytics" element={<Research />} />
           <Route path="/research" element={<ResearchRoute />} />
           <Route path="/stock" element={<Stock />} />
-          <Route path="/expenses" element={<Expenses />} />
+          <Route path="/tools" element={<Expenses />} />
+          <Route path="/expenses" element={<Navigate to={{ pathname: "/tools", search: location.search, hash: location.hash }} replace />} />
           <Route path="/reporting" element={<Reporting />} />
           <Route path="/orders" element={<Orders />} />
           <Route path="/sniping" element={<Sourcing />} />

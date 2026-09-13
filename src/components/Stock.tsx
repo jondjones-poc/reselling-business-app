@@ -4,7 +4,7 @@ import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import '../react-datepicker-dark.css';
 import { pingDatabase } from '../utils/dbPing';
-import { getApiBase, ebayOAuthStartUrl } from '../utils/apiBase';
+import { apiFetch, getApiBase, ebayOAuthStartUrl } from '../utils/apiBase';
 import {
   dateOnlyStringToLocalDate,
   dateOnlyToTime,
@@ -191,95 +191,161 @@ function stockRowIsSold(row: StockRow): boolean {
   return stockSaleDatePresent(row) || !stockSalePriceEmpty(row);
 }
 
-function StockRowActions({
+async function downloadListingPackBlob(response: Response, fallbackName: string) {
+  const blob = await response.blob();
+  const disposition = response.headers.get('Content-Disposition');
+  let downloadName = fallbackName;
+  const filenameMatch = disposition?.match(/filename="([^"]+)"/i);
+  if (filenameMatch?.[1]) downloadName = filenameMatch[1];
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = objectUrl;
+  anchor.download = downloadName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
+function SettingsCogIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden
+    >
+      <path
+        d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"
+        stroke="currentColor"
+        strokeWidth="1.75"
+      />
+      <path
+        d="M19.4 13.5a7.6 7.6 0 0 0 .06-1.5 7.6 7.6 0 0 0-.06-1.5l2.04-1.58-2-3.46-2.42.78a7.7 7.7 0 0 0-2.6-1.5L14 2h-4l-.42 2.74a7.7 7.7 0 0 0-2.6 1.5l-2.42-.78-2 3.46L4.6 10.5A7.6 7.6 0 0 0 4.54 12a7.6 7.6 0 0 0 .06 1.5L2.56 15.08l2 3.46 2.42-.78a7.7 7.7 0 0 0 2.6 1.5L10 22h4l.42-2.74a7.7 7.7 0 0 0 2.6-1.5l2.42.78 2-3.46L19.4 13.5Z"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function StockRowStatus({ row }: { row: StockRow }) {
+  const isSold = stockRowIsSold(row);
+  return (
+    <span
+      className={`stock-action-status${isSold ? ' stock-action-status--sold' : ' stock-action-status--unsold'}`}
+    >
+      {isSold ? 'Sold' : 'Unsold'}
+    </span>
+  );
+}
+
+export function StockRowSettings({
   row,
   inOrders,
   addingToOrder,
+  vintedZipDownloading,
   onAddToOrder,
+  onDownloadVintedZip,
+  open,
+  onOpen,
+  onClose,
 }: {
   row: StockRow;
   inOrders: boolean;
   addingToOrder: boolean;
+  vintedZipDownloading: boolean;
   onAddToOrder: (row: StockRow) => void;
+  onDownloadVintedZip: (row: StockRow) => void;
+  open: boolean;
+  onOpen: () => void;
+  onClose: () => void;
 }) {
   const vintedId = row.vinted_id != null ? String(row.vinted_id).trim() : '';
   const ebayId = row.ebay_id != null ? String(row.ebay_id).trim() : '';
   const vintedUrl = vintedId ? stockVintedListingUrl(vintedId) : null;
   const ebayUrl = ebayId ? stockEbayListingUrl(ebayId) : null;
-  const isSold = stockRowIsSold(row);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const openSettings = (element: HTMLElement) => {
+    const rect = element.getBoundingClientRect();
+    setPosition({
+      top: Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - 270)),
+      left: Math.max(8, Math.min(rect.right - 240, window.innerWidth - 248)),
+    });
+    onOpen();
+  };
 
   return (
-    <div className="stock-row-actions" onClick={(e) => e.stopPropagation()}>
-      {vintedUrl ? (
-        <a
-          href={vintedUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="stock-action-icon stock-action-icon--vinted"
-          title="Open on Vinted"
-          aria-label="Open on Vinted"
-        >
-          <img src="/images/vinted-icon.svg" alt="" />
-        </a>
-      ) : (
-        <span
-          className="stock-action-icon stock-action-icon--vinted is-disabled"
-          title="No Vinted listing"
-          aria-label="No Vinted listing"
-          aria-disabled="true"
-        >
-          <img src="/images/vinted-icon.svg" alt="" />
-        </span>
-      )}
-      {ebayUrl ? (
-        <a
-          href={ebayUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="stock-action-icon stock-action-icon--ebay"
-          title="Open on eBay"
-          aria-label="Open on eBay"
-        >
-          <img src="/images/ebay-icon.svg" alt="" />
-        </a>
-      ) : (
-        <span
-          className="stock-action-icon stock-action-icon--ebay is-disabled"
-          title="No eBay listing"
-          aria-label="No eBay listing"
-          aria-disabled="true"
-        >
-          <img src="/images/ebay-icon.svg" alt="" />
-        </span>
-      )}
-      {inOrders ? (
-        <span
-          className="stock-action-icon stock-action-icon--order is-disabled"
-          title="Already in orders"
-          aria-label="Already in orders"
-          aria-disabled="true"
-        >
-          <OrderBasketIcon className="stock-action-order-icon" />
-        </span>
-      ) : (
-        <button
-          type="button"
-          className={`stock-action-icon stock-action-icon--order${
-            addingToOrder ? ' is-busy' : ''
-          }`}
-          title={addingToOrder ? 'Adding to orders…' : 'Add to order'}
-          aria-label={addingToOrder ? 'Adding to orders' : 'Add to order'}
-          disabled={addingToOrder}
-          onClick={() => onAddToOrder(row)}
-        >
-          <OrderBasketIcon className="stock-action-order-icon" />
-        </button>
-      )}
-      <span
-        className={`stock-action-status${isSold ? ' stock-action-status--sold' : ' stock-action-status--unsold'}`}
+    <div
+      className={`stock-settings${open ? ' is-open' : ''}`}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        className="stock-settings-cog"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label="Item settings"
+        title="Settings"
+        onMouseEnter={(event) => openSettings(event.currentTarget)}
+        onClick={(event) => openSettings(event.currentTarget)}
       >
-        {isSold ? 'Sold' : 'Unsold'}
-      </span>
+        <SettingsCogIcon className="stock-settings-cog-icon" />
+      </button>
+      {open && <div className="stock-settings-popover" role="dialog" aria-label="Item settings" style={position}>
+        <button type="button" className="stock-settings-close" aria-label="Close item settings" onClick={onClose}>×</button>
+        {vintedUrl ? (
+          <a
+            href={vintedUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="stock-settings-popover-link"
+          >
+            <img src="/images/vinted-icon.svg" alt="" />
+            Open Vinted listing
+          </a>
+        ) : null}
+        {ebayUrl ? (
+          <a
+            href={ebayUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="stock-settings-popover-link"
+          >
+            <img src="/images/ebay-icon.svg" alt="" />
+            Open eBay listing
+          </a>
+        ) : null}
+        {vintedId ? (
+          <button
+            type="button"
+            className="stock-settings-popover-btn"
+            disabled={vintedZipDownloading}
+            onClick={() => onDownloadVintedZip(row)}
+          >
+            {vintedZipDownloading ? 'Downloading zip…' : 'Download Vinted zip'}
+          </button>
+        ) : null}
+        {inOrders ? (
+          <span className="stock-settings-popover-muted">Already in orders</span>
+        ) : (
+          <button
+            type="button"
+            className="stock-settings-popover-btn"
+            disabled={addingToOrder}
+            onClick={() => onAddToOrder(row)}
+          >
+            {addingToOrder ? 'Adding to order…' : 'Add to order'}
+          </button>
+        )}
+        {!vintedUrl && !ebayUrl && !vintedId ? (
+          <span className="stock-settings-popover-muted">No Vinted or eBay listing</span>
+        ) : null}
+      </div>}
     </div>
   );
 }
@@ -348,31 +414,6 @@ function SaveAddToOrderCloseIcon({ className }: { className?: string }) {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-    </svg>
-  );
-}
-
-/** Menu / list — add stock row to To Pack orders from the list Actions column. */
-function OrderBasketIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden
-    >
-      <path
-        d="M8 6h12M8 12h12M8 18h12"
-        stroke="currentColor"
-        strokeWidth="1.85"
-        strokeLinecap="round"
-      />
-      <circle cx="4.25" cy="6" r="1.15" fill="currentColor" />
-      <circle cx="4.25" cy="12" r="1.15" fill="currentColor" />
-      <circle cx="4.25" cy="18" r="1.15" fill="currentColor" />
     </svg>
   );
 }
@@ -556,7 +597,7 @@ const Stock: React.FC = () => {
   const [listSearchTerm, setListSearchTerm] = useState('');
   const [showTypeahead, setShowTypeahead] = useState(false);
   const [typeaheadSuggestions, setTypeaheadSuggestions] = useState<string[]>([]);
-  const [unsoldFilter, setUnsoldFilter] = useState<'off' | '3' | '6' | '12'>('off');
+  const [unsoldFilter, setUnsoldFilter] = useState<'off' | 'unsold' | 'sold'>('off');
   const [selectedDepartmentFilter, setSelectedDepartmentFilter] = useState<string>('');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('');
   const [selectedSizeFilter, setSelectedSizeFilter] = useState<string>('');
@@ -567,6 +608,8 @@ const Stock: React.FC = () => {
   const [listingPackDownloading, setListingPackDownloading] = useState<null | 'ebay' | 'vinted'>(
     null
   );
+  const [openSettingsKey, setOpenSettingsKey] = useState<string | null>(null);
+  const [listingPackStockId, setListingPackStockId] = useState<number | null>(null);
   /** True while POST /api/orders is in flight from Add to order, save & close. */
   const [addingToOrder, setAddingToOrder] = useState(false);
   /** Stock IDs currently in the To Pack orders queue. */
@@ -717,10 +760,9 @@ const Stock: React.FC = () => {
 
       if (unsoldFilter !== 'off') {
         params.set('unsold', unsoldFilter);
-      } else if (!listSearchTerm.trim()) {
-        params.set('view', viewMode);
-        params.set('year', 'all-time');
       }
+      params.set('view', viewMode);
+      params.set('year', 'all-time');
 
       if (selectedDepartmentFilter) {
         params.set('department_id', selectedDepartmentFilter);
@@ -2366,34 +2408,19 @@ const Stock: React.FC = () => {
     }
   }, [editingRowId, brands, createForm.brand_id, brandTagImages]);
 
-  const downloadListingPackBlob = async (response: Response, fallbackName: string) => {
-    const blob = await response.blob();
-    const disposition = response.headers.get('Content-Disposition');
-    let downloadName = fallbackName;
-    const filenameMatch = disposition?.match(/filename="([^"]+)"/i);
-    if (filenameMatch?.[1]) downloadName = filenameMatch[1];
-    const objectUrl = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = objectUrl;
-    anchor.download = downloadName;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(objectUrl);
-  };
-
   const handleDownloadEbayListingPack = async () => {
     if (!editingRowId || listingPackDownloading) return;
     const ebayId = createForm.ebay_id.trim();
     if (!ebayId || createForm.ebay_draft || !/^\d+$/.test(ebayId)) return;
     setError(null);
     setListingPackDownloading('ebay');
+    setListingPackStockId(editingRowId);
     try {
       const params = new URLSearchParams({
         ebay_id: ebayId,
         stock_id: String(editingRowId),
       });
-      const response = await fetch(`${API_BASE}/api/ebay/listing-vinted-pack?${params.toString()}`);
+      const response = await apiFetch(`/api/ebay/listing-vinted-pack?${params.toString()}`);
       if (!response.ok) {
         const text = await response.text();
         let msg = 'eBay listing download failed';
@@ -2412,23 +2439,27 @@ const Stock: React.FC = () => {
       setError(err instanceof Error ? err.message : 'eBay listing download failed');
     } finally {
       setListingPackDownloading(null);
+      setListingPackStockId(null);
     }
   };
 
-  const handleDownloadVintedListingPack = async () => {
-    if (!editingRowId || listingPackDownloading) return;
-    const vintedId = createForm.vinted_id.trim();
-    if (!vintedId) return;
+  const handleDownloadVintedListingPack = async (fromRow?: StockRow) => {
+    if (listingPackDownloading) return;
+    const stockId = fromRow?.id ?? editingRowId;
+    const vintedId =
+      fromRow != null
+        ? String(fromRow.vinted_id ?? '').trim()
+        : createForm.vinted_id.trim();
+    if (!stockId || !vintedId) return;
     setError(null);
     setListingPackDownloading('vinted');
+    setListingPackStockId(stockId);
     try {
       const params = new URLSearchParams({
         vinted_id: vintedId,
-        stock_id: String(editingRowId),
+        stock_id: String(stockId),
       });
-      const response = await fetch(
-        `${API_BASE}/api/vinted/listing-export-pack?${params.toString()}`
-      );
+      const response = await apiFetch(`/api/vinted/listing-export-pack?${params.toString()}`);
       if (!response.ok) {
         const text = await response.text();
         let msg = 'Vinted listing download failed';
@@ -2440,13 +2471,14 @@ const Stock: React.FC = () => {
         }
         throw new Error(msg);
       }
-      await downloadListingPackBlob(response, `${editingRowId}-${vintedId}.zip`);
+      await downloadListingPackBlob(response, `${stockId}-${vintedId}.zip`);
       setSuccessMessage('Vinted listing zip downloaded.');
       window.setTimeout(() => setSuccessMessage(null), 4000);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Vinted listing download failed');
     } finally {
       setListingPackDownloading(null);
+      setListingPackStockId(null);
     }
   };
 
@@ -4064,25 +4096,14 @@ const Stock: React.FC = () => {
           <select
             value={unsoldFilter}
             onChange={(event) => {
-              const value = event.target.value as 'off' | '3' | '6' | '12';
-              setUnsoldFilter(value);
-
-              // Clear other filters when a non-"Off" option is selected
-              if (value !== 'off') {
-                setSearchTerm('');
-                setViewMode('all');
-                setSelectedDepartmentFilter('');
-                setSelectedCategoryFilter('');
-                setSelectedSizeFilter('');
-                setSelectedBrandFilter('');
-              }
+              setUnsoldFilter(event.target.value as 'off' | 'unsold' | 'sold');
             }}
+            aria-label="Stock status"
             className="filter-select unsold-filter-select"
           >
-            <option value="off">Unsold Filter</option>
-            <option value="3">3 months</option>
-            <option value="6">6 months</option>
-            <option value="12">12 months</option>
+            <option value="off">All</option>
+            <option value="unsold">Unsold</option>
+            <option value="sold">Sold</option>
           </select>
         </div>
 
@@ -4151,13 +4172,14 @@ const Stock: React.FC = () => {
                   Purchase Price <span className="sort-indicator">{resolveSortIndicator('purchase_price')}</span>
                 </button>
               </th>
-              <th scope="col">Actions</th>
+              <th scope="col">Status</th>
+              <th scope="col">Settings</th>
             </tr>
           </thead>
           <tbody>
             {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan={6} className="empty-state">
+                <td colSpan={7} className="empty-state">
                   No stock records found.
                 </td>
               </tr>
@@ -4201,12 +4223,22 @@ const Stock: React.FC = () => {
                   <td>{renderCellContent(row, 'category_id')}</td>
                   <td>{departmentNameForRow(row, categories, departments)}</td>
                   <td>{renderCellContent(row, 'purchase_price', formatCurrency)}</td>
-                  <td className="stock-actions-cell">
-                    <StockRowActions
+                  <td className="stock-status-cell">
+                    <StockRowStatus row={row} />
+                  </td>
+                  <td className="stock-settings-cell">
+                    <StockRowSettings
+                      open={openSettingsKey === `table-${row.id}`}
+                      onOpen={() => setOpenSettingsKey(`table-${row.id}`)}
+                      onClose={() => setOpenSettingsKey(null)}
                       row={row}
                       inOrders={orderStockIds.has(Number(row.id))}
                       addingToOrder={addingOrderStockId === Number(row.id)}
+                      vintedZipDownloading={
+                        listingPackDownloading === 'vinted' && listingPackStockId === Number(row.id)
+                      }
                       onAddToOrder={(r) => void handleAddToOrderFromList(r)}
+                      onDownloadVintedZip={(r) => void handleDownloadVintedListingPack(r)}
                     />
                   </td>
                 </tr>
@@ -4294,13 +4326,26 @@ const Stock: React.FC = () => {
                   <span className="stock-card-value">{renderCellContent(row, 'purchase_price', formatCurrency)}</span>
                 </div>
                 <div className="stock-card-field">
-                  <span className="stock-card-label">Actions</span>
+                  <span className="stock-card-label">Status</span>
                   <span className="stock-card-value">
-                    <StockRowActions
+                    <StockRowStatus row={row} />
+                  </span>
+                </div>
+                <div className="stock-card-field">
+                  <span className="stock-card-label">Settings</span>
+                  <span className="stock-card-value">
+                    <StockRowSettings
+                      open={openSettingsKey === `card-${row.id}`}
+                      onOpen={() => setOpenSettingsKey(`card-${row.id}`)}
+                      onClose={() => setOpenSettingsKey(null)}
                       row={row}
                       inOrders={orderStockIds.has(Number(row.id))}
                       addingToOrder={addingOrderStockId === Number(row.id)}
+                      vintedZipDownloading={
+                        listingPackDownloading === 'vinted' && listingPackStockId === Number(row.id)
+                      }
                       onAddToOrder={(r) => void handleAddToOrderFromList(r)}
+                      onDownloadVintedZip={(r) => void handleDownloadVintedListingPack(r)}
                     />
                   </span>
                 </div>

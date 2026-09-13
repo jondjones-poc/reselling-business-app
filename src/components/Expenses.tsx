@@ -9,6 +9,7 @@ import ImageRemover from './ImageRemover';
 import ListingImageRefresh from './ListingImageRefresh';
 import Planner from './Planner';
 import ReceiptScanner from './ReceiptScanner';
+import CreateEbayListing from './CreateEbayListing';
 import './Stock.css';
 
 const API_BASE = getApiBase();
@@ -649,7 +650,13 @@ const Expenses: React.FC = () => {
     return <Navigate to="/reporting?tab=profit-per-month" replace />;
   }
 
-  const expensesTab =
+  if (!searchParams.get('tab')) {
+    const defaultParams = new URLSearchParams(searchParams);
+    defaultParams.set('tab', 'receipt-scanner');
+    return <Navigate to={{ pathname: '/tools', search: `?${defaultParams}` }} replace />;
+  }
+
+  const expensesTab = searchParams.get('tab') === 'create-ebay-listing' ? 'create-ebay-listing' :
     searchParams.get('tab') === 'image-remover'
       ? 'image-remover'
       : searchParams.get('tab') === 'listing-image-refresh'
@@ -661,14 +668,10 @@ const Expenses: React.FC = () => {
             : 'expenses';
 
   const setExpensesTab = (
-    next: 'expenses' | 'image-remover' | 'listing-image-refresh' | 'planner' | 'receipt-scanner'
+    next: 'create-ebay-listing' | 'expenses' | 'image-remover' | 'listing-image-refresh' | 'planner' | 'receipt-scanner'
   ) => {
     const nextParams = new URLSearchParams(searchParams);
-    if (next === 'expenses') {
-      nextParams.delete('tab');
-    } else {
-      nextParams.set('tab', next);
-    }
+    nextParams.set('tab', next);
     setSearchParams(nextParams, { replace: true });
   };
 
@@ -725,6 +728,10 @@ const Expenses: React.FC = () => {
         >
           Listing Image Refresh
         </button>
+        <button type="button" role="tab" id="expenses-tab-create-ebay-listing"
+          aria-selected={expensesTab === 'create-ebay-listing'} aria-controls="expenses-panel-create-ebay-listing"
+          className={`expenses-tab${expensesTab === 'create-ebay-listing' ? ' expenses-tab--active' : ''}`}
+          onClick={() => setExpensesTab('create-ebay-listing')}>Create eBay Listing</button>
         <button
           type="button"
           role="tab"
@@ -738,7 +745,9 @@ const Expenses: React.FC = () => {
         </button>
       </nav>
 
-      {expensesTab === 'planner' ? (
+      {expensesTab === 'create-ebay-listing' ? (
+        <div id="expenses-panel-create-ebay-listing" role="tabpanel" aria-labelledby="expenses-tab-create-ebay-listing"><CreateEbayListing /></div>
+      ) : expensesTab === 'planner' ? (
         <div
           id="expenses-panel-planner"
           role="tabpanel"

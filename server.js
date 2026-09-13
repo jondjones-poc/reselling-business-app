@@ -1,3 +1,4 @@
+const { buildVintedExportManifest } = require('./utils/vintedExportManifest');
 const express = require('express');
 const cors = require('cors');
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
@@ -19,6 +20,7 @@ const stockListQuery = require('./utils/stockListQuery');
 const inFashionInsights = require('./utils/inFashionInsights');
 const brandTrendsInsights = require('./utils/brandTrendsInsights');
 const ebayInventoryDrafts = require('./utils/ebayInventoryDrafts');
+const ebaySellerHubDraft = require('./utils/ebaySellerHubDraft');
 
 const app = express();
 const PORT = process.env.PORT || 5003;
@@ -1376,9 +1378,21 @@ app.post('/api/ebay/oauth/disconnect', async (req, res) => {
 let ebayScheduledListingsRunInFlight = false;
 let ebayScheduledListingsLastSummary = null;
 
-/**
- * GET — Seller Hub drafts (unpublished Inventory offers) + any pending schedules from DB.
- */
+/** Submit the supplied Seller Hub CSV shape as a real eBay draft, not an Inventory offer. */
+app.post('/api/ebay/listing-drafts/import', async (req, res) => {
+  try {
+    const listing = ebaySellerHubDraft.validateListing(req.body);
+    const pool = getDatabasePool();
+    if (!pool) return res.status(503).json({ error: 'Database not configured.' });
+    const token = await ebaySellerOAuth.getFulfillmentUserAccessToken(pool);
+    const result = await ebaySellerHubDraft.createSellerHubDraft({ listing, token });
+    res.json(result);
+  } catch (error) {
+    const status = error.code === 'EBAY_USER_TOKEN_MISSING' ? 401 : error.httpStatus || 500;
+    res.status(status).json({ error: error.message || 'Could not create the draft.', code: error.code });
+  }
+});
+
 app.get('/api/ebay/listing-drafts', async (req, res) => {
   try {
     const pool = getDatabasePool();
@@ -11418,6 +11432,7 @@ app.get('/api/vinted/listing-export-pack', async (req, res) => {
       listingText: pack.listingText,
       imageEntries: pack.imageEntries,
       imageErrors: pack.imageErrors,
+      manifest: pack.manifest,
       logLabel: 'vinted-listing-export-pack'
     });
   } catch (error) {
@@ -12026,11 +12041,16 @@ async function buildListingPackFromVintedPage({ pool, vintedIdRaw, stockIdRaw })
     imageEntries,
     imageErrors,
     title,
+    manifest: buildVintedExportManifest({
+      stockId: stockFallback?.id ?? (Number.isFinite(stockId) ? stockId : null),
+      vintedId, sourceUrl: page.url, title, description, priceLabel,
+      specifics: scraped.specifics, imageEntries
+    }),
     stockId: stockFallback?.id ?? (Number.isFinite(stockId) ? stockId : null)
   };
 }
 
-async function streamListingExportZip(res, { zipName, listingText, imageEntries, imageErrors, logLabel }) {
+async function streamListingExportZip(res, { zipName, listingText, imageEntries, imageErrors, logLabel, manifest }) {
   res.setHeader('Content-Type', 'application/zip');
   res.setHeader('Content-Disposition', `attachment; filename="${zipName}"`);
 
@@ -12047,6 +12067,9 @@ async function streamListingExportZip(res, { zipName, listingText, imageEntries,
   archive.pipe(res);
 
   archive.append(listingText, { name: 'listing.txt' });
+  if (manifest) {
+    archive.append(JSON.stringify(manifest, null, 2) + '\n', { name: 'listing.json' });
+  }
   if (imageErrors.length > 0) {
     const errLines = imageErrors.map((e, idx) => `${idx + 1}. ${e.url}\n   ${e.message}`);
     archive.append(
@@ -21718,6 +21741,5 @@ startServer().catch((err) => {
   console.error('Server failed to start:', err);
   process.exit(1);
 });
-
 
 

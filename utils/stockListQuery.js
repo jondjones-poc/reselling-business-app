@@ -155,6 +155,8 @@ function buildDateClause(options, params) {
 
 function buildUnsoldClause(unsold, params) {
   if (unsold === 'off') return null;
+  if (unsold === 'sold') return `(s.sale_date IS NOT NULL OR s.sale_price IS NOT NULL)`;
+  if (unsold === 'unsold') return `(s.sale_date IS NULL AND s.sale_price IS NULL)`;
   const months = unsold === '3' ? 3 : unsold === '6' ? 6 : unsold === '12' ? 12 : 0;
   if (!months) return null;
   const daysParam = addParam(params, months * 30);
@@ -186,29 +188,10 @@ function buildStockListWhere(options) {
   const needsCategoryJoin =
     options.sort === 'category_id' || Boolean(options.departmentId);
 
-  if (options.unsold !== 'off') {
-    const unsoldClause = buildUnsoldClause(options.unsold, params);
-    if (unsoldClause) clauses.push(unsoldClause);
-    const searchClause = buildSearchClause(options.q, params);
-    if (searchClause) clauses.push(searchClause);
-    appendStockAttributeFilters(options, clauses, params);
-    return {
-      whereSql: clauses.join(' AND '),
-      params,
-      needsCategoryJoin,
-    };
-  }
-
-  if (options.q) {
-    const searchClause = buildSearchClause(options.q, params);
-    if (searchClause) clauses.push(searchClause);
-    appendStockAttributeFilters(options, clauses, params);
-    return {
-      whereSql: clauses.join(' AND '),
-      params,
-      needsCategoryJoin,
-    };
-  }
+  const unsoldClause = buildUnsoldClause(options.unsold, params);
+  if (unsoldClause) clauses.push(unsoldClause);
+  const searchClause = buildSearchClause(options.q, params);
+  if (searchClause) clauses.push(searchClause);
 
   const viewClause = buildViewClause(options.view);
   if (viewClause) clauses.push(viewClause);
