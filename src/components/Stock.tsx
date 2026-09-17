@@ -560,7 +560,7 @@ const Stock: React.FC = () => {
     key: keyof StockRow;
     direction: 'asc' | 'desc';
   } | null>(null);
-  const [viewMode, setViewMode] = useState<'all' | 'vinted' | 'ebay'>('all');
+  const [viewMode, setViewMode] = useState<'all' | 'vinted' | 'ebay' | 'none'>('all');
   const [showNewEntry, setShowNewEntry] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createForm, setCreateForm] = useState<StockCreateFormState>({
@@ -4083,12 +4083,15 @@ const Stock: React.FC = () => {
         <div className="filter-group view-group">
           <select
             value={viewMode}
-            onChange={(event) => setViewMode(event.target.value as 'all' | 'vinted' | 'ebay')}
+            onChange={(event) =>
+              setViewMode(event.target.value as 'all' | 'vinted' | 'ebay' | 'none')
+            }
             className="filter-select"
           >
             <option value="all">All</option>
             <option value="vinted">Vinted</option>
             <option value="ebay">eBay</option>
+            <option value="none">None</option>
           </select>
         </div>
 

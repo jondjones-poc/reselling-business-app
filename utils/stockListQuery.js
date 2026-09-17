@@ -113,12 +113,22 @@ function buildSearchClause(q, params) {
   return `(${parts.join(' OR ')})`;
 }
 
+/** A platform id column counts as "set" only if it's non-empty and isn't the literal placeholder "DRAFT". */
+function hasRealPlatformIdSql(column) {
+  return `(${column} IS NOT NULL AND TRIM(${column}) <> '' AND UPPER(TRIM(${column})) <> 'DRAFT')`;
+}
+
 function buildViewClause(view) {
+  const hasVinted = hasRealPlatformIdSql('s.vinted_id');
+  const hasEbay = hasRealPlatformIdSql('s.ebay_id');
+  const hasDepop = hasRealPlatformIdSql('s.depop_id');
   switch (view) {
     case 'vinted':
-      return `(s.vinted_id IS NOT NULL AND TRIM(s.vinted_id) <> '') AND (s.ebay_id IS NULL OR TRIM(s.ebay_id) = '') AND (s.depop_id IS NULL OR TRIM(s.depop_id) = '')`;
+      return `${hasVinted} AND NOT ${hasEbay} AND NOT ${hasDepop}`;
     case 'ebay':
-      return `(s.ebay_id IS NOT NULL AND TRIM(s.ebay_id) <> '') AND (s.vinted_id IS NULL OR TRIM(s.vinted_id) = '') AND (s.depop_id IS NULL OR TRIM(s.depop_id) = '')`;
+      return `${hasEbay} AND NOT ${hasVinted} AND NOT ${hasDepop}`;
+    case 'none':
+      return `NOT ${hasVinted} AND NOT ${hasEbay}`;
     case 'all':
     default:
       return null;

@@ -11620,44 +11620,82 @@ function preferVintedFullSizePhotoUrl(url) {
   return normalized.replace(/\/\d+x\d+\//, '/f800/');
 }
 
-/** Vinted item pages embed gallery JSON in Next.js RSC flight chunks (not __NEXT_DATA__). */
+/**
+ * Vinted item pages embed the gallery as JSON in Next.js RSC flight chunks
+ * (not __NEXT_DATA__ — that's no longer present on item pages at all). Each
+ * photo object looks like:
+ *   {"dominant_color_opaque":"#...","height":1600,"id":"06_...","is_main":
+ *   true,"thumbnails":[{...},{...}],"url":"https://images1.vinted.net/t/
+ *   .../f800/....webp?s=...","width":1200}
+ * — a string `id` (not numeric) and no `image_no` field at all, so this
+ * previously matched on those fields and silently returned nothing. Rather
+ * than pattern-match individual fields (fragile against Vinted's own schema
+ * changes), this walks bracket depth to isolate exactly the `"photos":[...]`
+ * array and then each `{...}` object within it, and reads that object's own
+ * (last-listed) `"url"` field — the thumbnails' URLs come first in each
+ * object, so the full-size photo's URL is always the last `"url"` match
+ * inside that object.
+ */
 function parseVintedPhotoObjectsFromRscHtml(html, vintedIdRaw) {
   const vintedId = vintedIdRaw != null ? String(vintedIdRaw).trim() : '';
   const idPos = vintedId ? html.indexOf(vintedId) : -1;
-  let start = html.indexOf('\\"photos\\":[');
+  const marker = '\\"photos\\":[';
+  let markerPos = html.indexOf(marker);
   if (idPos >= 0) {
-    const near = html.lastIndexOf('\\"photos\\":[', idPos + 80000);
-    if (near >= 0 && idPos - near < 200000) start = near;
+    const near = html.lastIndexOf(marker, idPos + 80000);
+    if (near >= 0 && idPos - near < 200000) markerPos = near;
   }
-  if (start < 0) return [];
+  if (markerPos < 0) return [];
 
-  const slice = html.slice(start, start + 120000);
-  const photos = [];
-  const re =
-    /\{\\"id\\":(\d+),\\"image_no\\":(\d+),[\s\S]*?\\"url\\":\\"(https:\/\/images[^\\"]+)\\"/g;
-  let match;
-  while ((match = re.exec(slice))) {
-    const url = preferVintedFullSizePhotoUrl(match[3]);
-    if (!url) continue;
-    if (!/^https:\/\/(images\d*\.)?vinted\.(net|com|co\.uk)\//i.test(url)) continue;
-    if (
-      /\/(avatar|avatars|member|members|user|users|profile|profiles|icon|logo|banner|badge|sprites)\//i.test(
-        url
-      )
-    ) {
-      continue;
+  const arrStart = markerPos + marker.length - 1; // position of the array's own '['
+  let depth = 0;
+  let arrEnd = -1;
+  const scanLimit = Math.min(html.length, arrStart + 500000);
+  for (let i = arrStart; i < scanLimit; i += 1) {
+    if (html[i] === '[') depth += 1;
+    else if (html[i] === ']') {
+      depth -= 1;
+      if (depth === 0) {
+        arrEnd = i;
+        break;
+      }
     }
-    photos.push({ imageNo: Number(match[2]), url });
   }
+  if (arrEnd < 0) return [];
+
+  const arrayContent = html.slice(arrStart, arrEnd + 1);
+  const objectStrings = [];
+  let objDepth = 0;
+  let objStart = -1;
+  for (let j = 0; j < arrayContent.length; j += 1) {
+    if (arrayContent[j] === '{') {
+      if (objDepth === 0) objStart = j;
+      objDepth += 1;
+    } else if (arrayContent[j] === '}') {
+      objDepth -= 1;
+      if (objDepth === 0 && objStart >= 0) {
+        objectStrings.push(arrayContent.slice(objStart, j + 1));
+        objStart = -1;
+      }
+    }
+  }
+
+  const photos = [];
+  objectStrings.forEach((objStr, index) => {
+    const urlMatches = [...objStr.matchAll(/\\"url\\":\\"(https:\/\/images[^\\"]+)\\"/g)];
+    const rawUrl = urlMatches[urlMatches.length - 1]?.[1];
+    if (!rawUrl) return;
+    const url = preferVintedFullSizePhotoUrl(rawUrl);
+    if (!url || !isVintedListingPhotoUrl(url)) return;
+    photos.push({ imageNo: index + 1, url });
+  });
   return photos;
 }
 
-/** First carousel only — stop when a second listing's image_no 1 appears (related items). */
 function pickFirstListingPhotoGroup(photos) {
   const out = [];
   const seen = new Set();
   for (const photo of photos) {
-    if (photo.imageNo === 1 && out.length > 0) break;
     const key = vintedPhotoDedupeKey(photo.url);
     if (!key || seen.has(key)) continue;
     seen.add(key);
