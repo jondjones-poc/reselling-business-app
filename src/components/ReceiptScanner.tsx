@@ -35,7 +35,7 @@ type DragMode =
   | 'w'
   | null;
 
-type ReceiptDocType = 'charity' | 'postage';
+type ReceiptDocType = 'charity' | 'postage' | 'expense';
 type PostageCarrier = 'dpd' | 'royal-mail' | 'evri' | 'inpost';
 type ReceiptScannerPanel = 'create' | 'uploaded';
 
@@ -202,6 +202,9 @@ function buildDownloadBaseName(
   if (!date) return null;
   if (docType === 'postage') {
     return `Postage Receipts - ${POSTAGE_CARRIER_LABELS[carrier]} - ${formatReceiptDate(date)}`;
+  }
+  if (docType === 'expense') {
+    return `Expense - ${formatReceiptDate(date)}`;
   }
   return `Charity Shop - ${formatReceiptDate(date)}`;
 }
@@ -1367,7 +1370,9 @@ const ReceiptScanner: React.FC = () => {
                           ? ' · Postage Receipts'
                           : row.doc_type === 'charity'
                             ? ' · Charity Shop'
-                            : ''}
+                            : row.doc_type === 'expense'
+                              ? ' · Expense'
+                              : ''}
                       </span>
                     </div>
                     <div className="receipt-scanner-uploads-actions">
@@ -1426,16 +1431,18 @@ const ReceiptScanner: React.FC = () => {
           type="button"
           className={
             'receipt-scanner-button receipt-scanner-type-toggle' +
-            (docType === 'postage' ? ' receipt-scanner-type-toggle--postage' : '')
+            (docType === 'postage' ? ' receipt-scanner-type-toggle--postage' : '') +
+            (docType === 'expense' ? ' receipt-scanner-type-toggle--expense' : '')
           }
           onClick={() =>
-            setDocType((prev) => (prev === 'charity' ? 'postage' : 'charity'))
+            setDocType((prev) =>
+              prev === 'charity' ? 'postage' : prev === 'postage' ? 'expense' : 'charity'
+            )
           }
           disabled={busy}
-          aria-pressed={docType === 'postage'}
-          title="Toggle between Charity Shop and Postage Receipts"
+          title="Cycle between Charity Shop, Postage Receipts, and Expense"
         >
-          {docType === 'postage' ? 'Postage Receipts' : 'Charity Shop'}
+          {docType === 'postage' ? 'Postage Receipts' : docType === 'expense' ? 'Expense' : 'Charity Shop'}
         </button>
         {docType === 'postage' && (
           <button

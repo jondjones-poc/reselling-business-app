@@ -11,6 +11,8 @@ const FULFILLMENT_SCOPE = 'https://api.ebay.com/oauth/api_scope/sell.fulfillment
 const ANALYTICS_SCOPE = 'https://api.ebay.com/oauth/api_scope/sell.analytics.readonly';
 /** Required to list Seller Hub drafts (unpublished offers) and publishOffer. */
 const INVENTORY_SCOPE = 'https://api.ebay.com/oauth/api_scope/sell.inventory';
+/** Required to read the seller's Business Policies (payment/fulfillment/return policy). */
+const ACCOUNT_SCOPE = 'https://api.ebay.com/oauth/api_scope/sell.account';
 const TOKEN_URL = 'https://api.ebay.com/identity/v1/oauth2/token';
 const AUTHORIZE_BASE = 'https://auth.ebay.com/oauth2/authorize';
 
@@ -38,7 +40,7 @@ function getScopeString() {
   const includeAnalytics =
     process.env.EBAY_OAUTH_INCLUDE_ANALYTICS === '1' ||
     process.env.EBAY_OAUTH_INCLUDE_ANALYTICS === 'true';
-  const parts = [FULFILLMENT_SCOPE, INVENTORY_SCOPE];
+  const parts = [FULFILLMENT_SCOPE, INVENTORY_SCOPE, ACCOUNT_SCOPE];
   if (includeAnalytics) parts.push(ANALYTICS_SCOPE);
   return parts.join(' ');
 }
@@ -51,6 +53,11 @@ function scopeIncludesAnalytics(scope) {
 function scopeIncludesInventory(scope) {
   if (!scope) return false;
   return String(scope).includes('sell.inventory');
+}
+
+function scopeIncludesAccount(scope) {
+  if (!scope) return false;
+  return String(scope).includes('sell.account');
 }
 
 /**
@@ -444,11 +451,13 @@ module.exports = {
   FULFILLMENT_SCOPE,
   ANALYTICS_SCOPE,
   INVENTORY_SCOPE,
+  ACCOUNT_SCOPE,
   getEbayClientCreds,
   getEbayOAuthRuName,
   getScopeString,
   scopeIncludesAnalytics,
   scopeIncludesInventory,
+  scopeIncludesAccount,
   createOAuthState,
   consumeOAuthState,
   sanitizeOAuthReturnTo,

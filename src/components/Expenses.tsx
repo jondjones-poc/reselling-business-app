@@ -681,17 +681,6 @@ const Expenses: React.FC = () => {
         <button
           type="button"
           role="tab"
-          id="expenses-tab-planner"
-          aria-selected={expensesTab === 'planner'}
-          aria-controls="expenses-panel-planner"
-          className={`expenses-tab${expensesTab === 'planner' ? ' expenses-tab--active' : ''}`}
-          onClick={() => setExpensesTab('planner')}
-        >
-          Listing Planner
-        </button>
-        <button
-          type="button"
-          role="tab"
           id="expenses-tab-receipt-scanner"
           aria-selected={expensesTab === 'receipt-scanner'}
           aria-controls="expenses-panel-receipt-scanner"
@@ -701,6 +690,32 @@ const Expenses: React.FC = () => {
           onClick={() => setExpensesTab('receipt-scanner')}
         >
           Receipt Scanner
+        </button>
+        <button type="button" role="tab" id="expenses-tab-create-ebay-listing"
+          aria-selected={expensesTab === 'create-ebay-listing'} aria-controls="expenses-panel-create-ebay-listing"
+          className={`expenses-tab${expensesTab === 'create-ebay-listing' ? ' expenses-tab--active' : ''}`}
+          onClick={() => setExpensesTab('create-ebay-listing')}>Create eBay Listing</button>
+        <button
+          type="button"
+          role="tab"
+          id="expenses-tab-expenses"
+          aria-selected={expensesTab === 'expenses'}
+          aria-controls="expenses-panel-expenses"
+          className={`expenses-tab${expensesTab === 'expenses' ? ' expenses-tab--active' : ''}`}
+          onClick={() => setExpensesTab('expenses')}
+        >
+          Expenses
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="expenses-tab-planner"
+          aria-selected={expensesTab === 'planner'}
+          aria-controls="expenses-panel-planner"
+          className={`expenses-tab${expensesTab === 'planner' ? ' expenses-tab--active' : ''}`}
+          onClick={() => setExpensesTab('planner')}
+        >
+          Listing Planner
         </button>
         <button
           type="button"
@@ -726,22 +741,7 @@ const Expenses: React.FC = () => {
           }`}
           onClick={() => setExpensesTab('listing-image-refresh')}
         >
-          Listing Image Refresh
-        </button>
-        <button type="button" role="tab" id="expenses-tab-create-ebay-listing"
-          aria-selected={expensesTab === 'create-ebay-listing'} aria-controls="expenses-panel-create-ebay-listing"
-          className={`expenses-tab${expensesTab === 'create-ebay-listing' ? ' expenses-tab--active' : ''}`}
-          onClick={() => setExpensesTab('create-ebay-listing')}>Create eBay Listing</button>
-        <button
-          type="button"
-          role="tab"
-          id="expenses-tab-expenses"
-          aria-selected={expensesTab === 'expenses'}
-          aria-controls="expenses-panel-expenses"
-          className={`expenses-tab${expensesTab === 'expenses' ? ' expenses-tab--active' : ''}`}
-          onClick={() => setExpensesTab('expenses')}
-        >
-          Expenses
+          Reupload Listing
         </button>
       </nav>
 

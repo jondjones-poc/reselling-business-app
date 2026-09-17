@@ -255,6 +255,8 @@ const getDatabasePool = () => {
 
 const BRAND_TAG_IMAGE_BUCKET = process.env.SUPABASE_STORAGE_BRAND_TAGS_BUCKET || 'brand-tag-images';
 const RECEIPT_UPLOAD_BUCKET = process.env.SUPABASE_STORAGE_RECEIPTS_BUCKET || 'receipt-uploads';
+/** Public bucket so eBay's own servers can fetch these URLs when validating/creating a draft. */
+const EBAY_DRAFT_IMAGE_BUCKET = process.env.SUPABASE_STORAGE_EBAY_DRAFT_IMAGES_BUCKET || 'ebay-draft-images';
 
 let supabaseAdmin = null;
 const getSupabaseAdmin = () => {
@@ -1384,12 +1386,199 @@ app.post('/api/ebay/listing-drafts/import', async (req, res) => {
     const listing = ebaySellerHubDraft.validateListing(req.body);
     const pool = getDatabasePool();
     if (!pool) return res.status(503).json({ error: 'Database not configured.' });
+
+    // Host the ZIP's own photos publicly so eBay can actually fetch them —
+    // File Exchange's "Item photo URL" needs a real URL, and these photos
+    // otherwise only ever exist on the seller's computer.
+    const sb = getSupabaseAdmin();
+    const photoUrls = await uploadEbayDraftImages(sb, listing.sku, req.body?.images);
+    if (photoUrls.length > 0) listing.photoUrls = photoUrls;
+
     const token = await ebaySellerOAuth.getFulfillmentUserAccessToken(pool);
     const result = await ebaySellerHubDraft.createSellerHubDraft({ listing, token });
-    res.json(result);
+    res.json({ ...result, photoCount: photoUrls.length });
   } catch (error) {
     const status = error.code === 'EBAY_USER_TOKEN_MISSING' ? 401 : error.httpStatus || 500;
     res.status(status).json({ error: error.message || 'Could not create the draft.', code: error.code });
+  }
+});
+
+/**
+ * Build the same CSV a seller would download from eBay's own draft template,
+ * for manual upload via Seller Hub's Reports > Upload Listings tool. Unlike
+ * /listing-drafts/import above, this never calls eBay's API at all — no
+ * OAuth token, Location or Shipping policy needed — so it works even before
+ * a seller has opted into Business Policies.
+ */
+app.post('/api/ebay/listing-drafts/export-csv', async (req, res) => {
+  try {
+    const listing = ebaySellerHubDraft.validateListing(req.body, { requireLocation: false, requireShipping: false });
+    const sb = getSupabaseAdmin();
+    const photoUrls = await uploadEbayDraftImages(sb, listing.sku, req.body?.images);
+    if (photoUrls.length > 0) listing.photoUrls = photoUrls;
+
+    const csv = ebaySellerHubDraft.buildManualDraftCsv(listing);
+    // File Exchange/Seller Hub don't care about the filename — this is purely
+    // so the download is recognizable in Finder/Explorer. The client sets
+    // its own `download` attribute (which wins for a blob: URL in the
+    // browsers this app targets), but this header is kept consistent for any
+    // other client of this endpoint.
+    const safeTitle = String(listing.title || '').replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, ' ').trim();
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${(safeTitle || listing.sku)} Import File.csv"`);
+    res.send(csv);
+  } catch (error) {
+    res.status(error.httpStatus || 500).json({ error: error.message || 'Could not build the draft CSV.' });
+  }
+});
+
+let ebayTopLevelCategoriesCache = null; // { at: number, categories: {id,name}[] }
+const EBAY_TOP_LEVEL_CATEGORIES_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** GET the UK site's top-level eBay categories, for the Create eBay Listing category dropdown. */
+app.get('/api/ebay/categories/top-level', async (req, res) => {
+  try {
+    if (ebayTopLevelCategoriesCache && Date.now() - ebayTopLevelCategoriesCache.at < EBAY_TOP_LEVEL_CATEGORIES_TTL_MS) {
+      return res.json({ categories: ebayTopLevelCategoriesCache.categories });
+    }
+    const appId = process.env.REACT_APP_EBAY_APP_ID || process.env.EBAY_APP;
+    const certId = process.env.REACT_APP_EBAY_CERT_ID;
+    if (!appId || !certId) return res.status(500).json({ error: 'eBay app credentials are not configured.' });
+
+    const accessToken = await getAccessToken(appId, certId);
+    const treeIdResponse = await fetch(
+      'https://api.ebay.com/commerce/taxonomy/v1/get_default_category_tree_id?marketplace_id=EBAY_GB',
+      { headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' } }
+    );
+    if (!treeIdResponse.ok) throw new Error(`get_default_category_tree_id ${treeIdResponse.status}: ${(await treeIdResponse.text()).slice(0, 300)}`);
+    const { categoryTreeId } = await treeIdResponse.json();
+
+    const treeResponse = await fetch(
+      `https://api.ebay.com/commerce/taxonomy/v1/category_tree/${encodeURIComponent(categoryTreeId)}`,
+      { headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' } }
+    );
+    if (!treeResponse.ok) throw new Error(`category_tree ${treeResponse.status}: ${(await treeResponse.text()).slice(0, 300)}`);
+    const tree = await treeResponse.json();
+    const categories = (tree?.rootCategoryNode?.childCategoryTreeNodes || [])
+      .map((node) => ({ id: node?.category?.categoryId, name: node?.category?.categoryName }))
+      .filter((c) => c.id && c.name)
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    ebayTopLevelCategoriesCache = { at: Date.now(), categories };
+    res.json({ categories });
+  } catch (error) {
+    console.error('/api/ebay/categories/top-level failed:', error);
+    res.status(500).json({ error: error.message || 'Could not fetch eBay categories.' });
+  }
+});
+
+/** GET one Sell Account API policy list, returning just {id, name} pairs. */
+async function fetchEbayBusinessPolicyList(accessToken, path, listKey) {
+  const response = await fetch(
+    `https://api.ebay.com/sell/account/v1/${path}?marketplace_id=EBAY_GB`,
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
+        'X-EBAY-C-MARKETPLACE-ID': 'EBAY_GB',
+      },
+    }
+  );
+  const text = await response.text();
+  if (!response.ok) {
+    const err = new Error(`eBay Account API ${path} ${response.status}: ${text.slice(0, 600)}`);
+    err.httpStatus = response.status;
+    err.responseBody = text;
+    throw err;
+  }
+  let data;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(`eBay Account API ${path} returned invalid JSON`);
+  }
+  const list = Array.isArray(data[listKey]) ? data[listKey] : [];
+  return list.map((p) => ({ id: p.paymentPolicyId || p.fulfillmentPolicyId || p.returnPolicyId || p.name, name: p.name }));
+}
+
+/**
+ * GET — the seller's Business Policy names, used to prefill Create eBay
+ * Listing's Payment/Shipping/Return fields instead of the seller having to
+ * copy them by hand from Manage Business Policies.
+ */
+app.get('/api/ebay/business-policies', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) return res.status(503).json({ error: 'Database not configured' });
+
+    let userToken;
+    try {
+      userToken = await ebaySellerOAuth.getFulfillmentUserAccessToken(pool);
+    } catch (tokErr) {
+      const code = tokErr && tokErr.code;
+      return res.status(code === 'EBAY_USER_TOKEN_MISSING' ? 401 : 502).json({
+        error: tokErr instanceof Error ? tokErr.message : String(tokErr),
+        code: code || 'EBAY_TOKEN_ERROR',
+      });
+    }
+
+    try {
+      const [paymentPolicies, shippingPolicies, returnPolicies] = await Promise.all([
+        fetchEbayBusinessPolicyList(userToken, 'payment_policy', 'paymentPolicies'),
+        fetchEbayBusinessPolicyList(userToken, 'fulfillment_policy', 'fulfillmentPolicies'),
+        fetchEbayBusinessPolicyList(userToken, 'return_policy', 'returnPolicies'),
+      ]);
+      res.json({ paymentPolicies, shippingPolicies, returnPolicies });
+    } catch (apiErr) {
+      // "Not eligible for Business Policy" (errorId 20403) is an
+      // account-level restriction, not a scope problem — this seller's
+      // account isn't enrolled in *programmatic* Business Policy access,
+      // even if Business Policies work fine through the eBay website.
+      // Reconnecting eBay won't fix this, so it needs its own message
+      // rather than falling into the scope-missing branch below.
+      const notEligible = /not eligible for business policy/i.test(apiErr.responseBody || '');
+      // A 401/403 from this specific read-only Account API call is, in
+      // practice, always a missing sell.account scope — this app's stored
+      // `scope` column can reflect what was *requested* rather than what
+      // eBay actually *granted* on an old token, which made a DB-based check
+      // here unreliable (a real 403 came back with a stored scope that
+      // looked like it already included sell.account). Trust the HTTP
+      // status directly instead.
+      const missingAccount = !notEligible && (apiErr.httpStatus === 401 || apiErr.httpStatus === 403);
+      const status = missingAccount ? 403 : notEligible ? 200 : 502;
+      console.warn(
+        '/api/ebay/business-policies eBay error:',
+        apiErr.message,
+        'missingAccount=',
+        missingAccount,
+        'notEligible=',
+        notEligible
+      );
+      if (notEligible) {
+        // Not a failure the seller needs to act on beyond typing the names
+        // in themselves — respond 200 with empty lists so the form just
+        // shows the "type it in yourself" guidance, not an error banner.
+        return res.json({
+          paymentPolicies: [],
+          shippingPolicies: [],
+          returnPolicies: [],
+          notEligibleForBusinessPolicyApi: true,
+        });
+      }
+      return res.status(status).json({
+        error: missingAccount
+          ? 'eBay login is missing Business Policy access. Reconnect eBay on this tab to grant it.'
+          : apiErr instanceof Error
+            ? apiErr.message
+            : String(apiErr),
+        code: missingAccount ? 'EBAY_ACCOUNT_SCOPE' : 'EBAY_GET_POLICIES_FAILED',
+        needsAccountScope: missingAccount,
+      });
+    }
+  } catch (error) {
+    console.error('/api/ebay/business-policies failed:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -2628,6 +2817,63 @@ async function ensureReceiptUploadBucket(sb) {
   }
 }
 
+/** Same defensive never-throw pattern as ensureReceiptUploadBucket — public, since eBay must fetch these. */
+async function ensureEbayDraftImageBucket(sb) {
+  if (!sb) return;
+  try {
+    const { data: existing, error: getErr } = await sb.storage.getBucket(EBAY_DRAFT_IMAGE_BUCKET);
+    if (existing) return;
+    if (getErr) {
+      console.warn('eBay draft image bucket lookup warning:', getErr.message);
+    }
+    const { error: createErr } = await sb.storage.createBucket(EBAY_DRAFT_IMAGE_BUCKET, {
+      public: true,
+      fileSizeLimit: 15 * 1024 * 1024,
+    });
+    if (createErr) {
+      console.warn('eBay draft image bucket create warning:', createErr.message);
+    }
+  } catch (e) {
+    console.warn('eBay draft image bucket ensure warning:', e?.message || e);
+  }
+}
+
+/**
+ * Upload the ZIP's photos (base64, from the browser) to a public bucket so
+ * eBay's own servers can fetch them by URL — File Exchange's "Item photo
+ * URL" column needs a real, publicly reachable image, and the ZIP's photos
+ * otherwise only ever exist on the seller's own computer.
+ */
+async function uploadEbayDraftImages(sb, sku, images) {
+  if (!sb || !Array.isArray(images) || images.length === 0) return [];
+  await ensureEbayDraftImageBucket(sb);
+  const safeSku = String(sku || 'item').replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 60) || 'item';
+  const urls = [];
+  for (let i = 0; i < images.length; i += 1) {
+    const img = images[i];
+    if (!img || typeof img.dataBase64 !== 'string' || !img.dataBase64) continue;
+    const contentType = typeof img.type === 'string' && img.type.startsWith('image/') ? img.type : 'image/jpeg';
+    const ext = contentType.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
+    const storagePath = `${safeSku}/${Date.now()}-${i + 1}.${ext}`;
+    let buffer;
+    try {
+      buffer = Buffer.from(img.dataBase64, 'base64');
+    } catch {
+      continue;
+    }
+    const { error: uploadErr } = await sb.storage
+      .from(EBAY_DRAFT_IMAGE_BUCKET)
+      .upload(storagePath, buffer, { contentType, upsert: false });
+    if (uploadErr) {
+      console.warn('eBay draft image upload warning:', uploadErr.message);
+      continue;
+    }
+    const { data: pub } = sb.storage.from(EBAY_DRAFT_IMAGE_BUCKET).getPublicUrl(storagePath);
+    if (pub?.publicUrl) urls.push(pub.publicUrl);
+  }
+  return urls;
+}
+
 function slugForReceiptFileName(name) {
   let s = String(name ?? '')
     .trim()
@@ -2773,7 +3019,7 @@ const handleReceiptUploadsPost = async (req, res) => {
     const docRaw = req.body?.docType ?? req.body?.doc_type;
     if (typeof docRaw === 'string') {
       const d = docRaw.trim().toLowerCase();
-      if (d === 'charity' || d === 'postage') docType = d;
+      if (d === 'charity' || d === 'postage' || d === 'expense') docType = d;
     }
 
     let receiptDate = null;
@@ -11711,18 +11957,22 @@ function extractListingPhotoUrlsFromRscHtml(html, vintedIdRaw) {
 }
 
 /**
- * Vinted's item page shows "Uploaded X ago" (a relative age, e.g. "4 months
- * ago") in the item details section — there's no exact upload date exposed
- * on the public page, only this relative string, embedded the same way as
- * the RSC-streamed photo data above (an escaped JSON blob in the raw HTML:
+ * Vinted's item page embeds several item-detail rows (Uploaded, Colour,
+ * Material, ...) as escaped JSON blobs in the same RSC-streamed structure as
+ * the photo gallery above, each shaped like:
  * {\"code\":\"upload_date\",\"data\":{\"title\":\"Uploaded\",\"value\":\"4
- * months ago\"}}).
+ * months ago\"}}. This pulls one attribute's value out by its `code`.
  */
-function extractVintedUploadAgeFromRscHtml(html) {
+function extractVintedAttributeFromRscHtml(html, code) {
+  const escapedCode = code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const match = html.match(
-    /\\"code\\":\\"upload_date\\",\\"data\\":\{\\"title\\":\\"Uploaded\\",\\"value\\":\\"([^\\"]+)\\"/
+    new RegExp(`\\\\"code\\\\":\\\\"${escapedCode}\\\\",\\\\"data\\\\":\\{\\\\"title\\\\":\\\\"[^\\\\]+\\\\",\\\\"value\\\\":\\\\"([^\\\\]+)\\\\"`)
   );
   return match ? match[1].trim() : null;
+}
+
+function extractVintedUploadAgeFromRscHtml(html) {
+  return extractVintedAttributeFromRscHtml(html, 'upload_date');
 }
 
 function extractListingPhotoUrlsFromVintedItem(item) {
@@ -11880,6 +12130,28 @@ function formatVintedScrapedPrice(item) {
   return `${amount} ${currency}`;
 }
 
+function extractVintedPriceFromLdJson(html) {
+  for (const ldMatch of html.matchAll(
+    /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi
+  )) {
+    try {
+      const data = JSON.parse(ldMatch[1]);
+      const nodes = Array.isArray(data) ? data : [data];
+      for (const node of nodes) {
+        const amount = Number(node?.offers?.price);
+        if (!Number.isFinite(amount)) continue;
+        const cur = node.offers.priceCurrency || 'GBP';
+        return String(cur).toUpperCase() === 'GBP'
+          ? new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(amount)
+          : `${amount} ${cur}`;
+      }
+    } catch {
+      /* ignore malformed ld+json block */
+    }
+  }
+  return null;
+}
+
 function parseVintedListingFromHtml(html, pageUrl, vintedIdRaw) {
   let title = metaContentFromHtml(html, 'og:title');
   let description = metaContentFromHtml(html, 'og:description');
@@ -11924,6 +12196,16 @@ function parseVintedListingFromHtml(html, pageUrl, vintedIdRaw) {
     } catch {
       /* ignore malformed NEXT_DATA */
     }
+  }
+
+  // Vinted's current pages no longer embed __NEXT_DATA__ at all, so the price
+  // above is never actually found that way. The price IS still present in
+  // the page's application/ld+json block (confirmed against a live listing),
+  // but the loop that reads it further down only runs when no photos were
+  // found — which is never true now that RSC-based photo extraction below
+  // reliably succeeds on its own. So price needs its own unconditional pass.
+  if (!priceLabel) {
+    priceLabel = extractVintedPriceFromLdJson(html);
   }
 
   const rscPictureUrls = extractListingPhotoUrlsFromRscHtml(html, vintedId);
