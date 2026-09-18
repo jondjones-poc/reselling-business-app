@@ -649,6 +649,7 @@ const Stock: React.FC = () => {
   const [stockTotalCount, setStockTotalCount] = useState(0);
   const [stockTotalPages, setStockTotalPages] = useState(1);
   const [nextSku, setNextSku] = useState(1);
+  const [addedTodayCount, setAddedTodayCount] = useState(0);
   const stockFiltersRef = useRef<HTMLDivElement>(null);
   /** Sold sale prices for other items with the same brand + category as the edit form (excludes the row being edited). */
   const editFormBrandCategorySaleComps = useMemo(() => {
@@ -813,6 +814,20 @@ const Stock: React.FC = () => {
     }
   }, []);
 
+  const loadAddedTodayCount = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/stock/added-today-count`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const count = Number(data.count);
+      if (Number.isFinite(count) && count >= 0) {
+        setAddedTodayCount(count);
+      }
+    } catch (err) {
+      console.error('Failed to load added-today count:', err);
+    }
+  }, []);
+
   const loadStockPage = useCallback(
     async (
       page: number,
@@ -906,8 +921,9 @@ const Stock: React.FC = () => {
   const loadStock = useCallback(() => {
     void loadStockPage(stockPage);
     void loadNextSku();
+    void loadAddedTodayCount();
     void loadOrderStockIds();
-  }, [loadStockPage, loadNextSku, loadOrderStockIds, stockPage]);
+  }, [loadStockPage, loadNextSku, loadAddedTodayCount, loadOrderStockIds, stockPage]);
 
   const loadBrands = async () => {
     try {
@@ -972,8 +988,9 @@ const Stock: React.FC = () => {
     loadBrands();
     loadDepartments();
     void loadNextSku();
+    void loadAddedTodayCount();
     void loadOrderStockIds();
-  }, [loadNextSku, loadOrderStockIds]);
+  }, [loadNextSku, loadAddedTodayCount, loadOrderStockIds]);
 
   useEffect(() => {
     // Empty search applies immediately; typing/paste debounces so paste-replace races less.
@@ -1801,6 +1818,7 @@ const Stock: React.FC = () => {
         setSortConfig(null);
         void loadStockPage(stockPage);
         void loadNextSku();
+        void loadAddedTodayCount();
         window.setTimeout(() => {
           stockFiltersRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }, 0);
@@ -2167,6 +2185,7 @@ const Stock: React.FC = () => {
 
       void loadStockPage(isEditing ? stockPage : 1);
       void loadNextSku();
+      void loadAddedTodayCount();
 
       window.setTimeout(() => {
         stockFiltersRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -2261,6 +2280,7 @@ const Stock: React.FC = () => {
       closeStockEntryPanel();
       void loadStockPage(stockPage);
       void loadNextSku();
+      void loadAddedTodayCount();
     } catch (err: any) {
       console.error('Stock delete error:', err);
       setError(err.message || 'Unable to delete stock record');
@@ -4118,6 +4138,10 @@ const Stock: React.FC = () => {
           <div className="stock-filter-stat" title="Matching records">
             <span className="stock-filter-stat-label">Records</span>
             <span className="stock-filter-stat-value">{stockTotalCount.toLocaleString()}</span>
+          </div>
+          <div className="stock-filter-stat" title="Items added today">
+            <span className="stock-filter-stat-label">Added Today</span>
+            <span className="stock-filter-stat-value">{addedTodayCount.toLocaleString()}</span>
           </div>
           <button
             type="button"

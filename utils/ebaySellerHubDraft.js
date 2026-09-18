@@ -139,6 +139,10 @@ function buildManualDraftCsv(listing) {
     ['Condition ID', listing.conditionId],
     ['Description', descriptionHtml(listing.description)],
     ['Format', 'FixedPrice'],
+    // Custom label (SKU) is a backend-only Seller Hub column, not visible on
+    // the listing itself — this also puts the SKU into an item specific so
+    // it's visible/searchable in eBay's actual listing UI, not just Hub.
+    ['C:SKU', listing.sku],
     ...specificsColumns(listing),
   ];
   return csvFile(columns);
@@ -191,6 +195,10 @@ function buildDraftCsv(listing) {
   // named Shipping Policy is the only reliable option now, so it's required.
   if (listing.shippingPolicyName) columns.push(['ShippingProfileName', listing.shippingPolicyName]);
   if (listing.returnPolicyName) columns.push(['ReturnProfileName', listing.returnPolicyName]);
+  // Custom label (SKU) is a backend-only Seller Hub column, not visible on
+  // the listing itself — this also puts the SKU into an item specific so
+  // it's visible/searchable in eBay's actual listing UI, not just Hub.
+  columns.push(['C:SKU', listing.sku]);
   columns.push(...specificsColumns(listing));
   return csvFile(columns);
 }

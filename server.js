@@ -11760,11 +11760,26 @@ function vintedPublicItemUrl(vintedIdRaw) {
   return `https://www.vinted.co.uk/items/${encodeURIComponent(s.replace(/^\/+/, ''))}`;
 }
 
+// Vinted returned HTTP 403 to this fetch when made from Render's hosted IP
+// (works fine from a residential/dev IP) — most likely IP/ASN-based bot
+// blocking rather than header inspection, but a fuller, more realistic set
+// of browser headers (the ones Chrome actually sends site-fetching a page:
+// sec-fetch-*, sec-ch-ua, upgrade-insecure-requests) is worth trying first
+// since it's free and occasionally still what's checked.
 const VINTED_PAGE_FETCH_HEADERS = {
-  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
   'Accept-Language': 'en-GB,en;q=0.9',
   'User-Agent':
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  'Sec-Ch-Ua': '"Not(A:Brand";v="24", "Chromium";v="122", "Google Chrome";v="122"',
+  'Sec-Ch-Ua-Mobile': '?0',
+  'Sec-Ch-Ua-Platform': '"macOS"',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'same-origin',
+  'Sec-Fetch-User': '?1',
+  'Upgrade-Insecure-Requests': '1',
+  Referer: 'https://www.vinted.co.uk/'
 };
 
 async function fetchVintedItemPageHtml(vintedIdRaw) {
@@ -13159,6 +13174,21 @@ app.get('/api/stock/next-id', async (req, res) => {
   } catch (error) {
     console.error('stock next-id failed:', error);
     res.status(500).json({ error: 'Failed to compute next stock id', details: error.message });
+  }
+});
+
+/** Count of stock rows purchased today — the closest proxy to "added today" since stock has no insert timestamp column. */
+app.get('/api/stock/added-today-count', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    const result = await pool.query('SELECT COUNT(*)::int AS count FROM stock WHERE purchase_date = CURRENT_DATE');
+    res.json({ count: result.rows[0]?.count ?? 0 });
+  } catch (error) {
+    console.error('stock added-today-count failed:', error);
+    res.status(500).json({ error: 'Failed to compute added-today count', details: error.message });
   }
 });
 
