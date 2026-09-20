@@ -181,11 +181,28 @@ interface StockRowForSalesData {
 interface ReportingCategoryRow {
   id: number;
   category_name: string;
+  department_id: number | null;
+}
+
+interface ReportingDepartmentRow {
+  id: number;
+  department_name: string;
+}
+
+interface ChannelWeeklyPoint {
+  weekStart: string;
+  weekEnd: string;
+  label: string;
+  vintedSales: number;
+  ebaySales: number;
+  vintedProfit: number;
+  ebayProfit: number;
 }
 
 type ReportingViewMode =
   | 'sales-data'
   | 'stock-analysis'
+  | 'channel-analytics'
   | 'cash-flow-analysis'
   | 'projections'
   | 'profit-per-month';
@@ -203,6 +220,7 @@ type SalesDateFilterValue =
 
 function parseReportingViewMode(tab: string | null): ReportingViewMode {
   if (tab === 'stock-analysis') return 'stock-analysis';
+  if (tab === 'channel-analytics') return 'channel-analytics';
   if (tab === 'cash-flow-analysis') return 'cash-flow-analysis';
   if (tab === 'projections' || tab === 'item-analysis') return 'projections';
   if (tab === 'profit-per-month') return 'profit-per-month';
@@ -500,6 +518,15 @@ const Reporting: React.FC = () => {
   const [soldCountByCategory, setSoldCountByCategory] = useState<SoldCountByCategoryDatum[]>([]);
   const [soldCategoryNetProfit, setSoldCategoryNetProfit] = useState<SoldCategoryNetDatum[]>([]);
   const [reportingCategoryRows, setReportingCategoryRows] = useState<ReportingCategoryRow[]>([]);
+  const [reportingDepartmentRows, setReportingDepartmentRows] = useState<ReportingDepartmentRow[]>([]);
+  const [channelWeeksAll, setChannelWeeksAll] = useState<ChannelWeeklyPoint[]>([]);
+  const [channelWeeksAllLoading, setChannelWeeksAllLoading] = useState(false);
+  const [channelWeeksAllError, setChannelWeeksAllError] = useState('');
+  const [channelDepartmentFilter, setChannelDepartmentFilter] = useState('');
+  const [channelCategoryFilter, setChannelCategoryFilter] = useState('');
+  const [channelWeeksFiltered, setChannelWeeksFiltered] = useState<ChannelWeeklyPoint[]>([]);
+  const [channelWeeksFilteredLoading, setChannelWeeksFilteredLoading] = useState(false);
+  const [channelWeeksFilteredError, setChannelWeeksFilteredError] = useState('');
   const [salesByBrand, setSalesByBrand] = useState<SalesByBrandDatum[]>([]);
   const [bestSellingBrandsByCategory, setBestSellingBrandsByCategory] = useState<SalesByBrandCategorySet>({
     trousers: [],
@@ -772,11 +799,12 @@ const Reporting: React.FC = () => {
         const rows = Array.isArray(data?.rows) ? data.rows : [];
         if (cancelled) return;
         const mapped: Array<ReportingCategoryRow | null> = rows.map(
-          (r: { id?: unknown; category_name?: unknown }): ReportingCategoryRow | null => {
+          (r: { id?: unknown; category_name?: unknown; department_id?: unknown }): ReportingCategoryRow | null => {
             const id = Number(r.id);
             if (!Number.isFinite(id)) return null;
             const nm = (r.category_name != null ? String(r.category_name) : '').trim();
-            return { id, category_name: nm || 'Uncategorized' };
+            const departmentId = Number(r.department_id);
+            return { id, category_name: nm || 'Uncategorized', department_id: Number.isFinite(departmentId) ? departmentId : null };
           }
         );
         setReportingCategoryRows(mapped.filter((r): r is ReportingCategoryRow => r != null));
@@ -788,6 +816,96 @@ const Reporting: React.FC = () => {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(`${API_BASE}/api/departments`);
+        if (!response.ok) return;
+        const data = await response.json();
+        const rows = Array.isArray(data?.rows) ? data.rows : [];
+        if (cancelled) return;
+        const mapped: Array<ReportingDepartmentRow | null> = rows.map(
+          (r: { id?: unknown; department_name?: unknown }): ReportingDepartmentRow | null => {
+            const id = Number(r.id);
+            if (!Number.isFinite(id)) return null;
+            const nm = (r.department_name != null ? String(r.department_name) : '').trim();
+            return { id, department_name: nm || 'Unnamed' };
+          }
+        );
+        setReportingDepartmentRows(mapped.filter((r): r is ReportingDepartmentRow => r != null));
+      } catch {
+        if (!cancelled) setReportingDepartmentRows([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Channel Analytics: unfiltered weekly eBay-vs-Vinted sales/profit, last 12
+  // months — fetched once when the tab is first opened (its data doesn't
+  // depend on any filter, unlike the department/category chart below it).
+  useEffect(() => {
+    if (viewMode !== 'channel-analytics' || channelWeeksAll.length > 0) {
+      return;
+    }
+    // channelWeeksAllLoading is deliberately NOT a dependency here — setting
+    // it inside this effect would change a value the effect itself depends
+    // on, which reruns the effect immediately and cleans up (cancels) this
+    // very fetch before it can complete, leaving the UI stuck on "Loading…"
+    // forever. It's only ever read for display, never for control flow here.
+    let cancelled = false;
+    (async () => {
+      setChannelWeeksAllLoading(true);
+      setChannelWeeksAllError('');
+      try {
+        const response = await fetch(`${API_BASE}/api/reporting/channel-weekly`);
+        const data = await response.json();
+        if (cancelled) return;
+        if (!response.ok) throw new Error(data.error || 'Could not load channel analytics.');
+        setChannelWeeksAll(Array.isArray(data.weeks) ? data.weeks : []);
+      } catch (e) {
+        if (!cancelled) setChannelWeeksAllError(e instanceof Error ? e.message : 'Could not load channel analytics.');
+      } finally {
+        if (!cancelled) setChannelWeeksAllLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [viewMode, channelWeeksAll.length]);
+
+  // Channel Analytics: the department/category-filterable chart — refetches
+  // whenever the tab is open and either filter changes.
+  useEffect(() => {
+    if (viewMode !== 'channel-analytics') {
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setChannelWeeksFilteredLoading(true);
+      setChannelWeeksFilteredError('');
+      try {
+        const params = new URLSearchParams();
+        if (channelDepartmentFilter) params.set('department_id', channelDepartmentFilter);
+        if (channelCategoryFilter) params.set('category_id', channelCategoryFilter);
+        const response = await fetch(`${API_BASE}/api/reporting/channel-weekly?${params.toString()}`);
+        const data = await response.json();
+        if (cancelled) return;
+        if (!response.ok) throw new Error(data.error || 'Could not load channel analytics.');
+        setChannelWeeksFiltered(Array.isArray(data.weeks) ? data.weeks : []);
+      } catch (e) {
+        if (!cancelled) setChannelWeeksFilteredError(e instanceof Error ? e.message : 'Could not load channel analytics.');
+      } finally {
+        if (!cancelled) setChannelWeeksFilteredLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [viewMode, channelDepartmentFilter, channelCategoryFilter]);
 
   useEffect(() => {
     if (viewMode !== 'sales-data') {
@@ -1560,6 +1678,153 @@ const Reporting: React.FC = () => {
       ],
     };
   }, [trailingInventory]);
+
+  // Two-series (eBay vs Vinted) line chart options for Channel Analytics —
+  // unlike lineChartOptions above, the legend is shown since telling the two
+  // series apart is the entire point of these charts.
+  const channelLineChartOptions: ChartOptions<'line'> = useMemo(
+    () => ({
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top', labels: { color: themeTextRgba(0.85) } },
+        tooltip: {
+          callbacks: {
+            label(context) {
+              const value = context.raw as number;
+              return `${context.dataset.label}: ${formatCurrency(value || 0)}`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: { color: themeAccentRgba(0.08) },
+          ticks: { color: themeTextRgba(0.8), maxRotation: 0, autoSkip: true },
+        },
+        y: {
+          beginAtZero: true,
+          grid: { color: themeAccentRgba(0.12) },
+          ticks: {
+            color: themeTextRgba(0.75),
+            callback(value) {
+              return typeof value === 'number' ? formatCurrency(value) : value;
+            },
+          },
+        },
+      },
+    }),
+    []
+  );
+
+  const channelSalesChartData = useMemo(() => {
+    if (channelWeeksAll.length === 0) return null;
+    return {
+      labels: channelWeeksAll.map((w) => w.label),
+      datasets: [
+        {
+          label: 'eBay',
+          data: channelWeeksAll.map((w) => w.ebaySales),
+          borderColor: CHART_EBAY_YELLOW,
+          backgroundColor: CHART_EBAY_YELLOW_FILL,
+          tension: 0.3,
+          pointRadius: 2,
+        },
+        {
+          label: 'Vinted',
+          data: channelWeeksAll.map((w) => w.vintedSales),
+          borderColor: CHART_VINTED_BLUE,
+          backgroundColor: CHART_VINTED_BLUE_FILL,
+          tension: 0.3,
+          pointRadius: 2,
+        },
+      ],
+    };
+  }, [channelWeeksAll]);
+
+  const channelFilteredSalesChartData = useMemo(() => {
+    if (channelWeeksFiltered.length === 0) return null;
+    return {
+      labels: channelWeeksFiltered.map((w) => w.label),
+      datasets: [
+        {
+          label: 'eBay',
+          data: channelWeeksFiltered.map((w) => w.ebaySales),
+          borderColor: CHART_EBAY_YELLOW,
+          backgroundColor: CHART_EBAY_YELLOW_FILL,
+          tension: 0.3,
+          pointRadius: 2,
+        },
+        {
+          label: 'Vinted',
+          data: channelWeeksFiltered.map((w) => w.vintedSales),
+          borderColor: CHART_VINTED_BLUE,
+          backgroundColor: CHART_VINTED_BLUE_FILL,
+          tension: 0.3,
+          pointRadius: 2,
+        },
+      ],
+    };
+  }, [channelWeeksFiltered]);
+
+  const channelProfitChartData = useMemo(() => {
+    if (channelWeeksAll.length === 0) return null;
+    return {
+      labels: channelWeeksAll.map((w) => w.label),
+      datasets: [
+        {
+          label: 'eBay profit',
+          data: channelWeeksAll.map((w) => w.ebayProfit),
+          borderColor: CHART_EBAY_YELLOW,
+          backgroundColor: CHART_EBAY_YELLOW_FILL,
+          tension: 0.3,
+          pointRadius: 2,
+        },
+        {
+          label: 'Vinted profit',
+          data: channelWeeksAll.map((w) => w.vintedProfit),
+          borderColor: CHART_VINTED_BLUE,
+          backgroundColor: CHART_VINTED_BLUE_FILL,
+          tension: 0.3,
+          pointRadius: 2,
+        },
+      ],
+    };
+  }, [channelWeeksAll]);
+
+  const channelFilterCategoryOptions = useMemo(() => {
+    const rows = channelDepartmentFilter
+      ? reportingCategoryRows.filter((c) => String(c.department_id ?? '') === channelDepartmentFilter)
+      : reportingCategoryRows;
+    return rows
+      .slice()
+      .sort((a, b) => a.category_name.localeCompare(b.category_name))
+      .map((c) => ({ value: String(c.id), label: c.category_name }));
+  }, [reportingCategoryRows, channelDepartmentFilter]);
+
+  const channelFilterDepartmentOptions = useMemo(
+    () =>
+      reportingDepartmentRows
+        .slice()
+        .sort((a, b) => a.department_name.localeCompare(b.department_name))
+        .map((d) => ({ value: String(d.id), label: d.department_name })),
+    [reportingDepartmentRows]
+  );
+
+  const channelFilteredTotals = useMemo(() => {
+    const ebay = channelWeeksFiltered.reduce((sum, w) => sum + w.ebaySales, 0);
+    const vinted = channelWeeksFiltered.reduce((sum, w) => sum + w.vintedSales, 0);
+    const winner: 'eBay' | 'Vinted' | null = ebay === vinted ? null : ebay > vinted ? 'eBay' : 'Vinted';
+    return { ebay, vinted, winner };
+  }, [channelWeeksFiltered]);
+
+  const channelProfitTotals = useMemo(() => {
+    const ebay = channelWeeksAll.reduce((sum, w) => sum + w.ebayProfit, 0);
+    const vinted = channelWeeksAll.reduce((sum, w) => sum + w.vintedProfit, 0);
+    const winner: 'eBay' | 'Vinted' | null = ebay === vinted ? null : ebay > vinted ? 'eBay' : 'Vinted';
+    return { ebay, vinted, winner };
+  }, [channelWeeksAll]);
 
   const previousDataYear = useMemo(() => {
     if (!availableYears.length) {
@@ -2444,6 +2709,12 @@ const Reporting: React.FC = () => {
           onClick={() => setViewMode('stock-analysis')}
         >
           Stock Analysis
+        </button>
+        <button
+          className={`view-toggle-button ${viewMode === 'channel-analytics' ? 'active' : ''}`}
+          onClick={() => setViewMode('channel-analytics')}
+        >
+          Channel Analytics
         </button>
         <button
           className={`view-toggle-button ${viewMode === 'cash-flow-analysis' ? 'active' : ''}`}
@@ -3674,6 +3945,111 @@ const Reporting: React.FC = () => {
             )}
           </section>
 
+        </div>
+      </div>
+
+      {/* Channel Analytics View — eBay vs Vinted, by week, over the last 12 months */}
+      <div className={`view-content ${viewMode === 'channel-analytics' ? 'active' : ''}`}>
+        <div className="reporting-grid">
+          <section className="reporting-card">
+            <div className="card-header">
+              <h2>Total Sales By Channel</h2>
+            </div>
+            {channelWeeksAllError ? (
+              <div className="reporting-error">{channelWeeksAllError}</div>
+            ) : channelSalesChartData ? (
+              <div className="chart-wrapper">
+                <Line data={channelSalesChartData} options={channelLineChartOptions} />
+              </div>
+            ) : (
+              <div className="reporting-empty">{channelWeeksAllLoading ? 'Loading…' : 'No sales data for the last 12 months.'}</div>
+            )}
+          </section>
+
+          <section className="reporting-card">
+            <div className="card-header">
+              <h2>Category Comparison</h2>
+            </div>
+            <div className="channel-filter-row">
+              <StockFormDropdown
+                value={channelDepartmentFilter}
+                options={channelFilterDepartmentOptions}
+                onChange={(value) => {
+                  setChannelDepartmentFilter(value);
+                  setChannelCategoryFilter('');
+                }}
+                placeholder="All Departments"
+                includeEmptyOption
+                ariaLabel="Filter channel analytics by department"
+                className="stock-analysis-filter-dropdown"
+              />
+              <StockFormDropdown
+                value={channelCategoryFilter}
+                options={channelFilterCategoryOptions}
+                onChange={(value) => setChannelCategoryFilter(value)}
+                placeholder="All Categories"
+                includeEmptyOption
+                ariaLabel="Filter channel analytics by category"
+                className="stock-analysis-filter-dropdown"
+              />
+            </div>
+            {channelWeeksFilteredError ? (
+              <div className="reporting-error">{channelWeeksFilteredError}</div>
+            ) : channelFilteredSalesChartData ? (
+              <>
+                <div className="chart-wrapper">
+                  <Line data={channelFilteredSalesChartData} options={channelLineChartOptions} />
+                </div>
+                <div className="channel-summary">
+                  <div className="channel-summary-stat">
+                    <span className="channel-summary-label">eBay total sales</span>
+                    <span className="channel-summary-value">{formatCurrency(channelFilteredTotals.ebay)}</span>
+                  </div>
+                  <div className="channel-summary-stat">
+                    <span className="channel-summary-label">Vinted total sales</span>
+                    <span className="channel-summary-value">{formatCurrency(channelFilteredTotals.vinted)}</span>
+                  </div>
+                </div>
+                <div className="channel-summary-winner">
+                  {channelFilteredTotals.winner ? `Winner: ${channelFilteredTotals.winner}` : 'It’s a tie'}
+                </div>
+              </>
+            ) : (
+              <div className="reporting-empty">
+                {channelWeeksFilteredLoading ? 'Loading…' : 'No sales data for this department/category in the last 12 months.'}
+              </div>
+            )}
+          </section>
+
+          <section className="reporting-card">
+            <div className="card-header">
+              <h2>Profit Per Week By Channel</h2>
+            </div>
+            {channelWeeksAllError ? (
+              <div className="reporting-error">{channelWeeksAllError}</div>
+            ) : channelProfitChartData ? (
+              <>
+                <div className="chart-wrapper">
+                  <Line data={channelProfitChartData} options={channelLineChartOptions} />
+                </div>
+                <div className="channel-summary">
+                  <div className="channel-summary-stat">
+                    <span className="channel-summary-label">eBay total profit</span>
+                    <span className="channel-summary-value">{formatCurrency(channelProfitTotals.ebay)}</span>
+                  </div>
+                  <div className="channel-summary-stat">
+                    <span className="channel-summary-label">Vinted total profit</span>
+                    <span className="channel-summary-value">{formatCurrency(channelProfitTotals.vinted)}</span>
+                  </div>
+                </div>
+                <div className="channel-summary-winner">
+                  {channelProfitTotals.winner ? `Winner: ${channelProfitTotals.winner}` : 'It’s a tie'}
+                </div>
+              </>
+            ) : (
+              <div className="reporting-empty">{channelWeeksAllLoading ? 'Loading…' : 'No profit data for the last 12 months.'}</div>
+            )}
+          </section>
         </div>
       </div>
 

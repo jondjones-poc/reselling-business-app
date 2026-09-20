@@ -735,6 +735,57 @@
   box-shadow: var(--theme-panel-shadow);
 }
 
+.channel-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.channel-filter-row .stock-analysis-filter-dropdown {
+  flex: 1 1 200px;
+  min-width: 160px;
+}
+
+.channel-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.channel-summary-stat {
+  flex: 1 1 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: rgba(var(--theme-accent-rgb), 0.08);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.2);
+}
+
+.channel-summary-label {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06rem;
+  color: rgba(var(--theme-text-rgb), 0.7);
+}
+
+.channel-summary-value {
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+
+.channel-summary-winner {
+  margin-top: 12px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: rgba(var(--theme-accent-rgb), 0.15);
+  font-weight: 700;
+  text-align: center;
+}
+
 [data-theme='minimal'] .stock-analysis-filter-dropdown .stock-form-dropdown-trigger:focus-visible {
   box-shadow: var(--theme-inset-shadow);
   border-color: rgba(var(--theme-accent-rgb), 0.45);

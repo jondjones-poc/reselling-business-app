@@ -9942,6 +9942,96 @@ app.get('/api/stock/seasonal-weekly-top-items', async (req, res) => {
   }
 });
 
+/**
+ * Weekly (Monday–Sunday) totals of sale price and profit, split eBay vs
+ * Vinted, for the last 12 months — powers Reporting's Channel Analytics tab.
+ * Optional department_id/category_id narrow to one department/category, e.g.
+ * "which platform sells menswear jumpers best".
+ */
+app.get('/api/reporting/channel-weekly', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const departmentId = parseOptionalBrandDepartmentFilter(req);
+    const categoryIdRaw = req.query.category_id ?? req.query.categoryId;
+    const categoryIdNum = Number(categoryIdRaw);
+    const categoryId =
+      categoryIdRaw != null && String(categoryIdRaw).trim() !== '' && Number.isInteger(categoryIdNum) && categoryIdNum > 0
+        ? categoryIdNum
+        : null;
+
+    const todayUtc = new Date();
+    const rangeEnd = formatDateOnlyUtc(todayUtc);
+    const twelveMonthsAgo = new Date(todayUtc);
+    twelveMonthsAgo.setUTCMonth(twelveMonthsAgo.getUTCMonth() - 12);
+    const rangeStart = formatDateOnlyUtc(mondayOfWeekUtc(twelveMonthsAgo));
+
+    const salesRes = await pool.query(
+      `SELECT s.sale_date::date AS sale_date, s.sale_price, s.net_profit, s.sold_platform
+       FROM stock s
+       LEFT JOIN category cat ON cat.id = s.category_id
+       WHERE s.sale_date IS NOT NULL
+         AND s.sale_date::date >= $1::date
+         AND s.sale_date::date <= $2::date
+         AND LOWER(TRIM(s.sold_platform)) IN ('vinted', 'ebay')
+         AND ($3::int IS NULL OR cat.department_id = $3::int)
+         AND ($4::int IS NULL OR s.category_id = $4::int)
+         AND NOT COALESCE(s.is_inventory_write_off, false)`,
+      [rangeStart, rangeEnd, departmentId, categoryId]
+    );
+
+    const weekSpecs = enumerateMondayWeeksInRange(rangeStart, rangeEnd);
+    const byWeek = new Map();
+    for (const w of weekSpecs) {
+      byWeek.set(w.weekKey, { vintedSales: 0, ebaySales: 0, vintedProfit: 0, ebayProfit: 0 });
+    }
+
+    for (const row of salesRes.rows ?? []) {
+      const saleDate = normalizeDateOnlyString(row.sale_date);
+      if (!saleDate) continue;
+      const saleDay = parseDateOnlyUtc(saleDate);
+      if (!saleDay) continue;
+      const bucket = byWeek.get(formatDateOnlyUtc(mondayOfWeekUtc(saleDay)));
+      if (!bucket) continue;
+      const platform = String(row.sold_platform ?? '').trim().toLowerCase();
+      const price = Number(row.sale_price) || 0;
+      const profit = Number(row.net_profit) || 0;
+      if (platform === 'vinted') {
+        bucket.vintedSales += price;
+        bucket.vintedProfit += profit;
+      } else if (platform === 'ebay') {
+        bucket.ebaySales += price;
+        bucket.ebayProfit += profit;
+      }
+    }
+
+    const round2 = (n) => Math.round(n * 100) / 100;
+    const weeks = weekSpecs
+      .slice()
+      .sort((a, b) => a.weekStart.localeCompare(b.weekStart))
+      .map((w) => {
+        const bucket = byWeek.get(w.weekKey) ?? { vintedSales: 0, ebaySales: 0, vintedProfit: 0, ebayProfit: 0 };
+        return {
+          weekStart: w.weekStart,
+          weekEnd: w.weekEnd,
+          label: formatSeasonalWeekLabel(w.weekStart, w.weekEnd),
+          vintedSales: round2(bucket.vintedSales),
+          ebaySales: round2(bucket.ebaySales),
+          vintedProfit: round2(bucket.vintedProfit),
+          ebayProfit: round2(bucket.ebayProfit),
+        };
+      });
+
+    res.json({ weeks, rangeStart, rangeEnd });
+  } catch (error) {
+    console.error('channel-weekly failed:', error);
+    res.status(500).json({ error: 'Failed to load channel analytics', details: error.message });
+  }
+});
+
 const SEASONAL_BIMESTER_SPECS = [
   { index: 1, startMonth: 1, endMonth: 2, label: 'Jan–Feb' },
   { index: 2, startMonth: 3, endMonth: 4, label: 'Mar–Apr' },
@@ -10725,11 +10815,17 @@ function dateInLocalWeek(isoOrDate, weekStart, weekEnd) {
 
 function decodeBasicXmlEntities(value) {
   return String(value)
+    // Numeric entities first (hex e.g. &#x27; and decimal e.g. &#39;) — Vinted's
+    // page HTML encodes apostrophes/curly quotes this way in titles and
+    // descriptions, which the named-entity replacements below never covered,
+    // leaving literal "&#x27;" text in imported titles/descriptions.
+    .replace(/&#x([0-9a-fA-F]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
+    .replace(/&apos;/g, "'");
 }
 
 function htmlToPlainListingText(html) {

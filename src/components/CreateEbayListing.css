@@ -29,6 +29,17 @@
 .create-ebay-defaults-body { margin-top: 12px; padding: 16px; border: 1px dashed rgba(var(--theme-text-rgb), .25); border-radius: 12px; }
 .create-ebay-defaults-warning { padding: 8px 12px; border-radius: 8px; background: rgba(var(--theme-accent-rgb, 200, 160, 90), .12); border: 1px solid rgba(var(--theme-accent-rgb, 200, 160, 90), .35); }
 .create-ebay-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 20px; }
+.create-ebay-clear-button {
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: 1px solid #b91c1c;
+  background: #dc2626;
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.create-ebay-clear-button:hover { background: #b91c1c; }
 .create-ebay-char-count { font-weight: 600; font-size: .85em; }
 .create-ebay-char-count--ok { color: #2fb170; }
 .create-ebay-char-count--over { color: #e5484d; }

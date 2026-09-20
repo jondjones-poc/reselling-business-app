@@ -216,6 +216,11 @@ export default function CreateEbayListing() {
     finally { setManualBusy(false); }
   }
   const update = (field: 'sku' | 'title' | 'description' | 'price', value: string) => setListing(prev => prev ? { ...prev, [field]: value } : prev);
+
+  function clearForm() {
+    setListing(null); setResult(null); setError(''); setNeedsConnection(false);
+    setCategoryId(''); setConditionId('3000'); setManualError('');
+  }
   return <section className="create-ebay-listing" aria-label="Create eBay Listing">
     <label className="create-ebay-file" aria-label="Vinted listing ZIP">
       <span className="create-ebay-file-icon" aria-hidden="true">📦</span>
@@ -281,6 +286,9 @@ export default function CreateEbayListing() {
       </div>
       {busy && <p role="status">Submitting the draft to eBay…</p>}
       {manualError && <div className="stock-error" role="alert">{manualError}</div>}
+      <div className="create-ebay-actions">
+        <button type="button" className="create-ebay-clear-button" onClick={clearForm}>Clear</button>
+      </div>
     </form>}
   </section>;
 }
