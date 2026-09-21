@@ -144,6 +144,7 @@ type ConfigMenu =
   | 'clothing-categories'
   | 'sizes'
   | 'brands'
+  | 'box-locations'
   | 'site-general'
   | 'site-access';
 
@@ -181,6 +182,15 @@ interface DepartmentAdminRow {
   created_at?: string | null;
   updated_at?: string | null;
   category_count: number;
+}
+
+/** Named box big items sit in instead of the normal per-item SKU system (Settings > Stock > Box Locations). */
+interface BoxLocationAdminRow {
+  id: number;
+  box_location_name: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+  stock_count: number;
 }
 
 /** Stock clothing type — `category` table, `stock.category_id`. */
@@ -346,6 +356,17 @@ const Config: React.FC = () => {
   const [departmentEditName, setDepartmentEditName] = useState('');
   const [departmentEditSaving, setDepartmentEditSaving] = useState(false);
   const [departmentDeleteSaving, setDepartmentDeleteSaving] = useState(false);
+
+  const [adminBoxLocations, setAdminBoxLocations] = useState<BoxLocationAdminRow[]>([]);
+  const [boxLocationsLoading, setBoxLocationsLoading] = useState(false);
+  const [boxLocationsError, setBoxLocationsError] = useState<string | null>(null);
+  const [boxLocationAddOpen, setBoxLocationAddOpen] = useState(false);
+  const [boxLocationAddName, setBoxLocationAddName] = useState('');
+  const [boxLocationAddSaving, setBoxLocationAddSaving] = useState(false);
+  const [boxLocationEditingId, setBoxLocationEditingId] = useState<number | null>(null);
+  const [boxLocationEditName, setBoxLocationEditName] = useState('');
+  const [boxLocationEditSaving, setBoxLocationEditSaving] = useState(false);
+  const [boxLocationDeleteSaving, setBoxLocationDeleteSaving] = useState(false);
 
   const [brands, setBrands] = useState<ConfigBrandRow[]>([]);
   const [brandsLoading, setBrandsLoading] = useState(false);
@@ -753,11 +774,67 @@ const Config: React.FC = () => {
     }
   }, []);
 
+  const loadAdminBoxLocations = useCallback(async () => {
+    try {
+      setBoxLocationsLoading(true);
+      setBoxLocationsError(null);
+      const response = await fetch(`${API_BASE}/api/box-locations`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        let msg = text || 'Failed to load box locations';
+        try {
+          const j = JSON.parse(text) as { error?: string; details?: string };
+          msg = [j.error, j.details].filter(Boolean).join(' — ') || msg;
+        } catch {
+          /* keep */
+        }
+        throw new Error(msg);
+      }
+      const data = JSON.parse(text) as { rows?: unknown[] };
+      const raw = Array.isArray(data.rows) ? data.rows : [];
+      const rows: BoxLocationAdminRow[] = raw.map((r) => {
+        const o = r as Record<string, unknown>;
+        const id = Math.floor(Number(o.id));
+        const sc = o.stock_count;
+        const stockCount =
+          typeof sc === 'number' && Number.isFinite(sc) ? Math.max(0, Math.floor(sc)) : Number.parseInt(String(sc ?? '0'), 10) || 0;
+        return {
+          id: Number.isFinite(id) && id >= 1 ? id : -1,
+          box_location_name: String(o.box_location_name ?? '').trim(),
+          created_at: o.created_at != null ? String(o.created_at) : null,
+          updated_at: o.updated_at != null ? String(o.updated_at) : null,
+          stock_count: stockCount,
+        };
+      });
+      setAdminBoxLocations(rows.filter((r) => r.id >= 1));
+    } catch (err: unknown) {
+      console.error('Box locations load error:', err);
+      const m = err instanceof Error ? err.message : 'Unable to load box locations';
+      if (m === 'Failed to fetch' || (err instanceof TypeError && err.name === 'TypeError')) {
+        setBoxLocationsError('Unable to connect to server (is the API running on port 5003?)');
+      } else {
+        setBoxLocationsError(m);
+      }
+      setAdminBoxLocations([]);
+    } finally {
+      setBoxLocationsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (activeMenu === 'departments') {
       void loadAdminDepartments();
     }
   }, [activeMenu, loadAdminDepartments]);
+
+  useEffect(() => {
+    if (activeMenu === 'box-locations') {
+      void loadAdminBoxLocations();
+    }
+  }, [activeMenu, loadAdminBoxLocations]);
 
   useEffect(() => {
     if (activeMenu === 'clothing-categories') {
@@ -1426,6 +1503,132 @@ const Config: React.FC = () => {
       setDepartmentsError(m);
     } finally {
       setDepartmentDeleteSaving(false);
+    }
+  };
+
+  const cancelBoxLocationEdit = () => {
+    setBoxLocationEditingId(null);
+    setBoxLocationEditName('');
+  };
+
+  const handleBoxLocationAddSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = boxLocationAddName.trim();
+    if (!name) {
+      setBoxLocationsError('Box location name is required.');
+      return;
+    }
+    try {
+      setBoxLocationAddSaving(true);
+      setBoxLocationsError(null);
+      const response = await fetch(`${API_BASE}/api/box-locations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ box_location_name: name }),
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        let msg = text || 'Failed to create box location';
+        try {
+          const j = JSON.parse(text) as { error?: string; details?: string };
+          msg = [j.error, j.details].filter(Boolean).join(' — ') || msg;
+        } catch {
+          /* keep */
+        }
+        throw new Error(msg);
+      }
+      setBoxLocationAddOpen(false);
+      setBoxLocationAddName('');
+      await loadAdminBoxLocations();
+    } catch (err: unknown) {
+      const m = err instanceof Error ? err.message : 'Unable to create box location';
+      setBoxLocationsError(m);
+    } finally {
+      setBoxLocationAddSaving(false);
+    }
+  };
+
+  const startBoxLocationEdit = (row: BoxLocationAdminRow) => {
+    setBoxLocationAddOpen(false);
+    setBoxLocationsError(null);
+    setBoxLocationEditingId(row.id);
+    setBoxLocationEditName(row.box_location_name);
+  };
+
+  const handleBoxLocationEditSave = async () => {
+    if (boxLocationEditingId == null) return;
+    const name = boxLocationEditName.trim();
+    if (!name) {
+      setBoxLocationsError('Box location name is required.');
+      return;
+    }
+    try {
+      setBoxLocationEditSaving(true);
+      setBoxLocationsError(null);
+      const response = await fetch(`${API_BASE}/api/box-locations/${boxLocationEditingId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ box_location_name: name }),
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        let msg = text || 'Failed to update box location';
+        try {
+          const j = JSON.parse(text) as { error?: string; details?: string };
+          msg = [j.error, j.details].filter(Boolean).join(' — ') || msg;
+        } catch {
+          /* keep */
+        }
+        throw new Error(msg);
+      }
+      cancelBoxLocationEdit();
+      await loadAdminBoxLocations();
+    } catch (err: unknown) {
+      const m = err instanceof Error ? err.message : 'Unable to update box location';
+      setBoxLocationsError(m);
+    } finally {
+      setBoxLocationEditSaving(false);
+    }
+  };
+
+  const handleBoxLocationDelete = async () => {
+    if (boxLocationEditingId == null) return;
+    const row = adminBoxLocations.find((r) => r.id === boxLocationEditingId);
+    if (row && row.stock_count > 0) {
+      setBoxLocationsError(
+        `Cannot delete: ${row.stock_count} stock item${row.stock_count === 1 ? '' : 's'} use this box location. Reassign them first.`
+      );
+      return;
+    }
+    const label = row?.box_location_name?.trim() ? row.box_location_name : `box location #${boxLocationEditingId}`;
+    if (!window.confirm(`Delete box location “${label}”? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      setBoxLocationDeleteSaving(true);
+      setBoxLocationsError(null);
+      const response = await fetch(`${API_BASE}/api/box-locations/${boxLocationEditingId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        let msg = text || 'Failed to delete box location';
+        try {
+          const j = JSON.parse(text) as { error?: string; details?: string };
+          msg = [j.error, j.details].filter(Boolean).join(' — ') || msg;
+        } catch {
+          /* keep */
+        }
+        throw new Error(msg);
+      }
+      cancelBoxLocationEdit();
+      await loadAdminBoxLocations();
+    } catch (err: unknown) {
+      const m = err instanceof Error ? err.message : 'Unable to delete box location';
+      setBoxLocationsError(m);
+    } finally {
+      setBoxLocationDeleteSaving(false);
     }
   };
 
@@ -2364,6 +2567,15 @@ const Config: React.FC = () => {
               >
                 Brands
               </button>
+              <button
+                type="button"
+                className={`config-menu-item config-menu-item--in-group ${
+                  activeMenu === 'box-locations' ? 'active' : ''
+                }`}
+                onClick={() => setActiveMenu('box-locations')}
+              >
+                Box Locations
+              </button>
             </div>
             <div
               className="config-sidebar-group"
@@ -3294,6 +3506,169 @@ const Config: React.FC = () => {
                                   departmentAddSaving ||
                                   departmentDeleteSaving
                                 }
+                              >
+                                Edit
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeMenu === 'box-locations' && (
+            <div className="config-section config-section--brands">
+              {boxLocationsError && (
+                <div className="config-error config-error--inline" role="alert">
+                  {boxLocationsError}
+                </div>
+              )}
+
+              <div className="config-clothing-header">
+                <button
+                  type="button"
+                  className="config-clothing-add-button"
+                  onClick={() => {
+                    setBoxLocationsError(null);
+                    cancelBoxLocationEdit();
+                    setBoxLocationAddOpen((o) => !o);
+                  }}
+                  disabled={boxLocationDeleteSaving}
+                >
+                  {boxLocationAddOpen ? 'Cancel add' : 'Add box location'}
+                </button>
+                <button
+                  type="button"
+                  className="config-refresh-button"
+                  onClick={() => void loadAdminBoxLocations()}
+                  title="Refresh list"
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+                  </svg>
+                </button>
+              </div>
+
+              {boxLocationAddOpen && (
+                <form className="config-clothing-add-form" onSubmit={handleBoxLocationAddSubmit}>
+                  <label className="config-clothing-field">
+                    <span>Box location name *</span>
+                    <input
+                      type="text"
+                      value={boxLocationAddName}
+                      onChange={(ev) => setBoxLocationAddName(ev.target.value)}
+                      placeholder="e.g. A"
+                      maxLength={100}
+                      required
+                      disabled={boxLocationAddSaving}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <div className="config-clothing-add-actions">
+                    <button type="submit" className="config-clothing-save-button" disabled={boxLocationAddSaving}>
+                      {boxLocationAddSaving ? 'Saving…' : 'Save box location'}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {boxLocationsLoading ? (
+                <div className="config-loading">Loading box locations…</div>
+              ) : boxLocationsError && adminBoxLocations.length === 0 ? null : adminBoxLocations.length === 0 ? (
+                <div className="config-empty">No box locations yet. Use Add box location to create one.</div>
+              ) : (
+                <div className="config-clothing-table-wrap">
+                  <table className="config-clothing-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">ID</th>
+                        <th scope="col">Name</th>
+                        <th scope="col">Items</th>
+                        <th className="config-clothing-th-actions" scope="col">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {adminBoxLocations.map((bl) =>
+                        boxLocationEditingId === bl.id ? (
+                          <tr key={bl.id} className="config-clothing-row-edit">
+                            <td colSpan={4}>
+                              <div className="config-clothing-inline-edit">
+                                <p className="config-brand-edit-id">
+                                  <strong>ID</strong> {bl.id}
+                                  {' · '}
+                                  <strong>Items</strong> {bl.stock_count}
+                                </p>
+                                <label className="config-clothing-field">
+                                  <span>Box location name *</span>
+                                  <input
+                                    type="text"
+                                    value={boxLocationEditName}
+                                    onChange={(ev) => setBoxLocationEditName(ev.target.value)}
+                                    maxLength={100}
+                                    disabled={boxLocationEditSaving || boxLocationDeleteSaving}
+                                    autoComplete="off"
+                                  />
+                                </label>
+                                <div className="config-clothing-inline-edit-actions">
+                                  <button
+                                    type="button"
+                                    className="config-clothing-save-button"
+                                    onClick={() => void handleBoxLocationEditSave()}
+                                    disabled={boxLocationEditSaving || boxLocationDeleteSaving || !boxLocationEditName.trim()}
+                                  >
+                                    {boxLocationEditSaving ? 'Saving…' : 'Save'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="config-clothing-cancel-edit-button"
+                                    onClick={cancelBoxLocationEdit}
+                                    disabled={boxLocationEditSaving || boxLocationDeleteSaving}
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="config-clothing-delete-category-button"
+                                    onClick={() => void handleBoxLocationDelete()}
+                                    disabled={boxLocationEditSaving || boxLocationDeleteSaving || bl.stock_count > 0}
+                                    title={
+                                      bl.stock_count > 0
+                                        ? `${bl.stock_count} stock item${bl.stock_count === 1 ? '' : 's'} use this box location — reassign them first`
+                                        : 'Delete this box location'
+                                    }
+                                  >
+                                    {boxLocationDeleteSaving ? 'Deleting…' : 'Delete'}
+                                  </button>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : (
+                          <tr key={bl.id}>
+                            <td>{bl.id}</td>
+                            <td className="config-clothing-td-name">{bl.box_location_name}</td>
+                            <td>{bl.stock_count}</td>
+                            <td className="config-clothing-td-actions">
+                              <button
+                                type="button"
+                                className="config-clothing-edit-name-button"
+                                onClick={() => startBoxLocationEdit(bl)}
+                                disabled={boxLocationEditSaving || boxLocationAddSaving || boxLocationDeleteSaving}
                               >
                                 Edit
                               </button>

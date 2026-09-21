@@ -139,11 +139,16 @@ const ensureIsoDateString = (value) => normalizeDateOnlyString(value);
 
 const STOCK_DATE_SELECT_SQL = `to_char(purchase_date, 'YYYY-MM-DD') AS purchase_date, to_char(sale_date, 'YYYY-MM-DD') AS sale_date`;
 
-const STOCK_ROW_SELECT_COLUMNS = `id, item_name, purchase_price, ${STOCK_DATE_SELECT_SQL}, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item, is_ebay_draft`;
+const STOCK_ROW_SELECT_COLUMNS = `id, item_name, purchase_price, ${STOCK_DATE_SELECT_SQL}, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item, is_ebay_draft, box_location_id`;
 
-const STOCK_LIST_SELECT_COLUMNS = `s.id, s.item_name, s.purchase_price, to_char(s.purchase_date, 'YYYY-MM-DD') AS purchase_date, to_char(s.sale_date, 'YYYY-MM-DD') AS sale_date, s.sale_price, s.sold_platform, s.net_profit, s.vinted_id, s.ebay_id, s.depop_id, s.brand_id, s.category_id, s.brand_tag_image_id, s.projected_sale_price, s.category_size_id, s.sourced_location, s.is_inventory_write_off, s.is_bulky_item, s.is_ebay_draft`;
+const STOCK_LIST_SELECT_COLUMNS = `s.id, s.item_name, s.purchase_price, to_char(s.purchase_date, 'YYYY-MM-DD') AS purchase_date, to_char(s.sale_date, 'YYYY-MM-DD') AS sale_date, s.sale_price, s.sold_platform, s.net_profit, s.vinted_id, s.ebay_id, s.depop_id, s.brand_id, s.category_id, s.brand_tag_image_id, s.projected_sale_price, s.category_size_id, s.sourced_location, s.is_inventory_write_off, s.is_bulky_item, s.is_ebay_draft, s.box_location_id`;
 
-const STOCK_ROW_RETURNING_COLUMNS = `id, item_name, purchase_price, ${STOCK_DATE_SELECT_SQL}, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item, is_ebay_draft`;
+const STOCK_ROW_RETURNING_COLUMNS = `id, item_name, purchase_price, ${STOCK_DATE_SELECT_SQL}, sale_price, sold_platform, net_profit, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item, is_ebay_draft, box_location_id`;
+
+/** Correlated subquery: this stock row's tag names as a text[], for embedding in a SELECT keyed by the given table alias's id column. */
+function stockTagsSelectSql(idExpr) {
+  return `(SELECT COALESCE(array_agg(t.tag_name ORDER BY t.tag_name), '{}') FROM stock_tag st JOIN tag t ON t.id = st.tag_id WHERE st.stock_id = ${idExpr}) AS tags`;
+}
 
 const loadSettings = () => {
   try {
@@ -1060,7 +1065,68 @@ async function ensureDatabaseSchema() {
     // App uses the server DB role for metadata — never expose this table to anon clients.
     await pool.query(`ALTER TABLE IF EXISTS receipt_upload DISABLE ROW LEVEL SECURITY`);
     await ensureReceiptUploadStoragePolicies(pool);
-    console.log('Database schema ready: app_settings, ebay_oauth_token, receipt_upload');
+
+    // Box Locations — a managed lookup list (Settings > Stock) for big items
+    // that sit in a named box instead of the normal per-item SKU system.
+    // Optional per stock row, so the FK on stock is nullable.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS box_location (
+        id SERIAL PRIMARY KEY,
+        box_location_name TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_box_location_name_lower
+        ON box_location (LOWER(TRIM(box_location_name)))
+    `);
+    await pool.query(`ALTER TABLE stock ADD COLUMN IF NOT EXISTS box_location_id INTEGER REFERENCES box_location(id)`);
+
+    // Tags — a normalized, reusable, many-to-many label set on stock items
+    // (e.g. Levi's model numbers: 501, 505, 511) for later analytics. Scoped
+    // to (category_id, brand_id) — a Levi's-specific tag like "501" must
+    // never suggest itself while tagging a Tommy Hilfiger item. Department
+    // is deliberately not stored here: category_id already determines it
+    // (category.department_id), so it would be redundant.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS tag (
+        id SERIAL PRIMARY KEY,
+        tag_name TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`ALTER TABLE tag ADD COLUMN IF NOT EXISTS category_id INTEGER REFERENCES category(id)`);
+    await pool.query(`ALTER TABLE tag ADD COLUMN IF NOT EXISTS brand_id INTEGER REFERENCES brand(id)`);
+    // One-time backfill for tags created before scoping existed: infer their
+    // scope from whichever stock item(s) they're already attached to.
+    await pool.query(`
+      UPDATE tag t
+      SET category_id = s.category_id, brand_id = s.brand_id
+      FROM stock_tag st JOIN stock s ON s.id = st.stock_id
+      WHERE st.tag_id = t.id AND t.category_id IS NULL AND t.brand_id IS NULL
+    `);
+    await pool.query(`DROP INDEX IF EXISTS idx_tag_name_lower`);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_tag_name_scope
+        ON tag (LOWER(TRIM(tag_name)), COALESCE(category_id, -1), COALESCE(brand_id, -1))
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS stock_tag (
+        stock_id INTEGER NOT NULL REFERENCES stock(id) ON DELETE CASCADE,
+        tag_id INTEGER NOT NULL REFERENCES tag(id) ON DELETE CASCADE,
+        PRIMARY KEY (stock_id, tag_id)
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_stock_tag_tag_id ON stock_tag (tag_id)`);
+
+    // Set once, on INSERT, via the column DEFAULT — never touched by UPDATE
+    // (the stock PUT route never references it) — so it reflects the day a
+    // row was actually added, unlike purchase_date which the seller can set
+    // to any date. Powers the Stock page's "Added Today" count.
+    await pool.query(`ALTER TABLE stock ADD COLUMN IF NOT EXISTS added_date DATE NOT NULL DEFAULT CURRENT_DATE`);
+
+    console.log('Database schema ready: app_settings, ebay_oauth_token, receipt_upload, box_location, tag, stock_tag');
   } catch (error) {
     console.error('Could not initialize database tables:', error.message);
   }
@@ -9395,7 +9461,7 @@ app.get('/api/stock', async (req, res) => {
 
     if (req.query.page == null && req.query.export !== '1') {
       const result = await pool.query(
-        `SELECT ${STOCK_ROW_SELECT_COLUMNS} FROM stock ORDER BY purchase_date DESC NULLS LAST, item_name ASC`
+        `SELECT ${STOCK_ROW_SELECT_COLUMNS}, ${stockTagsSelectSql('id')} FROM stock ORDER BY purchase_date DESC NULLS LAST, item_name ASC`
       );
 
       return res.json({
@@ -9425,7 +9491,7 @@ app.get('/api/stock', async (req, res) => {
     const offsetParam = `$${params.length + 2}`;
 
     const listResult = await pool.query(
-      `SELECT ${STOCK_LIST_SELECT_COLUMNS} ${fromSql} WHERE ${whereSql} ORDER BY ${orderSql} LIMIT ${limitParam} OFFSET ${offsetParam}`,
+      `SELECT ${STOCK_LIST_SELECT_COLUMNS}, ${stockTagsSelectSql('s.id')} ${fromSql} WHERE ${whereSql} ORDER BY ${orderSql} LIMIT ${limitParam} OFFSET ${offsetParam}`,
       listParams
     );
 
@@ -13273,14 +13339,14 @@ app.get('/api/stock/next-id', async (req, res) => {
   }
 });
 
-/** Count of stock rows purchased today — the closest proxy to "added today" since stock has no insert timestamp column. */
+/** Count of stock rows actually added (inserted) today, via the insert-only added_date column. */
 app.get('/api/stock/added-today-count', async (req, res) => {
   try {
     const pool = getDatabasePool();
     if (!pool) {
       return res.status(500).json({ error: 'Database connection not configured' });
     }
-    const result = await pool.query('SELECT COUNT(*)::int AS count FROM stock WHERE purchase_date = CURRENT_DATE');
+    const result = await pool.query('SELECT COUNT(*)::int AS count FROM stock WHERE added_date = CURRENT_DATE');
     res.json({ count: result.rows[0]?.count ?? 0 });
   } catch (error) {
     console.error('stock added-today-count failed:', error);
@@ -13361,7 +13427,9 @@ app.post('/api/stock', async (req, res) => {
       sourced_location,
       is_inventory_write_off,
       is_bulky_item,
-      is_ebay_draft
+      is_ebay_draft,
+      box_location_id,
+      tags
     } = req.body ?? {};
 
     const normalizedItemName = normalizeTextInput(item_name) ?? null;
@@ -13449,6 +13517,9 @@ app.post('/api/stock', async (req, res) => {
       is_ebay_draft === 1 ||
       is_ebay_draft === '1';
 
+    const normalizedBoxLocationId =
+      box_location_id === null || box_location_id === undefined || box_location_id === '' ? null : Number(box_location_id);
+
     const insertQuery = `
       INSERT INTO stock (
         item_name,
@@ -13469,9 +13540,10 @@ app.post('/api/stock', async (req, res) => {
         sourced_location,
         is_inventory_write_off,
         is_bulky_item,
-        is_ebay_draft
+        is_ebay_draft,
+        box_location_id
       )
-      VALUES ($1, $2, $3, $4::date, $5::date, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+      VALUES ($1, $2, $3, $4::date, $5::date, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
       RETURNING ${STOCK_ROW_RETURNING_COLUMNS}
     `;
 
@@ -13494,10 +13566,15 @@ app.post('/api/stock', async (req, res) => {
       normalizedSourcedLocation,
       normalizedInventoryWriteOff,
       normalizedBulkyItem,
-      normalizedEbayDraft
+      normalizedEbayDraft,
+      normalizedBoxLocationId
     ]);
 
-    res.status(201).json({ row: serializeStockDateFields(result.rows[0]) });
+    const newRow = result.rows[0];
+    const tagIds = await resolveOrCreateTagIds(pool, tags, normalizedCategoryId, normalizedBrandId);
+    if (tagIds.length > 0) await setStockTags(pool, newRow.id, tagIds);
+
+    res.status(201).json({ row: { ...serializeStockDateFields(newRow), tags: await getStockTagNames(pool, newRow.id) } });
   } catch (error) {
     console.error('Stock insert failed:', error);
     if (error.status === 400) {
@@ -13523,7 +13600,7 @@ app.put('/api/stock/:id', async (req, res) => {
     console.log('PUT /api/stock/:id - Request body:', JSON.stringify(req.body, null, 2));
 
     const existingResult = await pool.query(
-      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item, is_ebay_draft FROM stock WHERE id = $1',
+      'SELECT id, item_name, purchase_price, purchase_date, sale_date, sale_price, sold_platform, vinted_id, ebay_id, depop_id, brand_id, category_id, brand_tag_image_id, projected_sale_price, category_size_id, sourced_location, is_inventory_write_off, is_bulky_item, is_ebay_draft, box_location_id FROM stock WHERE id = $1',
       [stockId]
     );
 
@@ -13731,6 +13808,12 @@ app.put('/api/stock/:id', async (req, res) => {
         ? finalSalePrice - finalPurchasePrice
         : null;
 
+    const existingBoxLocationId =
+      existing.box_location_id !== null && existing.box_location_id !== undefined ? Number(existing.box_location_id) : null;
+    const finalBoxLocationId = hasProp('box_location_id')
+      ? (req.body.box_location_id === null || req.body.box_location_id === undefined || req.body.box_location_id === '' ? null : Number(req.body.box_location_id))
+      : existingBoxLocationId;
+
     console.log('PUT /api/stock/:id - Final values:', {
       vinted_id: finalVintedId,
       ebay_id: finalEbayId,
@@ -13763,8 +13846,9 @@ app.put('/api/stock/:id', async (req, res) => {
           sourced_location = $16,
           is_inventory_write_off = $17,
           is_bulky_item = $18,
-          is_ebay_draft = $19
-        WHERE id = $20
+          is_ebay_draft = $19,
+          box_location_id = $20
+        WHERE id = $21
         RETURNING ${STOCK_ROW_RETURNING_COLUMNS}
       `,
       [
@@ -13787,12 +13871,18 @@ app.put('/api/stock/:id', async (req, res) => {
         finalInventoryWriteOff,
         finalBulkyItem,
         finalEbayDraft,
+        finalBoxLocationId,
         stockId
       ]
     );
 
+    if (hasProp('tags')) {
+      const tagIds = await resolveOrCreateTagIds(pool, req.body.tags, finalCategoryId, finalBrandId);
+      await setStockTags(pool, stockId, tagIds);
+    }
+
     console.log('PUT /api/stock/:id - Update successful, returned row:', updateResult.rows[0]);
-    res.json({ row: serializeStockDateFields(updateResult.rows[0]) });
+    res.json({ row: { ...serializeStockDateFields(updateResult.rows[0]), tags: await getStockTagNames(pool, stockId) } });
   } catch (error) {
     console.error('Stock update failed:', error);
     console.error('Stock update error details:', {
@@ -19066,6 +19156,204 @@ app.delete('/api/departments/:id', async (req, res) => {
     res.status(500).json({ error: 'Failed to delete department', details: error.message });
   }
 });
+
+// Box Location API (Settings > Stock) — a named box big items sit in
+// instead of the normal per-item SKU system, e.g. "A", "B". Optional on stock.
+app.get('/api/box-locations', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    const result = await pool.query(
+      `SELECT bl.id, bl.box_location_name, bl.created_at, bl.updated_at,
+              COUNT(s.id)::int AS stock_count
+       FROM box_location bl
+       LEFT JOIN stock s ON s.box_location_id = bl.id
+       GROUP BY bl.id, bl.box_location_name, bl.created_at, bl.updated_at
+       ORDER BY bl.box_location_name ASC`
+    );
+    res.json({ rows: result.rows ?? [], count: result.rowCount ?? 0 });
+  } catch (error) {
+    console.error('Box locations query failed:', error);
+    res.status(500).json({ error: 'Failed to load box locations', details: error.message });
+  }
+});
+
+app.post('/api/box-locations', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    const { box_location_name } = req.body ?? {};
+    if (!box_location_name || typeof box_location_name !== 'string' || !box_location_name.trim()) {
+      return res.status(400).json({ error: 'box_location_name is required' });
+    }
+    const name = box_location_name.trim();
+    const dup = await pool.query(
+      `SELECT id FROM box_location WHERE lower(trim(both from box_location_name)) = lower($1)`,
+      [name]
+    );
+    if (dup.rowCount > 0) {
+      return res.status(400).json({ error: 'A box location with this name already exists' });
+    }
+    const ins = await pool.query(
+      `INSERT INTO box_location (box_location_name) VALUES ($1)
+       RETURNING id, box_location_name, created_at, updated_at`,
+      [name]
+    );
+    res.status(201).json({ row: { ...ins.rows[0], stock_count: 0 } });
+  } catch (error) {
+    console.error('Box location insert failed:', error);
+    if (error.code === '23505') {
+      return res.status(400).json({ error: 'A box location with this name already exists' });
+    }
+    res.status(500).json({ error: 'Failed to create box location', details: error.message });
+  }
+});
+
+app.patch('/api/box-locations/:id', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id) || id < 1) {
+      return res.status(400).json({ error: 'Invalid box location id' });
+    }
+    const { box_location_name } = req.body ?? {};
+    if (!box_location_name || typeof box_location_name !== 'string' || !box_location_name.trim()) {
+      return res.status(400).json({ error: 'box_location_name is required' });
+    }
+    const name = box_location_name.trim();
+    const dup = await pool.query(
+      `SELECT id FROM box_location WHERE lower(trim(both from box_location_name)) = lower($1) AND id <> $2`,
+      [name, id]
+    );
+    if (dup.rowCount > 0) {
+      return res.status(400).json({ error: 'A box location with this name already exists' });
+    }
+    const upd = await pool.query(
+      `UPDATE box_location SET box_location_name = $1, updated_at = NOW() WHERE id = $2
+       RETURNING id, box_location_name, created_at, updated_at`,
+      [name, id]
+    );
+    if (!upd.rowCount) {
+      return res.status(404).json({ error: 'Box location not found' });
+    }
+    const cnt = await pool.query(`SELECT COUNT(*)::int AS c FROM stock WHERE box_location_id = $1`, [id]);
+    res.json({ row: { ...upd.rows[0], stock_count: Number(cnt.rows[0]?.c ?? 0) } });
+  } catch (error) {
+    console.error('Box location update failed:', error);
+    if (error.code === '23505') {
+      return res.status(400).json({ error: 'A box location with this name already exists' });
+    }
+    res.status(500).json({ error: 'Failed to update box location', details: error.message });
+  }
+});
+
+app.delete('/api/box-locations/:id', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id) || id < 1) {
+      return res.status(400).json({ error: 'Invalid box location id' });
+    }
+    const ref = await pool.query(`SELECT COUNT(*)::int AS c FROM stock WHERE box_location_id = $1`, [id]);
+    const c = Number(ref.rows[0]?.c ?? 0);
+    if (c > 0) {
+      return res.status(400).json({ error: `Cannot delete: ${c} stock item${c === 1 ? '' : 's'} use this box location` });
+    }
+    const del = await pool.query('DELETE FROM box_location WHERE id = $1 RETURNING id', [id]);
+    if (!del.rowCount) {
+      return res.status(404).json({ error: 'Box location not found' });
+    }
+    res.json({ ok: true, id });
+  } catch (error) {
+    console.error('Box location delete failed:', error);
+    res.status(500).json({ error: 'Failed to delete box location', details: error.message });
+  }
+});
+
+// Tags — normalized, reusable free-text labels on stock items (e.g. Levi's
+// model numbers), many-to-many via stock_tag, scoped to (category_id,
+// brand_id) so a Levi's-specific tag like "501" never suggests itself while
+// tagging a Tommy Hilfiger item. GET requires both to return anything —
+// with no category/brand selected yet there's no scope to suggest within.
+// Stock create/update resolves tag names to ids within that same scope,
+// creating any that don't exist yet, then replaces that stock row's
+// stock_tag rows.
+app.get('/api/tags', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    const categoryId = req.query.category_id != null && String(req.query.category_id).trim() !== '' ? Number(req.query.category_id) : null;
+    const brandId = req.query.brand_id != null && String(req.query.brand_id).trim() !== '' ? Number(req.query.brand_id) : null;
+    if (categoryId == null && brandId == null) {
+      return res.json({ rows: [], count: 0 });
+    }
+    const result = await pool.query(
+      `SELECT id, tag_name, created_at FROM tag
+       WHERE COALESCE(category_id, -1) = COALESCE($1::int, -1) AND COALESCE(brand_id, -1) = COALESCE($2::int, -1)
+       ORDER BY tag_name ASC`,
+      [categoryId, brandId]
+    );
+    res.json({ rows: result.rows ?? [], count: result.rowCount ?? 0 });
+  } catch (error) {
+    console.error('Tags query failed:', error);
+    res.status(500).json({ error: 'Failed to load tags', details: error.message });
+  }
+});
+
+/** Resolve an array of free-text tag names to tag ids within a (category, brand) scope, creating any that don't already exist there. */
+async function resolveOrCreateTagIds(pool, rawNames, categoryId, brandId) {
+  const names = [...new Set((Array.isArray(rawNames) ? rawNames : []).map((n) => String(n ?? '').trim()).filter(Boolean))];
+  if (names.length === 0) return [];
+  const catId = categoryId ?? null;
+  const brId = brandId ?? null;
+  const ids = [];
+  for (const name of names) {
+    const existing = await pool.query(
+      `SELECT id FROM tag
+       WHERE lower(trim(both from tag_name)) = lower($1)
+         AND COALESCE(category_id, -1) = COALESCE($2::int, -1) AND COALESCE(brand_id, -1) = COALESCE($3::int, -1)`,
+      [name, catId, brId]
+    );
+    if (existing.rowCount > 0) {
+      ids.push(existing.rows[0].id);
+      continue;
+    }
+    const ins = await pool.query(`INSERT INTO tag (tag_name, category_id, brand_id) VALUES ($1, $2, $3) RETURNING id`, [name, catId, brId]);
+    ids.push(ins.rows[0].id);
+  }
+  return ids;
+}
+
+/** Replace a stock row's tags with exactly the given set of tag ids. */
+async function setStockTags(pool, stockId, tagIds) {
+  await pool.query('DELETE FROM stock_tag WHERE stock_id = $1', [stockId]);
+  for (const tagId of tagIds) {
+    await pool.query(
+      'INSERT INTO stock_tag (stock_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [stockId, tagId]
+    );
+  }
+}
+
+async function getStockTagNames(pool, stockId) {
+  const result = await pool.query(
+    `SELECT t.tag_name FROM stock_tag st JOIN tag t ON t.id = st.tag_id WHERE st.stock_id = $1 ORDER BY t.tag_name ASC`,
+    [stockId]
+  );
+  return result.rows.map((r) => r.tag_name);
+}
 
 // Category API endpoints
 app.get('/api/categories', async (req, res) => {

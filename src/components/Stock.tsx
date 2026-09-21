@@ -64,6 +64,10 @@ interface StockRow {
   is_bulky_item?: Nullable<boolean>;
   /** eBay listing is still a draft (not live). */
   is_ebay_draft?: Nullable<boolean>;
+  /** Named box this item sits in instead of the normal per-item SKU system, e.g. "A". Optional. */
+  box_location_id?: Nullable<number>;
+  /** Free-text, reusable labels for later analytics (e.g. Levi's model numbers: 501, 505, 511). */
+  tags?: Nullable<string[]>;
 }
 
 type StockCreateFormState = {
@@ -86,7 +90,14 @@ type StockCreateFormState = {
   inventory_write_off: boolean;
   bulky_item: boolean;
   ebay_draft: boolean;
+  box_location_id: string;
+  tags: string[];
 };
+
+interface BoxLocation {
+  id: number;
+  box_location_name: string;
+}
 
 interface Brand {
   id: number;
@@ -582,8 +593,11 @@ const Stock: React.FC = () => {
     sourced_location: 'charity_shop',
     inventory_write_off: false,
     bulky_item: false,
-    ebay_draft: false
+    ebay_draft: false,
+    box_location_id: '',
+    tags: []
   });
+  const [boxLocations, setBoxLocations] = useState<BoxLocation[]>([]);
   const [categorySizes, setCategorySizes] = useState<CategorySizeRow[]>([]);
   const [categorySizesLoading, setCategorySizesLoading] = useState(false);
   const [brandTagImages, setBrandTagImages] = useState<BrandTagImageRow[]>([]);
@@ -633,6 +647,10 @@ const Stock: React.FC = () => {
   const [savingBrand, setSavingBrand] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showWriteOffConfirm, setShowWriteOffConfirm] = useState(false);
+  const [boxLocationPickerOpen, setBoxLocationPickerOpen] = useState(false);
+  const [tagInputValue, setTagInputValue] = useState('');
+  const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
+  const [showTagSuggestions, setShowTagSuggestions] = useState(false);
   const [showCreateInsteadOfEditConfirm, setShowCreateInsteadOfEditConfirm] = useState(false);
   const [showChangeSkuModal, setShowChangeSkuModal] = useState(false);
   const [changeSkuNextId, setChangeSkuNextId] = useState<number | null>(null);
@@ -982,15 +1000,68 @@ const Stock: React.FC = () => {
     }
   };
 
+  const loadBoxLocations = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/box-locations`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setBoxLocations(Array.isArray(data.rows) ? data.rows : []);
+      }
+    } catch (err) {
+      console.error('Failed to load box locations:', err);
+    }
+  };
+
   useEffect(() => {
     pingDatabase();
     loadCategories();
     loadBrands();
     loadDepartments();
+    loadBoxLocations();
     void loadNextSku();
     void loadAddedTodayCount();
     void loadOrderStockIds();
   }, [loadNextSku, loadAddedTodayCount, loadOrderStockIds]);
+
+  // Tag suggestions are scoped to the form's current category+brand — e.g. a
+  // Levi's-specific tag like "501" must never suggest itself while tagging a
+  // Tommy Hilfiger item. Refetches whenever either changes; with neither set
+  // yet there's no scope to suggest within, so the list is just empty.
+  useEffect(() => {
+    if (!showNewEntry) return;
+    const categoryId = createForm.category_id;
+    const brandId = createForm.brand_id;
+    if (!categoryId && !brandId) {
+      setTagSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const params = new URLSearchParams();
+        if (categoryId) params.set('category_id', categoryId);
+        if (brandId) params.set('brand_id', brandId);
+        const response = await fetch(`${API_BASE}/api/tags?${params.toString()}`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (!response.ok || cancelled) return;
+        const data = await response.json();
+        const rows = Array.isArray(data.rows) ? data.rows : [];
+        if (!cancelled) {
+          setTagSuggestions(rows.map((r: { tag_name?: unknown }) => String(r.tag_name ?? '')).filter(Boolean));
+        }
+      } catch (err) {
+        console.error('Failed to load tag suggestions:', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showNewEntry, createForm.category_id, createForm.brand_id]);
 
   useEffect(() => {
     // Empty search applies immediately; typing/paste debounces so paste-replace races less.
@@ -1036,6 +1107,14 @@ const Stock: React.FC = () => {
     (rowToEdit: StockRow) => {
       setFormIntent('edit');
       setEditingRowId(rowToEdit.id);
+      // Uncommitted tag-box text/suggestions are per-form UI state, not part
+      // of createForm — without this, leftover text typed for a previous
+      // item (e.g. "Adelaide" on one All Saints jeans item) stays visible in
+      // the tag box when opening a different item of the same category+
+      // brand, making it look like that tag is already applied everywhere.
+      setTagInputValue('');
+      setShowTagSuggestions(false);
+      setBoxLocationPickerOpen(false);
       const deptForRow =
         rowToEdit.category_id != null
           ? (() => {
@@ -1066,6 +1145,8 @@ const Stock: React.FC = () => {
         inventory_write_off: stockRowWriteOffFromRow(rowToEdit),
         bulky_item: stockRowBulkyFromRow(rowToEdit),
         ebay_draft: stockRowEbayDraftFromRow(rowToEdit),
+        box_location_id: rowToEdit.box_location_id != null ? String(rowToEdit.box_location_id) : '',
+        tags: Array.isArray(rowToEdit.tags) ? rowToEdit.tags : [],
       });
       setShowNewEntry(true);
       setSuccessMessage(null);
@@ -1612,6 +1693,9 @@ const Stock: React.FC = () => {
 
   const resetCreateForm = () => {
     setShowWriteOffConfirm(false);
+    setTagInputValue('');
+    setShowTagSuggestions(false);
+    setBoxLocationPickerOpen(false);
     setCreateForm({
       item_name: '',
       department_id: defaultDepartmentId,
@@ -1631,7 +1715,9 @@ const Stock: React.FC = () => {
       sourced_location: 'charity_shop',
       inventory_write_off: false,
       bulky_item: false,
-      ebay_draft: false
+      ebay_draft: false,
+      box_location_id: '',
+      tags: []
     });
   };
 
@@ -1651,8 +1737,22 @@ const Stock: React.FC = () => {
     resetCreateForm();
   };
 
+  const addTagToCreateForm = (rawTag: string) => {
+    const tag = rawTag.trim();
+    if (!tag) return;
+    setCreateForm((prev) =>
+      prev.tags.some((t) => t.toLowerCase() === tag.toLowerCase()) ? prev : { ...prev, tags: [...prev.tags, tag] }
+    );
+    setTagInputValue('');
+    setShowTagSuggestions(false);
+  };
+
+  const removeTagFromCreateForm = (tag: string) => {
+    setCreateForm((prev) => ({ ...prev, tags: prev.tags.filter((t) => t !== tag) }));
+  };
+
   const handleCreateChange = (
-    key: Exclude<keyof StockCreateFormState, 'inventory_write_off' | 'bulky_item' | 'ebay_draft'>,
+    key: Exclude<keyof StockCreateFormState, 'inventory_write_off' | 'bulky_item' | 'ebay_draft' | 'tags'>,
     value: string
   ) => {
     setCreateForm((prev) => {
@@ -2095,7 +2195,18 @@ const Stock: React.FC = () => {
         sourced_location: createForm.sourced_location || 'charity_shop',
         is_inventory_write_off: createForm.inventory_write_off,
         is_bulky_item: createForm.bulky_item,
-        is_ebay_draft: createForm.ebay_draft
+        is_ebay_draft: createForm.ebay_draft,
+        box_location_id: createForm.box_location_id ? Number(createForm.box_location_id) : null,
+        // Text typed into the tags box only becomes a chip in createForm.tags
+        // on Enter/comma — if the seller instead typed a tag and went
+        // straight to Save, that text would otherwise be silently dropped.
+        tags: (() => {
+          const pending = tagInputValue.trim();
+          if (!pending || createForm.tags.some((t) => t.toLowerCase() === pending.toLowerCase())) {
+            return createForm.tags;
+          }
+          return [...createForm.tags, pending];
+        })()
       };
 
       // Check if we're editing or creating
@@ -2536,6 +2647,73 @@ const Stock: React.FC = () => {
     </div>
   );
 
+  const filteredTagSuggestions = tagInputValue.trim()
+    ? tagSuggestions.filter(
+        (t) =>
+          t.toLowerCase().includes(tagInputValue.trim().toLowerCase()) &&
+          !createForm.tags.some((existing) => existing.toLowerCase() === t.toLowerCase())
+      )
+    : [];
+
+  const renderTagsField = (fieldId: string) => (
+    <div className="new-entry-field stock-tags-field">
+      <span id={`stock-tags-field-label-${fieldId}`}>Tags</span>
+      <div className="stock-tags-chip-list">
+        {createForm.tags.map((tag) => (
+          <span key={tag} className="stock-tags-chip">
+            {tag}
+            <button
+              type="button"
+              className="stock-tags-chip-remove"
+              onClick={() => removeTagFromCreateForm(tag)}
+              aria-label={`Remove tag ${tag}`}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        <div className="stock-tags-input-wrap">
+          <input
+            id={`stock-tags-input-${fieldId}`}
+            type="text"
+            value={tagInputValue}
+            placeholder="Add a tag…"
+            aria-labelledby={`stock-tags-field-label-${fieldId}`}
+            onChange={(e) => {
+              setTagInputValue(e.target.value);
+              setShowTagSuggestions(true);
+            }}
+            onFocus={() => setShowTagSuggestions(true)}
+            onBlur={() => window.setTimeout(() => setShowTagSuggestions(false), 150)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ',') {
+                e.preventDefault();
+                addTagToCreateForm(tagInputValue);
+              } else if (e.key === 'Backspace' && !tagInputValue && createForm.tags.length > 0) {
+                removeTagFromCreateForm(createForm.tags[createForm.tags.length - 1]);
+              }
+            }}
+          />
+          {showTagSuggestions && filteredTagSuggestions.length > 0 && (
+            <div className="stock-tags-suggestions">
+              {filteredTagSuggestions.slice(0, 8).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className="stock-tags-suggestion"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => addTagToCreateForm(s)}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
   const stockEntryFormEl = showNewEntry ? (
         <div className="new-entry-card" ref={editFormRef}>
           <div className="new-entry-grid">
@@ -2586,6 +2764,45 @@ const Stock: React.FC = () => {
                   >
                     {editingRowId}
                   </button>
+                ) : null}
+                {editingRowId ? (
+                  boxLocationPickerOpen ? (
+                    <select
+                      className="stock-edit-box-location-select"
+                      autoFocus
+                      value={createForm.box_location_id}
+                      onChange={(e) => {
+                        handleCreateChange('box_location_id', e.target.value);
+                        setBoxLocationPickerOpen(false);
+                      }}
+                      onBlur={() => setBoxLocationPickerOpen(false)}
+                      aria-label="Box location"
+                    >
+                      <option value="">None</option>
+                      {boxLocations.map((bl) => (
+                        <option key={bl.id} value={String(bl.id)}>
+                          {bl.box_location_name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <button
+                      type="button"
+                      className="stock-edit-sku-id-circle stock-edit-box-location-circle"
+                      title={
+                        createForm.box_location_id
+                          ? `Box location ${boxLocations.find((bl) => String(bl.id) === createForm.box_location_id)?.box_location_name ?? ''} — click to change`
+                          : 'No box location — click to set'
+                      }
+                      aria-label="Set box location"
+                      onClick={() => setBoxLocationPickerOpen(true)}
+                      disabled={creating || deleting}
+                    >
+                      {createForm.box_location_id
+                        ? boxLocations.find((bl) => String(bl.id) === createForm.box_location_id)?.box_location_name ?? '?'
+                        : '—'}
+                    </button>
+                  )
                 ) : null}
               </div>
               {editingRowId ? (
@@ -3329,6 +3546,20 @@ const Stock: React.FC = () => {
               </label>
               {!editingRowId && renderInventoryWriteOffField('new')}
               {!editingRowId && (
+                <label className="new-entry-field stock-new-entry-box-location-field">
+                  <span>Box location</span>
+                  <StockFormDropdown
+                    value={createForm.box_location_id}
+                    options={boxLocations.map((bl) => ({ value: String(bl.id), label: bl.box_location_name }))}
+                    onChange={(value) => handleCreateChange('box_location_id', value)}
+                    placeholder="None"
+                    includeEmptyOption
+                    ariaLabel="Box location (optional)"
+                  />
+                </label>
+              )}
+              {!editingRowId && renderTagsField('new')}
+              {!editingRowId && (
                 <div className="stock-new-entry-row3-save stock-entry-mobile-save-bar">
                   <span className="stock-new-entry-row3-save-label-spacer" aria-hidden>
                     &nbsp;
@@ -3563,6 +3794,7 @@ const Stock: React.FC = () => {
                       aria-hidden
                     />
                     {renderInventoryWriteOffField(String(editingRowId))}
+                    {renderTagsField(String(editingRowId))}
                     <div className="stock-edit-save-in-row4 stock-entry-mobile-save-bar">
                       <span className="stock-edit-save-in-row4-label-spacer" aria-hidden>
                         &nbsp;
