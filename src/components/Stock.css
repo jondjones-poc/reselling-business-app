@@ -1871,6 +1871,12 @@ button.stock-close-circle-btn:disabled {
   grid-column: 1 / -1;
 }
 
+@media (min-width: 769px) {
+  .stock-tags-field {
+    max-width: 480px;
+  }
+}
+
 .stock-tags-chip-list {
   display: flex;
   flex-wrap: wrap;
@@ -1905,7 +1911,7 @@ button.stock-close-circle-btn:disabled {
 
 .stock-tags-input-wrap {
   position: relative;
-  flex: 1 1 140px;
+  flex: 0 1 140px;
   min-width: 120px;
 }
 
@@ -1923,35 +1929,49 @@ button.stock-close-circle-btn:disabled {
   outline: none;
 }
 
+/* Pop-up of pickable tags — pill-chip styling matches Research > Topics'
+   search-tag chips (research-topics-chip in ResearchTopics.css). */
 .stock-tags-suggestions {
   position: absolute;
   top: 100%;
   left: 0;
   right: 0;
   z-index: 20;
-  margin-top: 4px;
-  border-radius: 10px;
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px;
+  max-height: 220px;
+  overflow-y: auto;
+  border-radius: 14px;
   border: 1px solid rgba(var(--theme-accent-rgb), 0.3);
   background: var(--theme-form-bg, rgba(var(--theme-bg-rgb), 0.98));
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
-  overflow: hidden;
 }
 
-.stock-tags-suggestion {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 8px 12px;
-  border: none;
-  background: transparent;
-  color: inherit;
+.stock-tags-suggestion-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 14px;
+  border-radius: 999px;
   font: inherit;
+  font-size: 0.85rem;
+  color: inherit;
   cursor: pointer;
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.28);
+  background: rgba(var(--theme-accent-rgb), 0.1);
 }
 
-.stock-tags-suggestion:hover {
-  background: rgba(var(--theme-accent-rgb), 0.15);
+.stock-tags-suggestion-chip:hover {
+  filter: brightness(1.15);
 }
+
+.stock-tags-suggestion-chip--tone-1 { border-color: rgba(120, 190, 255, 0.35); background: rgba(120, 190, 255, 0.1); }
+.stock-tags-suggestion-chip--tone-2 { border-color: rgba(195, 255, 140, 0.35); background: rgba(195, 255, 140, 0.1); }
+.stock-tags-suggestion-chip--tone-3 { border-color: rgba(255, 160, 200, 0.35); background: rgba(255, 160, 200, 0.1); }
+.stock-tags-suggestion-chip--tone-4 { border-color: rgba(200, 170, 255, 0.35); background: rgba(200, 170, 255, 0.1); }
+.stock-tags-suggestion-chip--tone-5 { border-color: rgba(255, 200, 120, 0.35); background: rgba(255, 200, 120, 0.1); }
 
 .stock-modal-backdrop {
   position: fixed;

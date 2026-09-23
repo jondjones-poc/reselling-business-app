@@ -2647,31 +2647,19 @@ const Stock: React.FC = () => {
     </div>
   );
 
-  const filteredTagSuggestions = tagInputValue.trim()
-    ? tagSuggestions.filter(
-        (t) =>
-          t.toLowerCase().includes(tagInputValue.trim().toLowerCase()) &&
-          !createForm.tags.some((existing) => existing.toLowerCase() === t.toLowerCase())
-      )
-    : [];
+  // Shows the full scoped tag list on click (not just once the seller starts
+  // typing), narrowing as they type — so clicking into an empty tag box
+  // immediately offers a pick-list of this category/brand's existing tags.
+  const filteredTagSuggestions = tagSuggestions.filter(
+    (t) =>
+      t.toLowerCase().includes(tagInputValue.trim().toLowerCase()) &&
+      !createForm.tags.some((existing) => existing.toLowerCase() === t.toLowerCase())
+  );
 
   const renderTagsField = (fieldId: string) => (
     <div className="new-entry-field stock-tags-field">
       <span id={`stock-tags-field-label-${fieldId}`}>Tags</span>
       <div className="stock-tags-chip-list">
-        {createForm.tags.map((tag) => (
-          <span key={tag} className="stock-tags-chip">
-            {tag}
-            <button
-              type="button"
-              className="stock-tags-chip-remove"
-              onClick={() => removeTagFromCreateForm(tag)}
-              aria-label={`Remove tag ${tag}`}
-            >
-              ×
-            </button>
-          </span>
-        ))}
         <div className="stock-tags-input-wrap">
           <input
             id={`stock-tags-input-${fieldId}`}
@@ -2696,11 +2684,11 @@ const Stock: React.FC = () => {
           />
           {showTagSuggestions && filteredTagSuggestions.length > 0 && (
             <div className="stock-tags-suggestions">
-              {filteredTagSuggestions.slice(0, 8).map((s) => (
+              {filteredTagSuggestions.map((s, i) => (
                 <button
                   key={s}
                   type="button"
-                  className="stock-tags-suggestion"
+                  className={`stock-tags-suggestion-chip stock-tags-suggestion-chip--tone-${i % 6}`}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => addTagToCreateForm(s)}
                 >
@@ -2710,6 +2698,19 @@ const Stock: React.FC = () => {
             </div>
           )}
         </div>
+        {createForm.tags.map((tag) => (
+          <span key={tag} className="stock-tags-chip">
+            {tag}
+            <button
+              type="button"
+              className="stock-tags-chip-remove"
+              onClick={() => removeTagFromCreateForm(tag)}
+              aria-label={`Remove tag ${tag}`}
+            >
+              ×
+            </button>
+          </span>
+        ))}
       </div>
     </div>
   );

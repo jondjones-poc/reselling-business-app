@@ -1490,8 +1490,9 @@ app.post('/api/ebay/listing-drafts/export-csv', async (req, res) => {
     // browsers this app targets), but this header is kept consistent for any
     // other client of this endpoint.
     const safeTitle = String(listing.title || '').replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, ' ').trim();
+    const downloadName = `${listing.sku} ${safeTitle} Import File.csv`.replace(/\s+/g, ' ').trim();
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${(safeTitle || listing.sku)} Import File.csv"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
     res.send(csv);
   } catch (error) {
     res.status(error.httpStatus || 500).json({ error: error.message || 'Could not build the draft CSV.' });

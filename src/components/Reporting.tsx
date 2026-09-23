@@ -1718,31 +1718,6 @@ const Reporting: React.FC = () => {
     []
   );
 
-  const channelSalesChartData = useMemo(() => {
-    if (channelWeeksAll.length === 0) return null;
-    return {
-      labels: channelWeeksAll.map((w) => w.label),
-      datasets: [
-        {
-          label: 'eBay',
-          data: channelWeeksAll.map((w) => w.ebaySales),
-          borderColor: CHART_EBAY_YELLOW,
-          backgroundColor: CHART_EBAY_YELLOW_FILL,
-          tension: 0.3,
-          pointRadius: 2,
-        },
-        {
-          label: 'Vinted',
-          data: channelWeeksAll.map((w) => w.vintedSales),
-          borderColor: CHART_VINTED_BLUE,
-          backgroundColor: CHART_VINTED_BLUE_FILL,
-          tension: 0.3,
-          pointRadius: 2,
-        },
-      ],
-    };
-  }, [channelWeeksAll]);
-
   const channelFilteredSalesChartData = useMemo(() => {
     if (channelWeeksFiltered.length === 0) return null;
     return {
@@ -2743,22 +2718,22 @@ const Reporting: React.FC = () => {
               <button
                 type="button"
                 className={`reporting-sales-filter-mode-btn${
+                  salesFilterMode === 'period' ? ' reporting-sales-filter-mode-btn--active' : ''
+                }`}
+                aria-pressed={salesFilterMode === 'period'}
+                onClick={() => handleSalesFilterModeChange('period')}
+              >
+                Overview
+              </button>
+              <button
+                type="button"
+                className={`reporting-sales-filter-mode-btn${
                   salesFilterMode === 'month' ? ' reporting-sales-filter-mode-btn--active' : ''
                 }`}
                 aria-pressed={salesFilterMode === 'month'}
                 onClick={() => handleSalesFilterModeChange('month')}
               >
                 Month
-              </button>
-              <button
-                type="button"
-                className={`reporting-sales-filter-mode-btn${
-                  salesFilterMode === 'period' ? ' reporting-sales-filter-mode-btn--active' : ''
-                }`}
-                aria-pressed={salesFilterMode === 'period'}
-                onClick={() => handleSalesFilterModeChange('period')}
-              >
-                Period
               </button>
             </div>
             {salesFilterMode === 'month' ? (
@@ -3954,21 +3929,6 @@ const Reporting: React.FC = () => {
           <section className="reporting-card">
             <div className="card-header">
               <h2>Total Sales By Channel</h2>
-            </div>
-            {channelWeeksAllError ? (
-              <div className="reporting-error">{channelWeeksAllError}</div>
-            ) : channelSalesChartData ? (
-              <div className="chart-wrapper">
-                <Line data={channelSalesChartData} options={channelLineChartOptions} />
-              </div>
-            ) : (
-              <div className="reporting-empty">{channelWeeksAllLoading ? 'Loading…' : 'No sales data for the last 12 months.'}</div>
-            )}
-          </section>
-
-          <section className="reporting-card">
-            <div className="card-header">
-              <h2>Category Comparison</h2>
             </div>
             <div className="channel-filter-row">
               <StockFormDropdown

@@ -209,7 +209,7 @@ export default function CreateEbayListing() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${safeFilenameFromTitle(listing.title) || listing.sku} Import File.csv`;
+      link.download = `${listing.sku} ${safeFilenameFromTitle(listing.title)} Import File.csv`.replace(/\s+/g, ' ').trim();
       link.click();
       URL.revokeObjectURL(url);
     } catch (e) { setManualError(e instanceof Error ? e.message : 'Could not build the draft CSV.'); }
