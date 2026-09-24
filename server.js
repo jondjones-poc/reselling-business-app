@@ -11845,27 +11845,45 @@ app.get('/api/vinted/listing-export-pack', async (req, res) => {
       logLabel: 'vinted-listing-export-pack'
     });
   } catch (error) {
-    console.error('vinted listing-export-pack failed:', error);
+    // Log the actual failure shape — which stage, the real upstream status,
+    // and a sanitised excerpt — instead of a bare stack trace, so "why did
+    // this fail" doesn't require reproducing it again.
+    console.error(
+      `vinted listing-export-pack failed: stage=${error.stage || 'unknown'} code=${error.code || 'VINTED_EXPORT_FAILED'} ` +
+        `upstreamStatus=${error.httpStatus ?? 'n/a'} excerpt=${JSON.stringify(error.responseExcerpt || '')}`,
+      error
+    );
     if (res.headersSent) {
       res.end();
       return;
     }
     const code = error.code || 'VINTED_EXPORT_FAILED';
+    // Pass the real upstream status through (e.g. Vinted's own 403) instead
+    // of collapsing every non-404 failure into a generic 502 — 502 is now
+    // reserved for cases where we genuinely have no upstream status at all
+    // (a network-level failure, not a response Vinted actually sent).
     const status =
       code === 'INVALID_VINTED_ID'
         ? 400
         : code === 'VINTED_NOT_FOUND'
           ? 404
           : code === 'VINTED_FETCH_FAILED'
-            ? 502
+            ? (Number.isInteger(error.httpStatus) ? error.httpStatus : 502)
             : code === 'VINTED_PACK_EMPTY'
               ? 422
               : 500;
+    const details =
+      code === 'VINTED_FETCH_FAILED' && Number.isInteger(error.httpStatus)
+        ? `Vinted blocked this request (HTTP ${error.httpStatus}). This is Vinted's own bot/rate-limit protection, not a bug in the app — it can happen from any IP if requests come too fast. Try again in a minute or two.`
+        : error instanceof Error
+          ? error.message
+          : String(error);
     res.status(status).json({
       error: 'Export failed',
       code,
-      details: error instanceof Error ? error.message : String(error),
-      httpStatus: error.httpStatus ?? null
+      details,
+      httpStatus: error.httpStatus ?? null,
+      stage: error.stage ?? null
     });
   }
 });
@@ -11945,10 +11963,25 @@ const VINTED_PAGE_FETCH_HEADERS = {
   Referer: 'https://www.vinted.co.uk/'
 };
 
-async function fetchVintedItemPageHtml(vintedIdRaw) {
+/** Strip scripts/whitespace and cap length — safe to log or echo back to the client. */
+function sanitizeUpstreamExcerpt(text, max = 300) {
+  if (!text) return '';
+  return String(text)
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchVintedItemPageHtmlOnce(vintedIdRaw) {
   const url = vintedPublicItemUrl(vintedIdRaw);
   if (!url) {
-    return { ok: false, url: null, httpStatus: null, html: null, error: 'invalid_vinted_id' };
+    return { ok: false, stage: 'build_url', url: null, httpStatus: null, html: null, error: 'invalid_vinted_id' };
   }
   const response = await fetch(url, {
     method: 'GET',
@@ -11957,18 +11990,46 @@ async function fetchVintedItemPageHtml(vintedIdRaw) {
   });
   const html = await response.text();
   if (response.status === 404) {
-    return { ok: false, url, httpStatus: 404, html, error: 'Vinted listing not found (404)' };
+    return { ok: false, stage: 'fetch_vinted_page', url, httpStatus: 404, html, error: 'Vinted listing not found (404)' };
   }
   if (!response.ok) {
     return {
       ok: false,
+      stage: 'fetch_vinted_page',
       url,
       httpStatus: response.status,
       html,
-      error: `Vinted HTTP ${response.status}`
+      error: `Vinted HTTP ${response.status}`,
+      responseExcerpt: sanitizeUpstreamExcerpt(html)
     };
   }
-  return { ok: true, url, httpStatus: response.status, html, error: null };
+  return { ok: true, stage: 'fetch_vinted_page', url, httpStatus: response.status, html, error: null };
+}
+
+/**
+ * A single request-per-click already got Render's shared IP blocked at least
+ * once, and now the SAME thing is happening from a residential/dev IP too —
+ * that pattern fits Vinted rate-limiting a busy IP over a short window more
+ * than a permanent per-IP ban. So: never hammer it immediately on failure —
+ * back off and retry once (never retries a definitive 404, only transient-
+ * looking failures like 403/429/5xx), and log exactly which attempt failed,
+ * at what stage, with the upstream status and a sanitised response excerpt,
+ * instead of collapsing everything into one generic message.
+ */
+async function fetchVintedItemPageHtml(vintedIdRaw) {
+  const first = await fetchVintedItemPageHtmlOnce(vintedIdRaw);
+  if (first.ok || first.httpStatus === 404) return first;
+  console.warn(
+    `Vinted fetch failed (attempt 1/2): stage=${first.stage} status=${first.httpStatus} excerpt=${JSON.stringify(first.responseExcerpt || '')}`
+  );
+  await delay(1500 + Math.random() * 1000);
+  const second = await fetchVintedItemPageHtmlOnce(vintedIdRaw);
+  if (!second.ok) {
+    console.warn(
+      `Vinted fetch failed (attempt 2/2, giving up): stage=${second.stage} status=${second.httpStatus} excerpt=${JSON.stringify(second.responseExcerpt || '')}`
+    );
+  }
+  return second;
 }
 
 /** True when the Vinted item page responds (not HTTP 404). */
@@ -12485,6 +12546,8 @@ async function buildListingPackFromVintedPage({ pool, vintedIdRaw, stockIdRaw })
     const err = new Error(page.error || 'Vinted page fetch failed');
     err.code = page.httpStatus === 404 ? 'VINTED_NOT_FOUND' : 'VINTED_FETCH_FAILED';
     err.httpStatus = page.httpStatus;
+    err.stage = page.stage;
+    err.responseExcerpt = page.responseExcerpt;
     throw err;
   }
 
