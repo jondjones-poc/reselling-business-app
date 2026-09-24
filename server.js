@@ -17180,6 +17180,58 @@ app.get('/api/stock-categories/type/:typeKey/sold-and-stock-by-size', async (req
   }
 });
 
+/** Same idea as sold-and-stock-by-size, but by tag — INNER JOINs mean only tags actually assigned within this category ever appear. */
+app.get('/api/stock-categories/type/:typeKey/sold-and-stock-by-tag', async (req, res) => {
+  try {
+    const parsed = parseStockClothingTypeTypeKey(req.params.typeKey);
+    if (!parsed) {
+      return res.status(400).json({ error: 'Invalid clothing type key' });
+    }
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    if (!parsed.uncategorized) {
+      const catCheck = await pool.query('SELECT id FROM category WHERE id = $1', [parsed.categoryId]);
+      if (!catCheck.rowCount) {
+        return res.status(404).json({ error: 'Category not found' });
+      }
+    }
+
+    const filterDeptId = parseOptionalBrandDepartmentFilter(req);
+    const typeWhere = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $1';
+    const qParams = parsed.uncategorized ? [] : [parsed.categoryId];
+    let deptClause = '';
+    if (filterDeptId != null) {
+      qParams.push(filterDeptId);
+      deptClause = ` AND b.department_id = $${qParams.length}`;
+    }
+
+    const result = await pool.query(
+      `SELECT
+         t.id AS tag_id,
+         t.tag_name,
+         COUNT(*) FILTER (WHERE s.sale_date IS NOT NULL)::int AS sold_count,
+         COUNT(*) FILTER (WHERE s.sale_date IS NULL)::int AS in_stock_count
+       FROM stock s
+       INNER JOIN brand b ON b.id = s.brand_id
+       INNER JOIN stock_tag st ON st.stock_id = s.id
+       INNER JOIN tag t ON t.id = st.tag_id
+       WHERE ${typeWhere}${deptClause}
+       GROUP BY t.id, t.tag_name
+       ORDER BY t.tag_name ASC`,
+      qParams
+    );
+
+    res.json({ rows: result.rows ?? [], type_key: req.params.typeKey });
+  } catch (error) {
+    console.error('stock-categories type sold-and-stock-by-tag failed:', error);
+    res.status(500).json({ error: 'Failed to load tag breakdown', details: error.message });
+  }
+});
+
 /**
  * Stock lines for one brand scoped to this clothing type.
  * GET /api/stock-categories/type/:typeKey/brand-inventory-items?brand_id=…

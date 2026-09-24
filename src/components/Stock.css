@@ -443,7 +443,6 @@
 }
 
 /* Match row-3 text field chrome (height aligns with projected price input) */
-.stock-new-entry-row-ids .stock-new-entry-id-field--bulky .stock-new-entry-bulky-input-skin,
 .stock-new-entry-row-ids .stock-new-entry-id-field--ebay-draft .stock-new-entry-bulky-input-skin {
   display: flex;
   align-items: center;
@@ -462,7 +461,6 @@
     background 0.3s ease;
 }
 
-.stock-new-entry-row-ids .stock-new-entry-id-field--bulky .stock-new-entry-bulky-input-skin:focus-within,
 .stock-new-entry-row-ids .stock-new-entry-id-field--ebay-draft .stock-new-entry-bulky-input-skin:focus-within {
   border-color: var(--neon-border-strong);
   box-shadow: var(--neon-shadow);
@@ -470,7 +468,6 @@
 }
 
 /* Reset global .new-entry-field input text-field sizing so the control reads as one band */
-.stock-new-entry-row-ids .stock-new-entry-id-field--bulky .stock-new-entry-bulky-input-skin input[type='checkbox'],
 .stock-new-entry-row-ids .stock-new-entry-id-field--ebay-draft .stock-new-entry-bulky-input-skin input[type='checkbox'] {
   width: 1.35rem;
   height: 1.35rem;
@@ -653,6 +650,17 @@
 
 .stock-marketplace-id-label-link:hover {
   color: #bfdbfe;
+}
+
+/* No id entered yet — same element, just not a link, so the row never reflows when it becomes one. */
+.stock-marketplace-id-label-link--inactive {
+  color: inherit;
+  text-decoration: none;
+  cursor: default;
+}
+
+.stock-marketplace-id-label-link--inactive:hover {
+  color: inherit;
 }
 
 /* Match other row-ids fields: outer .new-entry-field’s first child is <label>, so plain > span:first-child rules don’t apply */
@@ -1227,8 +1235,13 @@
   box-sizing: border-box;
 }
 
-/* Plain field label (Name, Purchase Price, IDs, etc.) — centered above inputs */
-.new-entry-field:not(.projected-profit-inline-field) > span:first-child {
+/* Plain field label (Name, Purchase Price, IDs, etc.) — centered above inputs.
+   Also matches > a:first-child: Vinted ID/eBay ID labels are always an <a>
+   now (never swapped for a <span>, to avoid a layout jump as the id is
+   typed) — so they need the exact same box treatment to stay aligned with
+   sibling fields like Depop ID that are still a plain <span>. */
+.new-entry-field:not(.projected-profit-inline-field) > span:first-child,
+.new-entry-field:not(.projected-profit-inline-field) > a:first-child {
   min-height: 32px;
   display: flex;
   align-items: center;
@@ -1842,24 +1855,6 @@ button.stock-close-circle-btn:disabled {
 .stock-edit-sku-id-circle:disabled {
   opacity: 0.55;
   cursor: not-allowed;
-}
-
-.stock-edit-box-location-circle {
-  width: auto;
-  min-width: 44px;
-  padding: 0 10px;
-  margin-left: 8px;
-}
-
-.stock-edit-box-location-select {
-  margin-left: 8px;
-  height: 44px;
-  border-radius: 12px;
-  padding: 0 10px;
-  font: inherit;
-  color: inherit;
-  background: rgba(var(--theme-bg-rgb), 0.9);
-  border: 1px solid rgba(var(--theme-accent-rgb), 0.38);
 }
 
 .stock-new-entry-box-location-field select,
@@ -2588,8 +2583,7 @@ button.stock-close-circle-btn:disabled {
   }
 
   .stock-new-entry-row-ids > .stock-new-entry-toggle-field,
-  .stock-new-entry-row-ids > .stock-new-entry-id-field--ebay-draft,
-  .stock-new-entry-row-ids > .stock-new-entry-id-field--bulky {
+  .stock-new-entry-row-ids > .stock-new-entry-id-field--ebay-draft {
     flex: 1 1 calc(50% - 7px);
     width: calc(50% - 7px);
     max-width: calc(50% - 7px);
@@ -2775,8 +2769,7 @@ button.stock-close-circle-btn:disabled {
   }
 
   .stock-new-entry-row-ids .stock-new-entry-toggle-field > span:first-child,
-  .stock-new-entry-row-ids .stock-new-entry-id-field--ebay-draft > span:first-child,
-  .stock-new-entry-row-ids .stock-new-entry-id-field--bulky > span:first-child {
+  .stock-new-entry-row-ids .stock-new-entry-id-field--ebay-draft > span:first-child {
     font-size: 0.72rem;
     line-height: 1.25;
     min-height: 28px;
@@ -3172,9 +3165,23 @@ button.stock-close-circle-btn:disabled {
 
 .unsold-filter-select {
   min-width: 0;
-  max-width: 160px;
-  width: 152px;
-  flex-basis: 152px;
+  max-width: 110px;
+  width: 104px;
+  flex-basis: 104px;
+}
+
+.stock-view-filter-select {
+  min-width: 0;
+  max-width: 104px;
+  width: 96px;
+  flex-basis: 96px;
+}
+
+.stock-size-filter-select {
+  min-width: 0;
+  max-width: 112px;
+  width: 108px;
+  flex-basis: 108px;
 }
 
 @media (max-width: 768px) {
@@ -3189,9 +3196,9 @@ button.stock-close-circle-btn:disabled {
   display: flex;
   align-items: center;
   position: relative;
-  flex: 1 1 180px;
+  flex: 1 1 280px;
   min-width: 140px;
-  max-width: 360px;
+  max-width: 520px;
 }
 
 @media (max-width: 768px) {

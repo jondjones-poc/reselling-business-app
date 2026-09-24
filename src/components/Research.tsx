@@ -2126,6 +2126,109 @@ export type ResearchProps = {
   forcedView?: 'offline';
 };
 
+type ClothingTypeSizeSoldStockRow = {
+  category_size_id: number | null;
+  size_label: string;
+  sold_count: number;
+  in_stock_count: number;
+};
+
+type ClothingTypeTagSoldStockRow = {
+  tag_id: number;
+  tag_name: string;
+  sold_count: number;
+  in_stock_count: number;
+};
+
+/** Point on a circle in the classic "gauge" convention: 0deg = 12 o'clock, increasing clockwise. */
+function heatGaugePolarPoint(cx: number, cy: number, r: number, angleDeg: number) {
+  const angleRad = ((angleDeg - 90) * Math.PI) / 180;
+  return { x: cx + r * Math.cos(angleRad), y: cy + r * Math.sin(angleRad) };
+}
+
+/** SVG arc path from startAngle to endAngle (same convention as heatGaugePolarPoint), sweeping clockwise. */
+function heatGaugeArcPath(cx: number, cy: number, r: number, startAngle: number, endAngle: number) {
+  const start = heatGaugePolarPoint(cx, cy, r, endAngle);
+  const end = heatGaugePolarPoint(cx, cy, r, startAngle);
+  const largeArcFlag = endAngle - startAngle <= 180 ? '0' : '1';
+  return `M ${start.x} ${start.y} A ${r} ${r} 0 ${largeArcFlag} 0 ${end.x} ${end.y}`;
+}
+
+/**
+ * Semicircular "hot/cold" gauge for one size's sell-through (sold vs sold+in
+ * stock) — a needle sweeps from -90deg (all in stock, cold/0%) to +90deg (all
+ * sold, hot/100%). Reuses the app's existing red→green heat-color scale
+ * (balancePctToHeatColor) so it reads consistently with every other
+ * sell-through indicator in Research, rather than inventing a separate
+ * blue/red "temperature" palette.
+ */
+/** Generic version — reused for both "by size" and "by tag" hot/cold grids. */
+const HeatGauge: React.FC<{
+  label: string;
+  soldCount: number;
+  inStockCount: number;
+  active: boolean;
+  onClick: () => void;
+}> = ({ label, soldCount, inStockCount, active, onClick }) => {
+  const total = soldCount + inStockCount;
+  const ratio = total > 0 ? soldCount / total : 0;
+  const pct = Math.round(ratio * 100);
+  const angle = -90 + ratio * 180;
+  const cx = 60;
+  const cy = 62;
+  const r = 46;
+  const needleEnd = heatGaugePolarPoint(cx, cy, r - 10, angle);
+  const color = total > 0 ? balancePctToHeatColor(pct - 50) : '#9ca3af';
+  const heatLabel = total === 0 ? 'No data' : pct >= 65 ? 'Hot' : pct >= 35 ? 'Warm' : 'Cold';
+
+  return (
+    <button
+      type="button"
+      className={`clothing-types-size-heat-gauge${active ? ' clothing-types-size-heat-gauge--active' : ''}`}
+      onClick={onClick}
+      aria-label={`Filter by ${label}`}
+      aria-pressed={active}
+    >
+      <svg viewBox="0 0 120 78" className="clothing-types-size-heat-gauge-svg" aria-hidden="true" focusable="false">
+        <path
+          d={heatGaugeArcPath(cx, cy, r, -90, 90)}
+          className="clothing-types-size-heat-gauge-track"
+          fill="none"
+          strokeWidth="10"
+          strokeLinecap="round"
+        />
+        {total > 0 && (
+          <path
+            d={heatGaugeArcPath(cx, cy, r, -90, angle)}
+            fill="none"
+            strokeWidth="10"
+            strokeLinecap="round"
+            stroke={color}
+          />
+        )}
+        <line
+          x1={cx}
+          y1={cy}
+          x2={needleEnd.x}
+          y2={needleEnd.y}
+          className="clothing-types-size-heat-gauge-needle"
+        />
+        <circle cx={cx} cy={cy} r="4" className="clothing-types-size-heat-gauge-pivot" />
+      </svg>
+      <div className="clothing-types-size-heat-gauge-size">{label}</div>
+      <div className="clothing-types-size-heat-gauge-pct" style={{ color }}>
+        {total === 0 ? '—' : `${pct}%`}
+      </div>
+      <div className="clothing-types-size-heat-gauge-heat-label" style={{ color }}>
+        {heatLabel}
+      </div>
+      <div className="clothing-types-size-heat-gauge-counts">
+        {soldCount} sold · {inStockCount} in stock
+      </div>
+    </button>
+  );
+};
+
 const Research: React.FC<ResearchProps> = ({ forcedView }) => {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -2593,13 +2696,6 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     | { kind: 'size'; categorySizeId: number | null; sizeLabel: string }
     | { kind: 'brand'; brandId: number; brandName: string };
 
-  type ClothingTypeSizeSoldStockRow = {
-    category_size_id: number | null;
-    size_label: string;
-    sold_count: number;
-    in_stock_count: number;
-  };
-
   const [menswearCategories, setMenswearCategories] = useState<MenswearCategoryRow[]>([]);
   const [menswearCategoriesLoading, setMenswearCategoriesLoading] = useState(false);
   const [menswearCategoriesError, setMenswearCategoriesError] = useState<string | null>(null);
@@ -2877,6 +2973,11 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
   );
   const [clothingTypeSizeSoldStockLoading, setClothingTypeSizeSoldStockLoading] = useState(false);
   const [clothingTypeSizeSoldStockError, setClothingTypeSizeSoldStockError] = useState<string | null>(null);
+  /** "Sold and in stock by size" — default view is a per-size hot/cold sell-through gauge; Table is the original list. */
+  const [clothingTypeSizeSoldStockView, setClothingTypeSizeSoldStockView] = useState<'gauge' | 'table'>('gauge');
+  const [clothingTypeTagSoldStock, setClothingTypeTagSoldStock] = useState<ClothingTypeTagSoldStockRow[]>([]);
+  const [clothingTypeTagSoldStockLoading, setClothingTypeTagSoldStockLoading] = useState(false);
+  const [clothingTypeTagSoldStockError, setClothingTypeTagSoldStockError] = useState<string | null>(null);
   const [clothingTypeStockDrilldown, setClothingTypeStockDrilldown] =
     useState<MenswearStockDrilldownKey | null>(null);
   const [clothingTypeInStockFilter, setClothingTypeInStockFilter] =
@@ -4144,6 +4245,55 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         setClothingTypeSizeSoldStockError(friendlyApiUnreachableMessage(e));
       } finally {
         if (!cancelled) setClothingTypeSizeSoldStockLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [researchTab, clothingTypeApiPathKey, clothingTypesListDepartmentIdForApi]);
+
+  useEffect(() => {
+    if (researchTab !== 'clothing-types' || clothingTypeApiPathKey == null || clothingTypesListDepartmentIdForApi == null) {
+      setClothingTypeTagSoldStock([]);
+      setClothingTypeTagSoldStockError(null);
+      setClothingTypeTagSoldStockLoading(false);
+      return;
+    }
+    const ac = new AbortController();
+    let cancelled = false;
+    const load = async () => {
+      setClothingTypeTagSoldStockLoading(true);
+      setClothingTypeTagSoldStockError(null);
+      try {
+        const dq = encodeURIComponent(String(clothingTypesListDepartmentIdForApi));
+        const res = await fetch(
+          apiUrl(
+            `/api/stock-categories/type/${encodeURIComponent(clothingTypeApiPathKey)}/sold-and-stock-by-tag?department_id=${dq}`
+          ),
+          { signal: ac.signal }
+        );
+        const data = await readJsonResponse<{ rows?: ClothingTypeTagSoldStockRow[] }>(
+          res,
+          'clothing-type-tag-sold-stock'
+        );
+        if (cancelled) return;
+        const raw = Array.isArray(data.rows) ? data.rows : [];
+        setClothingTypeTagSoldStock(
+          raw.map((r) => ({
+            tag_id: Math.floor(Number(r.tag_id) || 0),
+            tag_name: String(r.tag_name ?? '—'),
+            sold_count: Math.max(0, Math.floor(Number(r.sold_count) || 0)),
+            in_stock_count: Math.max(0, Math.floor(Number(r.in_stock_count) || 0)),
+          }))
+        );
+      } catch (e) {
+        if (cancelled || isAbortError(e)) return;
+        setClothingTypeTagSoldStock([]);
+        setClothingTypeTagSoldStockError(friendlyApiUnreachableMessage(e));
+      } finally {
+        if (!cancelled) setClothingTypeTagSoldStockLoading(false);
       }
     };
     void load();
@@ -14602,9 +14752,37 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                               ))}
                           </div>
                           <div className="menswear-categories-overview-block">
-                            <h4 className="menswear-categories-overview-heading">
-                              Sold and in stock by size
-                            </h4>
+                            <div className="clothing-types-size-heat-header">
+                              <h4 className="menswear-categories-overview-heading">
+                                Sold and in stock by size
+                              </h4>
+                              <div
+                                className="clothing-types-invest-risk-view-toggle"
+                                role="group"
+                                aria-label="Sold and in stock by size view"
+                              >
+                                <button
+                                  type="button"
+                                  className={`clothing-types-invest-risk-view-btn${
+                                    clothingTypeSizeSoldStockView === 'gauge' ? ' is-active' : ''
+                                  }`}
+                                  aria-pressed={clothingTypeSizeSoldStockView === 'gauge'}
+                                  onClick={() => setClothingTypeSizeSoldStockView('gauge')}
+                                >
+                                  Hot / Cold
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`clothing-types-invest-risk-view-btn${
+                                    clothingTypeSizeSoldStockView === 'table' ? ' is-active' : ''
+                                  }`}
+                                  aria-pressed={clothingTypeSizeSoldStockView === 'table'}
+                                  onClick={() => setClothingTypeSizeSoldStockView('table')}
+                                >
+                                  Table
+                                </button>
+                              </div>
+                            </div>
                             {clothingTypeSizeSoldStockError && (
                               <div className="menswear-categories-error menswear-categories-error--inline" role="alert">
                                 {clothingTypeSizeSoldStockError}
@@ -14619,6 +14797,26 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                                 <p className="menswear-categories-muted">
                                   No stock lines in this category yet.
                                 </p>
+                              ) : clothingTypeSizeSoldStockView === 'gauge' ? (
+                                <div className="clothing-types-size-heat-grid">
+                                  {clothingTypeSizeSoldStock.map((row) => {
+                                    const isSizeFilterActive =
+                                      clothingTypeInStockFilter?.kind === 'size' &&
+                                      clothingTypeInStockFilter.categorySizeId ===
+                                        row.category_size_id &&
+                                      clothingTypeInStockFilter.sizeLabel === row.size_label;
+                                    return (
+                                      <HeatGauge
+                                        key={row.category_size_id ?? `no-size-${row.size_label}`}
+                                        label={row.size_label}
+                                        soldCount={row.sold_count}
+                                        inStockCount={row.in_stock_count}
+                                        active={isSizeFilterActive}
+                                        onClick={() => applyClothingTypeSizeInStockFilter(row)}
+                                      />
+                                    );
+                                  })}
+                                </div>
                               ) : (
                                 <div className="menswear-categories-overview-table-wrap">
                                   <table className="menswear-categories-overview-table">
@@ -14668,6 +14866,39 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                                       })}
                                     </tbody>
                                   </table>
+                                </div>
+                              ))}
+                          </div>
+                          <div className="menswear-categories-overview-block">
+                            <h4 className="menswear-categories-overview-heading">
+                              Hot or not by tag
+                            </h4>
+                            {clothingTypeTagSoldStockError && (
+                              <div className="menswear-categories-error menswear-categories-error--inline" role="alert">
+                                {clothingTypeTagSoldStockError}
+                              </div>
+                            )}
+                            {clothingTypeTagSoldStockLoading && (
+                              <p className="menswear-categories-muted">Loading…</p>
+                            )}
+                            {!clothingTypeTagSoldStockLoading &&
+                              !clothingTypeTagSoldStockError &&
+                              (clothingTypeTagSoldStock.length === 0 ? (
+                                <p className="menswear-categories-muted">
+                                  No tags assigned to items in this category yet.
+                                </p>
+                              ) : (
+                                <div className="clothing-types-size-heat-grid">
+                                  {clothingTypeTagSoldStock.map((row) => (
+                                    <HeatGauge
+                                      key={row.tag_id}
+                                      label={row.tag_name}
+                                      soldCount={row.sold_count}
+                                      inStockCount={row.in_stock_count}
+                                      active={false}
+                                      onClick={() => {}}
+                                    />
+                                  ))}
                                 </div>
                               ))}
                           </div>

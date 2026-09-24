@@ -88,7 +88,6 @@ type StockCreateFormState = {
   category_size_id: string;
   sourced_location: string;
   inventory_write_off: boolean;
-  bulky_item: boolean;
   ebay_draft: boolean;
   box_location_id: string;
   tags: string[];
@@ -161,11 +160,6 @@ function sourcedLocationFromRow(row: { sourced_location?: Nullable<string> }): s
 
 function stockRowWriteOffFromRow(row: { is_inventory_write_off?: unknown }): boolean {
   const v = row.is_inventory_write_off;
-  return v === true || v === 't' || v === 'true' || v === 1 || v === '1';
-}
-
-function stockRowBulkyFromRow(row: { is_bulky_item?: unknown }): boolean {
-  const v = row.is_bulky_item;
   return v === true || v === 't' || v === 'true' || v === 1 || v === '1';
 }
 
@@ -592,7 +586,6 @@ const Stock: React.FC = () => {
     category_size_id: '',
     sourced_location: 'charity_shop',
     inventory_write_off: false,
-    bulky_item: false,
     ebay_draft: false,
     box_location_id: '',
     tags: []
@@ -647,7 +640,6 @@ const Stock: React.FC = () => {
   const [savingBrand, setSavingBrand] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showWriteOffConfirm, setShowWriteOffConfirm] = useState(false);
-  const [boxLocationPickerOpen, setBoxLocationPickerOpen] = useState(false);
   const [tagInputValue, setTagInputValue] = useState('');
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
   const [showTagSuggestions, setShowTagSuggestions] = useState(false);
@@ -1114,7 +1106,6 @@ const Stock: React.FC = () => {
       // brand, making it look like that tag is already applied everywhere.
       setTagInputValue('');
       setShowTagSuggestions(false);
-      setBoxLocationPickerOpen(false);
       const deptForRow =
         rowToEdit.category_id != null
           ? (() => {
@@ -1143,7 +1134,6 @@ const Stock: React.FC = () => {
           rowToEdit.category_size_id != null ? String(rowToEdit.category_size_id) : '',
         sourced_location: sourcedLocationFromRow(rowToEdit),
         inventory_write_off: stockRowWriteOffFromRow(rowToEdit),
-        bulky_item: stockRowBulkyFromRow(rowToEdit),
         ebay_draft: stockRowEbayDraftFromRow(rowToEdit),
         box_location_id: rowToEdit.box_location_id != null ? String(rowToEdit.box_location_id) : '',
         tags: Array.isArray(rowToEdit.tags) ? rowToEdit.tags : [],
@@ -1695,7 +1685,6 @@ const Stock: React.FC = () => {
     setShowWriteOffConfirm(false);
     setTagInputValue('');
     setShowTagSuggestions(false);
-    setBoxLocationPickerOpen(false);
     setCreateForm({
       item_name: '',
       department_id: defaultDepartmentId,
@@ -1714,7 +1703,6 @@ const Stock: React.FC = () => {
       category_size_id: '',
       sourced_location: 'charity_shop',
       inventory_write_off: false,
-      bulky_item: false,
       ebay_draft: false,
       box_location_id: '',
       tags: []
@@ -1752,7 +1740,7 @@ const Stock: React.FC = () => {
   };
 
   const handleCreateChange = (
-    key: Exclude<keyof StockCreateFormState, 'inventory_write_off' | 'bulky_item' | 'ebay_draft' | 'tags'>,
+    key: Exclude<keyof StockCreateFormState, 'inventory_write_off' | 'ebay_draft' | 'tags'>,
     value: string
   ) => {
     setCreateForm((prev) => {
@@ -2194,7 +2182,6 @@ const Stock: React.FC = () => {
             : null,
         sourced_location: createForm.sourced_location || 'charity_shop',
         is_inventory_write_off: createForm.inventory_write_off,
-        is_bulky_item: createForm.bulky_item,
         is_ebay_draft: createForm.ebay_draft,
         box_location_id: createForm.box_location_id ? Number(createForm.box_location_id) : null,
         // Text typed into the tags box only becomes a chip in createForm.tags
@@ -2765,45 +2752,6 @@ const Stock: React.FC = () => {
                   >
                     {editingRowId}
                   </button>
-                ) : null}
-                {editingRowId ? (
-                  boxLocationPickerOpen ? (
-                    <select
-                      className="stock-edit-box-location-select"
-                      autoFocus
-                      value={createForm.box_location_id}
-                      onChange={(e) => {
-                        handleCreateChange('box_location_id', e.target.value);
-                        setBoxLocationPickerOpen(false);
-                      }}
-                      onBlur={() => setBoxLocationPickerOpen(false)}
-                      aria-label="Box location"
-                    >
-                      <option value="">None</option>
-                      {boxLocations.map((bl) => (
-                        <option key={bl.id} value={String(bl.id)}>
-                          {bl.box_location_name}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <button
-                      type="button"
-                      className="stock-edit-sku-id-circle stock-edit-box-location-circle"
-                      title={
-                        createForm.box_location_id
-                          ? `Box location ${boxLocations.find((bl) => String(bl.id) === createForm.box_location_id)?.box_location_name ?? ''} — click to change`
-                          : 'No box location — click to set'
-                      }
-                      aria-label="Set box location"
-                      onClick={() => setBoxLocationPickerOpen(true)}
-                      disabled={creating || deleting}
-                    >
-                      {createForm.box_location_id
-                        ? boxLocations.find((bl) => String(bl.id) === createForm.box_location_id)?.box_location_name ?? '?'
-                        : '—'}
-                    </button>
-                  )
                 ) : null}
               </div>
               {editingRowId ? (
@@ -3464,19 +3412,22 @@ const Stock: React.FC = () => {
             >
               <label className="new-entry-field stock-new-entry-id-field stock-new-entry-id-field--vinted">
                 {(() => {
+                  // Always the same <a> element (never swapped for a <span>) so
+                  // React never unmounts/remounts it as the id is typed —
+                  // that swap was causing a layout shift/jump in this row.
                   const vintedHref = stockVintedListingUrl(createForm.vinted_id);
-                  return vintedHref ? (
+                  return (
                     <a
-                      className="stock-marketplace-id-label-link"
-                      href={vintedHref}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title="Open Vinted listing in a new tab"
+                      className={`stock-marketplace-id-label-link${vintedHref ? '' : ' stock-marketplace-id-label-link--inactive'}`}
+                      href={vintedHref ?? undefined}
+                      target={vintedHref ? '_blank' : undefined}
+                      rel={vintedHref ? 'noopener noreferrer' : undefined}
+                      title={vintedHref ? 'Open Vinted listing in a new tab' : undefined}
+                      onClick={vintedHref ? undefined : (e) => e.preventDefault()}
+                      tabIndex={vintedHref ? undefined : -1}
                     >
                       Vinted ID
                     </a>
-                  ) : (
-                    <span>Vinted ID</span>
                   );
                 })()}
                 <input
@@ -3488,19 +3439,21 @@ const Stock: React.FC = () => {
               </label>
               <label className="new-entry-field stock-new-entry-id-field stock-new-entry-id-field--ebay">
                 {(() => {
+                  // Same rationale as Vinted ID above: always an <a>, never
+                  // swapped for a <span>, so it can't shift the row layout.
                   const ebayHref = stockEbayListingUrl(createForm.ebay_id);
-                  return ebayHref ? (
+                  return (
                     <a
-                      className="stock-marketplace-id-label-link"
-                      href={ebayHref}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title="Open eBay listing in a new tab"
+                      className={`stock-marketplace-id-label-link${ebayHref ? '' : ' stock-marketplace-id-label-link--inactive'}`}
+                      href={ebayHref ?? undefined}
+                      target={ebayHref ? '_blank' : undefined}
+                      rel={ebayHref ? 'noopener noreferrer' : undefined}
+                      title={ebayHref ? 'Open eBay listing in a new tab' : undefined}
+                      onClick={ebayHref ? undefined : (e) => e.preventDefault()}
+                      tabIndex={ebayHref ? undefined : -1}
                     >
                       eBay ID
                     </a>
-                  ) : (
-                    <span>eBay ID</span>
                   );
                 })()}
                 <input
@@ -3532,33 +3485,18 @@ const Stock: React.FC = () => {
                   />
                 </div>
               </label>
-              <label className="new-entry-field stock-new-entry-id-field stock-new-entry-id-field--bulky stock-new-entry-toggle-field">
-                <span>Bulky item</span>
-                <div className="stock-new-entry-bulky-input-skin">
-                  <input
-                    type="checkbox"
-                    checked={createForm.bulky_item}
-                    onChange={(event) =>
-                      setCreateForm((prev) => ({ ...prev, bulky_item: event.target.checked }))
-                    }
-                    aria-label="Bulky item"
-                  />
-                </div>
+              <label className="new-entry-field stock-new-entry-box-location-field">
+                <span>Box location</span>
+                <StockFormDropdown
+                  value={createForm.box_location_id}
+                  options={boxLocations.map((bl) => ({ value: String(bl.id), label: bl.box_location_name }))}
+                  onChange={(value) => handleCreateChange('box_location_id', value)}
+                  placeholder="None"
+                  includeEmptyOption
+                  ariaLabel="Box location (optional)"
+                />
               </label>
               {!editingRowId && renderInventoryWriteOffField('new')}
-              {!editingRowId && (
-                <label className="new-entry-field stock-new-entry-box-location-field">
-                  <span>Box location</span>
-                  <StockFormDropdown
-                    value={createForm.box_location_id}
-                    options={boxLocations.map((bl) => ({ value: String(bl.id), label: bl.box_location_name }))}
-                    onChange={(value) => handleCreateChange('box_location_id', value)}
-                    placeholder="None"
-                    includeEmptyOption
-                    ariaLabel="Box location (optional)"
-                  />
-                </label>
-              )}
               {!editingRowId && renderTagsField('new')}
               {!editingRowId && (
                 <div className="stock-new-entry-row3-save stock-entry-mobile-save-bar">
@@ -4302,23 +4240,6 @@ const Stock: React.FC = () => {
 
         <div className="filter-group">
           <select
-            value={selectedSizeFilter}
-            onChange={(event) => setSelectedSizeFilter(event.target.value)}
-            className="filter-select"
-            title="Filter by size"
-            disabled={!selectedCategoryFilter}
-          >
-            <option value="">Filter by Size</option>
-            {filterSizes.map((size) => (
-              <option key={size.id} value={String(size.id)}>
-                {size.size_label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="filter-group">
-          <select
             value={selectedBrandFilter}
             onChange={(event) => setSelectedBrandFilter(event.target.value)}
             className="filter-select"
@@ -4339,7 +4260,7 @@ const Stock: React.FC = () => {
             onChange={(event) =>
               setViewMode(event.target.value as 'all' | 'vinted' | 'ebay' | 'none')
             }
-            className="filter-select"
+            className="filter-select stock-view-filter-select"
           >
             <option value="all">All</option>
             <option value="vinted">Vinted</option>
@@ -4360,6 +4281,23 @@ const Stock: React.FC = () => {
             <option value="off">All</option>
             <option value="unsold">Unsold</option>
             <option value="sold">Sold</option>
+          </select>
+        </div>
+
+        <div className="filter-group">
+          <select
+            value={selectedSizeFilter}
+            onChange={(event) => setSelectedSizeFilter(event.target.value)}
+            className="filter-select stock-size-filter-select"
+            title="Filter by size"
+            disabled={!selectedCategoryFilter}
+          >
+            <option value="">Filter by Size</option>
+            {filterSizes.map((size) => (
+              <option key={size.id} value={String(size.id)}>
+                {size.size_label}
+              </option>
+            ))}
           </select>
         </div>
 
