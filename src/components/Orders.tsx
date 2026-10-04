@@ -5016,6 +5016,7 @@ const Orders: React.FC = () => {
               </p>
             </div>
           ) : (
+            <>
             <div className="table-wrapper orders-sales-summary-table-wrap">
               <table className="orders-table orders-sales-summary-table">
                 <thead>
@@ -5170,6 +5171,96 @@ const Orders: React.FC = () => {
                 </tbody>
               </table>
             </div>
+
+              {/* Mobile Card View — the table above is hidden on small screens, this is shown instead. */}
+              <div className="orders-cards-wrapper">
+                {salesSummaryRows.map((row) => {
+                  const { sale, profit } = computeStockInfoPanelMetrics(row);
+                  const listing = soldPlatformListingHref(row);
+                  const title = row.item_name?.trim() || '—';
+                  const profitClass = salesSummaryProfitClass(row, profit);
+                  const rowId = Number(row.id);
+                  return (
+                    <div key={row.id} className="orders-card">
+                      <div className="orders-card-header">
+                        <span className="orders-card-sku">
+                          <span className="orders-card-sku-label">SKU:</span>{' '}
+                          <span className="orders-card-sku-num">{row.id}</span>
+                        </span>
+                        <button
+                          type="button"
+                          className="orders-refund-button"
+                          onClick={() =>
+                            setRefundConfirmItem({
+                              id: rowId,
+                              itemName: row.item_name?.trim() || `SKU ${rowId}`,
+                            })
+                          }
+                          disabled={refundLoadingId != null}
+                          title="Clear sale price, sold date, and sold platform"
+                        >
+                          {refundLoadingId === rowId ? 'Refunding…' : 'Refund'}
+                        </button>
+                      </div>
+                      <div className="orders-card-body">
+                        <div className="orders-card-field">
+                          <span className="orders-card-label">Products Sold:</span>
+                          <span className="orders-card-value">
+                            {row.item_name?.trim() ? (
+                              <Link
+                                to={`/stock?editId=${row.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="orders-sales-stock-name-link"
+                                title={`Edit item ${row.id} in Stock`}
+                              >
+                                {title}
+                              </Link>
+                            ) : (
+                              <span className="orders-table-dash">—</span>
+                            )}
+                          </span>
+                        </div>
+                        <div className="orders-card-field">
+                          <span className="orders-card-label">Sale price:</span>
+                          <span className="orders-card-value">
+                            {formatCurrency(Number.isNaN(sale) ? null : sale)}
+                          </span>
+                        </div>
+                        <div className="orders-card-field">
+                          <span className="orders-card-label">Buy price:</span>
+                          <span className="orders-card-value">
+                            {formatCurrency(
+                              row.purchase_price !== null && row.purchase_price !== undefined
+                                ? Number(row.purchase_price)
+                                : null
+                            )}
+                          </span>
+                        </div>
+                        <div className="orders-card-field">
+                          <span className="orders-card-label">Profit:</span>
+                          <span className={`orders-card-value ${profitClass}`}>
+                            {formatCurrency(Number.isNaN(profit) ? null : profit)}
+                          </span>
+                        </div>
+                        <div className="orders-card-field">
+                          <span className="orders-card-label">Listing:</span>
+                          <span className="orders-card-value">
+                            {listing ? (
+                              <SalesSummaryPlatformLink listing={listing}>
+                                {listing.platform}
+                              </SalesSummaryPlatformLink>
+                            ) : (
+                              <span className="orders-table-dash">—</span>
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
 
           {salesSummaryRows.length > 0 ? (
