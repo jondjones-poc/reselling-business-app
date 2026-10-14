@@ -197,6 +197,8 @@ interface ChannelWeeklyPoint {
   ebaySales: number;
   vintedProfit: number;
   ebayProfit: number;
+  vintedCount: number;
+  ebayCount: number;
 }
 
 type ReportingViewMode =
@@ -527,6 +529,12 @@ const Reporting: React.FC = () => {
   const [channelWeeksFiltered, setChannelWeeksFiltered] = useState<ChannelWeeklyPoint[]>([]);
   const [channelWeeksFilteredLoading, setChannelWeeksFilteredLoading] = useState(false);
   const [channelWeeksFilteredError, setChannelWeeksFilteredError] = useState('');
+  /** "Items sold per week" chart — its own department/category filter, independent of Category Comparison above; defaults to All. */
+  const [channelItemsSoldDepartmentFilter, setChannelItemsSoldDepartmentFilter] = useState('');
+  const [channelItemsSoldCategoryFilter, setChannelItemsSoldCategoryFilter] = useState('');
+  const [channelItemsSoldWeeks, setChannelItemsSoldWeeks] = useState<ChannelWeeklyPoint[]>([]);
+  const [channelItemsSoldLoading, setChannelItemsSoldLoading] = useState(false);
+  const [channelItemsSoldError, setChannelItemsSoldError] = useState('');
   const [salesByBrand, setSalesByBrand] = useState<SalesByBrandDatum[]>([]);
   const [bestSellingBrandsByCategory, setBestSellingBrandsByCategory] = useState<SalesByBrandCategorySet>({
     trousers: [],
@@ -906,6 +914,36 @@ const Reporting: React.FC = () => {
       cancelled = true;
     };
   }, [viewMode, channelDepartmentFilter, channelCategoryFilter]);
+
+  // Channel Analytics: "Items sold per week" chart — its own independent
+  // department/category filter, defaults to All (no filter).
+  useEffect(() => {
+    if (viewMode !== 'channel-analytics') {
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setChannelItemsSoldLoading(true);
+      setChannelItemsSoldError('');
+      try {
+        const params = new URLSearchParams();
+        if (channelItemsSoldDepartmentFilter) params.set('department_id', channelItemsSoldDepartmentFilter);
+        if (channelItemsSoldCategoryFilter) params.set('category_id', channelItemsSoldCategoryFilter);
+        const response = await fetch(`${API_BASE}/api/reporting/channel-weekly?${params.toString()}`);
+        const data = await response.json();
+        if (cancelled) return;
+        if (!response.ok) throw new Error(data.error || 'Could not load channel analytics.');
+        setChannelItemsSoldWeeks(Array.isArray(data.weeks) ? data.weeks : []);
+      } catch (e) {
+        if (!cancelled) setChannelItemsSoldError(e instanceof Error ? e.message : 'Could not load channel analytics.');
+      } finally {
+        if (!cancelled) setChannelItemsSoldLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [viewMode, channelItemsSoldDepartmentFilter, channelItemsSoldCategoryFilter]);
 
   useEffect(() => {
     if (viewMode !== 'sales-data') {
@@ -1717,6 +1755,73 @@ const Reporting: React.FC = () => {
     }),
     []
   );
+
+  // Same as channelLineChartOptions but for a plain count (items sold), not currency.
+  const channelCountLineChartOptions: ChartOptions<'line'> = useMemo(
+    () => ({
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top', labels: { color: themeTextRgba(0.85) } },
+        tooltip: {
+          callbacks: {
+            label(context) {
+              const value = context.raw as number;
+              return `${context.dataset.label}: ${value || 0}`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: { color: themeAccentRgba(0.08) },
+          ticks: { color: themeTextRgba(0.8), maxRotation: 0, autoSkip: true },
+        },
+        y: {
+          beginAtZero: true,
+          ticks: { color: themeTextRgba(0.75), precision: 0 },
+          grid: { color: themeAccentRgba(0.12) },
+        },
+      },
+    }),
+    []
+  );
+
+  const channelItemsSoldChartData = useMemo(() => {
+    if (channelItemsSoldWeeks.length === 0) return null;
+    return {
+      labels: channelItemsSoldWeeks.map((w) => w.label),
+      datasets: [
+        {
+          label: 'eBay',
+          data: channelItemsSoldWeeks.map((w) => w.ebayCount),
+          borderColor: CHART_EBAY_YELLOW,
+          backgroundColor: CHART_EBAY_YELLOW_FILL,
+          tension: 0.3,
+          pointRadius: 2,
+        },
+        {
+          label: 'Vinted',
+          data: channelItemsSoldWeeks.map((w) => w.vintedCount),
+          borderColor: CHART_VINTED_BLUE,
+          backgroundColor: CHART_VINTED_BLUE_FILL,
+          tension: 0.3,
+          pointRadius: 2,
+        },
+      ],
+    };
+  }, [channelItemsSoldWeeks]);
+
+  const channelItemsSoldCategoryOptions = useMemo(() => {
+    const rows = channelItemsSoldDepartmentFilter
+      ? reportingCategoryRows.filter((c) => String(c.department_id ?? '') === channelItemsSoldDepartmentFilter)
+      : reportingCategoryRows;
+    return rows
+      .slice()
+      .sort((a, b) => a.category_name.localeCompare(b.category_name))
+      .map((c) => ({ value: String(c.id), label: c.category_name }));
+  }, [reportingCategoryRows, channelItemsSoldDepartmentFilter]);
 
   const channelFilteredSalesChartData = useMemo(() => {
     if (channelWeeksFiltered.length === 0) return null;
@@ -4008,6 +4113,46 @@ const Reporting: React.FC = () => {
               </>
             ) : (
               <div className="reporting-empty">{channelWeeksAllLoading ? 'Loading…' : 'No profit data for the last 12 months.'}</div>
+            )}
+          </section>
+
+          <section className="reporting-card">
+            <div className="card-header">
+              <h2>Items Sold Per Week By Channel</h2>
+            </div>
+            <div className="channel-filter-row">
+              <StockFormDropdown
+                value={channelItemsSoldDepartmentFilter}
+                options={channelFilterDepartmentOptions}
+                onChange={(value) => {
+                  setChannelItemsSoldDepartmentFilter(value);
+                  setChannelItemsSoldCategoryFilter('');
+                }}
+                placeholder="All Departments"
+                includeEmptyOption
+                ariaLabel="Filter items sold per week by department"
+                className="stock-analysis-filter-dropdown"
+              />
+              <StockFormDropdown
+                value={channelItemsSoldCategoryFilter}
+                options={channelItemsSoldCategoryOptions}
+                onChange={(value) => setChannelItemsSoldCategoryFilter(value)}
+                placeholder="All Categories"
+                includeEmptyOption
+                ariaLabel="Filter items sold per week by category"
+                className="stock-analysis-filter-dropdown"
+              />
+            </div>
+            {channelItemsSoldError ? (
+              <div className="reporting-error">{channelItemsSoldError}</div>
+            ) : channelItemsSoldChartData ? (
+              <div className="chart-wrapper">
+                <Line data={channelItemsSoldChartData} options={channelCountLineChartOptions} />
+              </div>
+            ) : (
+              <div className="reporting-empty">
+                {channelItemsSoldLoading ? 'Loading…' : 'No sales data for the last 12 months.'}
+              </div>
             )}
           </section>
         </div>

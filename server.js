@@ -10053,7 +10053,7 @@ app.get('/api/reporting/channel-weekly', async (req, res) => {
     const weekSpecs = enumerateMondayWeeksInRange(rangeStart, rangeEnd);
     const byWeek = new Map();
     for (const w of weekSpecs) {
-      byWeek.set(w.weekKey, { vintedSales: 0, ebaySales: 0, vintedProfit: 0, ebayProfit: 0 });
+      byWeek.set(w.weekKey, { vintedSales: 0, ebaySales: 0, vintedProfit: 0, ebayProfit: 0, vintedCount: 0, ebayCount: 0 });
     }
 
     for (const row of salesRes.rows ?? []) {
@@ -10069,9 +10069,11 @@ app.get('/api/reporting/channel-weekly', async (req, res) => {
       if (platform === 'vinted') {
         bucket.vintedSales += price;
         bucket.vintedProfit += profit;
+        bucket.vintedCount += 1;
       } else if (platform === 'ebay') {
         bucket.ebaySales += price;
         bucket.ebayProfit += profit;
+        bucket.ebayCount += 1;
       }
     }
 
@@ -10080,7 +10082,7 @@ app.get('/api/reporting/channel-weekly', async (req, res) => {
       .slice()
       .sort((a, b) => a.weekStart.localeCompare(b.weekStart))
       .map((w) => {
-        const bucket = byWeek.get(w.weekKey) ?? { vintedSales: 0, ebaySales: 0, vintedProfit: 0, ebayProfit: 0 };
+        const bucket = byWeek.get(w.weekKey) ?? { vintedSales: 0, ebaySales: 0, vintedProfit: 0, ebayProfit: 0, vintedCount: 0, ebayCount: 0 };
         return {
           weekStart: w.weekStart,
           weekEnd: w.weekEnd,
@@ -10089,6 +10091,8 @@ app.get('/api/reporting/channel-weekly', async (req, res) => {
           ebaySales: round2(bucket.ebaySales),
           vintedProfit: round2(bucket.vintedProfit),
           ebayProfit: round2(bucket.ebayProfit),
+          vintedCount: bucket.vintedCount,
+          ebayCount: bucket.ebayCount,
         };
       });
 
