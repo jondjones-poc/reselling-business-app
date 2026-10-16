@@ -15,6 +15,10 @@ interface AuthContextValue {
   logout: () => void;
   userEmail: string | null;
   isAdmin: boolean;
+  authReady: boolean;
+  signingIn: boolean;
+  authError: string | null;
+  signInWithGoogle: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -249,16 +253,19 @@ const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
     });
   };
 
-  const authContextValue = useMemo(() => ({ logout, userEmail, isAdmin }), [logout, userEmail, isAdmin]);
-
-  const handleGoogleSignIn = () => {
+  const handleGoogleSignIn = useCallback(() => {
     setSigningIn(true);
     setError(null);
     const returnTo = getOAuthReturnTo();
     window.location.href = authFlowApiUrl(
       `/api/auth/google/start?return_to=${encodeURIComponent(returnTo)}`
     );
-  };
+  }, []);
+
+  const authContextValue = useMemo(
+    () => ({ logout, userEmail, isAdmin, authReady, signingIn, authError: error, signInWithGoogle: handleGoogleSignIn }),
+    [logout, userEmail, isAdmin, authReady, signingIn, error, handleGoogleSignIn]
+  );
 
   if (!authReady) {
     return (
@@ -284,76 +291,87 @@ const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
     );
   }
 
-  if (!userEmail) {
-    return (
-      <div className="auth-gate">
-        <div className="auth-gate__glow auth-gate__glow--left" aria-hidden />
-        <div className="auth-gate__glow auth-gate__glow--right" aria-hidden />
-
-        <div className="auth-shell">
-          <section className="auth-brand" aria-label="Gents Rail">
-            <p className="auth-brand__eyebrow">Reseller workspace</p>
-            <h1 className="auth-brand__name">Gents Rail</h1>
-            <p className="auth-brand__tagline">
-              Source smarter, manage stock, and track performance across your resale business.
-            </p>
-            <ul className="auth-brand__features">
-              <li>Scouting &amp; image lookup</li>
-              <li>Stock, orders &amp; accounting</li>
-              <li>Reporting &amp; analytics</li>
-            </ul>
-          </section>
-
-          <main className="auth-card">
-            <h2 className="auth-title">Welcome back</h2>
-            <p className="auth-subtitle">Sign in with your Google account to continue.</p>
-
-            <div className="auth-form">
-              <button
-                type="button"
-                className="auth-button auth-button--google"
-                onClick={handleGoogleSignIn}
-                disabled={signingIn}
-              >
-                <span className="auth-button__icon" aria-hidden>
-                  <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
-                    <path
-                      d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"
-                      fill="#4285F4"
-                    />
-                    <path
-                      d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"
-                      fill="#34A853"
-                    />
-                    <path
-                      d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"
-                      fill="#FBBC05"
-                    />
-                    <path
-                      d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"
-                      fill="#EA4335"
-                    />
-                  </svg>
-                </span>
-                {signingIn ? 'Redirecting to Google…' : 'Continue with Google'}
-              </button>
-              {error && <div className="auth-error">{error}</div>}
-            </div>
-
-            <footer className="auth-footer">
-              <span className="auth-footer__badge">Private workspace</span>
-            </footer>
-          </main>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <AuthContext.Provider value={authContextValue}>
-      <ThemeProvider syncWithServer>{children}</ThemeProvider>
+      <ThemeProvider syncWithServer={Boolean(userEmail)}>{children}</ThemeProvider>
     </AuthContext.Provider>
   );
 };
 
 export default AuthGate;
+
+/** Google sign-in card, shown by `RequireAuth` for routes that aren't public. */
+export const LoginScreen: React.FC = () => {
+  const { signingIn, authError, signInWithGoogle } = useAuth();
+  return (
+    <div className="auth-gate">
+      <div className="auth-gate__glow auth-gate__glow--left" aria-hidden />
+      <div className="auth-gate__glow auth-gate__glow--right" aria-hidden />
+
+      <div className="auth-shell">
+        <section className="auth-brand" aria-label="Gents Rail">
+          <p className="auth-brand__eyebrow">Reseller workspace</p>
+          <h1 className="auth-brand__name">Gents Rail</h1>
+          <p className="auth-brand__tagline">
+            Source smarter, manage stock, and track performance across your resale business.
+          </p>
+          <ul className="auth-brand__features">
+            <li>Scouting &amp; image lookup</li>
+            <li>Stock, orders &amp; accounting</li>
+            <li>Reporting &amp; analytics</li>
+          </ul>
+        </section>
+
+        <main className="auth-card">
+          <h2 className="auth-title">Welcome back</h2>
+          <p className="auth-subtitle">Sign in with your Google account to continue.</p>
+
+          <div className="auth-form">
+            <button
+              type="button"
+              className="auth-button auth-button--google"
+              onClick={signInWithGoogle}
+              disabled={signingIn}
+            >
+              <span className="auth-button__icon" aria-hidden>
+                <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+                  <path
+                    d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"
+                    fill="#4285F4"
+                  />
+                  <path
+                    d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"
+                    fill="#34A853"
+                  />
+                  <path
+                    d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"
+                    fill="#FBBC05"
+                  />
+                  <path
+                    d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"
+                    fill="#EA4335"
+                  />
+                </svg>
+              </span>
+              {signingIn ? 'Redirecting to Google…' : 'Continue with Google'}
+            </button>
+            {authError && <div className="auth-error">{authError}</div>}
+          </div>
+
+          <footer className="auth-footer">
+            <span className="auth-footer__badge">Private workspace</span>
+          </footer>
+        </main>
+      </div>
+    </div>
+  );
+};
+
+/** Wraps routes that require sign-in; shows the Google login card instead of `children` when logged out. */
+export const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { userEmail } = useAuth();
+  if (!userEmail) {
+    return <LoginScreen />;
+  }
+  return <>{children}</>;
+};

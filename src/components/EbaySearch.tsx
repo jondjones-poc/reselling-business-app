@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import BarcodeScanner from 'react-qr-barcode-scanner';
 import { augmentEbaySearchQuery } from '../utils/augmentEbaySearchQuery';
+import { buildEbayUkSearchUrl } from '../utils/ebayUkSearchUrl';
 import { getApiBase } from '../utils/apiBase';
 import { pingDatabase } from '../utils/dbPing';
 import ScoutItemIdentify from './ScoutItemIdentify';
@@ -29,16 +30,6 @@ interface ResearchResult {
 }
 
 const API_BASE = getApiBase();
-
-/** eBay UK Men's Clothing — matches server EBAY_BROWSE_CATEGORY_IDS default. */
-const EBAY_UK_MENS_CLOTHING_CATEGORY = '260012';
-
-function buildEbayUkSearchUrl(encodedSearch: string, opts: { sold: boolean; includeMens: boolean }): string {
-  const categoryPath = opts.includeMens ? `/sch/${EBAY_UK_MENS_CLOTHING_CATEGORY}` : '/sch';
-  const fromCategory = opts.includeMens ? '&_from=R40' : '';
-  const soldParams = opts.sold ? '&LH_Sold=1&LH_Complete=1' : '';
-  return `https://www.ebay.co.uk${categoryPath}/i.html?_nkw=${encodedSearch}${fromCategory}&rt=nc${soldParams}&LH_PrefLoc=1`;
-}
 
 const EbaySearch: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');

@@ -10315,8 +10315,13 @@ app.get('/api/stock/seasonal-buy-now', async (req, res) => {
     const monthFmt = new Intl.DateTimeFormat('en-GB', { month: 'short', timeZone: 'UTC' });
     const startBuyMonthLabel = `${monthFmt.format(startBuyStartDate)}–${monthFmt.format(startBuyEndDate)}`;
 
+    // Grouped by category id (not just name) so categories of the same name
+    // in different departments never get merged, and so each row can link
+    // straight to /analytics?tab=clothing-types&departmentId=&clothingTypeId=.
     const catAggSql = `
       SELECT
+        cat.id AS category_id,
+        cat.department_id AS department_id,
         COALESCE(NULLIF(TRIM(cat.category_name), ''), 'Uncategorized') AS category_name,
         COUNT(*)::int AS sold_count,
         COALESCE(SUM(COALESCE(s.sale_price::numeric, 0)), 0)::numeric AS sale_total
@@ -10329,7 +10334,7 @@ app.get('/api/stock/seasonal-buy-now', async (req, res) => {
         AND NOT COALESCE(s.is_inventory_write_off, false)
         AND ($3::int IS NULL OR b.department_id = $3::int)
         AND ($3::int IS NULL OR s.category_id IS NULL OR cat.department_id = $3::int)
-      GROUP BY COALESCE(NULLIF(TRIM(cat.category_name), ''), 'Uncategorized')
+      GROUP BY cat.id, cat.department_id, COALESCE(NULLIF(TRIM(cat.category_name), ''), 'Uncategorized')
       ORDER BY sold_count DESC NULLS LAST, category_name ASC
     `;
 
@@ -10339,6 +10344,7 @@ app.get('/api/stock/seasonal-buy-now', async (req, res) => {
       pool.query(`${catAggSql} LIMIT 8`, [startBuyStart, startBuyEnd, filterDeptId]),
       pool.query(
         `SELECT
+           cat.id AS category_id,
            COALESCE(NULLIF(TRIM(cat.category_name), ''), 'Uncategorized') AS category_name,
            COUNT(*)::int AS unsold_count
          FROM stock s
@@ -10348,46 +10354,52 @@ app.get('/api/stock/seasonal-buy-now', async (req, res) => {
            AND NOT COALESCE(s.is_inventory_write_off, false)
            AND ($1::int IS NULL OR b.department_id = $1::int)
            AND ($1::int IS NULL OR s.category_id IS NULL OR cat.department_id = $1::int)
-         GROUP BY COALESCE(NULLIF(TRIM(cat.category_name), ''), 'Uncategorized')`,
+         GROUP BY cat.id, COALESCE(NULLIF(TRIM(cat.category_name), ''), 'Uncategorized')`,
         [filterDeptId]
       ),
     ]);
 
-    const unsoldByName = new Map();
+    const categoryKey = (categoryId) => (categoryId == null ? 'uncategorized' : String(categoryId));
+
+    const unsoldByCategory = new Map();
     for (const row of inventoryRes.rows ?? []) {
-      unsoldByName.set(String(row.category_name), Number(row.unsold_count) || 0);
+      unsoldByCategory.set(categoryKey(row.category_id), Number(row.unsold_count) || 0);
     }
 
-    const priorByName = new Map();
+    const priorByCategory = new Map();
     for (const row of priorRes.rows ?? []) {
-      priorByName.set(String(row.category_name), {
+      priorByCategory.set(categoryKey(row.category_id), {
         soldCount: Number(row.sold_count) || 0,
         saleTotal: Number(row.sale_total) || 0,
       });
     }
 
     const recommendations = (recentRes.rows ?? []).slice(0, 8).map((r) => {
-      const name = String(r.category_name ?? 'Uncategorized');
+      const categoryId = r.category_id != null ? Number(r.category_id) : null;
       return {
-        name,
+        name: String(r.category_name ?? 'Uncategorized'),
+        categoryId,
+        departmentId: r.department_id != null ? Number(r.department_id) : null,
         soldCount: Number(r.sold_count) || 0,
         saleTotal: Number(r.sale_total) || 0,
-        unsoldInStock: unsoldByName.get(name) ?? 0,
+        unsoldInStock: unsoldByCategory.get(categoryKey(categoryId)) ?? 0,
       };
     });
 
     const trending = (recentRes.rows ?? [])
       .map((r) => {
-        const name = String(r.category_name ?? 'Uncategorized');
+        const categoryId = r.category_id != null ? Number(r.category_id) : null;
         const soldCount = Number(r.sold_count) || 0;
         const saleTotal = Number(r.sale_total) || 0;
-        const prior = priorByName.get(name);
+        const prior = priorByCategory.get(categoryKey(categoryId));
         const priorSold = prior?.soldCount ?? 0;
         let direction = 'flat';
         if (soldCount > priorSold) direction = 'up';
         else if (soldCount < priorSold) direction = 'down';
         return {
-          name,
+          name: String(r.category_name ?? 'Uncategorized'),
+          categoryId,
+          departmentId: r.department_id != null ? Number(r.department_id) : null,
           soldCount,
           saleTotal,
           priorSoldCount: priorSold,
@@ -10403,12 +10415,14 @@ app.get('/api/stock/seasonal-buy-now', async (req, res) => {
       .map(({ delta: _delta, ...row }) => row);
 
     const startBuying = (startBuyRes.rows ?? []).map((r) => {
-      const name = String(r.category_name ?? 'Uncategorized');
+      const categoryId = r.category_id != null ? Number(r.category_id) : null;
       return {
-        name,
+        name: String(r.category_name ?? 'Uncategorized'),
+        categoryId,
+        departmentId: r.department_id != null ? Number(r.department_id) : null,
         soldCount: Number(r.sold_count) || 0,
         saleTotal: Number(r.sale_total) || 0,
-        unsoldInStock: unsoldByName.get(name) ?? 0,
+        unsoldInStock: unsoldByCategory.get(categoryKey(categoryId)) ?? 0,
       };
     });
 

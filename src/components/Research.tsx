@@ -2975,6 +2975,9 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
   const [clothingTypeSizeSoldStockError, setClothingTypeSizeSoldStockError] = useState<string | null>(null);
   /** "Sold and in stock by size" — default view is a per-size hot/cold sell-through gauge; Table is the original list. */
   const [clothingTypeSizeSoldStockView, setClothingTypeSizeSoldStockView] = useState<'gauge' | 'table'>('gauge');
+  /** "Brands & Signals" — default view is a per-brand hot/cold sell-through gauge; Table is the original brands list + chart + size/tag breakdowns. */
+  /** Clothing type detail page — one flat tab row: brand hot/cold gauges, the brands+chart table, or the raw in-stock items list. */
+  const [clothingTypeDetailTab, setClothingTypeDetailTab] = useState<'gauge' | 'size' | 'table' | 'in-stock'>('gauge');
   const [clothingTypeTagSoldStock, setClothingTypeTagSoldStock] = useState<ClothingTypeTagSoldStockRow[]>([]);
   const [clothingTypeTagSoldStockLoading, setClothingTypeTagSoldStockLoading] = useState(false);
   const [clothingTypeTagSoldStockError, setClothingTypeTagSoldStockError] = useState<string | null>(null);
@@ -14395,8 +14398,256 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                       </div>
                     </>
                   ) : null}
-                  <h3 className="clothing-type-detail-signals-heading">Brands &amp; Signals</h3>
-                  <hr className="clothing-type-detail-heading-rule" aria-hidden />
+                  <nav
+                    className="menswear-categories-subpanel-tabs clothing-type-detail-subtabs"
+                    role="tablist"
+                    aria-label={`${selectedClothingTypeLabel} sections`}
+                  >
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={clothingTypeDetailTab === 'gauge'}
+                      className={`menswear-categories-subpanel-tab${
+                        clothingTypeDetailTab === 'gauge' ? ' menswear-categories-subpanel-tab--active' : ''
+                      }`}
+                      onClick={() => setClothingTypeDetailTab('gauge')}
+                    >
+                      <svg
+                        className="clothing-type-detail-subtab-icon"
+                        viewBox="0 0 20 20"
+                        width="16"
+                        height="16"
+                        aria-hidden="true"
+                        focusable="false"
+                      >
+                        <path
+                          fill="currentColor"
+                          d="M10.5 1.5c.3 2.2-.6 3.4-1.7 4.6C7.6 7.3 6.3 8.7 6.3 11a3.7 3.7 0 0 0 7.4 0c0-1-.3-1.8-.7-2.5.9.8 1.5 2 1.5 3.4a4.5 4.5 0 0 1-9 0c0-3.4 2.3-5 3.8-6.6.9-1 1.5-1.9 1.2-3.8Z"
+                        />
+                      </svg>
+                      Brands
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={clothingTypeDetailTab === 'size'}
+                      className={`menswear-categories-subpanel-tab${
+                        clothingTypeDetailTab === 'size' ? ' menswear-categories-subpanel-tab--active' : ''
+                      }`}
+                      onClick={() => setClothingTypeDetailTab('size')}
+                    >
+                      <svg
+                        className="clothing-type-detail-subtab-icon"
+                        viewBox="0 0 20 20"
+                        width="16"
+                        height="16"
+                        aria-hidden="true"
+                        focusable="false"
+                      >
+                        <path
+                          fill="currentColor"
+                          d="M12.5 2a1.5 1.5 0 0 1 1.06.44l4 4a1.5 1.5 0 0 1 0 2.12l-6.94 6.94a1.5 1.5 0 0 1-2.12 0l-4-4a1.5 1.5 0 0 1 0-2.12l6.94-6.94A1.5 1.5 0 0 1 12.5 2Zm-1.44 3.56-5.5 5.5 3 3 5.5-5.5-3-3ZM15 6.5a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"
+                        />
+                      </svg>
+                      Sold By Size
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={clothingTypeDetailTab === 'table'}
+                      className={`menswear-categories-subpanel-tab${
+                        clothingTypeDetailTab === 'table' ? ' menswear-categories-subpanel-tab--active' : ''
+                      }`}
+                      onClick={() => setClothingTypeDetailTab('table')}
+                    >
+                      <svg
+                        className="clothing-type-detail-subtab-icon"
+                        viewBox="0 0 20 20"
+                        width="16"
+                        height="16"
+                        aria-hidden="true"
+                        focusable="false"
+                      >
+                        <path
+                          fill="currentColor"
+                          d="M3 4.5A1.5 1.5 0 0 1 4.5 3h11A1.5 1.5 0 0 1 17 4.5v11a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 15.5v-11ZM4.5 7v2h4V7h-4Zm5.5 0v2h5.5V7H10Zm-5.5 3.5v5h4v-5h-4Zm5.5 0v5h5.5v-5H10Z"
+                        />
+                      </svg>
+                      Data
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={clothingTypeDetailTab === 'in-stock'}
+                      className={`menswear-categories-subpanel-tab${
+                        clothingTypeDetailTab === 'in-stock' ? ' menswear-categories-subpanel-tab--active' : ''
+                      }`}
+                      onClick={() => setClothingTypeDetailTab('in-stock')}
+                    >
+                      <svg
+                        className="clothing-type-detail-subtab-icon"
+                        viewBox="0 0 20 20"
+                        width="16"
+                        height="16"
+                        aria-hidden="true"
+                        focusable="false"
+                      >
+                        <path
+                          fill="currentColor"
+                          d="M6.5 2a.75.75 0 0 0-.67.415L4.146 5.5H2.75a.75.75 0 0 0 0 1.5h.4l.8 9.6a1.5 1.5 0 0 0 1.495 1.4h9.11a1.5 1.5 0 0 0 1.495-1.4l.8-9.6h.4a.75.75 0 0 0 0-1.5h-1.396l-1.684-3.085A.75.75 0 0 0 13.5 2h-7Zm.464 1.5h6.072l1.09 2H5.874l1.09-2ZM8 9a1 1 0 0 1 2 0v4a1 1 0 1 1-2 0V9Z"
+                        />
+                      </svg>
+                      Current Shirts in Stock
+                    </button>
+                  </nav>
+                  {clothingTypeDetailTab === 'gauge' && (
+                    <div className="menswear-categories-overview-block">
+                      {clothingTypeBrandsError && (
+                        <div className="menswear-categories-error" role="alert">
+                          {clothingTypeBrandsError}
+                        </div>
+                      )}
+                      {clothingTypeBrandsLoading && (
+                        <div className="menswear-categories-muted">Loading brands…</div>
+                      )}
+                      {!clothingTypeBrandsLoading && !clothingTypeBrandsError && (
+                        clothingTypeBrands.length === 0 ? (
+                          <p className="menswear-categories-muted">No brands with stock in this category yet.</p>
+                        ) : (
+                          <div className="clothing-types-size-heat-grid">
+                            {clothingTypeBrands.map((b) => (
+                              <HeatGauge
+                                key={b.id}
+                                label={b.brand_name || '—'}
+                                soldCount={b.sold_count}
+                                inStockCount={b.unsold_count}
+                                active={false}
+                                onClick={() => {}}
+                              />
+                            ))}
+                          </div>
+                        )
+                      )}
+                    </div>
+                  )}
+                  {clothingTypeDetailTab === 'size' && (
+                          <div className="menswear-categories-overview-block">
+                            <div className="clothing-types-size-heat-header clothing-types-size-heat-header--centered">
+                              <div
+                                className="clothing-types-invest-risk-view-toggle"
+                                role="group"
+                                aria-label="Sold and in stock by size view"
+                              >
+                                <button
+                                  type="button"
+                                  className={`clothing-types-invest-risk-view-btn${
+                                    clothingTypeSizeSoldStockView === 'gauge' ? ' is-active' : ''
+                                  }`}
+                                  aria-pressed={clothingTypeSizeSoldStockView === 'gauge'}
+                                  onClick={() => setClothingTypeSizeSoldStockView('gauge')}
+                                >
+                                  Hot / Cold
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`clothing-types-invest-risk-view-btn${
+                                    clothingTypeSizeSoldStockView === 'table' ? ' is-active' : ''
+                                  }`}
+                                  aria-pressed={clothingTypeSizeSoldStockView === 'table'}
+                                  onClick={() => setClothingTypeSizeSoldStockView('table')}
+                                >
+                                  Table
+                                </button>
+                              </div>
+                            </div>
+                            {clothingTypeSizeSoldStockError && (
+                              <div className="menswear-categories-error menswear-categories-error--inline" role="alert">
+                                {clothingTypeSizeSoldStockError}
+                              </div>
+                            )}
+                            {clothingTypeSizeSoldStockLoading && (
+                              <p className="menswear-categories-muted">Loading…</p>
+                            )}
+                            {!clothingTypeSizeSoldStockLoading &&
+                              !clothingTypeSizeSoldStockError &&
+                              (clothingTypeSizeSoldStock.length === 0 ? (
+                                <p className="menswear-categories-muted">
+                                  No stock lines in this category yet.
+                                </p>
+                              ) : clothingTypeSizeSoldStockView === 'gauge' ? (
+                                <div className="clothing-types-size-heat-grid clothing-types-size-heat-grid--size-tab">
+                                  {clothingTypeSizeSoldStock.map((row) => {
+                                    const isSizeFilterActive =
+                                      clothingTypeInStockFilter?.kind === 'size' &&
+                                      clothingTypeInStockFilter.categorySizeId ===
+                                        row.category_size_id &&
+                                      clothingTypeInStockFilter.sizeLabel === row.size_label;
+                                    return (
+                                      <HeatGauge
+                                        key={row.category_size_id ?? `no-size-${row.size_label}`}
+                                        label={row.size_label}
+                                        soldCount={row.sold_count}
+                                        inStockCount={row.in_stock_count}
+                                        active={isSizeFilterActive}
+                                        onClick={() => applyClothingTypeSizeInStockFilter(row)}
+                                      />
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <div className="menswear-categories-overview-table-wrap">
+                                  <table className="menswear-categories-overview-table">
+                                    <thead>
+                                      <tr>
+                                        <th scope="col">Size</th>
+                                        <th scope="col" className="menswear-categories-overview-metric">
+                                          Sold
+                                        </th>
+                                        <th scope="col" className="menswear-categories-overview-metric">
+                                          In stock
+                                        </th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {clothingTypeSizeSoldStock.map((row) => {
+                                        const isSizeFilterActive =
+                                          clothingTypeInStockFilter?.kind === 'size' &&
+                                          clothingTypeInStockFilter.categorySizeId ===
+                                            row.category_size_id &&
+                                          clothingTypeInStockFilter.sizeLabel === row.size_label;
+                                        return (
+                                          <tr
+                                            key={row.category_size_id ?? `no-size-${row.size_label}`}
+                                            className={`menswear-categories-buy-more-stock-row-link${isSizeFilterActive ? ' menswear-categories-buy-more-stock-row-link--active' : ''}`}
+                                            role="button"
+                                            tabIndex={0}
+                                            onClick={() => applyClothingTypeSizeInStockFilter(row)}
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Enter' || e.key === ' ') {
+                                                e.preventDefault();
+                                                applyClothingTypeSizeInStockFilter(row);
+                                              }
+                                            }}
+                                            aria-label={`Filter in stock by size ${row.size_label}`}
+                                            aria-pressed={isSizeFilterActive}
+                                          >
+                                            <td>{row.size_label}</td>
+                                            <td className="menswear-categories-overview-metric">
+                                              {row.sold_count}
+                                            </td>
+                                            <td className="menswear-categories-overview-metric">
+                                              {row.in_stock_count}
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              ))}
+                          </div>
+                  )}
+                  {clothingTypeDetailTab === 'table' && (
                   <div className="menswear-categories-detail-split">
                     <div className="menswear-categories-detail-split-brands">
                       <h3 className="menswear-categories-overview-heading">Brands</h3>
@@ -14752,124 +15003,6 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                               ))}
                           </div>
                           <div className="menswear-categories-overview-block">
-                            <div className="clothing-types-size-heat-header">
-                              <h4 className="menswear-categories-overview-heading">
-                                Sold and in stock by size
-                              </h4>
-                              <div
-                                className="clothing-types-invest-risk-view-toggle"
-                                role="group"
-                                aria-label="Sold and in stock by size view"
-                              >
-                                <button
-                                  type="button"
-                                  className={`clothing-types-invest-risk-view-btn${
-                                    clothingTypeSizeSoldStockView === 'gauge' ? ' is-active' : ''
-                                  }`}
-                                  aria-pressed={clothingTypeSizeSoldStockView === 'gauge'}
-                                  onClick={() => setClothingTypeSizeSoldStockView('gauge')}
-                                >
-                                  Hot / Cold
-                                </button>
-                                <button
-                                  type="button"
-                                  className={`clothing-types-invest-risk-view-btn${
-                                    clothingTypeSizeSoldStockView === 'table' ? ' is-active' : ''
-                                  }`}
-                                  aria-pressed={clothingTypeSizeSoldStockView === 'table'}
-                                  onClick={() => setClothingTypeSizeSoldStockView('table')}
-                                >
-                                  Table
-                                </button>
-                              </div>
-                            </div>
-                            {clothingTypeSizeSoldStockError && (
-                              <div className="menswear-categories-error menswear-categories-error--inline" role="alert">
-                                {clothingTypeSizeSoldStockError}
-                              </div>
-                            )}
-                            {clothingTypeSizeSoldStockLoading && (
-                              <p className="menswear-categories-muted">Loading…</p>
-                            )}
-                            {!clothingTypeSizeSoldStockLoading &&
-                              !clothingTypeSizeSoldStockError &&
-                              (clothingTypeSizeSoldStock.length === 0 ? (
-                                <p className="menswear-categories-muted">
-                                  No stock lines in this category yet.
-                                </p>
-                              ) : clothingTypeSizeSoldStockView === 'gauge' ? (
-                                <div className="clothing-types-size-heat-grid">
-                                  {clothingTypeSizeSoldStock.map((row) => {
-                                    const isSizeFilterActive =
-                                      clothingTypeInStockFilter?.kind === 'size' &&
-                                      clothingTypeInStockFilter.categorySizeId ===
-                                        row.category_size_id &&
-                                      clothingTypeInStockFilter.sizeLabel === row.size_label;
-                                    return (
-                                      <HeatGauge
-                                        key={row.category_size_id ?? `no-size-${row.size_label}`}
-                                        label={row.size_label}
-                                        soldCount={row.sold_count}
-                                        inStockCount={row.in_stock_count}
-                                        active={isSizeFilterActive}
-                                        onClick={() => applyClothingTypeSizeInStockFilter(row)}
-                                      />
-                                    );
-                                  })}
-                                </div>
-                              ) : (
-                                <div className="menswear-categories-overview-table-wrap">
-                                  <table className="menswear-categories-overview-table">
-                                    <thead>
-                                      <tr>
-                                        <th scope="col">Size</th>
-                                        <th scope="col" className="menswear-categories-overview-metric">
-                                          Sold
-                                        </th>
-                                        <th scope="col" className="menswear-categories-overview-metric">
-                                          In stock
-                                        </th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {clothingTypeSizeSoldStock.map((row) => {
-                                        const isSizeFilterActive =
-                                          clothingTypeInStockFilter?.kind === 'size' &&
-                                          clothingTypeInStockFilter.categorySizeId ===
-                                            row.category_size_id &&
-                                          clothingTypeInStockFilter.sizeLabel === row.size_label;
-                                        return (
-                                          <tr
-                                            key={row.category_size_id ?? `no-size-${row.size_label}`}
-                                            className={`menswear-categories-buy-more-stock-row-link${isSizeFilterActive ? ' menswear-categories-buy-more-stock-row-link--active' : ''}`}
-                                            role="button"
-                                            tabIndex={0}
-                                            onClick={() => applyClothingTypeSizeInStockFilter(row)}
-                                            onKeyDown={(e) => {
-                                              if (e.key === 'Enter' || e.key === ' ') {
-                                                e.preventDefault();
-                                                applyClothingTypeSizeInStockFilter(row);
-                                              }
-                                            }}
-                                            aria-label={`Filter in stock by size ${row.size_label}`}
-                                            aria-pressed={isSizeFilterActive}
-                                          >
-                                            <td>{row.size_label}</td>
-                                            <td className="menswear-categories-overview-metric">
-                                              {row.sold_count}
-                                            </td>
-                                            <td className="menswear-categories-overview-metric">
-                                              {row.in_stock_count}
-                                            </td>
-                                          </tr>
-                                        );
-                                      })}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              ))}
-                          </div>
-                          <div className="menswear-categories-overview-block">
                             <h4 className="menswear-categories-overview-heading">
                               Hot or not by tag
                             </h4>
@@ -14906,18 +15039,16 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                       )}
                     </div>
                   </div>
-                  {!clothingTypeDetailLoading && clothingTypeDetailSummary ? (
+                  )}
+                  {clothingTypeDetailTab === 'in-stock' && !clothingTypeDetailLoading && clothingTypeDetailSummary ? (
                     <section
                       ref={clothingTypeInStockSectionRef}
                       className="clothing-type-detail-items-section"
                       aria-label={`${selectedClothingTypeLabel} in stock`}
                     >
-                      <h3 className="clothing-type-detail-items-heading">
-                        {selectedClothingTypeLabel} in stock
-                        {clothingTypeInStockFilter ? (
+                      {clothingTypeInStockFilter ? (
+                        <h3 className="clothing-type-detail-items-heading">
                           <span className="clothing-type-in-stock-filter-badge">
-                            {' '}
-                            ·{' '}
                             {clothingTypeInStockFilter.kind === 'size'
                               ? `Size ${clothingTypeInStockFilter.sizeLabel}`
                               : clothingTypeInStockFilter.brandName}
@@ -14930,8 +15061,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                               ×
                             </button>
                           </span>
-                        ) : null}
-                      </h3>
+                        </h3>
+                      ) : null}
                       <hr className="clothing-type-detail-heading-rule" aria-hidden />
                       {clothingTypeInStockDisplayRows.length === 0 ? (
                         <p className="menswear-categories-muted">

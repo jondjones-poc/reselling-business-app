@@ -568,6 +568,12 @@ const Reporting: React.FC = () => {
   
   // Monthly view state
   const [viewMode, setViewMode] = useState<ReportingViewMode>(initialViewMode);
+  const reportingPageTab: 'sales' | 'planning' | 'stock-data' =
+    viewMode === 'projections' || viewMode === 'cash-flow-analysis'
+      ? 'planning'
+      : viewMode === 'stock-analysis'
+      ? 'stock-data'
+      : 'sales';
   const [salesSubTab, setSalesSubTabState] = useState<SalesDataSubTab>(() => initialSalesSubTab);
   const [vintedData, setVintedData] = useState<{ purchases: number; sales: number; profit: number }>({ purchases: 0, sales: 0, profit: 0 });
   const [ebayData, setEbayData] = useState<{ purchases: number; sales: number; profit: number }>({ purchases: 0, sales: 0, profit: 0 });
@@ -2770,45 +2776,67 @@ const Reporting: React.FC = () => {
       {error && <div className="reporting-error">{error}</div>}
       {loading && <div className="reporting-status">Loading analytics...</div>}
 
-      {/* Toggle for Global/Monthly view */}
-      <div className="view-toggle-container">
+      {/* Page-level grouping: Sales / Planning / Stock Data */}
+      <div className="view-toggle-container reporting-page-tabs">
         <button
-          className={`view-toggle-button ${viewMode === 'sales-data' ? 'active' : ''}`}
+          className={`view-toggle-button ${reportingPageTab === 'sales' ? 'active' : ''}`}
           onClick={() => setViewMode('sales-data')}
         >
-          Sales Data
+          Sales
         </button>
         <button
-          className={`view-toggle-button ${viewMode === 'projections' ? 'active' : ''}`}
+          className={`view-toggle-button ${reportingPageTab === 'planning' ? 'active' : ''}`}
           onClick={() => setViewMode('projections')}
         >
-          Projections
+          Planning
         </button>
         <button
-          className={`view-toggle-button ${viewMode === 'stock-analysis' ? 'active' : ''}`}
+          className={`view-toggle-button ${reportingPageTab === 'stock-data' ? 'active' : ''}`}
           onClick={() => setViewMode('stock-analysis')}
         >
-          Stock Analysis
-        </button>
-        <button
-          className={`view-toggle-button ${viewMode === 'channel-analytics' ? 'active' : ''}`}
-          onClick={() => setViewMode('channel-analytics')}
-        >
-          Channel Analytics
-        </button>
-        <button
-          className={`view-toggle-button ${viewMode === 'cash-flow-analysis' ? 'active' : ''}`}
-          onClick={() => setViewMode('cash-flow-analysis')}
-        >
-          Cash Flow Analysis
-        </button>
-        <button
-          className={`view-toggle-button ${viewMode === 'profit-per-month' ? 'active' : ''}`}
-          onClick={() => setViewMode('profit-per-month')}
-        >
-          Profit Per Month
+          Stock Data
         </button>
       </div>
+
+      {/* Toggle for Global/Monthly view */}
+      {reportingPageTab === 'sales' && (
+        <div className="view-toggle-container reporting-sub-tabs">
+          <button
+            className={`view-toggle-button ${viewMode === 'sales-data' ? 'active' : ''}`}
+            onClick={() => setViewMode('sales-data')}
+          >
+            Sales Overview
+          </button>
+          <button
+            className={`view-toggle-button ${viewMode === 'channel-analytics' ? 'active' : ''}`}
+            onClick={() => setViewMode('channel-analytics')}
+          >
+            Sales By Channel
+          </button>
+          <button
+            className={`view-toggle-button ${viewMode === 'profit-per-month' ? 'active' : ''}`}
+            onClick={() => setViewMode('profit-per-month')}
+          >
+            Profit Per Month
+          </button>
+        </div>
+      )}
+      {reportingPageTab === 'planning' && (
+        <div className="view-toggle-container reporting-sub-tabs">
+          <button
+            className={`view-toggle-button ${viewMode === 'projections' ? 'active' : ''}`}
+            onClick={() => setViewMode('projections')}
+          >
+            Projections
+          </button>
+          <button
+            className={`view-toggle-button ${viewMode === 'cash-flow-analysis' ? 'active' : ''}`}
+            onClick={() => setViewMode('cash-flow-analysis')}
+          >
+            Cash Flow Analysis
+          </button>
+        </div>
+      )}
 
       {/* Sales Data View */}
       <div className={`view-content ${viewMode === 'sales-data' ? 'active' : ''}`}>

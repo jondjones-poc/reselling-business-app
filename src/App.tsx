@@ -9,7 +9,7 @@ import Expenses from './components/Expenses';
 import Orders from './components/Orders';
 import Sourcing from './components/Sourcing';
 import Config from './components/Config';
-import AuthGate from './components/AuthGate';
+import AuthGate, { RequireAuth, useAuth } from './components/AuthGate';
 import { pingDatabase } from './utils/dbPing';
 import './App.css';
 
@@ -101,6 +101,15 @@ function AppNavLink({
 }
 
 function App() {
+  return (
+    <AuthGate>
+      <AppShell />
+    </AuthGate>
+  );
+}
+
+function AppShell() {
+  const { userEmail } = useAuth();
   const location = useLocation();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
@@ -138,8 +147,8 @@ function App() {
   const mobileBarActive = navItems.some((item) => isMobileNavItemActive(location.pathname, item));
 
   return (
-    <AuthGate>
     <div className="App">
+        {userEmail && (
         <nav className="navigation" aria-label="Main">
           <div className="nav-container">
             <div id="primary-nav-menu" className="nav-menu nav-menu--desktop">
@@ -204,29 +213,31 @@ function App() {
             </div>
           </div>
         </nav>
+        )}
 
+        {userEmail && (
         <div
           className={`nav-drawer-backdrop${mobileNavOpen ? ' nav-drawer-backdrop--open' : ''}`}
           aria-hidden={!mobileNavOpen}
           onClick={closeMobileNav}
         />
+        )}
 
         <Routes>
           <Route path="/" element={<ScoutingRoute />} />
-          <Route path="/analytics" element={<Research />} />
-          <Route path="/research" element={<ResearchRoute />} />
-          <Route path="/stock" element={<Stock />} />
-          <Route path="/tools" element={<Expenses />} />
+          <Route path="/analytics" element={<RequireAuth><Research /></RequireAuth>} />
+          <Route path="/research" element={<RequireAuth><ResearchRoute /></RequireAuth>} />
+          <Route path="/stock" element={<RequireAuth><Stock /></RequireAuth>} />
+          <Route path="/tools" element={<RequireAuth><Expenses /></RequireAuth>} />
           <Route path="/expenses" element={<Navigate to={{ pathname: "/tools", search: location.search, hash: location.hash }} replace />} />
-          <Route path="/reporting" element={<Reporting />} />
-          <Route path="/orders" element={<Orders />} />
-          <Route path="/sniping" element={<Sourcing />} />
+          <Route path="/reporting" element={<RequireAuth><Reporting /></RequireAuth>} />
+          <Route path="/orders" element={<RequireAuth><Orders /></RequireAuth>} />
+          <Route path="/sniping" element={<RequireAuth><Sourcing /></RequireAuth>} />
           <Route path="/sourcing" element={<Navigate to="/sniping" replace />} />
-          <Route path="/config" element={<Config />} />
+          <Route path="/config" element={<RequireAuth><Config /></RequireAuth>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
     </div>
-    </AuthGate>
   );
 }
 

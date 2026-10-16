@@ -661,6 +661,66 @@
   box-shadow: 0 4px 12px rgba(var(--theme-accent-rgb), 0.2);
 }
 
+.reporting-page-tabs {
+  margin-bottom: 16px;
+  background: rgba(var(--theme-bg-rgb), 0.85);
+  border-color: rgba(var(--theme-accent-rgb), 0.4);
+}
+
+.reporting-page-tabs .view-toggle-button {
+  font-size: 1.05rem;
+}
+
+/* Sub-tabs (nested under a page tab) deliberately look different from the
+   page-tab row above them: fully rounded pill chips with their own sky-blue
+   accent (fixed hue, independent of the active theme's accent colour)
+   instead of the page-tab row's squarer, larger pills, so the two levels of
+   navigation are easy to tell apart at a glance. */
+.reporting-sub-tabs {
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.reporting-sub-tabs .view-toggle-button {
+  flex: none;
+  padding: 10px 22px;
+  background: transparent;
+  border: 1px solid rgba(56, 161, 224, 0.3);
+  border-radius: 999px;
+  outline: none;
+  box-shadow: none;
+  -webkit-appearance: none;
+  appearance: none;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.02rem;
+  text-transform: none;
+  color: rgba(var(--theme-text-rgb), 0.7);
+}
+
+.reporting-sub-tabs .view-toggle-button:hover,
+.reporting-sub-tabs .view-toggle-button:focus,
+.reporting-sub-tabs .view-toggle-button:focus-visible {
+  background: rgba(56, 161, 224, 0.1);
+  outline: none;
+  box-shadow: none;
+  color: rgba(var(--theme-text-rgb), 0.92);
+  border-color: rgba(56, 161, 224, 0.55);
+}
+
+.reporting-sub-tabs .view-toggle-button.active {
+  background: rgba(56, 161, 224, 0.18);
+  outline: none;
+  box-shadow: none;
+  color: rgb(56, 161, 224);
+  border-color: rgb(56, 161, 224);
+}
+
 /* View Content with Fade Transitions */
 .view-content {
   opacity: 0;

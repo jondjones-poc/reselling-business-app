@@ -976,6 +976,28 @@
   text-align: center;
 }
 
+/* Rendered as a real <a> (react-router Link) when the row has a category to drill into — reset link defaults and add a hover affordance. */
+.research-seasonal-buy-now-item-body--clickable {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  border-radius: 10px;
+  padding: 4px 6px;
+  margin: -4px -6px;
+  transition: background 0.15s ease;
+}
+
+.research-seasonal-buy-now-item-body--clickable:hover,
+.research-seasonal-buy-now-item-body--clickable:focus-visible {
+  background: rgba(var(--theme-accent-rgb), 0.12);
+}
+
+.research-seasonal-buy-now-item-body--clickable .research-seasonal-buy-now-item-name {
+  text-decoration: underline;
+  text-decoration-color: rgba(var(--theme-accent-rgb), 0.5);
+  text-underline-offset: 2px;
+}
+
 .research-seasonal-buy-now-item-name {
   font-size: 0.92rem;
   font-weight: 650;
@@ -6451,17 +6473,6 @@ a.research-tab {
   background: rgba(80, 180, 120, 0.14);
 }
 
-.clothing-type-detail-signals-heading {
-  margin: 24px 0 10px 0;
-  font-size: 1.2rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: rgba(var(--theme-text-rgb), 0.88);
-  text-align: center;
-  padding: 0 12px;
-}
-
 a.menswear-categories-brand-link {
   cursor: pointer;
 }
@@ -6537,6 +6548,17 @@ a.menswear-categories-brand-link {
 .menswear-categories-subpanel-tab:hover {
   color: rgba(var(--theme-text-rgb), 0.92);
   background: rgba(var(--theme-accent-rgb), 0.06);
+}
+
+.clothing-type-detail-subtabs .menswear-categories-subpanel-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.clothing-type-detail-subtab-icon {
+  flex-shrink: 0;
 }
 
 .menswear-categories-subpanel-tab--active {
@@ -8444,19 +8466,38 @@ button.menswear-categories-brand-link {
   margin-bottom: 12px;
 }
 
+.clothing-types-size-heat-header--centered {
+  justify-content: center;
+}
+
 .clothing-types-size-heat-header .clothing-types-invest-risk-view-btn {
   width: auto;
   height: auto;
   padding: 6px 14px;
+  gap: 6px;
   font-size: 0.8rem;
   font-weight: 600;
   white-space: nowrap;
+}
+
+.clothing-types-size-heat-header .clothing-types-invest-risk-view-btn svg {
+  flex-shrink: 0;
 }
 
 .clothing-types-size-heat-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 16px;
+}
+
+.clothing-types-size-heat-grid--size-tab {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+@media (max-width: 900px) {
+  .clothing-types-size-heat-grid--size-tab {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
 }
 
 .clothing-types-size-heat-gauge {

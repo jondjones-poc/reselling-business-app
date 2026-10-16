@@ -2,6 +2,8 @@ import React from 'react';
 import { NavLink, useSearchParams } from 'react-router-dom';
 import EbaySearch from './EbaySearch';
 import ScoutingItemsToSource from './ScoutingItemsToSource';
+import PublicPriceSearch from './PublicPriceSearch';
+import { useAuth } from './AuthGate';
 import './BrandResearch.css';
 
 type ScoutingView = 'scout' | 'source';
@@ -12,8 +14,13 @@ function normalizeView(raw: string | null): ScoutingView {
 }
 
 const ScoutingRoute: React.FC = () => {
+  const { userEmail } = useAuth();
   const [searchParams] = useSearchParams();
   const view = normalizeView(searchParams.get('view'));
+
+  if (!userEmail) {
+    return <PublicPriceSearch />;
+  }
 
   return (
     <div

@@ -1,8 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { apiUrl } from '../utils/apiBase';
 
 type BuyNowRecommendation = {
   name: string;
+  categoryId: number | null;
+  departmentId: number | null;
   soldCount: number;
   saleTotal: number;
   unsoldInStock: number;
@@ -10,11 +13,34 @@ type BuyNowRecommendation = {
 
 type TrendingRow = {
   name: string;
+  categoryId: number | null;
+  departmentId: number | null;
   soldCount: number;
   saleTotal: number;
   priorSoldCount: number;
   direction: 'up' | 'down' | 'flat';
 };
+
+/** Link to this category's detail view — null when the row has no category (the "Uncategorized" bucket). */
+function clothingTypeHref(categoryId: number | null, departmentId: number | null): string | null {
+  if (categoryId == null || departmentId == null) return null;
+  return `/analytics?tab=clothing-types&departmentId=${departmentId}&clothingTypeId=${categoryId}`;
+}
+
+/** Renders as a real link when `href` is set, otherwise a plain div — avoids a dynamic Link-vs-'div' component type. */
+const SeasonalCardItemBody: React.FC<{
+  href: string | null;
+  title?: string;
+  className: string;
+  children: React.ReactNode;
+}> = ({ href, title, className, children }) =>
+  href ? (
+    <Link to={href} title={title} className={className}>
+      {children}
+    </Link>
+  ) : (
+    <div className={className}>{children}</div>
+  );
 
 type BuyNowPayload = {
   recommendations: BuyNowRecommendation[];
@@ -227,6 +253,8 @@ const SeasonalWeeklyTopItems: React.FC<SeasonalWeeklyTopItemsProps> = ({ departm
                     : 'flat';
                 return {
                   name: String(row.name ?? 'Uncategorized'),
+                  categoryId: row.categoryId != null ? Number(row.categoryId) : null,
+                  departmentId: row.departmentId != null ? Number(row.departmentId) : null,
                   soldCount: Number(row.soldCount) || 0,
                   saleTotal: Number(row.saleTotal) || 0,
                   priorSoldCount: Number(row.priorSoldCount) || 0,
@@ -350,12 +378,18 @@ const SeasonalWeeklyTopItems: React.FC<SeasonalWeeklyTopItemsProps> = ({ departm
               </p>
             ) : (
               <ol className="research-seasonal-buy-now-list">
-                {buyNow.recommendations.map((row, idx) => (
+                {buyNow.recommendations.map((row, idx) => {
+                  const href = clothingTypeHref(row.categoryId, row.departmentId);
+                  return (
                   <li key={row.name} className="research-seasonal-buy-now-item">
                     <span className="research-seasonal-buy-now-rank" aria-hidden>
                       {idx + 1}
                     </span>
-                    <div className="research-seasonal-buy-now-item-body">
+                    <SeasonalCardItemBody
+                      href={href}
+                      title={href ? `See ${row.name} details` : undefined}
+                      className={`research-seasonal-buy-now-item-body${href ? ' research-seasonal-buy-now-item-body--clickable' : ''}`}
+                    >
                       <span className="research-seasonal-buy-now-item-name">{row.name}</span>
                       <span className="research-seasonal-buy-now-item-meta">
                         <span className="research-seasonal-buy-now-item-meta-part">
@@ -370,9 +404,10 @@ const SeasonalWeeklyTopItems: React.FC<SeasonalWeeklyTopItemsProps> = ({ departm
                           {row.unsoldInStock} in stock
                         </span>
                       </span>
-                    </div>
+                    </SeasonalCardItemBody>
                   </li>
-                ))}
+                  );
+                })}
               </ol>
             )
           ) : null}
@@ -400,12 +435,18 @@ const SeasonalWeeklyTopItems: React.FC<SeasonalWeeklyTopItemsProps> = ({ departm
               </p>
             ) : (
               <ol className="research-seasonal-buy-now-list">
-                {buyNow.trending.map((row, idx) => (
+                {buyNow.trending.map((row, idx) => {
+                  const href = clothingTypeHref(row.categoryId, row.departmentId);
+                  return (
                   <li key={row.name} className="research-seasonal-buy-now-item">
                     <span className="research-seasonal-buy-now-rank" aria-hidden>
                       {idx + 1}
                     </span>
-                    <div className="research-seasonal-buy-now-item-body">
+                    <SeasonalCardItemBody
+                      href={href}
+                      title={href ? `See ${row.name} details` : undefined}
+                      className={`research-seasonal-buy-now-item-body${href ? ' research-seasonal-buy-now-item-body--clickable' : ''}`}
+                    >
                       <span className="research-seasonal-buy-now-item-name">
                         {row.name}
                         <span
@@ -430,9 +471,10 @@ const SeasonalWeeklyTopItems: React.FC<SeasonalWeeklyTopItemsProps> = ({ departm
                           was {row.priorSoldCount} prior
                         </span>
                       </span>
-                    </div>
+                    </SeasonalCardItemBody>
                   </li>
-                ))}
+                  );
+                })}
               </ol>
             )
           ) : null}
@@ -460,12 +502,18 @@ const SeasonalWeeklyTopItems: React.FC<SeasonalWeeklyTopItemsProps> = ({ departm
               </p>
             ) : (
               <ol className="research-seasonal-buy-now-list">
-                {buyNow.startBuying.map((row, idx) => (
+                {buyNow.startBuying.map((row, idx) => {
+                  const href = clothingTypeHref(row.categoryId, row.departmentId);
+                  return (
                   <li key={row.name} className="research-seasonal-buy-now-item">
                     <span className="research-seasonal-buy-now-rank" aria-hidden>
                       {idx + 1}
                     </span>
-                    <div className="research-seasonal-buy-now-item-body">
+                    <SeasonalCardItemBody
+                      href={href}
+                      title={href ? `See ${row.name} details` : undefined}
+                      className={`research-seasonal-buy-now-item-body${href ? ' research-seasonal-buy-now-item-body--clickable' : ''}`}
+                    >
                       <span className="research-seasonal-buy-now-item-name">{row.name}</span>
                       <span className="research-seasonal-buy-now-item-meta">
                         <span className="research-seasonal-buy-now-item-meta-part">
@@ -483,9 +531,10 @@ const SeasonalWeeklyTopItems: React.FC<SeasonalWeeklyTopItemsProps> = ({ departm
                           {row.unsoldInStock} in stock
                         </span>
                       </span>
-                    </div>
+                    </SeasonalCardItemBody>
                   </li>
-                ))}
+                  );
+                })}
               </ol>
             )
           ) : null}
