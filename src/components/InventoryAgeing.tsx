@@ -37,6 +37,24 @@ function formatDays(value: number | null | undefined): string {
   return `${n} day${n === 1 ? '' : 's'}`;
 }
 
+/** Red (worst — most stock piled up in this band) to green (least), for spotting what not to buy more of. */
+function ageHeatColor(ratio: number): string {
+  const clamped = Math.max(0, Math.min(1, ratio));
+  const hue = 130 - clamped * 130;
+  return `hsl(${hue.toFixed(0)}, 72%, 46%)`;
+}
+
+type BandCategoryRow = {
+  categoryId: number | null;
+  categoryName: string;
+  itemCount: number;
+  purchaseTotal: number;
+};
+
+function bandCategoryKey(categoryId: number | null, categoryName: string): string {
+  return categoryId != null ? `id:${categoryId}` : `name:${categoryName}`;
+}
+
 type AgeingWarning = 'healthy' | 'watch' | 'slow' | 'stale';
 
 type AgeingBand = {
@@ -269,7 +287,12 @@ function buildInventoryAgeingAskAiPrompt(args: {
   return lines.join('\n');
 }
 
-const InventoryAgeing: React.FC = () => {
+interface InventoryAgeingProps {
+  /** Which section to display — filters and the live/storage summary stay shared regardless. */
+  section?: 'live' | 'storage';
+}
+
+const InventoryAgeing: React.FC<InventoryAgeingProps> = ({ section = 'live' }) => {
   const [departmentId, setDepartmentId] = useState<number | ''>('');
   const [categoryId, setCategoryId] = useState<number | ''>('');
   const [brandId, setBrandId] = useState<number | ''>('');
@@ -291,6 +314,7 @@ const InventoryAgeing: React.FC = () => {
 
   const [selectedBand, setSelectedBand] = useState<string | null>(null);
   const [drilldownScope, setDrilldownScope] = useState<ListingScope>('live');
+  const [bandCategoryFilterKey, setBandCategoryFilterKey] = useState<string | null>(null);
   const [bandItems, setBandItems] = useState<AgeingItemRow[]>([]);
   const [bandItemsLoading, setBandItemsLoading] = useState(false);
   const [bandItemsError, setBandItemsError] = useState<string | null>(null);
@@ -323,11 +347,6 @@ const InventoryAgeing: React.FC = () => {
           .filter((x): x is FilterOption => x != null)
           .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
         setDepartments(mapped);
-        setDepartmentId((prev) => {
-          if (prev !== '') return prev;
-          const mw = mapped.find((d) => d.name.toLowerCase() === 'menswear');
-          return mw?.id ?? mapped[0]?.id ?? '';
-        });
       } catch (e) {
         if ((e as { name?: string })?.name === 'AbortError') return;
         setDepartments([]);
@@ -463,6 +482,7 @@ const InventoryAgeing: React.FC = () => {
   }, [queryString]);
 
   useEffect(() => {
+    setBandCategoryFilterKey(null);
     if (!selectedBand) {
       setBandItems([]);
       setBandItemsError(null);
@@ -517,6 +537,38 @@ const InventoryAgeing: React.FC = () => {
     return sourceBands.find((b) => b.key === selectedBand) ?? null;
   }, [bands, storageBands, selectedBand, totals, drilldownScope]);
   const showDrilldown = selectedBand != null && (selectedBandMeta != null || selectedBand === 'missing-date');
+
+  /** Category breakdown of the currently selected band's items — colored red (most piled up) to green (least), red first. */
+  const bandCategoryBreakdown = useMemo<BandCategoryRow[]>(() => {
+    if (!showDrilldown) return [];
+    const map = new Map<string, BandCategoryRow>();
+    for (const row of bandItems) {
+      const key = bandCategoryKey(row.categoryId, row.categoryName?.trim() || 'Uncategorized');
+      const existing = map.get(key);
+      if (existing) {
+        existing.itemCount += 1;
+        existing.purchaseTotal += row.purchasePrice ?? 0;
+      } else {
+        map.set(key, {
+          categoryId: row.categoryId,
+          categoryName: row.categoryName?.trim() || 'Uncategorized',
+          itemCount: 1,
+          purchaseTotal: row.purchasePrice ?? 0,
+        });
+      }
+    }
+    return Array.from(map.values()).sort(
+      (a, b) => b.itemCount - a.itemCount || a.categoryName.localeCompare(b.categoryName)
+    );
+  }, [bandItems, showDrilldown]);
+
+  /** Items drilldown below the heatmap narrows to the clicked category, if one is selected. */
+  const filteredBandItems = useMemo(() => {
+    if (!bandCategoryFilterKey) return bandItems;
+    return bandItems.filter(
+      (row) => bandCategoryKey(row.categoryId, row.categoryName?.trim() || 'Uncategorized') === bandCategoryFilterKey
+    );
+  }, [bandItems, bandCategoryFilterKey]);
 
   const filterLabels = useMemo(() => {
     const department =
@@ -753,6 +805,57 @@ const InventoryAgeing: React.FC = () => {
       ? (storageTotals.purchaseTotal / (totals.purchaseTotal + storageTotals.purchaseTotal)) * 100
       : null;
 
+  /** Replaces the band summary table once a band is selected — categories within that band, red (worst) first. */
+  const renderBandCategoryHeatmap = (scope: ListingScope) => {
+    if (!showDrilldown || !selectedBandMeta || drilldownScope !== scope) return null;
+    const maxCount = bandCategoryBreakdown.reduce((m, r) => Math.max(m, r.itemCount), 0);
+    return (
+      <div
+        key={`${scope}-${selectedBand}-heatmap`}
+        className={`inventory-ageing-heatmap${bandItemsLoading ? ' inventory-ageing-heatmap--loading' : ''}`}
+      >
+        <div className="inventory-ageing-heatmap-header">
+          <h3 className="inventory-ageing-heatmap-title">{selectedBandMeta.label} — by category</h3>
+          <button type="button" className="inventory-ageing-drilldown-close" onClick={() => setSelectedBand(null)}>
+            Back to bands
+          </button>
+        </div>
+        {bandItemsError ? (
+          <p className="inventory-ageing-error" role="alert">
+            {bandItemsError}
+          </p>
+        ) : bandCategoryBreakdown.length === 0 && !bandItemsLoading ? (
+          <p className="inventory-ageing-muted">No items in this band for the current filters.</p>
+        ) : (
+          <div className="inventory-ageing-heatmap-grid">
+            {bandCategoryBreakdown.map((row) => {
+              const ratio = maxCount > 0 ? row.itemCount / maxCount : 0;
+              const color = ageHeatColor(ratio);
+              const key = bandCategoryKey(row.categoryId, row.categoryName);
+              const isActive = bandCategoryFilterKey === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  className={`inventory-ageing-heatmap-tile${isActive ? ' inventory-ageing-heatmap-tile--active' : ''}`}
+                  style={{ background: color }}
+                  aria-pressed={isActive}
+                  onClick={() => setBandCategoryFilterKey(isActive ? null : key)}
+                >
+                  <span className="inventory-ageing-heatmap-tile-name">{row.categoryName}</span>
+                  <span className="inventory-ageing-heatmap-tile-count">
+                    {row.itemCount} item{row.itemCount === 1 ? '' : 's'}
+                  </span>
+                  <span className="inventory-ageing-heatmap-tile-value">{formatGbp(row.purchaseTotal)}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderBandTable = (sourceBands: AgeingBand[], scope: ListingScope) => (
     <div className="inventory-ageing-table-wrap">
       <table className="inventory-ageing-table">
@@ -850,6 +953,20 @@ const InventoryAgeing: React.FC = () => {
             Close
           </button>
         </div>
+        {bandCategoryFilterKey ? (
+          <p className="inventory-ageing-category-filter-note">
+            Filtered to{' '}
+            {bandCategoryBreakdown.find((r) => bandCategoryKey(r.categoryId, r.categoryName) === bandCategoryFilterKey)
+              ?.categoryName ?? 'category'}
+            <button
+              type="button"
+              className="inventory-ageing-category-filter-clear"
+              onClick={() => setBandCategoryFilterKey(null)}
+            >
+              Clear
+            </button>
+          </p>
+        ) : null}
         {bandItemsLoading ? <p className="inventory-ageing-muted">Loading items…</p> : null}
         {bandItemsError ? (
           <p className="inventory-ageing-error" role="alert">
@@ -857,7 +974,7 @@ const InventoryAgeing: React.FC = () => {
           </p>
         ) : null}
         {!bandItemsLoading && !bandItemsError ? (
-          bandItems.length === 0 ? (
+          filteredBandItems.length === 0 ? (
             <p className="inventory-ageing-muted">No items in this band for the current filters.</p>
           ) : (
             <div className="inventory-ageing-items-wrap">
@@ -883,7 +1000,7 @@ const InventoryAgeing: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {bandItems.map((row) => (
+                  {filteredBandItems.map((row) => (
                     <tr key={row.id}>
                       <td className="inventory-ageing-col-edit">
                         <Link
@@ -923,7 +1040,11 @@ const InventoryAgeing: React.FC = () => {
                   ))}
                 </tbody>
               </table>
-              {selectedBandMeta.itemCount > bandItems.length ? (
+              {bandCategoryFilterKey ? (
+                <p className="inventory-ageing-muted inventory-ageing-items-note">
+                  Showing {filteredBandItems.length} item{filteredBandItems.length === 1 ? '' : 's'} in this category.
+                </p>
+              ) : selectedBandMeta.itemCount > bandItems.length ? (
                 <p className="inventory-ageing-muted inventory-ageing-items-note">
                   Showing {bandItems.length} of {selectedBandMeta.itemCount} items.
                 </p>
@@ -1037,6 +1158,7 @@ const InventoryAgeing: React.FC = () => {
             </div>
           </dl>
 
+          {section === 'live' && (
           <section className="inventory-ageing-section" aria-labelledby="inventory-ageing-live-heading">
             <h2 id="inventory-ageing-live-heading" className="inventory-ageing-section-title">
               Live listed
@@ -1120,10 +1242,18 @@ const InventoryAgeing: React.FC = () => {
               </button>
             ) : null}
 
-            {renderBandTable(bands, 'live')}
+            {showDrilldown && drilldownScope === 'live' ? (
+              renderBandCategoryHeatmap('live')
+            ) : (
+              <div key="live-bands-table" className="inventory-ageing-crossfade">
+                {renderBandTable(bands, 'live')}
+              </div>
+            )}
             {renderBandItemsDrilldown('live')}
           </section>
+          )}
 
+          {section === 'storage' && (
           <section
             className="inventory-ageing-section inventory-ageing-section--storage"
             aria-labelledby="inventory-ageing-storage-heading"
@@ -1193,9 +1323,16 @@ const InventoryAgeing: React.FC = () => {
               )}
             </div>
 
-            {renderBandTable(storageBands, 'storage')}
+            {showDrilldown && drilldownScope === 'storage' ? (
+              renderBandCategoryHeatmap('storage')
+            ) : (
+              <div key="storage-bands-table" className="inventory-ageing-crossfade">
+                {renderBandTable(storageBands, 'storage')}
+              </div>
+            )}
             {renderBandItemsDrilldown('storage')}
           </section>
+          )}
 
         </>
       ) : null}

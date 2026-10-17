@@ -2980,7 +2980,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
   /** Clothing type detail page — one flat tab row: brand hot/cold gauges, the brands+chart table, or the raw in-stock items list. */
   const [clothingTypeDetailTab, setClothingTypeDetailTab] = useState<'gauge' | 'size' | 'table' | 'in-stock'>('gauge');
   /** "Sales By Time" page — default to the fast-sellers heatmap, with raw unsold-inventory ageing as the second tab. */
-  const [salesByTimeTab, setSalesByTimeTab] = useState<'sold-within-window' | 'inventory-age'>('sold-within-window');
+  const [salesByTimeTab, setSalesByTimeTab] = useState<'sold-within-window' | 'inventory-age' | 'not-listed'>('sold-within-window');
   const [clothingTypeTagSoldStock, setClothingTypeTagSoldStock] = useState<ClothingTypeTagSoldStockRow[]>([]);
   const [clothingTypeTagSoldStockLoading, setClothingTypeTagSoldStockLoading] = useState(false);
   const [clothingTypeTagSoldStockError, setClothingTypeTagSoldStockError] = useState<string | null>(null);
@@ -15498,10 +15498,23 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
             >
               Inventory By Age
             </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={salesByTimeTab === 'not-listed'}
+              className={`menswear-categories-subpanel-tab${
+                salesByTimeTab === 'not-listed' ? ' menswear-categories-subpanel-tab--active' : ''
+              }`}
+              onClick={() => setSalesByTimeTab('not-listed')}
+            >
+              Item That Need Listing
+            </button>
           </nav>
 
           {salesByTimeTab === 'sold-within-window' && <SoldWithinWindowHeatmap />}
-          {salesByTimeTab === 'inventory-age' && <InventoryAgeing />}
+          {(salesByTimeTab === 'inventory-age' || salesByTimeTab === 'not-listed') && (
+            <InventoryAgeing section={salesByTimeTab === 'not-listed' ? 'storage' : 'live'} />
+          )}
         </div>
       )}
 
