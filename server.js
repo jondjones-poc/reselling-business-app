@@ -18452,6 +18452,180 @@ app.get('/api/stock/inventory-ageing/items', async (req, res) => {
   }
 });
 
+/** Shared min/max-days parsing for the sold-within-window endpoints — both bounds optional (omitted = unbounded, i.e. "All Time"). */
+function parseSoldWithinWindowRange(req) {
+  const rawMin = parseInt(req.query.minDays, 10);
+  const rawMax = parseInt(req.query.maxDays, 10);
+  const minDays = Number.isFinite(rawMin) ? Math.max(0, Math.min(3650, rawMin)) : null;
+  const maxDays = Number.isFinite(rawMax) ? Math.max(0, Math.min(3650, rawMax)) : null;
+  return { minDays, maxDays };
+}
+
+function soldWithinWindowDurationSql(startIndex) {
+  const clauses = [];
+  const params = [];
+  let i = startIndex;
+  return {
+    addMin: (minDays) => {
+      if (minDays == null) return '';
+      params.push(minDays);
+      clauses.push(`s.sale_date::date > (s.purchase_date::date + ($${i} * INTERVAL '1 day'))`);
+      i += 1;
+      return clauses[clauses.length - 1];
+    },
+    addMax: (maxDays) => {
+      if (maxDays == null) return '';
+      params.push(maxDays);
+      clauses.push(`s.sale_date::date <= (s.purchase_date::date + ($${i} * INTERVAL '1 day'))`);
+      i += 1;
+      return clauses[clauses.length - 1];
+    },
+    clauses,
+    params,
+  };
+}
+
+/**
+ * Categories with items sold within a purchase-to-sale duration range (fast
+ * sell-through). No listed_date column exists on stock, so duration is
+ * always purchase_date -> sale_date. Omitting both bounds returns All Time.
+ * Categories with zero qualifying sales are omitted entirely.
+ * GET /api/stock/sold-within-window?minDays=&maxDays=
+ */
+app.get('/api/stock/sold-within-window', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    const { minDays, maxDays } = parseSoldWithinWindowRange(req);
+    if (!pool) {
+      return res.json({ minDays, maxDays, categories: [] });
+    }
+
+    const duration = soldWithinWindowDurationSql(1);
+    duration.addMin(minDays);
+    duration.addMax(maxDays);
+    const durationSql = duration.clauses.length > 0 ? `AND ${duration.clauses.join(' AND ')}` : '';
+
+    const result = await pool.query(
+      `SELECT
+         cat.id AS category_id,
+         cat.department_id AS department_id,
+         COALESCE(NULLIF(TRIM(cat.category_name), ''), 'Uncategorized') AS category_name,
+         d.department_name AS department_name,
+         COUNT(*)::int AS sold_count,
+         COALESCE(SUM(COALESCE(s.sale_price::numeric, 0)), 0)::numeric AS sale_total,
+         COALESCE(SUM(
+           CASE WHEN s.net_profit IS NOT NULL AND TRIM(s.net_profit::text) <> ''
+             THEN s.net_profit::numeric ELSE 0 END
+         ), 0)::numeric AS profit_total,
+         MAX(tb.total_bought)::int AS total_bought_count,
+         MAX(tb.total_bought_value)::numeric AS total_bought_value
+       FROM stock s
+       LEFT JOIN category cat ON cat.id = s.category_id
+       LEFT JOIN department d ON d.id = cat.department_id
+       LEFT JOIN (
+         SELECT category_id, COUNT(*)::int AS total_bought,
+           COALESCE(SUM(COALESCE(purchase_price::numeric, 0)), 0)::numeric AS total_bought_value
+         FROM stock
+         WHERE NOT COALESCE(is_inventory_write_off, false)
+         GROUP BY category_id
+       ) tb ON tb.category_id = cat.id
+       WHERE s.sale_date IS NOT NULL
+         AND s.purchase_date IS NOT NULL
+         AND NOT COALESCE(s.is_inventory_write_off, false)
+         ${durationSql}
+       GROUP BY cat.id, cat.department_id, COALESCE(NULLIF(TRIM(cat.category_name), ''), 'Uncategorized'), d.department_name
+       HAVING COUNT(*) > 0
+       ORDER BY sold_count DESC, category_name ASC`,
+      duration.params
+    );
+
+    const categories = result.rows.map((row) => ({
+      categoryId: row.category_id != null ? Number(row.category_id) : null,
+      departmentId: row.department_id != null ? Number(row.department_id) : null,
+      categoryName: row.category_name,
+      departmentName: row.department_name,
+      soldCount: Number(row.sold_count) || 0,
+      saleTotal: Number(row.sale_total) || 0,
+      profitTotal: Number(row.profit_total) || 0,
+      totalBoughtCount: Number(row.total_bought_count) || 0,
+      totalBoughtValue: Number(row.total_bought_value) || 0,
+    }));
+
+    res.json({ minDays, maxDays, categories });
+  } catch (error) {
+    console.error('stock sold-within-window failed:', error);
+    res.status(500).json({ error: 'Failed to load sold-within-window categories', details: error.message });
+  }
+});
+
+/**
+ * Brand breakdown of a single category's fast sell-through (drill-down from
+ * /api/stock/sold-within-window). Same purchase_date -> sale_date duration range.
+ * GET /api/stock/sold-within-window/brands?categoryId=&minDays=&maxDays=
+ */
+app.get('/api/stock/sold-within-window/brands', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    const categoryId = parseInt(req.query.categoryId, 10);
+    const { minDays, maxDays } = parseSoldWithinWindowRange(req);
+    if (!pool || !Number.isFinite(categoryId)) {
+      return res.json({ minDays, maxDays, categoryId: null, brands: [] });
+    }
+
+    const duration = soldWithinWindowDurationSql(2);
+    duration.addMin(minDays);
+    duration.addMax(maxDays);
+    const durationSql = duration.clauses.length > 0 ? `AND ${duration.clauses.join(' AND ')}` : '';
+
+    const result = await pool.query(
+      `SELECT
+         b.id AS brand_id,
+         COALESCE(NULLIF(TRIM(b.brand_name), ''), 'Unbranded') AS brand_name,
+         COUNT(*)::int AS sold_count,
+         COALESCE(SUM(COALESCE(s.sale_price::numeric, 0)), 0)::numeric AS sale_total,
+         COALESCE(SUM(
+           CASE WHEN s.net_profit IS NOT NULL AND TRIM(s.net_profit::text) <> ''
+             THEN s.net_profit::numeric ELSE 0 END
+         ), 0)::numeric AS profit_total,
+         MAX(tb.total_bought)::int AS total_bought_count,
+         MAX(tb.total_bought_value)::numeric AS total_bought_value
+       FROM stock s
+       LEFT JOIN brand b ON b.id = s.brand_id
+       LEFT JOIN (
+         SELECT brand_id, COUNT(*)::int AS total_bought,
+           COALESCE(SUM(COALESCE(purchase_price::numeric, 0)), 0)::numeric AS total_bought_value
+         FROM stock
+         WHERE category_id = $1::int AND NOT COALESCE(is_inventory_write_off, false)
+         GROUP BY brand_id
+       ) tb ON tb.brand_id = b.id
+       WHERE s.sale_date IS NOT NULL
+         AND s.purchase_date IS NOT NULL
+         AND NOT COALESCE(s.is_inventory_write_off, false)
+         AND s.category_id = $1::int
+         ${durationSql}
+       GROUP BY b.id, COALESCE(NULLIF(TRIM(b.brand_name), ''), 'Unbranded')
+       HAVING COUNT(*) > 0
+       ORDER BY sold_count DESC, brand_name ASC`,
+      [categoryId, ...duration.params]
+    );
+
+    const brands = result.rows.map((row) => ({
+      brandId: row.brand_id != null ? Number(row.brand_id) : null,
+      brandName: row.brand_name,
+      soldCount: Number(row.sold_count) || 0,
+      saleTotal: Number(row.sale_total) || 0,
+      profitTotal: Number(row.profit_total) || 0,
+      totalBoughtCount: Number(row.total_bought_count) || 0,
+      totalBoughtValue: Number(row.total_bought_value) || 0,
+    }));
+
+    res.json({ minDays, maxDays, categoryId, brands });
+  } catch (error) {
+    console.error('stock sold-within-window brands failed:', error);
+    res.status(500).json({ error: 'Failed to load sold-within-window brands', details: error.message });
+  }
+});
+
 /**
  * Unsold / for-sale stock lines for a brand (Ask AI context).
  * GET /api/brands/:brandId/unsold-stock-items?limit=40

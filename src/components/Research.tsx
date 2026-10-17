@@ -27,6 +27,7 @@ import {
 } from '../utils/sellThroughHeatColor';
 import ResearchItemViews from './ResearchItemViews';
 import InventoryAgeing from './InventoryAgeing';
+import SoldWithinWindowHeatmap from './SoldWithinWindowHeatmap';
 import SeasonalWeeklyTopItems from './SeasonalWeeklyTopItems';
 import BrandTrendingOverview from './BrandTrendingOverview';
 import SeasonalYearlyCalendar from './SeasonalYearlyCalendar';
@@ -2978,6 +2979,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
   /** "Brands & Signals" — default view is a per-brand hot/cold sell-through gauge; Table is the original brands list + chart + size/tag breakdowns. */
   /** Clothing type detail page — one flat tab row: brand hot/cold gauges, the brands+chart table, or the raw in-stock items list. */
   const [clothingTypeDetailTab, setClothingTypeDetailTab] = useState<'gauge' | 'size' | 'table' | 'in-stock'>('gauge');
+  /** "Sales By Time" page — default to the fast-sellers heatmap, with raw unsold-inventory ageing as the second tab. */
+  const [salesByTimeTab, setSalesByTimeTab] = useState<'sold-within-window' | 'inventory-age'>('sold-within-window');
   const [clothingTypeTagSoldStock, setClothingTypeTagSoldStock] = useState<ClothingTypeTagSoldStockRow[]>([]);
   const [clothingTypeTagSoldStockLoading, setClothingTypeTagSoldStockLoading] = useState(false);
   const [clothingTypeTagSoldStockError, setClothingTypeTagSoldStockError] = useState<string | null>(null);
@@ -9423,6 +9426,17 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         <button
           type="button"
           role="tab"
+          id="research-tab-inventory-ageing"
+          aria-selected={researchTab === 'inventory-ageing'}
+          aria-controls="research-panel-inventory-ageing"
+          className={`research-tab${researchTab === 'inventory-ageing' ? ' active' : ''}`}
+          onClick={() => setResearchTab('inventory-ageing')}
+        >
+          Sales By Time
+        </button>
+        <button
+          type="button"
+          role="tab"
           id="research-tab-item-views"
           aria-selected={researchTab === 'item-views'}
           aria-controls="research-panel-item-views"
@@ -9430,17 +9444,6 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           onClick={() => setResearchTab('item-views')}
         >
           Item Views
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="research-tab-inventory-ageing"
-          aria-selected={researchTab === 'inventory-ageing'}
-          aria-controls="research-panel-inventory-ageing"
-          className={`research-tab${researchTab === 'inventory-ageing' ? ' active' : ''}`}
-          onClick={() => setResearchTab('inventory-ageing')}
-        >
-          Ageing
         </button>
       </nav>
       )}
@@ -15466,7 +15469,41 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
 
       {researchTab === 'item-views' && <ResearchItemViews />}
 
-      {researchTab === 'inventory-ageing' && <InventoryAgeing />}
+      {researchTab === 'inventory-ageing' && (
+        <div id="research-panel-inventory-ageing" role="tabpanel" aria-labelledby="research-tab-inventory-ageing">
+          <nav
+            className="menswear-categories-subpanel-tabs"
+            role="tablist"
+            aria-label="Sales by time sections"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={salesByTimeTab === 'sold-within-window'}
+              className={`menswear-categories-subpanel-tab${
+                salesByTimeTab === 'sold-within-window' ? ' menswear-categories-subpanel-tab--active' : ''
+              }`}
+              onClick={() => setSalesByTimeTab('sold-within-window')}
+            >
+              Sold Items Within 3 Months
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={salesByTimeTab === 'inventory-age'}
+              className={`menswear-categories-subpanel-tab${
+                salesByTimeTab === 'inventory-age' ? ' menswear-categories-subpanel-tab--active' : ''
+              }`}
+              onClick={() => setSalesByTimeTab('inventory-age')}
+            >
+              Inventory By Age
+            </button>
+          </nav>
+
+          {salesByTimeTab === 'sold-within-window' && <SoldWithinWindowHeatmap />}
+          {salesByTimeTab === 'inventory-age' && <InventoryAgeing />}
+        </div>
+      )}
 
       {researchTab === 'seasonal' && (
         <div
