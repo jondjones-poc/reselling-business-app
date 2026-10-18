@@ -16658,8 +16658,14 @@ app.get('/api/stock-categories/sales-by-category', async (req, res) => {
            COUNT(s.id)::int AS sold_count
          FROM stock s
          INNER JOIN brand b ON b.id = s.brand_id
+         LEFT JOIN category c ON c.id = s.category_id
          WHERE s.sale_date IS NOT NULL
-           AND ($1::int IS NULL OR b.department_id = $1::int)
+           -- Department comes from the category when the row has one (more precise, and
+           -- what the clothing-type pages use); only uncategorized rows fall back to the
+           -- brand's department. A category_id already pins exactly one department, so
+           -- also requiring the brand's own department to match silently dropped sales
+           -- whenever a brand's department tag didn't line up with its items' category.
+           AND ($1::int IS NULL OR COALESCE(c.department_id, b.department_id) = $1::int)
            ${dateFilterSql}
          GROUP BY s.category_id
        )
@@ -16671,7 +16677,6 @@ app.get('/api/stock-categories/sales-by-category', async (req, res) => {
        FROM sales s
        LEFT JOIN category c ON c.id = s.category_id
        WHERE (COALESCE(s.total_sales, 0) > 0 OR COALESCE(s.sold_count, 0) > 0)
-         AND ($1::int IS NULL OR s.category_id IS NULL OR c.department_id = $1::int)
        ORDER BY s.total_sales DESC NULLS LAST, category_name ASC`,
       [filterDeptId]
     );
@@ -16703,18 +16708,14 @@ app.get('/api/stock-categories/inventory-by-category', async (req, res) => {
          SELECT
            c.id AS category_id,
            c.category_name AS category_name,
-           COUNT(*) FILTER (
-             WHERE s.sale_date IS NOT NULL
-               AND ($1::int IS NULL OR b.department_id = $1::int)
-           )::int AS sold_count,
-           COUNT(*) FILTER (
-             WHERE s.sale_date IS NULL
-               AND ($1::int IS NULL OR b.department_id = $1::int)
-           )::int AS unsold_count,
+           -- c.department_id already pins this category to exactly one department (filtered
+           -- below), so these FILTERs don't re-check the brand's own department — doing so
+           -- silently dropped rows whenever a brand's department tag didn't match.
+           COUNT(*) FILTER (WHERE s.sale_date IS NOT NULL)::int AS sold_count,
+           COUNT(*) FILTER (WHERE s.sale_date IS NULL)::int AS unsold_count,
            COALESCE(SUM(
              CASE
                WHEN s.sale_date IS NOT NULL
-                AND ($1::int IS NULL OR b.department_id = $1::int)
                THEN
                  /* Prefer sale − purchase so stored net_profit of 0 cannot hide real losses. */
                  COALESCE(NULLIF(TRIM(s.sale_price::text), '')::numeric, 0)
@@ -16725,7 +16726,6 @@ app.get('/api/stock-categories/inventory-by-category', async (req, res) => {
            COALESCE(SUM(
              CASE
                WHEN s.sale_date IS NULL
-                AND ($1::int IS NULL OR b.department_id = $1::int)
                 AND s.purchase_price IS NOT NULL
                 AND TRIM(s.purchase_price::text) <> ''
                THEN s.purchase_price::numeric
@@ -16734,7 +16734,6 @@ app.get('/api/stock-categories/inventory-by-category', async (req, res) => {
            ), 0::numeric) AS unsold_inventory_total
          FROM category c
          LEFT JOIN stock s ON s.category_id = c.id
-         LEFT JOIN brand b ON b.id = s.brand_id
          WHERE ($1::int IS NULL OR c.department_id = $1::int)
          GROUP BY c.id, c.category_name
        ),
@@ -17014,7 +17013,10 @@ app.get('/api/stock-categories/type/:typeKey/brands', async (req, res) => {
       }
     }
 
-    const filterDeptId = parseOptionalBrandDepartmentFilter(req);
+    // Only "Uncategorized" needs the brand-department filter — a real category_id already
+    // pins exactly one department, so re-checking the brand's department is redundant and,
+    // when a brand's own department tag is stale/wrong, incorrectly drops valid rows.
+    const filterDeptId = parsed.uncategorized ? parseOptionalBrandDepartmentFilter(req) : null;
     const baseWhere = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $1';
     const params = parsed.uncategorized ? [] : [parsed.categoryId];
     let deptClause = '';
@@ -17085,7 +17087,7 @@ app.get('/api/stock-categories/type/:typeKey/buy-more-by-brand-category', async 
       }
     }
 
-    const filterDeptId = parseOptionalBrandDepartmentFilter(req);
+    const filterDeptId = parsed.uncategorized ? parseOptionalBrandDepartmentFilter(req) : null;
     const baseWhere = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $1';
     const params = [];
     if (!parsed.uncategorized) params.push(parsed.categoryId);
@@ -17158,7 +17160,7 @@ app.get('/api/stock-categories/type/:typeKey/unsold-inventory-by-brand-category'
       }
     }
 
-    const filterDeptId = parseOptionalBrandDepartmentFilter(req);
+    const filterDeptId = parsed.uncategorized ? parseOptionalBrandDepartmentFilter(req) : null;
     const baseWhere = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $1';
     const params = [];
     if (!parsed.uncategorized) params.push(parsed.categoryId);
@@ -17227,7 +17229,7 @@ app.get('/api/stock-categories/type/:typeKey/sold-and-stock-by-size', async (req
       }
     }
 
-    const filterDeptId = parseOptionalBrandDepartmentFilter(req);
+    const filterDeptId = parsed.uncategorized ? parseOptionalBrandDepartmentFilter(req) : null;
     const typeWhere = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $1';
     const qParams = parsed.uncategorized ? [] : [parsed.categoryId];
     let deptClause = '';
@@ -17281,7 +17283,7 @@ app.get('/api/stock-categories/type/:typeKey/sold-and-stock-by-tag', async (req,
       }
     }
 
-    const filterDeptId = parseOptionalBrandDepartmentFilter(req);
+    const filterDeptId = parsed.uncategorized ? parseOptionalBrandDepartmentFilter(req) : null;
     const typeWhere = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $1';
     const qParams = parsed.uncategorized ? [] : [parsed.categoryId];
     let deptClause = '';
@@ -17346,7 +17348,7 @@ app.get('/api/stock-categories/type/:typeKey/brand-inventory-items', async (req,
       return res.status(404).json({ error: 'Brand not found' });
     }
 
-    const filterDeptId = parseOptionalBrandDepartmentFilter(req);
+    const filterDeptId = parsed.uncategorized ? parseOptionalBrandDepartmentFilter(req) : null;
     const qParams = [brandId];
     let typeClause = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $2';
     if (!parsed.uncategorized) qParams.push(parsed.categoryId);
@@ -17421,11 +17423,14 @@ app.get('/api/stock-categories/type/:typeKey/detail', async (req, res) => {
       }
     }
 
-    const filterDeptId = parseOptionalBrandDepartmentFilter(req);
-    const qParams = parsed.uncategorized ? [filterDeptId] : [parsed.categoryId, filterDeptId];
+    // Only "Uncategorized" needs the brand-department filter — a real category_id already
+    // pins exactly one department, so re-checking the brand's department is redundant and,
+    // when a brand's own department tag is stale/wrong, incorrectly drops valid rows.
+    const filterDeptId = parsed.uncategorized ? parseOptionalBrandDepartmentFilter(req) : null;
+    const qParams = parsed.uncategorized ? [filterDeptId] : [parsed.categoryId];
     const scopeWhere = parsed.uncategorized
       ? `s.category_id IS NULL AND ($1::int IS NULL OR b.department_id = $1::int)`
-      : `s.category_id = $1 AND ($2::int IS NULL OR b.department_id = $2::int)`;
+      : `s.category_id = $1`;
 
     const lifetimeCountResult = await pool.query(
       `SELECT COUNT(*)::int AS c FROM stock s INNER JOIN brand b ON b.id = s.brand_id WHERE ${scopeWhere}`,
@@ -17589,7 +17594,7 @@ app.get('/api/stock-categories/type/:typeKey/unsold-stock-items', async (req, re
       }
     }
 
-    const filterDeptId = parseOptionalBrandDepartmentFilter(req);
+    const filterDeptId = parsed.uncategorized ? parseOptionalBrandDepartmentFilter(req) : null;
     const typeSql = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $1';
     const params = parsed.uncategorized ? [brandId] : [parsed.categoryId, brandId];
     const brandSlot = parsed.uncategorized ? '$1' : '$2';
@@ -17652,7 +17657,7 @@ app.get('/api/stock-categories/type/:typeKey/sold-stock-items', async (req, res)
       }
     }
 
-    const filterDeptId = parseOptionalBrandDepartmentFilter(req);
+    const filterDeptId = parsed.uncategorized ? parseOptionalBrandDepartmentFilter(req) : null;
     const typeSql = parsed.uncategorized ? 's.category_id IS NULL' : 's.category_id = $1';
     const params = parsed.uncategorized ? [brandId] : [parsed.categoryId, brandId];
     const brandSlot = parsed.uncategorized ? '$1' : '$2';
@@ -19277,32 +19282,47 @@ app.get('/api/departments/sales-overview', async (req, res) => {
 
     await ensureBrandDepartmentSchema(pool);
 
+    // A stock row's department comes from its own category when it has one (more precise
+    // and what the Analytics > clothing-type pages use) and only falls back to the brand's
+    // department for uncategorized stock — not the other way round. Attributing purely by
+    // brand (the old approach) silently dropped sales whenever a brand's own department tag
+    // didn't match the department its sold items were actually categorised under.
     const result = await pool.query(
       `
+        WITH stock_dept AS (
+          SELECT
+            s.id,
+            COALESCE(cat.department_id, b.department_id) AS effective_department_id,
+            s.sale_price,
+            s.purchase_price
+          FROM public.stock s
+          LEFT JOIN public.brand b ON b.id = s.brand_id
+          LEFT JOIN public.category cat ON cat.id = s.category_id
+          WHERE NOT COALESCE(s.is_inventory_write_off, false)
+        )
         SELECT
           d.id AS department_id,
           d.department_name,
-          COUNT(s.id)::int AS items_bought,
+          COUNT(sd.id)::int AS items_bought,
           COUNT(*) FILTER (
-            WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+            WHERE sd.sale_price IS NOT NULL AND sd.sale_price::numeric > 0
           )::int AS items_sold,
           COUNT(*) FILTER (
-            WHERE s.id IS NOT NULL
-              AND NOT (s.sale_price IS NOT NULL AND s.sale_price::numeric > 0)
+            WHERE sd.id IS NOT NULL
+              AND NOT (sd.sale_price IS NOT NULL AND sd.sale_price::numeric > 0)
           )::int AS items_for_sale,
           COALESCE(
-            SUM(s.purchase_price::numeric) FILTER (WHERE s.purchase_price IS NOT NULL),
+            SUM(sd.purchase_price::numeric) FILTER (WHERE sd.purchase_price IS NOT NULL),
             0
           )::numeric AS total_purchase_spend,
           COALESCE(
-            SUM(s.sale_price::numeric) FILTER (
-              WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+            SUM(sd.sale_price::numeric) FILTER (
+              WHERE sd.sale_price IS NOT NULL AND sd.sale_price::numeric > 0
             ),
             0
           )::numeric AS total_sold_revenue
         FROM public.department d
-        LEFT JOIN public.brand b ON b.department_id = d.id
-        LEFT JOIN public.stock s ON s.brand_id = b.id
+        LEFT JOIN stock_dept sd ON sd.effective_department_id = d.id
         GROUP BY d.id, d.department_name
         ORDER BY d.department_name ASC
       `
