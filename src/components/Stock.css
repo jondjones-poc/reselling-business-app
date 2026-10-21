@@ -5076,6 +5076,23 @@ a.stock-action-icon:hover {
   color: rgba(var(--theme-text-rgb), 0.82);
 }
 
+.expenses-profit-week-cell--clickable {
+  cursor: pointer;
+  transition: background 0.15s ease, outline-color 0.15s ease;
+}
+
+.expenses-profit-week-cell--clickable:hover,
+.expenses-profit-week-cell--clickable:focus-visible {
+  background: rgba(var(--theme-text-rgb), 0.07);
+  outline: 2px solid rgba(var(--theme-accent-rgb), 0.4);
+  outline-offset: -2px;
+}
+
+.expenses-profit-week-cell--selected {
+  outline: 2px solid rgba(var(--theme-accent-rgb), 0.7);
+  outline-offset: -2px;
+}
+
 .expenses-profit-week-badge {
   font-size: 0.62rem;
   font-weight: 700;
@@ -5247,6 +5264,139 @@ a.stock-action-icon:hover {
   border-bottom: none;
   border-top: 2px solid rgba(var(--theme-text-rgb), 0.16);
   padding-top: 0.9rem;
+  font-weight: 750;
+}
+
+.expenses-profit-week-items {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid rgba(var(--theme-text-rgb), 0.1);
+}
+
+.expenses-profit-week-items-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.expenses-profit-week-items-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 750;
+}
+
+.expenses-profit-week-items-close {
+  border: 1px solid rgba(var(--theme-text-rgb), 0.2);
+  background: transparent;
+  color: rgba(var(--theme-text-rgb), 0.8);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.expenses-profit-week-items-wrap {
+  overflow-x: auto;
+}
+
+.expenses-profit-week-items-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.expenses-profit-week-items-table th,
+.expenses-profit-week-items-table td {
+  padding: 0.5rem 0.65rem;
+  text-align: left;
+  border-bottom: 1px solid rgba(var(--theme-text-rgb), 0.08);
+  white-space: nowrap;
+}
+
+.expenses-profit-week-items-table thead th {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgba(var(--theme-text-rgb), 0.6);
+}
+
+.expenses-profit-week-items-table tbody tr:hover th,
+.expenses-profit-week-items-table tbody tr:hover td {
+  background: rgba(var(--theme-text-rgb), 0.03);
+}
+
+.expenses-profit-week-item-name--sold,
+.expenses-profit-week-item-name--unsold {
+  text-decoration: none;
+  text-underline-offset: 2px;
+}
+
+.expenses-profit-week-item-name--sold:hover,
+.expenses-profit-week-item-name--unsold:hover {
+  text-decoration: underline;
+}
+
+.expenses-profit-week-item-name--sold {
+  color: #22c55e;
+  font-weight: 600;
+}
+
+.expenses-profit-week-item-name--unsold {
+  color: #ef4444;
+  font-weight: 600;
+}
+
+.expenses-profit-week-items-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  margin: 1rem 0 0;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(var(--theme-text-rgb), 0.1);
+}
+
+.expenses-profit-week-items-summary dt {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgba(var(--theme-text-rgb), 0.6);
+  margin-bottom: 0.2rem;
+}
+
+.expenses-profit-week-items-summary dd {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: rgba(var(--theme-text-rgb), 0.95);
+}
+
+.expenses-profit-week-items-summary dd.is-profit {
+  color: rgb(34, 140, 80);
+}
+
+.expenses-profit-week-items-summary dd.is-loss {
+  color: rgb(200, 55, 55);
+}
+
+.expenses-profit-week-items-table td.is-profit {
+  color: rgb(34, 140, 80);
+}
+
+.expenses-profit-week-items-table td.is-loss {
+  color: rgb(200, 55, 55);
+}
+
+.expenses-profit-week-items-table tfoot th,
+.expenses-profit-week-items-table tfoot td {
+  border-bottom: none;
+  border-top: 2px solid rgba(var(--theme-text-rgb), 0.16);
+  padding-top: 0.75rem;
   font-weight: 750;
 }
 

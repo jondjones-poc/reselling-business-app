@@ -289,6 +289,9 @@ const CHART_EBAY_YELLOW = '#F5AF02';
 const CHART_EBAY_YELLOW_FILL = 'rgba(245, 175, 2, 0.65)';
 const CHART_VINTED_BLUE = '#09B1BA';
 const CHART_VINTED_BLUE_FILL = 'rgba(9, 177, 186, 0.65)';
+/** Neutral grey for the eBay+Vinted combined series, kept distinct from both brand colours. */
+const CHART_COMBINED_GREY = '#9CA3AF';
+const CHART_COMBINED_GREY_FILL = 'rgba(156, 163, 175, 0.5)';
 
 function normalizeCashFlowSource(raw: string | null | undefined): CashFlowPurchasedItem['sourceKey'] {
   const v = String(raw ?? '').trim().toLowerCase();
@@ -535,6 +538,9 @@ const Reporting: React.FC = () => {
   const [channelItemsSoldWeeks, setChannelItemsSoldWeeks] = useState<ChannelWeeklyPoint[]>([]);
   const [channelItemsSoldLoading, setChannelItemsSoldLoading] = useState(false);
   const [channelItemsSoldError, setChannelItemsSoldError] = useState('');
+  /** Shared across all three Channel Analytics charts. */
+  const [channelChartType, setChannelChartType] = useState<'line' | 'bar'>('line');
+  const [channelShowCombined, setChannelShowCombined] = useState(true);
   const [salesByBrand, setSalesByBrand] = useState<SalesByBrandDatum[]>([]);
   const [bestSellingBrandsByCategory, setBestSellingBrandsByCategory] = useState<SalesByBrandCategorySet>({
     trousers: [],
@@ -569,7 +575,7 @@ const Reporting: React.FC = () => {
   // Monthly view state
   const [viewMode, setViewMode] = useState<ReportingViewMode>(initialViewMode);
   const reportingPageTab: 'sales' | 'planning' | 'stock-data' =
-    viewMode === 'projections' || viewMode === 'cash-flow-analysis'
+    viewMode === 'projections'
       ? 'planning'
       : viewMode === 'stock-analysis'
       ? 'stock-data'
@@ -1815,9 +1821,22 @@ const Reporting: React.FC = () => {
           tension: 0.3,
           pointRadius: 2,
         },
+        ...(channelShowCombined
+          ? [
+              {
+                label: 'Combined',
+                data: channelItemsSoldWeeks.map((w) => w.ebayCount + w.vintedCount),
+                borderColor: CHART_COMBINED_GREY,
+                backgroundColor: CHART_COMBINED_GREY_FILL,
+                tension: 0.3,
+                pointRadius: 2,
+                borderDash: [6, 4],
+              },
+            ]
+          : []),
       ],
     };
-  }, [channelItemsSoldWeeks]);
+  }, [channelItemsSoldWeeks, channelShowCombined]);
 
   const channelItemsSoldCategoryOptions = useMemo(() => {
     const rows = channelItemsSoldDepartmentFilter
@@ -1850,9 +1869,22 @@ const Reporting: React.FC = () => {
           tension: 0.3,
           pointRadius: 2,
         },
+        ...(channelShowCombined
+          ? [
+              {
+                label: 'Combined',
+                data: channelWeeksFiltered.map((w) => w.ebaySales + w.vintedSales),
+                borderColor: CHART_COMBINED_GREY,
+                backgroundColor: CHART_COMBINED_GREY_FILL,
+                tension: 0.3,
+                pointRadius: 2,
+                borderDash: [6, 4],
+              },
+            ]
+          : []),
       ],
     };
-  }, [channelWeeksFiltered]);
+  }, [channelWeeksFiltered, channelShowCombined]);
 
   const channelProfitChartData = useMemo(() => {
     if (channelWeeksAll.length === 0) return null;
@@ -1875,9 +1907,22 @@ const Reporting: React.FC = () => {
           tension: 0.3,
           pointRadius: 2,
         },
+        ...(channelShowCombined
+          ? [
+              {
+                label: 'Combined profit',
+                data: channelWeeksAll.map((w) => w.ebayProfit + w.vintedProfit),
+                borderColor: CHART_COMBINED_GREY,
+                backgroundColor: CHART_COMBINED_GREY_FILL,
+                tension: 0.3,
+                pointRadius: 2,
+                borderDash: [6, 4],
+              },
+            ]
+          : []),
       ],
     };
-  }, [channelWeeksAll]);
+  }, [channelWeeksAll, channelShowCombined]);
 
   const channelFilterCategoryOptions = useMemo(() => {
     const rows = channelDepartmentFilter
@@ -2794,7 +2839,7 @@ const Reporting: React.FC = () => {
           className={`view-toggle-button ${reportingPageTab === 'stock-data' ? 'active' : ''}`}
           onClick={() => setViewMode('stock-analysis')}
         >
-          Stock Data
+          Inventory
         </button>
       </div>
 
@@ -2819,21 +2864,11 @@ const Reporting: React.FC = () => {
           >
             Profit Per Month
           </button>
-        </div>
-      )}
-      {reportingPageTab === 'planning' && (
-        <div className="view-toggle-container reporting-sub-tabs">
-          <button
-            className={`view-toggle-button ${viewMode === 'projections' ? 'active' : ''}`}
-            onClick={() => setViewMode('projections')}
-          >
-            Projections
-          </button>
           <button
             className={`view-toggle-button ${viewMode === 'cash-flow-analysis' ? 'active' : ''}`}
             onClick={() => setViewMode('cash-flow-analysis')}
           >
-            Cash Flow Analysis
+            Sales Per Sourcing Method
           </button>
         </div>
       )}
@@ -4058,6 +4093,48 @@ const Reporting: React.FC = () => {
 
       {/* Channel Analytics View — eBay vs Vinted, by week, over the last 12 months */}
       <div className={`view-content ${viewMode === 'channel-analytics' ? 'active' : ''}`}>
+        <div className="channel-analytics-toolbar">
+          <div className="channel-toggle-group" role="group" aria-label="Chart type">
+            <div className="channel-toggle-buttons">
+              <button
+                type="button"
+                className={`channel-toggle-button ${channelChartType === 'line' ? 'active' : ''}`}
+                aria-pressed={channelChartType === 'line'}
+                onClick={() => setChannelChartType('line')}
+              >
+                Line
+              </button>
+              <button
+                type="button"
+                className={`channel-toggle-button ${channelChartType === 'bar' ? 'active' : ''}`}
+                aria-pressed={channelChartType === 'bar'}
+                onClick={() => setChannelChartType('bar')}
+              >
+                Grouped Columns
+              </button>
+            </div>
+          </div>
+          <div className="channel-toggle-group" role="group" aria-label="Combined series">
+            <div className="channel-toggle-buttons">
+              <button
+                type="button"
+                className={`channel-toggle-button ${channelShowCombined ? 'active' : ''}`}
+                aria-pressed={channelShowCombined}
+                onClick={() => setChannelShowCombined(true)}
+              >
+                Show All
+              </button>
+              <button
+                type="button"
+                className={`channel-toggle-button ${!channelShowCombined ? 'active' : ''}`}
+                aria-pressed={!channelShowCombined}
+                onClick={() => setChannelShowCombined(false)}
+              >
+                Hide Total Data
+              </button>
+            </div>
+          </div>
+        </div>
         <div className="reporting-grid">
           <section className="reporting-card">
             <div className="card-header">
@@ -4091,7 +4168,14 @@ const Reporting: React.FC = () => {
             ) : channelFilteredSalesChartData ? (
               <>
                 <div className="chart-wrapper">
-                  <Line data={channelFilteredSalesChartData} options={channelLineChartOptions} />
+                  {channelChartType === 'bar' ? (
+                    <Bar
+                      data={channelFilteredSalesChartData}
+                      options={channelLineChartOptions as unknown as ChartOptions<'bar'>}
+                    />
+                  ) : (
+                    <Line data={channelFilteredSalesChartData} options={channelLineChartOptions} />
+                  )}
                 </div>
                 <div className="channel-summary">
                   <div className="channel-summary-stat">
@@ -4123,7 +4207,14 @@ const Reporting: React.FC = () => {
             ) : channelProfitChartData ? (
               <>
                 <div className="chart-wrapper">
-                  <Line data={channelProfitChartData} options={channelLineChartOptions} />
+                  {channelChartType === 'bar' ? (
+                    <Bar
+                      data={channelProfitChartData}
+                      options={channelLineChartOptions as unknown as ChartOptions<'bar'>}
+                    />
+                  ) : (
+                    <Line data={channelProfitChartData} options={channelLineChartOptions} />
+                  )}
                 </div>
                 <div className="channel-summary">
                   <div className="channel-summary-stat">
@@ -4175,7 +4266,14 @@ const Reporting: React.FC = () => {
               <div className="reporting-error">{channelItemsSoldError}</div>
             ) : channelItemsSoldChartData ? (
               <div className="chart-wrapper">
-                <Line data={channelItemsSoldChartData} options={channelCountLineChartOptions} />
+                {channelChartType === 'bar' ? (
+                  <Bar
+                    data={channelItemsSoldChartData}
+                    options={channelCountLineChartOptions as unknown as ChartOptions<'bar'>}
+                  />
+                ) : (
+                  <Line data={channelItemsSoldChartData} options={channelCountLineChartOptions} />
+                )}
               </div>
             ) : (
               <div className="reporting-empty">

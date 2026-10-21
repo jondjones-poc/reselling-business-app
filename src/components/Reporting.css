@@ -795,6 +795,58 @@
   box-shadow: var(--theme-panel-shadow);
 }
 
+.channel-analytics-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 20px;
+  margin-bottom: 16px;
+}
+
+.channel-toggle-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.channel-toggle-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: rgba(var(--theme-text-rgb), 0.65);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.channel-toggle-buttons {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.28);
+  background: rgba(var(--theme-bg-rgb), 0.6);
+}
+
+.channel-toggle-button {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: rgba(var(--theme-text-rgb), 0.7);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.channel-toggle-button:hover {
+  color: rgba(var(--theme-text-rgb), 0.92);
+}
+
+.channel-toggle-button.active {
+  background: rgba(var(--theme-accent-rgb), 0.2);
+  color: var(--neon-primary-strong, var(--theme-accent-strong));
+}
+
 .channel-filter-row {
   display: flex;
   flex-wrap: wrap;

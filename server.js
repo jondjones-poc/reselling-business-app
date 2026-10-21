@@ -20583,6 +20583,60 @@ app.get('/api/expenses/weekly-profit', async (req, res) => {
 });
 
 /**
+ * Stock bought and/or sold within one week of the profit-per-month calendar —
+ * drill-down when a week cell is clicked. Matches the week summary cell's own
+ * definition (sales = items with a sale_date in the week, spend = items with
+ * a purchase_date in the week) rather than "purchased this week" alone, so a
+ * row sold this week but bought in an earlier week still appears and counts
+ * toward that week's sales, and a row bought this week but not yet sold still
+ * counts toward spend — otherwise the drill-down totals don't reconcile with
+ * the week cell's profit/sales/spend figures.
+ * GET /api/expenses/weekly-profit/items?weekStart=YYYY-MM-DD&weekEnd=YYYY-MM-DD
+ */
+app.get('/api/expenses/weekly-profit/items', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const weekStart = normalizeDateOnlyString(req.query.weekStart);
+    const weekEnd = normalizeDateOnlyString(req.query.weekEnd);
+    if (!weekStart || !weekEnd) {
+      return res.status(400).json({ error: 'weekStart and weekEnd are required (YYYY-MM-DD)' });
+    }
+
+    const result = await pool.query(
+      `SELECT
+         s.id,
+         s.item_name,
+         s.purchase_price,
+         s.purchase_date,
+         s.sale_date,
+         s.sale_price,
+         COALESCE(b.brand_name, '—') AS brand_name,
+         COALESCE(c.category_name, 'Uncategorized') AS category_name
+       FROM stock s
+       LEFT JOIN brand b ON b.id = s.brand_id
+       LEFT JOIN category c ON c.id = s.category_id
+       WHERE NOT COALESCE(s.is_inventory_write_off, false)
+         AND (
+           (s.purchase_date IS NOT NULL AND s.purchase_date::date >= $1::date AND s.purchase_date::date <= $2::date)
+           OR (s.sale_date IS NOT NULL AND s.sale_date::date >= $1::date AND s.sale_date::date <= $2::date)
+         )
+       ORDER BY COALESCE(s.sale_date, s.purchase_date) DESC NULLS LAST, s.id DESC
+       LIMIT 1000`,
+      [weekStart, weekEnd]
+    );
+
+    res.json({ weekStart, weekEnd, rows: result.rows ?? [] });
+  } catch (error) {
+    console.error('expenses weekly-profit items failed:', error);
+    res.status(500).json({ error: 'Failed to load items for this week', details: error.message });
+  }
+});
+
+/**
  * Calendar-year view for Expenses → Projections: monthly profit (sold lines), projected sales
  * for remaining months, purchase counts and per-week breakdown vs a listing target (default 10/wk).
  */
