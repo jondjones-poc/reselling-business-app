@@ -15,6 +15,8 @@ require('dotenv').config();
 process.env.TZ = 'Europe/London';
 
 const ebaySellerOAuth = require('./ebaySellerOAuth');
+const ebayFinancesSync = require('./ebayFinancesSync');
+const ebayDigitalSignature = require('./ebayDigitalSignature');
 const { normalizeDateOnlyString, serializeStockDateFields } = require('./utils/dateOnly');
 const stockListQuery = require('./utils/stockListQuery');
 const inFashionInsights = require('./utils/inFashionInsights');
@@ -1126,7 +1128,53 @@ async function ensureDatabaseSchema() {
     // to any date. Powers the Stock page's "Added Today" count.
     await pool.query(`ALTER TABLE stock ADD COLUMN IF NOT EXISTS added_date DATE NOT NULL DEFAULT CURRENT_DATE`);
 
-    console.log('Database schema ready: app_settings, ebay_oauth_token, receipt_upload, box_location, tag, stock_tag');
+    // Per-stock-item fee/postage lines pulled from eBay's Finances + Fulfillment
+    // APIs. One-to-many against stock: a return can generate a second set of
+    // postage/fee rows for the same item, so this is never a single flat
+    // column on `stock` — fee_type + order_id distinguish each leg.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS stock_item_fees (
+        id SERIAL PRIMARY KEY,
+        stock_id INTEGER NOT NULL REFERENCES stock(id) ON DELETE CASCADE,
+        order_id TEXT,
+        fee_type TEXT NOT NULL,
+        amount NUMERIC NOT NULL,
+        currency TEXT NOT NULL DEFAULT 'GBP',
+        description TEXT,
+        transaction_date DATE,
+        source TEXT NOT NULL DEFAULT 'ebay_api',
+        raw_reference TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_stock_item_fees_stock_id ON stock_item_fees (stock_id)`);
+    // Prevents double-inserting the same eBay transaction on repeated syncs (raw_reference = eBay transactionId).
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_item_fees_raw_reference
+        ON stock_item_fees (stock_id, fee_type, raw_reference)
+        WHERE raw_reference IS NOT NULL
+    `);
+
+    // eBay "Digital Signatures for APIs" keypair (required for Finances API
+    // calls, EU/UK sellers). Mirrors ebay_oauth_token: a single row, keyed
+    // by a fixed key, holding the latest signing key created via eBay's
+    // Key Management API. eBay only returns the private key once, at
+    // creation — this is the only place it's stored.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS ebay_signing_key (
+        integration_key TEXT PRIMARY KEY DEFAULT 'default',
+        signing_key_id TEXT NOT NULL,
+        signing_key_cipher TEXT NOT NULL,
+        jwe TEXT NOT NULL,
+        private_key TEXT NOT NULL,
+        public_key TEXT,
+        expiration_time TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    console.log('Database schema ready: app_settings, ebay_oauth_token, ebay_signing_key, receipt_upload, box_location, tag, stock_tag, stock_item_fees');
   } catch (error) {
     console.error('Could not initialize database tables:', error.message);
   }
@@ -1410,6 +1458,7 @@ app.get('/api/ebay/oauth/status', async (req, res) => {
       scope,
       has_analytics_scope: ebaySellerOAuth.scopeIncludesAnalytics(scope),
       has_inventory_scope: ebaySellerOAuth.scopeIncludesInventory(scope),
+      has_finances_scope: ebaySellerOAuth.scopeIncludesFinances(scope),
     });
   } catch (e) {
     console.error('/api/ebay/oauth/status failed:', e);
@@ -13287,6 +13336,269 @@ async function fetchEbayFulfillmentLineLegacyItems(userAccessToken, windowDays =
   }
   return aggregated;
 }
+
+/**
+ * GET /api/accounting/stock-expenses
+ * Every sold stock item with its matched fee/postage rows from stock_item_fees
+ * aggregated by fee_type. Items with no synced fee data simply show blank —
+ * nothing is invented for platforms (Vinted/Depop) or unsynced eBay sales.
+ */
+app.get('/api/accounting/stock-expenses', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const result = await pool.query(`
+      SELECT
+        s.id,
+        s.item_name,
+        s.sold_platform,
+        s.purchase_price,
+        s.sale_price,
+        COALESCE(SUM(f.amount) FILTER (WHERE f.fee_type = 'selling_fee'), 0)::numeric AS selling_fees,
+        COALESCE(SUM(f.amount) FILTER (WHERE f.fee_type = 'buyer_postage'), 0)::numeric AS buyer_postage,
+        COALESCE(SUM(f.amount) FILTER (WHERE f.fee_type = 'postage_paid'), 0)::numeric AS postage_paid,
+        BOOL_OR(f.id IS NOT NULL) AS has_fee_data
+      FROM stock s
+      LEFT JOIN stock_item_fees f ON f.stock_id = s.id
+      WHERE s.sale_date IS NOT NULL
+        AND NOT COALESCE(s.is_inventory_write_off, false)
+      GROUP BY s.id, s.item_name, s.sold_platform, s.purchase_price, s.sale_price
+      ORDER BY s.sale_date DESC NULLS LAST, s.id DESC
+    `);
+
+    res.json({
+      rows: (result.rows ?? []).map((row) => ({
+        stockId: row.id,
+        itemName: row.item_name,
+        platform: row.sold_platform || '',
+        purchasePrice: row.purchase_price != null ? Number(row.purchase_price) : null,
+        salePrice: row.sale_price != null ? Number(row.sale_price) : null,
+        sellingFees: Number(row.selling_fees) || 0,
+        buyerPostage: Number(row.buyer_postage) || 0,
+        postagePaid: Number(row.postage_paid) || 0,
+        hasFeeData: Boolean(row.has_fee_data),
+      })),
+    });
+  } catch (error) {
+    console.error('accounting stock-expenses failed:', error);
+    res.status(500).json({ error: 'Failed to load stock expenses', details: error.message });
+  }
+});
+
+/**
+ * GET /api/accounting/ebay-signing-key
+ * Metadata only (no private key) about the currently stored eBay Digital
+ * Signature keypair, for display in Settings > Site Settings > Integrations.
+ */
+app.get('/api/accounting/ebay-signing-key', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    const info = await ebayDigitalSignature.getSigningKeyInfo(pool);
+    res.json({ configured: Boolean(info), key: info || null });
+  } catch (error) {
+    console.error('ebay-signing-key status failed:', error);
+    res.status(500).json({ error: 'Failed to load eBay signing key status', details: error.message });
+  }
+});
+
+/**
+ * POST /api/accounting/ebay-signing-key
+ * One-time setup for eBay's mandatory Digital Signature requirement
+ * (EU/UK sellers calling the Finances API). Calls eBay's Key Management
+ * API to create a brand-new ED25519 signing keypair and saves it straight
+ * into the ebay_signing_key table — eBay never returns the private key
+ * again, so this is the only place it's captured. Calling this again
+ * creates a NEW key and invalidates the previous one for signing purposes.
+ */
+app.post('/api/accounting/ebay-signing-key', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    const appId = process.env.REACT_APP_EBAY_APP_ID || process.env.EBAY_APP;
+    const certId = process.env.REACT_APP_EBAY_CERT_ID;
+    if (!appId || !certId) {
+      return res.status(500).json({ error: 'eBay app credentials not configured' });
+    }
+    const appAccessToken = await getAccessToken(appId, certId);
+    const signingKey = await ebayDigitalSignature.createSigningKey(pool, appAccessToken);
+    res.json({
+      message: 'eBay signing key created and saved. Finances API calls will now be signed automatically.',
+      signingKeyId: signingKey.signingKeyId,
+      signingKeyCipher: signingKey.signingKeyCipher,
+      expirationTime: signingKey.expirationTime,
+    });
+  } catch (error) {
+    console.error('ebay-signing-key failed:', error);
+    res.status(500).json({ error: 'Failed to create eBay signing key', details: error.message });
+  }
+});
+
+/**
+ * POST /api/accounting/sync-ebay-fees
+ * Pulls selling fees + shipping-label cost (Finances API) and buyer-paid
+ * postage (Fulfillment API) for every sold eBay stock item, and upserts them
+ * into stock_item_fees. Requires the sell.finances OAuth scope — if the
+ * stored eBay connection doesn't have it yet, this returns a clear error
+ * telling the seller to reconnect eBay rather than a confusing eBay 403.
+ */
+app.post('/api/accounting/sync-ebay-fees', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const storedScope = await ebaySellerOAuth.getStoredEbayOAuthScope(pool);
+    if (!ebaySellerOAuth.scopeIncludesFinances(storedScope)) {
+      return res.status(409).json({
+        error: 'eBay connection is missing the Finances permission. Reconnect eBay (Orders > Connect eBay) to grant it, then try again.',
+        code: 'EBAY_FINANCES_SCOPE_MISSING',
+      });
+    }
+
+    const testEbayItemId = typeof req.body?.ebayItemId === 'string' ? req.body.ebayItemId.trim() : '';
+
+    const eligibleRes = await pool.query(
+      `SELECT id, ebay_id, sale_date::date AS sale_date
+       FROM stock
+       WHERE sale_date IS NOT NULL
+         AND ebay_id IS NOT NULL
+         AND TRIM(ebay_id) <> ''
+         AND LOWER(COALESCE(sold_platform, '')) LIKE '%ebay%'
+         AND NOT COALESCE(is_inventory_write_off, false)
+         AND ($1::text IS NULL OR TRIM(ebay_id) = $1::text)
+       ORDER BY sale_date ASC`,
+      [testEbayItemId || null]
+    );
+    const eligible = eligibleRes.rows ?? [];
+    if (eligible.length === 0) {
+      return res.json({
+        itemsChecked: 0,
+        itemsUpdated: 0,
+        feeRowsWritten: 0,
+        message: testEbayItemId
+          ? `No sold eBay stock item found with eBay item ID "${testEbayItemId}".`
+          : 'No sold eBay items to sync.',
+      });
+    }
+
+    const earliestSale = eligible.reduce(
+      (min, row) => (row.sale_date < min ? row.sale_date : min),
+      eligible[0].sale_date
+    );
+    const startDate = new Date(earliestSale.getTime() - 7 * 86400000); // small buffer either side of
+    const endDate = new Date(Date.now() + 86400000); // the actual sale dates, for API filter tolerance.
+
+    const userAccessToken = await ebaySellerOAuth.getFulfillmentUserAccessToken(pool);
+
+    const [deliveryCostsByLegacyItemId, financeTransactionsByOrderId] = await Promise.all([
+      ebayFinancesSync.fetchEbayFulfillmentDeliveryCosts(pool, userAccessToken, { startDate, endDate }),
+      ebayFinancesSync.fetchEbayFinanceTransactionsByOrder(pool, userAccessToken, { startDate, endDate }),
+    ]);
+
+    let itemsUpdated = 0;
+    let feeRowsWritten = 0;
+    const itemResults = [];
+
+    for (const item of eligible) {
+      const legacyItemId = String(item.ebay_id).trim();
+      const fulfillment = deliveryCostsByLegacyItemId.get(legacyItemId);
+      if (!fulfillment) {
+        itemResults.push({
+          stockId: item.id,
+          ebayItemId: legacyItemId,
+          status: 'not_found',
+          note: 'Not found in the Fulfillment order window — the eBay order for this item could not be located.',
+        });
+        continue;
+      }
+
+      const finance = financeTransactionsByOrderId.get(fulfillment.orderId);
+      const rowsToUpsert = [];
+
+      if (fulfillment.deliveryCostValue != null) {
+        rowsToUpsert.push({
+          feeType: 'buyer_postage',
+          amount: fulfillment.deliveryCostValue,
+          currency: fulfillment.deliveryCostCurrency || 'GBP',
+          description: 'Postage charged to buyer (Fulfillment API pricingSummary.deliveryCost)',
+        });
+      }
+      if (finance?.feesTotal) {
+        rowsToUpsert.push({
+          feeType: 'selling_fee',
+          amount: finance.feesTotal,
+          currency: finance.feesCurrency || 'GBP',
+          description: 'eBay selling fees (Finances API)',
+        });
+      }
+      if (finance?.shippingLabelTotal) {
+        rowsToUpsert.push({
+          feeType: 'postage_paid',
+          amount: finance.shippingLabelTotal,
+          currency: finance.shippingLabelCurrency || 'GBP',
+          description: 'Shipping label charged via eBay (Finances API)',
+        });
+      }
+
+      if (rowsToUpsert.length === 0) {
+        itemResults.push({
+          stockId: item.id,
+          ebayItemId: legacyItemId,
+          orderId: fulfillment.orderId,
+          status: 'no_fee_data',
+          note: 'Order found, but no delivery cost, selling fee, or shipping label data was present for it.',
+        });
+        continue;
+      }
+
+      for (const row of rowsToUpsert) {
+        await pool.query(
+          `INSERT INTO stock_item_fees (stock_id, order_id, fee_type, amount, currency, description, transaction_date, source, raw_reference)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 'ebay_api', $2)
+           ON CONFLICT (stock_id, fee_type, raw_reference)
+           DO UPDATE SET amount = EXCLUDED.amount, currency = EXCLUDED.currency, description = EXCLUDED.description, transaction_date = EXCLUDED.transaction_date`,
+          [item.id, fulfillment.orderId, row.feeType, row.amount, row.currency, row.description, item.sale_date]
+        );
+        feeRowsWritten += 1;
+      }
+      itemsUpdated += 1;
+      itemResults.push({
+        stockId: item.id,
+        ebayItemId: legacyItemId,
+        orderId: fulfillment.orderId,
+        status: 'updated',
+        rows: rowsToUpsert.map((row) => ({ feeType: row.feeType, amount: row.amount, currency: row.currency })),
+      });
+    }
+
+    res.json({
+      itemsChecked: eligible.length,
+      itemsUpdated,
+      feeRowsWritten,
+      message: `Checked ${eligible.length} sold eBay items, updated ${itemsUpdated}, wrote ${feeRowsWritten} fee rows.`,
+      items: itemResults,
+    });
+  } catch (error) {
+    console.error('accounting sync-ebay-fees failed:', error);
+    const status = error.httpStatus === 403 ? 409 : 500;
+    res.status(status).json({
+      error:
+        error.httpStatus === 403
+          ? 'eBay rejected the Finances API call — reconnect eBay (Orders > Connect eBay) to re-grant the Finances permission.'
+          : 'Failed to sync eBay fees',
+      details: error.message,
+    });
+  }
+});
 
 function normalizeListingTitleForMatch(raw) {
   return String(raw ?? '')

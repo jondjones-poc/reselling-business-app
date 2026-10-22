@@ -1,0 +1,83 @@
+.sync-ebay-fees {
+  padding: 16px 0 40px;
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.sync-ebay-fees-status-row {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.sync-ebay-fees-muted {
+  margin: 0 0 16px;
+  font-size: 0.85rem;
+  color: rgba(var(--theme-text-rgb), 0.65);
+}
+
+.sync-ebay-fees-button-row {
+  display: flex;
+  justify-content: center;
+}
+
+.sync-ebay-fees-result {
+  margin-top: 16px;
+}
+
+.sync-ebay-fees-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  margin-top: 10px;
+}
+
+.sync-ebay-fees-summary dt {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgba(var(--theme-text-rgb), 0.6);
+  margin-bottom: 2px;
+}
+
+.sync-ebay-fees-summary dd {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+.sync-ebay-fees-items {
+  margin: 12px 0 0;
+  padding-left: 20px;
+  font-size: 0.82rem;
+}
+
+.sync-ebay-fees-test {
+  margin-top: 32px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(var(--theme-text-rgb), 0.1);
+  text-align: center;
+}
+
+.sync-ebay-fees-test h3 {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+}
+
+.sync-ebay-fees-test-row {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  align-items: center;
+}
+
+.sync-ebay-fees-test-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.3);
+  background: rgba(var(--theme-bg-rgb), 0.6);
+  color: rgba(var(--theme-text-rgb), 0.92);
+}

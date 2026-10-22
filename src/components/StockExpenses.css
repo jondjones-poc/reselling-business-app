@@ -1,0 +1,13 @@
+.stock-expenses {
+  padding: 16px 0 40px;
+}
+
+.stock-expenses-muted {
+  margin: 0 0 16px;
+  font-size: 0.85rem;
+  color: rgba(var(--theme-text-rgb), 0.65);
+}
+
+.stock-expenses-row--unsynced {
+  opacity: 0.6;
+}

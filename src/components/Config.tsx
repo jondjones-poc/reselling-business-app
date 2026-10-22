@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { getApiBase } from '../utils/apiBase';
 import './Config.css';
 import './Stock.css';
 import { SiteSettingsGeneral } from './SiteSettingsGeneral';
 import { SiteSettingsAccess } from './SiteSettingsAccess';
+import { EbaySigningKeySettings } from './EbaySigningKeySettings';
 import { useAuth } from './AuthGate';
 
 const API_BASE = getApiBase();
@@ -146,7 +148,8 @@ type ConfigMenu =
   | 'brands'
   | 'box-locations'
   | 'site-general'
-  | 'site-access';
+  | 'site-access'
+  | 'integrations';
 
 /** Normalise for duplicate detection: trim + lowercase; empty → null (ignored). */
 function stockDuplicateNameKey(item_name: Nullable<string>): string | null {
@@ -289,7 +292,11 @@ function buildBrandsRankByMenswearCategoriesPrompt(
 
 const Config: React.FC = () => {
   const { isAdmin } = useAuth();
-  const [activeMenu, setActiveMenu] = useState<ConfigMenu>('untagged-brand');
+  const [searchParams] = useSearchParams();
+  const [activeMenu, setActiveMenu] = useState<ConfigMenu>(() => {
+    const tab = searchParams.get('tab');
+    return tab === 'integrations' ? 'integrations' : 'untagged-brand';
+  });
   const [rows, setRows] = useState<StockRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -2605,6 +2612,15 @@ const Config: React.FC = () => {
                   Access
                 </button>
               ) : null}
+              <button
+                type="button"
+                className={`config-menu-item config-menu-item--in-group ${
+                  activeMenu === 'integrations' ? 'active' : ''
+                }`}
+                onClick={() => setActiveMenu('integrations')}
+              >
+                Integrations
+              </button>
             </div>
           </nav>
         </div>
@@ -4752,6 +4768,12 @@ const Config: React.FC = () => {
           {activeMenu === 'site-access' && isAdmin && (
             <div className="config-section">
               <SiteSettingsAccess />
+            </div>
+          )}
+
+          {activeMenu === 'integrations' && (
+            <div className="config-section">
+              <EbaySigningKeySettings />
             </div>
           )}
         </div>

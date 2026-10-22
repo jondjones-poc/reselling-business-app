@@ -6,6 +6,8 @@ import * as XLSX from 'xlsx';
 import { useSearchParams } from 'react-router-dom';
 import { getApiBase } from '../utils/apiBase';
 import AccountantExport from './AccountantExport';
+import StockExpenses from './StockExpenses';
+import SyncEbayFees from './SyncEbayFees';
 import './Stock.css';
 
 const API_BASE = getApiBase();
@@ -666,9 +668,11 @@ const Accounting: React.FC = () => {
     return value ?? '—';
   };
 
-  const accountingTab = searchParams.get('tab') === 'sales' ? 'sales' : 'expenses';
+  const rawTab = searchParams.get('tab');
+  const accountingTab =
+    rawTab === 'sales' || rawTab === 'stock-expenses' || rawTab === 'sync-ebay-fees' ? rawTab : 'expenses';
 
-  const setAccountingTab = (next: 'expenses' | 'sales') => {
+  const setAccountingTab = (next: 'expenses' | 'sales' | 'stock-expenses' | 'sync-ebay-fees') => {
     const nextParams = new URLSearchParams(searchParams);
     nextParams.set('tab', next);
     setSearchParams(nextParams, { replace: true });
@@ -699,11 +703,41 @@ const Accounting: React.FC = () => {
         >
           Sales
         </button>
+        <button
+          type="button"
+          role="tab"
+          id="accounting-tab-stock-expenses"
+          aria-selected={accountingTab === 'stock-expenses'}
+          aria-controls="accounting-panel-stock-expenses"
+          className={`expenses-tab${accountingTab === 'stock-expenses' ? ' expenses-tab--active' : ''}`}
+          onClick={() => setAccountingTab('stock-expenses')}
+        >
+          Stock Expenses
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="accounting-tab-sync-ebay-fees"
+          aria-selected={accountingTab === 'sync-ebay-fees'}
+          aria-controls="accounting-panel-sync-ebay-fees"
+          className={`expenses-tab${accountingTab === 'sync-ebay-fees' ? ' expenses-tab--active' : ''}`}
+          onClick={() => setAccountingTab('sync-ebay-fees')}
+        >
+          Sync eBay Fees
+        </button>
       </nav>
 
       {accountingTab === 'sales' ? (
         <div id="accounting-panel-sales" role="tabpanel" aria-labelledby="accounting-tab-sales">
           <AccountantExport />
+        </div>
+      ) : accountingTab === 'stock-expenses' ? (
+        <div id="accounting-panel-stock-expenses" role="tabpanel" aria-labelledby="accounting-tab-stock-expenses">
+          <StockExpenses />
+        </div>
+      ) : accountingTab === 'sync-ebay-fees' ? (
+        <div id="accounting-panel-sync-ebay-fees" role="tabpanel" aria-labelledby="accounting-tab-sync-ebay-fees">
+          <SyncEbayFees />
         </div>
       ) : (
         <div id="accounting-panel-expenses" role="tabpanel" aria-labelledby="accounting-tab-expenses">

@@ -13,6 +13,8 @@ const ANALYTICS_SCOPE = 'https://api.ebay.com/oauth/api_scope/sell.analytics.rea
 const INVENTORY_SCOPE = 'https://api.ebay.com/oauth/api_scope/sell.inventory';
 /** Required to read the seller's Business Policies (payment/fulfillment/return policy). */
 const ACCOUNT_SCOPE = 'https://api.ebay.com/oauth/api_scope/sell.account';
+/** Required for the Finances API (selling fees, shipping label charges, refunds). Not covered by any other scope above. */
+const FINANCES_SCOPE = 'https://api.ebay.com/oauth/api_scope/sell.finances';
 const TOKEN_URL = 'https://api.ebay.com/identity/v1/oauth2/token';
 const AUTHORIZE_BASE = 'https://auth.ebay.com/oauth2/authorize';
 
@@ -40,7 +42,7 @@ function getScopeString() {
   const includeAnalytics =
     process.env.EBAY_OAUTH_INCLUDE_ANALYTICS === '1' ||
     process.env.EBAY_OAUTH_INCLUDE_ANALYTICS === 'true';
-  const parts = [FULFILLMENT_SCOPE, INVENTORY_SCOPE, ACCOUNT_SCOPE];
+  const parts = [FULFILLMENT_SCOPE, INVENTORY_SCOPE, ACCOUNT_SCOPE, FINANCES_SCOPE];
   if (includeAnalytics) parts.push(ANALYTICS_SCOPE);
   return parts.join(' ');
 }
@@ -58,6 +60,11 @@ function scopeIncludesInventory(scope) {
 function scopeIncludesAccount(scope) {
   if (!scope) return false;
   return String(scope).includes('sell.account');
+}
+
+function scopeIncludesFinances(scope) {
+  if (!scope) return false;
+  return String(scope).includes('sell.finances');
 }
 
 /**
@@ -446,18 +453,28 @@ async function getFulfillmentUserAccessToken(pool) {
   return access;
 }
 
+/** Reads the scope string eBay actually granted last time we refreshed, without forcing a refresh. */
+async function getStoredEbayOAuthScope(pool) {
+  if (!pool) return '';
+  const key = (process.env.EBAY_OAUTH_INTEGRATION_KEY || DEFAULT_INTEGRATION_KEY).trim() || DEFAULT_INTEGRATION_KEY;
+  const result = await pool.query(`SELECT scope FROM ebay_oauth_token WHERE integration_key = $1`, [key]);
+  return result.rows?.[0]?.scope || '';
+}
+
 module.exports = {
   DEFAULT_INTEGRATION_KEY,
   FULFILLMENT_SCOPE,
   ANALYTICS_SCOPE,
   INVENTORY_SCOPE,
   ACCOUNT_SCOPE,
+  FINANCES_SCOPE,
   getEbayClientCreds,
   getEbayOAuthRuName,
   getScopeString,
   scopeIncludesAnalytics,
   scopeIncludesInventory,
   scopeIncludesAccount,
+  scopeIncludesFinances,
   createOAuthState,
   consumeOAuthState,
   sanitizeOAuthReturnTo,
@@ -470,5 +487,6 @@ module.exports = {
   deleteStoredRefreshToken,
   isInvalidRefreshGrantError,
   invalidateAccessTokenCache,
-  getFulfillmentUserAccessToken
+  getFulfillmentUserAccessToken,
+  getStoredEbayOAuthScope
 };
