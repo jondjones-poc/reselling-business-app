@@ -203,11 +203,8 @@ const SyncEbayFees: React.FC = () => {
             </option>
           ))}
         </select>
-      </div>
-
-      <div className="sync-ebay-fees-button-row">
         <button type="button" className="new-entry-button" onClick={runPeriodSync} disabled={syncing}>
-          {syncing ? 'Syncing…' : `Sync ${MONTH_LABELS[syncMonth - 1]} ${syncYear}`}
+          {syncing ? 'Syncing…' : 'Get eBay Order Details'}
         </button>
       </div>
       {error && renderError(error)}
@@ -233,10 +230,7 @@ const SyncEbayFees: React.FC = () => {
       )}
 
       <div className="sync-ebay-fees-test">
-        <h3>Test a single item</h3>
-        <p className="sync-ebay-fees-muted">
-          Enter the eBay item ID of one sold item to run the same sync for just that item. Results build up below.
-        </p>
+        <h3>Get Order Details For Item</h3>
         <div className="sync-ebay-fees-test-row">
           <input
             type="text"
@@ -246,7 +240,7 @@ const SyncEbayFees: React.FC = () => {
             className="sync-ebay-fees-test-input"
           />
           <button type="button" className="new-entry-button" onClick={runTestItem} disabled={testing || !testItemId.trim()}>
-            {testing ? 'Testing…' : 'Test Item'}
+            {testing ? 'Getting…' : 'Get Order Details'}
           </button>
         </div>
         {testError && renderError(testError)}

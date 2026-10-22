@@ -3648,11 +3648,19 @@ app.get('/api/accounting/export', async (req, res) => {
 
     const [salesRes, purchasesRes, openingStockRes, closingStockRes, expensesRes] = await Promise.all([
       // Sales: recognised in the period by sale_date, regardless of when purchased.
+      // eBay fees/postage are aggregated in — see stock_item_fees (Sync eBay Fees).
       pool.query(
-        `SELECT ${stockSelect} ${stockJoins}
+        `SELECT ${stockSelect},
+           COALESCE(SUM(f.amount) FILTER (WHERE f.fee_type = 'selling_fee'), 0)::numeric AS ebay_selling_fees,
+           COALESCE(SUM(f.amount) FILTER (WHERE f.fee_type = 'buyer_postage'), 0)::numeric AS ebay_buyer_postage,
+           COALESCE(SUM(f.amount) FILTER (WHERE f.fee_type = 'postage_paid'), 0)::numeric AS ebay_postage_paid
+         ${stockJoins}
+         LEFT JOIN stock_item_fees f ON f.stock_id = s.id
          WHERE ${notWrittenOff}
            AND s.sale_date IS NOT NULL
            AND s.sale_date::date >= $1::date AND s.sale_date::date <= $2::date
+         GROUP BY s.id, s.item_name, s.purchase_price, s.purchase_date, s.sale_date, s.sale_price,
+           s.sold_platform, s.projected_sale_price, s.vinted_id, s.ebay_id, s.depop_id, b.brand_name, c.category_name
          ORDER BY s.sale_date ASC, s.id ASC`,
         [periodStart, periodEnd]
       ),
@@ -3714,10 +3722,17 @@ app.get('/api/accounting/export', async (req, res) => {
       sourceUrl: buildSourceUrl(row),
     });
 
+    const mapSalesRow = (row) => ({
+      ...mapStockRow(row),
+      ebaySellingFees: Number(row.ebay_selling_fees) || 0,
+      ebayBuyerPostage: Number(row.ebay_buyer_postage) || 0,
+      ebayPostagePaid: Number(row.ebay_postage_paid) || 0,
+    });
+
     res.json({
       periodStart,
       periodEnd,
-      sales: (salesRes.rows ?? []).map(mapStockRow),
+      sales: (salesRes.rows ?? []).map(mapSalesRow),
       purchases: (purchasesRes.rows ?? []).map(mapStockRow),
       openingStock: (openingStockRes.rows ?? []).map(mapStockRow),
       closingStock: (closingStockRes.rows ?? []).map(mapStockRow),

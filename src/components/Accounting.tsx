@@ -701,7 +701,7 @@ const Accounting: React.FC = () => {
           className={`expenses-tab${accountingTab === 'sales' ? ' expenses-tab--active' : ''}`}
           onClick={() => setAccountingTab('sales')}
         >
-          Sales
+          Company Accounts
         </button>
         <button
           type="button"
