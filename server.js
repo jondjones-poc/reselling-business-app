@@ -13400,17 +13400,36 @@ app.get('/api/accounting/stock-expenses', async (req, res) => {
     `);
 
     res.json({
-      rows: (result.rows ?? []).map((row) => ({
-        stockId: row.id,
-        itemName: row.item_name,
-        platform: row.sold_platform || '',
-        purchasePrice: row.purchase_price != null ? Number(row.purchase_price) : null,
-        salePrice: row.sale_price != null ? Number(row.sale_price) : null,
-        sellingFees: Number(row.selling_fees) || 0,
-        buyerPostage: Number(row.buyer_postage) || 0,
-        postagePaid: Number(row.postage_paid) || 0,
-        hasFeeData: Boolean(row.has_fee_data),
-      })),
+      rows: (result.rows ?? []).map((row) => {
+        const purchasePrice = row.purchase_price != null ? Number(row.purchase_price) : null;
+        const salePrice = row.sale_price != null ? Number(row.sale_price) : null;
+        const sellingFees = Number(row.selling_fees) || 0;
+        const buyerPostage = Number(row.buyer_postage) || 0;
+        const postagePaid = Number(row.postage_paid) || 0;
+        const hasFeeData = Boolean(row.has_fee_data);
+        // Total price paid is what the buyer paid in total (item + postage);
+        // final profit also nets off the purchase cost, selling fee, and the
+        // postage label cost actually paid — only computed once fee data has
+        // been synced, same as the other eBay-sourced columns.
+        const totalPricePaid = salePrice != null ? salePrice + buyerPostage : null;
+        const finalProfit =
+          hasFeeData && salePrice != null && purchasePrice != null
+            ? salePrice + buyerPostage - purchasePrice - sellingFees - postagePaid
+            : null;
+        return {
+          stockId: row.id,
+          itemName: row.item_name,
+          platform: row.sold_platform || '',
+          purchasePrice,
+          salePrice,
+          sellingFees,
+          buyerPostage,
+          postagePaid,
+          totalPricePaid,
+          finalProfit,
+          hasFeeData,
+        };
+      }),
     });
   } catch (error) {
     console.error('accounting stock-expenses failed:', error);

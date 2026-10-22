@@ -172,6 +172,10 @@ const AccountantExport: React.FC = () => {
     const salesRows = data.sales.map((row) => {
       const salePrice = row.salePrice ?? 0;
       const purchasePrice = row.purchasePrice;
+      const sellingFees = row.ebaySellingFees || 0;
+      const buyerPostage = row.ebayBuyerPostage || 0;
+      const postagePaid = row.ebayPostagePaid || 0;
+      const totalPricePaid = round2(salePrice + buyerPostage);
       return {
         stock_item_id: String(row.stockItemId).padStart(6, '0'),
         description: row.itemName ?? '',
@@ -182,10 +186,11 @@ const AccountantExport: React.FC = () => {
         item_sales_amount: row.salePrice ?? '',
         purchase_cost: purchasePrice ?? '',
         profit: purchasePrice != null ? round2(salePrice - purchasePrice) : '',
-        ebay_selling_fees: row.ebaySellingFees || '',
-        ebay_buyer_postage: row.ebayBuyerPostage || '',
-        ebay_postage_paid: row.ebayPostagePaid || '',
-        net_proceeds: round2(salePrice - (row.ebaySellingFees || 0) - (row.ebayPostagePaid || 0)),
+        ebay_buyer_postage: buyerPostage || '',
+        total_price_paid: totalPricePaid,
+        ebay_selling_fees: sellingFees || '',
+        ebay_postage_paid: postagePaid || '',
+        final_profit: purchasePrice != null ? round2(totalPricePaid - purchasePrice - sellingFees - postagePaid) : '',
         currency: 'GBP',
         review_note: '',
       };
@@ -277,10 +282,11 @@ const AccountantExport: React.FC = () => {
       { sheet: 'Sales', column: 'profit', meaning: 'item_sales_amount minus purchase_cost for this item. Blank if no purchase cost is recorded.' },
       { sheet: 'Sales', column: 'revenue_excluding_VAT', meaning: 'Blank unless a VAT treatment was selected on the Sales page; a flat-rate/margin-scheme estimate for your accountant to confirm.' },
       { sheet: 'Sales', column: 'source_url', meaning: 'Direct link to the eBay / Vinted / Depop listing, whichever is present.' },
+      { sheet: 'Sales', column: 'ebay_buyer_postage', meaning: 'Postage the buyer paid you, on top of item_sales_amount (Fulfillment API).' },
+      { sheet: 'Sales', column: 'total_price_paid', meaning: 'item_sales_amount plus ebay_buyer_postage — the full amount the buyer paid for the order.' },
       { sheet: 'Sales', column: 'ebay_selling_fees', meaning: 'eBay selling fees for this sale, from the Finances API (Sync eBay Fees). Blank/0 for non-eBay sales or items not yet synced.' },
-      { sheet: 'Sales', column: 'ebay_buyer_postage', meaning: 'Postage charged to the buyer (Fulfillment API), informational only — not a cost to you.' },
-      { sheet: 'Sales', column: 'ebay_postage_paid', meaning: 'Shipping label cost you paid via eBay (Finances API), where synced.' },
-      { sheet: 'Sales', column: 'net_proceeds', meaning: 'item_sales_amount minus ebay_selling_fees and ebay_postage_paid. Does not subtract purchase_cost — see profit for that.' },
+      { sheet: 'Sales', column: 'ebay_postage_paid', meaning: 'Shipping label cost you actually paid via eBay (Finances API), where synced.' },
+      { sheet: 'Sales', column: 'final_profit', meaning: 'total_price_paid minus purchase_cost, ebay_selling_fees, and ebay_postage_paid — the item\'s true bottom-line profit.' },
       { sheet: 'Stock Purchases', column: 'purchase_price', meaning: 'Amount paid for the item. No separate inbound costs (postage to acquire, etc.) are tracked.' },
       { sheet: 'Opening Stock / Closing Stock', column: '(sheet meaning)', meaning: 'Every item bought before the sheet\'s date and not yet sold by it — reconstructed from purchase_date/sale_date, not a stored snapshot.' },
       { sheet: 'Opening Stock / Closing Stock', column: 'estimated_selling_price', meaning: 'Your own projected/listed price for the item, where one was set. No NRV write-down has been calculated — apply lower-of-cost-or-NRV manually.' },

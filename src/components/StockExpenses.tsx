@@ -13,6 +13,8 @@ interface StockExpenseRow {
   sellingFees: number;
   buyerPostage: number;
   postagePaid: number;
+  totalPricePaid: number | null;
+  finalProfit: number | null;
   hasFeeData: boolean;
 }
 
@@ -61,16 +63,18 @@ const StockExpenses: React.FC = () => {
                 <th>Name</th>
                 <th>Sold On</th>
                 <th>Cost</th>
-                <th>Sold Price</th>
-                <th>Fees</th>
+                <th>Item Sold Price</th>
                 <th>Postage Charged To Buyer</th>
+                <th>Total Price Paid</th>
+                <th>Fees</th>
                 <th>Postage I Paid</th>
+                <th>Final Profit</th>
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="empty-state">
+                  <td colSpan={10} className="empty-state">
                     No sold items found.
                   </td>
                 </tr>
@@ -82,9 +86,11 @@ const StockExpenses: React.FC = () => {
                   <td>{row.platform || '—'}</td>
                   <td>{formatGbp(row.purchasePrice)}</td>
                   <td>{formatGbp(row.salePrice)}</td>
-                  <td>{row.hasFeeData ? formatGbp(row.sellingFees) : '—'}</td>
                   <td>{row.hasFeeData ? formatGbp(row.buyerPostage) : '—'}</td>
+                  <td>{formatGbp(row.totalPricePaid)}</td>
+                  <td>{row.hasFeeData ? formatGbp(row.sellingFees) : '—'}</td>
                   <td>{row.hasFeeData ? formatGbp(row.postagePaid) : '—'}</td>
+                  <td>{row.hasFeeData ? formatGbp(row.finalProfit) : '—'}</td>
                 </tr>
               ))}
             </tbody>
