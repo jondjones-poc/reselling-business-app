@@ -13578,7 +13578,7 @@ app.post('/api/accounting/sync-ebay-fees', async (req, res) => {
         await pool.query(
           `INSERT INTO stock_item_fees (stock_id, order_id, fee_type, amount, currency, description, transaction_date, source, raw_reference)
            VALUES ($1, $2, $3, $4, $5, $6, $7, 'ebay_api', $2)
-           ON CONFLICT (stock_id, fee_type, raw_reference)
+           ON CONFLICT (stock_id, fee_type, raw_reference) WHERE raw_reference IS NOT NULL
            DO UPDATE SET amount = EXCLUDED.amount, currency = EXCLUDED.currency, description = EXCLUDED.description, transaction_date = EXCLUDED.transaction_date`,
           [item.id, fulfillment.orderId, row.feeType, row.amount, row.currency, row.description, item.sale_date]
         );
