@@ -45,6 +45,11 @@
   background: var(--theme-summary-select-focus-bg, rgba(var(--theme-accent-rgb), 0.16));
 }
 
+.sync-ebay-fees-button-row {
+  display: flex;
+  justify-content: center;
+}
+
 .sync-ebay-fees-result {
   margin-top: 16px;
 }

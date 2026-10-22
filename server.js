@@ -13518,13 +13518,16 @@ app.post('/api/accounting/sync-ebay-fees', async (req, res) => {
     }
 
     const testEbayItemId = typeof req.body?.ebayItemId === 'string' ? req.body.ebayItemId.trim() : '';
-    const filterYear = Number.isInteger(req.body?.year) ? req.body.year : null;
+    const onlyMissing = req.body?.onlyMissing === true;
+    const filterYear = onlyMissing ? null : Number.isInteger(req.body?.year) ? req.body.year : null;
     const filterMonth =
-      Number.isInteger(req.body?.month) && req.body.month >= 1 && req.body.month <= 12 ? req.body.month : null;
+      onlyMissing || !(Number.isInteger(req.body?.month) && req.body.month >= 1 && req.body.month <= 12)
+        ? null
+        : req.body.month;
 
     const eligibleRes = await pool.query(
       `SELECT id, ebay_id, sale_date::date AS sale_date
-       FROM stock
+       FROM stock s
        WHERE sale_date IS NOT NULL
          AND ebay_id IS NOT NULL
          AND TRIM(ebay_id) <> ''
@@ -13533,8 +13536,9 @@ app.post('/api/accounting/sync-ebay-fees', async (req, res) => {
          AND ($1::text IS NULL OR TRIM(ebay_id) = $1::text)
          AND ($2::int IS NULL OR EXTRACT(YEAR FROM sale_date) = $2::int)
          AND ($3::int IS NULL OR EXTRACT(MONTH FROM sale_date) = $3::int)
+         AND ($4::boolean IS NOT TRUE OR NOT EXISTS (SELECT 1 FROM stock_item_fees f WHERE f.stock_id = s.id))
        ORDER BY sale_date ASC`,
-      [testEbayItemId || null, filterYear, filterMonth]
+      [testEbayItemId || null, filterYear, filterMonth, onlyMissing]
     );
     const eligible = eligibleRes.rows ?? [];
     if (eligible.length === 0) {
@@ -13544,7 +13548,9 @@ app.post('/api/accounting/sync-ebay-fees', async (req, res) => {
         feeRowsWritten: 0,
         message: testEbayItemId
           ? `No sold eBay stock item found with eBay item ID "${testEbayItemId}".`
-          : 'No sold eBay items found for that period.',
+          : onlyMissing
+            ? 'No sold eBay items are missing fee data.'
+            : 'No sold eBay items found for that period.',
       });
     }
 

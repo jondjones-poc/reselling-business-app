@@ -49,6 +49,10 @@ const SyncEbayFees: React.FC = () => {
   const [testError, setTestError] = useState<SyncError | null>(null);
   const [testedItems, setTestedItems] = useState<SyncResultItem[]>([]);
 
+  const [missingSyncing, setMissingSyncing] = useState(false);
+  const [missingError, setMissingError] = useState<SyncError | null>(null);
+  const [missingResult, setMissingResult] = useState<SyncResult | null>(null);
+
   const yearOptions = useMemo(() => {
     const currentYear = new Date().getFullYear();
     return Array.from({ length: 6 }, (_, i) => currentYear - i);
@@ -116,6 +120,33 @@ const SyncEbayFees: React.FC = () => {
       );
     } finally {
       setTesting(false);
+    }
+  };
+
+  const runMissingSync = async () => {
+    setMissingSyncing(true);
+    setMissingError(null);
+    setMissingResult(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/accounting/sync-ebay-fees`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ onlyMissing: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const message = data?.details ? `${data?.error || 'Failed to sync eBay fees'} — ${data.details}` : data?.error;
+        throw syncErrorFrom(message || 'Failed to sync eBay fees', data?.code);
+      }
+      setMissingResult(data);
+    } catch (err) {
+      setMissingError(
+        err && typeof err === 'object' && 'message' in err
+          ? (err as SyncError)
+          : { message: 'Failed to sync eBay fees' }
+      );
+    } finally {
+      setMissingSyncing(false);
     }
   };
 
@@ -245,6 +276,39 @@ const SyncEbayFees: React.FC = () => {
         </div>
         {testError && renderError(testError)}
         {testedItems.length > 0 && renderFeeTable(testedItems)}
+      </div>
+
+      <div className="sync-ebay-fees-test">
+        <h3>Sync Missing Items</h3>
+        <p className="sync-ebay-fees-muted">
+          Goes through every sold eBay item with no synced order data yet, regardless of when it sold.
+        </p>
+        <div className="sync-ebay-fees-button-row">
+          <button type="button" className="new-entry-button" onClick={runMissingSync} disabled={missingSyncing}>
+            {missingSyncing ? 'Syncing…' : 'Sync Missing Items'}
+          </button>
+        </div>
+        {missingError && renderError(missingError)}
+        {missingResult && (
+          <div className="stock-success sync-ebay-fees-result">
+            {missingResult.message}
+            <dl className="sync-ebay-fees-summary">
+              <div>
+                <dt>Items checked</dt>
+                <dd>{missingResult.itemsChecked}</dd>
+              </div>
+              <div>
+                <dt>Items updated</dt>
+                <dd>{missingResult.itemsUpdated}</dd>
+              </div>
+              <div>
+                <dt>Fee rows written</dt>
+                <dd>{missingResult.feeRowsWritten}</dd>
+              </div>
+            </dl>
+            {missingResult.items && missingResult.items.length > 0 && renderFeeTable(missingResult.items)}
+          </div>
+        )}
       </div>
     </div>
   );
