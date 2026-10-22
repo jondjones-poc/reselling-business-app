@@ -13386,6 +13386,8 @@ app.get('/api/accounting/stock-expenses', async (req, res) => {
         s.sold_platform,
         s.purchase_price,
         s.sale_price,
+        s.ebay_id,
+        MAX(f.order_id) AS order_id,
         COALESCE(SUM(f.amount) FILTER (WHERE f.fee_type = 'selling_fee'), 0)::numeric AS selling_fees,
         COALESCE(SUM(f.amount) FILTER (WHERE f.fee_type = 'buyer_postage'), 0)::numeric AS buyer_postage,
         COALESCE(SUM(f.amount) FILTER (WHERE f.fee_type = 'postage_paid'), 0)::numeric AS postage_paid,
@@ -13395,7 +13397,7 @@ app.get('/api/accounting/stock-expenses', async (req, res) => {
       WHERE s.sale_date IS NOT NULL
         AND NOT COALESCE(s.is_inventory_write_off, false)
         AND LOWER(COALESCE(s.sold_platform, '')) LIKE '%ebay%'
-      GROUP BY s.id, s.item_name, s.sold_platform, s.purchase_price, s.sale_price
+      GROUP BY s.id, s.item_name, s.sold_platform, s.purchase_price, s.sale_price, s.ebay_id
       ORDER BY s.sale_date DESC NULLS LAST, s.id DESC
     `);
 
@@ -13420,6 +13422,8 @@ app.get('/api/accounting/stock-expenses', async (req, res) => {
           stockId: row.id,
           itemName: row.item_name,
           platform: row.sold_platform || '',
+          ebayId: row.ebay_id || null,
+          orderId: row.order_id || null,
           purchasePrice,
           salePrice,
           sellingFees,

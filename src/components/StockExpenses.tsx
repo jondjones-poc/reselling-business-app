@@ -8,6 +8,8 @@ interface StockExpenseRow {
   stockId: number;
   itemName: string | null;
   platform: string;
+  ebayId: string | null;
+  orderId: string | null;
   purchasePrice: number | null;
   salePrice: number | null;
   sellingFees: number;
@@ -62,6 +64,8 @@ const StockExpenses: React.FC = () => {
                 <th>Stock ID</th>
                 <th>Name</th>
                 <th>Sold On</th>
+                <th>eBay ID</th>
+                <th>Order Number</th>
                 <th>Cost</th>
                 <th>Item Sold Price</th>
                 <th>Postage Charged To Buyer</th>
@@ -74,7 +78,7 @@ const StockExpenses: React.FC = () => {
             <tbody>
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="empty-state">
+                  <td colSpan={12} className="empty-state">
                     No sold items found.
                   </td>
                 </tr>
@@ -84,6 +88,8 @@ const StockExpenses: React.FC = () => {
                   <td>{row.stockId}</td>
                   <td>{row.itemName ?? '—'}</td>
                   <td>{row.platform || '—'}</td>
+                  <td>{row.ebayId ?? '—'}</td>
+                  <td>{row.orderId ?? '—'}</td>
                   <td>{formatGbp(row.purchasePrice)}</td>
                   <td>{formatGbp(row.salePrice)}</td>
                   <td>{row.hasFeeData ? formatGbp(row.buyerPostage) : '—'}</td>
