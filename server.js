@@ -3461,6 +3461,218 @@ app.put('/api/settings/categories', async (req, res) => {
   }
 });
 
+const ACCOUNTING_SETTINGS_KEY = 'accountingExportSettings';
+const VAT_TREATMENTS = new Set(['not-registered', 'standard', 'margin-scheme']);
+
+/**
+ * Accountant Export settings (company name/number, accounting period,
+ * trading start date, VAT registration/treatment) — just metadata the user
+ * enters at export time, not tax data in its own right. Stored the same way
+ * as other app_settings keys (see /api/settings/categories above).
+ */
+app.get('/api/settings/accounting', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    const fallback = {
+      companyName: '',
+      companyNumber: '',
+      accountingPeriodStart: '',
+      accountingPeriodEnd: '',
+      tradingStartDate: '',
+      vatTreatment: 'not-registered',
+      vatEffectiveDate: '',
+    };
+    if (!pool) return res.json(fallback);
+
+    const result = await pool.query(`SELECT value FROM app_settings WHERE key = $1`, [ACCOUNTING_SETTINGS_KEY]);
+    if (!result.rows.length) return res.json(fallback);
+    const parsed = JSON.parse(result.rows[0].value);
+    res.json({ ...fallback, ...parsed });
+  } catch (error) {
+    console.error('Error loading accounting settings:', error);
+    res.status(500).json({ error: 'Failed to load accounting settings', details: error.message });
+  }
+});
+
+app.put('/api/settings/accounting', async (req, res) => {
+  try {
+    const body = req.body ?? {};
+    const vatTreatment = VAT_TREATMENTS.has(body.vatTreatment) ? body.vatTreatment : 'not-registered';
+    const settings = {
+      companyName: String(body.companyName ?? '').slice(0, 200),
+      companyNumber: String(body.companyNumber ?? '').slice(0, 50),
+      accountingPeriodStart: String(body.accountingPeriodStart ?? '').slice(0, 10),
+      accountingPeriodEnd: String(body.accountingPeriodEnd ?? '').slice(0, 10),
+      tradingStartDate: String(body.tradingStartDate ?? '').slice(0, 10),
+      vatTreatment,
+      vatEffectiveDate: String(body.vatEffectiveDate ?? '').slice(0, 10),
+    };
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    await pool.query(
+      `CREATE TABLE IF NOT EXISTS app_settings (
+        key VARCHAR(255) PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )`
+    );
+    await pool.query(
+      `INSERT INTO app_settings (key, value)
+       VALUES ($1, $2)
+       ON CONFLICT (key)
+       DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP`,
+      [ACCOUNTING_SETTINGS_KEY, JSON.stringify(settings)]
+    );
+
+    res.json(settings);
+  } catch (error) {
+    console.error('Error saving accounting settings:', error);
+    res.status(500).json({ error: 'Failed to save accounting settings', details: error.message });
+  }
+});
+
+/**
+ * Data for the Accountant Export (Sales / Stock Purchases / Closing Stock /
+ * Expenses / Summary sheets). Accruals basis: a sale belongs to the period
+ * its sale_date falls in regardless of when the item was bought; a purchase
+ * belongs to the period its purchase_date falls in regardless of whether (or
+ * when) it later sold. Opening/closing stock reconstruct what was actually
+ * held at each boundary from purchase_date/sale_date, since stock rows are
+ * one-unique-item-per-row (no quantity field) and nothing in this schema
+ * tracks VAT, currency, orders, shipping, refunds, or company/personal
+ * ownership — those are intentionally absent from the response rather than
+ * invented; see the frontend's own "excluded" note built from this.
+ * GET /api/accounting/export?periodStart=YYYY-MM-DD&periodEnd=YYYY-MM-DD
+ */
+app.get('/api/accounting/export', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const periodStart = normalizeDateOnlyString(req.query.periodStart);
+    const periodEnd = normalizeDateOnlyString(req.query.periodEnd);
+    if (!periodStart || !periodEnd) {
+      return res.status(400).json({ error: 'periodStart and periodEnd are required (YYYY-MM-DD)' });
+    }
+
+    const stockSelect = `
+      s.id,
+      s.item_name,
+      s.purchase_price,
+      s.purchase_date::date AS purchase_date,
+      s.sale_date::date AS sale_date,
+      s.sale_price,
+      s.sold_platform,
+      s.projected_sale_price,
+      s.vinted_id,
+      s.ebay_id,
+      s.depop_id,
+      COALESCE(b.brand_name, '') AS brand_name,
+      COALESCE(c.category_name, '') AS category_name
+    `;
+    const stockJoins = `
+      FROM stock s
+      LEFT JOIN brand b ON b.id = s.brand_id
+      LEFT JOIN category c ON c.id = s.category_id
+    `;
+    const notWrittenOff = `NOT COALESCE(s.is_inventory_write_off, false)`;
+
+    const [salesRes, purchasesRes, openingStockRes, closingStockRes, expensesRes] = await Promise.all([
+      // Sales: recognised in the period by sale_date, regardless of when purchased.
+      pool.query(
+        `SELECT ${stockSelect} ${stockJoins}
+         WHERE ${notWrittenOff}
+           AND s.sale_date IS NOT NULL
+           AND s.sale_date::date >= $1::date AND s.sale_date::date <= $2::date
+         ORDER BY s.sale_date ASC, s.id ASC`,
+        [periodStart, periodEnd]
+      ),
+      // Purchases: recognised in the period by purchase_date, sold or not.
+      pool.query(
+        `SELECT ${stockSelect} ${stockJoins}
+         WHERE ${notWrittenOff}
+           AND s.purchase_date IS NOT NULL
+           AND s.purchase_date::date >= $1::date AND s.purchase_date::date <= $2::date
+         ORDER BY s.purchase_date ASC, s.id ASC`,
+        [periodStart, periodEnd]
+      ),
+      // Opening stock: bought before the period started, not yet sold by then.
+      pool.query(
+        `SELECT ${stockSelect} ${stockJoins}
+         WHERE ${notWrittenOff}
+           AND s.purchase_date IS NOT NULL AND s.purchase_date::date < $1::date
+           AND (s.sale_date IS NULL OR s.sale_date::date >= $1::date)
+         ORDER BY s.purchase_date ASC, s.id ASC`,
+        [periodStart]
+      ),
+      // Closing stock: bought by period end, not yet sold by then.
+      pool.query(
+        `SELECT ${stockSelect} ${stockJoins}
+         WHERE ${notWrittenOff}
+           AND s.purchase_date IS NOT NULL AND s.purchase_date::date <= $1::date
+           AND (s.sale_date IS NULL OR s.sale_date::date > $1::date)
+         ORDER BY s.purchase_date ASC, s.id ASC`,
+        [periodEnd]
+      ),
+      pool.query(
+        `SELECT id, item, cost, purchase_date::date AS purchase_date, receipt_name, purchase_location
+         FROM expenses
+         WHERE purchase_date IS NOT NULL
+           AND purchase_date::date >= $1::date AND purchase_date::date <= $2::date
+         ORDER BY purchase_date ASC, id ASC`,
+        [periodStart, periodEnd]
+      ),
+    ]);
+
+    const buildSourceUrl = (row) => {
+      if (row.ebay_id) return `https://www.ebay.co.uk/itm/${encodeURIComponent(String(row.ebay_id).replace(/\D/g, '') || row.ebay_id)}`;
+      if (row.vinted_id) return `https://www.vinted.co.uk/items/${encodeURIComponent(row.vinted_id)}`;
+      if (row.depop_id) return `https://www.depop.com/products/${encodeURIComponent(row.depop_id)}`;
+      return '';
+    };
+
+    const mapStockRow = (row) => ({
+      stockItemId: row.id,
+      itemName: row.item_name,
+      brandName: row.brand_name || '',
+      categoryName: row.category_name || '',
+      purchaseDate: row.purchase_date ? formatDateOnlyUtc(row.purchase_date) : null,
+      purchasePrice: row.purchase_price != null ? Number(row.purchase_price) : null,
+      saleDate: row.sale_date ? formatDateOnlyUtc(row.sale_date) : null,
+      salePrice: row.sale_price != null ? Number(row.sale_price) : null,
+      projectedSalePrice: row.projected_sale_price != null ? Number(row.projected_sale_price) : null,
+      platform: row.sold_platform || '',
+      sourceUrl: buildSourceUrl(row),
+    });
+
+    res.json({
+      periodStart,
+      periodEnd,
+      sales: (salesRes.rows ?? []).map(mapStockRow),
+      purchases: (purchasesRes.rows ?? []).map(mapStockRow),
+      openingStock: (openingStockRes.rows ?? []).map(mapStockRow),
+      closingStock: (closingStockRes.rows ?? []).map(mapStockRow),
+      expenses: (expensesRes.rows ?? []).map((row) => ({
+        expenseId: row.id,
+        description: row.item,
+        amount: row.cost != null ? Number(row.cost) : null,
+        transactionDate: row.purchase_date ? formatDateOnlyUtc(row.purchase_date) : null,
+        supplier: row.purchase_location || '',
+        invoiceReference: row.receipt_name || '',
+      })),
+    });
+  } catch (error) {
+    console.error('accounting export failed:', error);
+    res.status(500).json({ error: 'Failed to load accounting export data', details: error.message });
+  }
+});
+
 app.get('/api/mens-resale-reference', (req, res) => {
   try {
     res.json(mensResaleReference);

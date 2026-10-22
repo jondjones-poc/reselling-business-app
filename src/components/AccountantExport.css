@@ -1,0 +1,84 @@
+.accountant-export {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 16px 0 40px;
+}
+
+.accountant-export-card {
+  background: rgba(var(--theme-bg-rgb), 0.5);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.22);
+  border-radius: 14px;
+  padding: 20px 22px;
+}
+
+.accountant-export-card h2 {
+  margin: 0 0 8px;
+  font-size: 1.05rem;
+}
+
+.accountant-export-muted {
+  margin: 0 0 16px;
+  font-size: 0.85rem;
+  color: rgba(var(--theme-text-rgb), 0.65);
+}
+
+.accountant-export-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.accountant-export-grid .new-entry-field {
+  flex: 1 1 220px;
+  max-width: 280px;
+}
+
+.accountant-export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.accountant-export-summary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 20px;
+}
+
+.accountant-export-summary > div {
+  text-align: center;
+}
+
+.accountant-export-summary dt {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgba(var(--theme-text-rgb), 0.6);
+  margin-bottom: 2px;
+}
+
+.accountant-export-summary dd {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+.accountant-export-exclusions {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 0.85rem;
+  color: rgba(var(--theme-text-rgb), 0.85);
+}
+
+.accountant-export-exclusions li {
+  line-height: 1.45;
+}

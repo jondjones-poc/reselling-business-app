@@ -6,6 +6,7 @@ import ResearchRoute from './components/ResearchRoute';
 import Reporting from './components/Reporting';
 import Stock from './components/Stock';
 import Expenses from './components/Expenses';
+import Accounting from './components/Accounting';
 import Orders from './components/Orders';
 import Sourcing from './components/Sourcing';
 import Config from './components/Config';
@@ -21,6 +22,7 @@ const navItems = [
   { to: '/analytics?tab=seasonal', label: 'Analytics' },
   { to: '/research', label: 'Research' },
   { to: '/tools', label: 'Tools' },
+  { to: '/accounting', label: 'Accounting' },
   { to: '/sniping', label: 'Sniping' },
 ] as const;
 
@@ -229,6 +231,7 @@ function AppShell() {
           <Route path="/research" element={<RequireAuth><ResearchRoute /></RequireAuth>} />
           <Route path="/stock" element={<RequireAuth><Stock /></RequireAuth>} />
           <Route path="/tools" element={<RequireAuth><Expenses /></RequireAuth>} />
+          <Route path="/accounting" element={<RequireAuth><Accounting /></RequireAuth>} />
           <Route path="/expenses" element={<Navigate to={{ pathname: "/tools", search: location.search, hash: location.hash }} replace />} />
           <Route path="/reporting" element={<RequireAuth><Reporting /></RequireAuth>} />
           <Route path="/orders" element={<RequireAuth><Orders /></RequireAuth>} />
