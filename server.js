@@ -1362,6 +1362,9 @@ app.get('/api/ebay/oauth/callback', async (req, res) => {
     ).trim();
 
     const tokens = await ebaySellerOAuth.exchangeAuthorizationCode(code);
+    console.log(
+      `[eBay OAuth] token exchange response: has_scope=${Boolean(tokens.scope)} scope_raw=${tokens.scope ? String(tokens.scope) : '(absent)'} has_refresh_token=${Boolean(tokens.refresh_token)} refresh_token_len=${tokens.refresh_token ? String(tokens.refresh_token).length : 0} refresh_token_prefix=${tokens.refresh_token ? String(tokens.refresh_token).slice(0, 12) : ''}`
+    );
     let refresh = tokens.refresh_token != null ? String(tokens.refresh_token).trim() : '';
     if (!refresh) {
       const existing = await pool.query(
@@ -1378,11 +1381,22 @@ app.get('/api/ebay/oauth/callback', async (req, res) => {
       );
     }
 
-    const scopeGranted =
-      (tokens.scope && String(tokens.scope).trim()) || ebaySellerOAuth.getScopeString();
     const requested = ebaySellerOAuth.getScopeString();
+    // eBay's token response can omit `scope` even when it granted LESS than
+    // requested (e.g. Finances requires separate production approval beyond
+    // user consent) — assuming "omitted = granted everything" previously
+    // masked exactly that case. Fall back to the scope already on record
+    // instead of optimistically widening to what we merely asked for.
+    let scopeGranted = tokens.scope && String(tokens.scope).trim();
+    if (!scopeGranted) {
+      const existing = await pool.query(
+        `SELECT scope FROM ebay_oauth_token WHERE integration_key = $1`,
+        [integrationKey]
+      );
+      scopeGranted = existing.rows?.[0]?.scope ? String(existing.rows[0].scope).trim() : requested;
+    }
     console.log('[eBay OAuth] requested scopes:', requested);
-    console.log('[eBay OAuth] granted scopes:', scopeGranted);
+    console.log('[eBay OAuth] granted scopes:', scopeGranted, tokens.scope ? '(from eBay response)' : '(eBay omitted scope; kept prior record)');
 
     let userName = 'seller';
     let ebayUserId = null;
@@ -13494,8 +13508,8 @@ app.post('/api/accounting/sync-ebay-fees', async (req, res) => {
       (min, row) => (row.sale_date < min ? row.sale_date : min),
       eligible[0].sale_date
     );
-    const startDate = new Date(earliestSale.getTime() - 7 * 86400000); // small buffer either side of
-    const endDate = new Date(Date.now() + 86400000); // the actual sale dates, for API filter tolerance.
+    const startDate = new Date(earliestSale.getTime() - 7 * 86400000); // small buffer before the
+    const endDate = new Date(); // earliest sale date; eBay rejects an end date in the future.
 
     const userAccessToken = await ebaySellerOAuth.getFulfillmentUserAccessToken(pool);
 

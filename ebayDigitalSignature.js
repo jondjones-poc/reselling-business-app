@@ -95,9 +95,21 @@ async function getSigningKeyInfo(pool) {
   return rows[0] || null;
 }
 
-function parsePrivateKey(privateKeyPem) {
-  const pem = privateKeyPem.includes('BEGIN') ? privateKeyPem : Buffer.from(privateKeyPem, 'base64').toString('utf8');
-  return crypto.createPrivateKey(pem);
+/**
+ * eBay's Key Management API returns `privateKey` as base64-encoded raw
+ * PKCS8 DER bytes (not a base64-encoded PEM text block), so it must be
+ * parsed as DER — passing it as PEM text fails with an OpenSSL decoder
+ * error.
+ */
+function parsePrivateKey(privateKeyValue) {
+  if (privateKeyValue.includes('BEGIN')) {
+    return crypto.createPrivateKey(privateKeyValue);
+  }
+  return crypto.createPrivateKey({
+    key: Buffer.from(privateKeyValue, 'base64'),
+    format: 'der',
+    type: 'pkcs8',
+  });
 }
 
 /**
