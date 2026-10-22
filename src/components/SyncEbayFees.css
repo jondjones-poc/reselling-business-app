@@ -16,6 +16,33 @@
   color: rgba(var(--theme-text-rgb), 0.65);
 }
 
+.sync-ebay-fees-period-row {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.sync-ebay-fees-select {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--theme-summary-select-border, rgba(var(--theme-accent-rgb), 0.35));
+  background: var(--theme-summary-select-bg, rgba(var(--theme-accent-rgb), 0.1));
+  color: var(--theme-action-btn-color, var(--neon-primary-strong));
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  box-shadow: var(--theme-summary-select-inset, none);
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.sync-ebay-fees-select:focus {
+  border-color: var(--neon-border-strong);
+  box-shadow: var(--neon-shadow);
+  background: var(--theme-summary-select-focus-bg, rgba(var(--theme-accent-rgb), 0.16));
+}
+
 .sync-ebay-fees-button-row {
   display: flex;
   justify-content: center;
@@ -47,10 +74,40 @@
   font-weight: 800;
 }
 
-.sync-ebay-fees-items {
-  margin: 12px 0 0;
-  padding-left: 20px;
-  font-size: 0.82rem;
+.sync-ebay-fees-table {
+  margin: 14px 0 0;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.sync-ebay-fees-table th,
+.sync-ebay-fees-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid rgba(var(--theme-text-rgb), 0.1);
+}
+
+.sync-ebay-fees-table th {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgba(var(--theme-text-rgb), 0.6);
+}
+
+.sync-ebay-fees-status--updated {
+  color: var(--neon-primary-strong, #2e7d32);
+}
+
+.sync-ebay-fees-status--no_fee_data,
+.sync-ebay-fees-status--not_found {
+  color: rgba(var(--theme-text-rgb), 0.6);
+}
+
+.sync-ebay-fees-note {
+  font-size: 0.78rem;
+  color: rgba(var(--theme-text-rgb), 0.55);
 }
 
 .sync-ebay-fees-test {

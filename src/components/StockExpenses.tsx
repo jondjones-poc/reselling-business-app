@@ -49,10 +49,6 @@ const StockExpenses: React.FC = () => {
 
   return (
     <div className="stock-expenses">
-      <p className="stock-expenses-muted">
-        Fees and postage come from the eBay sync (Sync eBay Fees page). Items not yet synced, or sold on Vinted/Depop,
-        show blank/zero for those columns rather than a guessed figure.
-      </p>
       {error && <div className="stock-error">{error}</div>}
       {loading ? (
         <p className="stock-expenses-muted">Loading…</p>

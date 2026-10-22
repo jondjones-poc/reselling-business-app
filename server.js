@@ -13353,9 +13353,9 @@ async function fetchEbayFulfillmentLineLegacyItems(userAccessToken, windowDays =
 
 /**
  * GET /api/accounting/stock-expenses
- * Every sold stock item with its matched fee/postage rows from stock_item_fees
- * aggregated by fee_type. Items with no synced fee data simply show blank —
- * nothing is invented for platforms (Vinted/Depop) or unsynced eBay sales.
+ * Every eBay-sold stock item with its matched fee/postage rows from
+ * stock_item_fees aggregated by fee_type. Items with no synced fee data
+ * simply show blank — nothing is invented for unsynced sales.
  */
 app.get('/api/accounting/stock-expenses', async (req, res) => {
   try {
@@ -13379,6 +13379,7 @@ app.get('/api/accounting/stock-expenses', async (req, res) => {
       LEFT JOIN stock_item_fees f ON f.stock_id = s.id
       WHERE s.sale_date IS NOT NULL
         AND NOT COALESCE(s.is_inventory_write_off, false)
+        AND LOWER(COALESCE(s.sold_platform, '')) LIKE '%ebay%'
       GROUP BY s.id, s.item_name, s.sold_platform, s.purchase_price, s.sale_price
       ORDER BY s.sale_date DESC NULLS LAST, s.id DESC
     `);
@@ -13479,6 +13480,9 @@ app.post('/api/accounting/sync-ebay-fees', async (req, res) => {
     }
 
     const testEbayItemId = typeof req.body?.ebayItemId === 'string' ? req.body.ebayItemId.trim() : '';
+    const filterYear = Number.isInteger(req.body?.year) ? req.body.year : null;
+    const filterMonth =
+      Number.isInteger(req.body?.month) && req.body.month >= 1 && req.body.month <= 12 ? req.body.month : null;
 
     const eligibleRes = await pool.query(
       `SELECT id, ebay_id, sale_date::date AS sale_date
@@ -13489,8 +13493,10 @@ app.post('/api/accounting/sync-ebay-fees', async (req, res) => {
          AND LOWER(COALESCE(sold_platform, '')) LIKE '%ebay%'
          AND NOT COALESCE(is_inventory_write_off, false)
          AND ($1::text IS NULL OR TRIM(ebay_id) = $1::text)
+         AND ($2::int IS NULL OR EXTRACT(YEAR FROM sale_date) = $2::int)
+         AND ($3::int IS NULL OR EXTRACT(MONTH FROM sale_date) = $3::int)
        ORDER BY sale_date ASC`,
-      [testEbayItemId || null]
+      [testEbayItemId || null, filterYear, filterMonth]
     );
     const eligible = eligibleRes.rows ?? [];
     if (eligible.length === 0) {
@@ -13500,7 +13506,7 @@ app.post('/api/accounting/sync-ebay-fees', async (req, res) => {
         feeRowsWritten: 0,
         message: testEbayItemId
           ? `No sold eBay stock item found with eBay item ID "${testEbayItemId}".`
-          : 'No sold eBay items to sync.',
+          : 'No sold eBay items found for that period.',
       });
     }
 
@@ -13508,8 +13514,14 @@ app.post('/api/accounting/sync-ebay-fees', async (req, res) => {
       (min, row) => (row.sale_date < min ? row.sale_date : min),
       eligible[0].sale_date
     );
-    const startDate = new Date(earliestSale.getTime() - 7 * 86400000); // small buffer before the
-    const endDate = new Date(); // earliest sale date; eBay rejects an end date in the future.
+    const latestSale = eligible.reduce(
+      (max, row) => (row.sale_date > max ? row.sale_date : max),
+      eligible[0].sale_date
+    );
+    const startDate = new Date(earliestSale.getTime() - 7 * 86400000); // small buffer either side of
+    const now = new Date();
+    const paddedEnd = new Date(latestSale.getTime() + 7 * 86400000);
+    const endDate = paddedEnd < now ? paddedEnd : now; // eBay rejects an end date in the future.
 
     const userAccessToken = await ebaySellerOAuth.getFulfillmentUserAccessToken(pool);
 

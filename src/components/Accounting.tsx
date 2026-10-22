@@ -712,7 +712,7 @@ const Accounting: React.FC = () => {
           className={`expenses-tab${accountingTab === 'stock-expenses' ? ' expenses-tab--active' : ''}`}
           onClick={() => setAccountingTab('stock-expenses')}
         >
-          Stock Expenses
+          eBay Sales Expenses
         </button>
         <button
           type="button"
