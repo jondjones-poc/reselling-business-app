@@ -6,8 +6,8 @@
 
 .sync-ebay-fees-status-row {
   display: flex;
-  justify-content: center;
-  margin-bottom: 12px;
+  align-items: center;
+  margin-left: 16px;
 }
 
 .sync-ebay-fees-muted {

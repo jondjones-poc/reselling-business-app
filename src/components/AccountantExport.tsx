@@ -1,7 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import DatePicker from 'react-datepicker';
-import 'react-datepicker/dist/react-datepicker.css';
-import '../react-datepicker-dark.css';
 import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
 import { getApiBase } from '../utils/apiBase';
@@ -16,7 +13,6 @@ interface AccountingSettings {
   companyNumber: string;
   accountingPeriodStart: string;
   accountingPeriodEnd: string;
-  tradingStartDate: string;
   vatTreatment: VatTreatment;
   vatEffectiveDate: string;
 }
@@ -62,14 +58,6 @@ interface AccountingExportData {
 
 const VAT_RATE = 0.2; // UK standard rate — only applied when the user confirms a treatment that needs it.
 
-function toIsoDateOnly(date: Date | null): string {
-  if (!date) return '';
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
 function parseIsoDateOnly(value: string): Date | null {
   if (!value) return null;
   const [y, m, d] = value.split('-').map(Number);
@@ -105,14 +93,11 @@ const AccountantExport: React.FC = () => {
     companyNumber: '',
     accountingPeriodStart: '',
     accountingPeriodEnd: '',
-    tradingStartDate: '',
     vatTreatment: 'not-registered',
     vatEffectiveDate: '',
   });
   const [settingsLoading, setSettingsLoading] = useState(true);
-  const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
-  const [savedMessage, setSavedMessage] = useState<string | null>(null);
 
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
@@ -137,31 +122,6 @@ const AccountantExport: React.FC = () => {
     };
   }, []);
 
-  const updateSetting = <K extends keyof AccountingSettings>(key: K, value: AccountingSettings[K]) => {
-    setSettings((prev) => ({ ...prev, [key]: value }));
-  };
-
-  const saveSettings = async () => {
-    setSettingsSaving(true);
-    setSettingsError(null);
-    setSavedMessage(null);
-    try {
-      const res = await fetch(`${API_BASE}/api/settings/accounting`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings),
-      });
-      if (!res.ok) throw new Error('Failed to save accounting settings');
-      const data = await res.json();
-      setSettings((prev) => ({ ...prev, ...data }));
-      setSavedMessage('Settings saved.');
-      window.setTimeout(() => setSavedMessage(null), 3000);
-    } catch (err) {
-      setSettingsError(err instanceof Error ? err.message : 'Failed to save settings');
-    } finally {
-      setSettingsSaving(false);
-    }
-  };
 
   const periodStartDate = useMemo(() => parseIsoDateOnly(settings.accountingPeriodStart), [settings.accountingPeriodStart]);
   const periodEndDate = useMemo(() => parseIsoDateOnly(settings.accountingPeriodEnd), [settings.accountingPeriodEnd]);
@@ -249,13 +209,28 @@ const AccountantExport: React.FC = () => {
     const purchasesValue = round2(data.purchases.reduce((sum, r) => sum + (r.purchasePrice ?? 0), 0));
     const closingStockValue = round2(data.closingStock.reduce((sum, r) => sum + (r.purchasePrice ?? 0), 0));
     const expensesTotal = round2(data.expenses.reduce((sum, r) => sum + (r.amount ?? 0), 0));
-    const provisionalResult = round2(grossProfit - expensesTotal);
+
+    // eBay selling fees + postage label cost, matched to the sold items they belong to.
+    const ebayFeesPostageTotal = round2(
+      data.sales.reduce((sum, r) => sum + (r.ebaySellingFees || 0) + (r.ebayPostagePaid || 0), 0)
+    );
+    // Per-item: sale price + buyer postage received, minus purchase cost, eBay fees, and postage paid —
+    // i.e. the same final_profit each Sales row shows, summed. Only counted where purchase cost is known.
+    const salesFinalProfitTotal = round2(
+      data.sales.reduce((sum, r) => {
+        if (r.purchasePrice == null) return sum;
+        const totalReceived = (r.salePrice ?? 0) + (r.ebayBuyerPostage || 0);
+        return sum + (totalReceived - r.purchasePrice - (r.ebaySellingFees || 0) - (r.ebayPostagePaid || 0));
+      }, 0)
+    );
+    // Bottom line: per-item profit (already net of eBay fees/postage) less general business expenses
+    // from the Expenses ledger — the two cost sources the export must combine for an accurate figure.
+    const provisionalResult = round2(salesFinalProfitTotal - expensesTotal);
 
     const summaryRows = [
       { metric: 'Company name', value: settings.companyName || '(not set)' },
       { metric: 'Company number', value: settings.companyNumber || '(not set)' },
       { metric: 'Accounting period', value: `${data.periodStart} to ${data.periodEnd}` },
-      { metric: 'Trading start date', value: settings.tradingStartDate || '(not set)' },
       { metric: 'VAT treatment', value: vat },
       { metric: '', value: '' },
       { metric: 'Sales (item sales amount)', value: salesTotal },
@@ -269,9 +244,25 @@ const AccountantExport: React.FC = () => {
       { metric: 'Recorded fees and other expenses', value: expensesTotal },
       { metric: '', value: '' },
       {
-        metric: 'Provisional trading result (gross profit less recorded expenses) — BEFORE accountant adjustments',
+        metric:
+          'Provisional trading result (per-item profit net of eBay fees/postage, less recorded expenses) — BEFORE accountant adjustments',
         value: provisionalResult,
       },
+      { metric: '', value: '' },
+      { metric: 'SALES', value: '' },
+      { metric: 'Number of sales', value: data.sales.length },
+      { metric: 'Total sales revenue (item sales amount)', value: salesTotal },
+      { metric: 'Total purchase cost of items sold', value: cogs },
+      { metric: 'Total eBay fees + postage paid', value: ebayFeesPostageTotal },
+      { metric: 'Total final profit', value: salesFinalProfitTotal },
+      { metric: '', value: '' },
+      { metric: 'STOCK', value: '' },
+      { metric: 'Total purchases', value: data.purchases.length },
+      { metric: 'Total price paid', value: purchasesValue },
+      { metric: '', value: '' },
+      { metric: 'EXPENSES', value: '' },
+      { metric: 'Total expense records', value: data.expenses.length },
+      { metric: 'Total price paid', value: expensesTotal },
     ];
 
     const dictionaryRows = [
@@ -292,6 +283,8 @@ const AccountantExport: React.FC = () => {
       { sheet: 'Opening Stock / Closing Stock', column: 'estimated_selling_price', meaning: 'Your own projected/listed price for the item, where one was set. No NRV write-down has been calculated — apply lower-of-cost-or-NRV manually.' },
       { sheet: 'Fees and Other Expenses', column: 'total_amount', meaning: 'Cost as entered on the Expenses ledger. No expense category is recorded in this app.' },
       { sheet: 'Summary', column: 'Cost of goods sold', meaning: 'Sum of purchase_price for items whose sale falls in this period (matched to the sale, not to when they were bought).' },
+      { sheet: 'Summary', column: 'Provisional trading result', meaning: 'Sum of each sale\'s final_profit (sale price + buyer postage, less purchase cost, eBay selling fees, and postage paid) minus the period\'s total recorded expenses. This is the figure that nets off both eBay-level costs (the Sales sheet) and ledger-level costs (the Expenses sheet).' },
+      { sheet: 'Summary', column: 'SALES / STOCK / EXPENSES sections', meaning: 'Quick totals for each sheet: counts and headline amounts, so the top-line figures can be checked against the detail sheets without re-adding them by hand.' },
       { sheet: 'All sheets', column: 'review_note', meaning: 'Left blank for your accountant to annotate — this app does not flag any rows as uncertain because it has no signal to do so.' },
     ];
 
@@ -331,11 +324,13 @@ const AccountantExport: React.FC = () => {
       const sheets = buildWorkbookSheets(data);
       const filenameBase = `Accountant_Export_${data.periodStart}_to_${data.periodEnd}`;
 
+      // Summary is a free-form metric/value listing, not a data table — its own
+      // column headers would just add a meaningless "metric"/"value" row.
       if (format === 'xlsx') {
         const workbook = XLSX.utils.book_new();
         sheets.forEach(({ name, rows }) => {
           const sheet = rows.length > 0
-            ? XLSX.utils.json_to_sheet(rows)
+            ? XLSX.utils.json_to_sheet(rows, { skipHeader: name === 'Summary' })
             : XLSX.utils.aoa_to_sheet([['No rows for this period']]);
           sheet['!cols'] = autoColumnWidths(rows);
           XLSX.utils.book_append_sheet(workbook, sheet, name.slice(0, 31));
@@ -345,7 +340,7 @@ const AccountantExport: React.FC = () => {
         const zip = new JSZip();
         sheets.forEach(({ name, rows }) => {
           const sheet = rows.length > 0
-            ? XLSX.utils.json_to_sheet(rows)
+            ? XLSX.utils.json_to_sheet(rows, { skipHeader: name === 'Summary' })
             : XLSX.utils.aoa_to_sheet([['No rows for this period']]);
           const csv = XLSX.utils.sheet_to_csv(sheet, { FS: ',', blankrows: false });
           zip.file(`${name.replace(/[^a-z0-9]+/gi, '_')}.csv`, csv);
@@ -371,74 +366,38 @@ const AccountantExport: React.FC = () => {
     <div className="accountant-export">
       <section className="accountant-export-card">
         {settingsError && <div className="stock-error">{settingsError}</div>}
-        {savedMessage && <div className="stock-success">{savedMessage}</div>}
-        <div className="accountant-export-grid">
-          <label className="new-entry-field">
-            <span>Company name</span>
-            <input
-              type="text"
-              value={settings.companyName}
-              onChange={(e) => updateSetting('companyName', e.target.value)}
-              placeholder="e.g. Gents Rail Ltd"
-            />
-          </label>
-          <label className="new-entry-field">
-            <span>Company number</span>
-            <input
-              type="text"
-              value={settings.companyNumber}
-              onChange={(e) => updateSetting('companyNumber', e.target.value)}
-              placeholder="Companies House number"
-            />
-          </label>
-          <label className="new-entry-field">
-            <span>Trading start date</span>
-            <DatePicker
-              selected={parseIsoDateOnly(settings.tradingStartDate)}
-              onChange={(date) => updateSetting('tradingStartDate', toIsoDateOnly(date))}
-              dateFormat="yyyy-MM-dd"
-              placeholderText="Select date"
-              className="date-picker-input"
-              calendarClassName="date-picker-calendar"
-              wrapperClassName="date-picker-wrapper"
-            />
-          </label>
-          <label className="new-entry-field">
-            <span>Accounting period start</span>
-            <DatePicker
-              selected={periodStartDate}
-              onChange={(date) => updateSetting('accountingPeriodStart', toIsoDateOnly(date))}
-              selectsStart
-              startDate={periodStartDate}
-              endDate={periodEndDate}
-              maxDate={periodEndDate ?? undefined}
-              dateFormat="yyyy-MM-dd"
-              placeholderText="Period start"
-              className="date-picker-input"
-              calendarClassName="date-picker-calendar"
-              wrapperClassName="date-picker-wrapper"
-            />
-          </label>
-          <label className="new-entry-field">
-            <span>Accounting period end</span>
-            <DatePicker
-              selected={periodEndDate}
-              onChange={(date) => updateSetting('accountingPeriodEnd', toIsoDateOnly(date))}
-              selectsEnd
-              startDate={periodStartDate}
-              endDate={periodEndDate}
-              minDate={periodStartDate ?? undefined}
-              dateFormat="yyyy-MM-dd"
-              placeholderText="Period end"
-              className="date-picker-input"
-              calendarClassName="date-picker-calendar"
-              wrapperClassName="date-picker-wrapper"
-            />
-          </label>
-        </div>
-        <button type="button" className="new-entry-button" onClick={saveSettings} disabled={settingsLoading || settingsSaving}>
-          {settingsSaving ? 'Saving…' : 'Save settings'}
-        </button>
+        {settingsLoading ? (
+          <p className="stock-expenses-muted">Loading…</p>
+        ) : (
+          <dl className="accountant-export-summary">
+            <div>
+              <dt>Company name</dt>
+              <dd>{settings.companyName || '—'}</dd>
+            </div>
+            <div>
+              <dt>Company number</dt>
+              <dd>{settings.companyNumber || '—'}</dd>
+            </div>
+            <div>
+              <dt>Accounting period start</dt>
+              <dd>{settings.accountingPeriodStart || '—'}</dd>
+            </div>
+            <div>
+              <dt>
+                Accounting period end
+                <span className="accountant-export-tooltip" tabIndex={0}>
+                  <span className="accountant-export-tooltip-icon" aria-hidden="true">
+                    i
+                  </span>
+                  <span className="accountant-export-tooltip-text">
+                    Update these in <a href="/config?tab=site-general">Settings &gt; General</a>.
+                  </span>
+                </span>
+              </dt>
+              <dd>{settings.accountingPeriodEnd || '—'}</dd>
+            </div>
+          </dl>
+        )}
       </section>
 
       <section className="accountant-export-card">

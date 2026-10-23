@@ -205,10 +205,6 @@ const SyncEbayFees: React.FC = () => {
 
   return (
     <div className="sync-ebay-fees">
-      <div className="sync-ebay-fees-status-row">
-        <EbaySellerStatusIcon returnPath="/accounting?tab=sync-ebay-fees" />
-      </div>
-
       <div className="sync-ebay-fees-period-row">
         <select
           value={syncYear}
@@ -237,6 +233,9 @@ const SyncEbayFees: React.FC = () => {
         <button type="button" className="new-entry-button" onClick={runPeriodSync} disabled={syncing}>
           {syncing ? 'Syncing…' : 'Get eBay Order Details'}
         </button>
+        <div className="sync-ebay-fees-status-row">
+          <EbaySellerStatusIcon returnPath="/accounting?tab=sync-ebay-fees" />
+        </div>
       </div>
       {error && renderError(error)}
       {result && (

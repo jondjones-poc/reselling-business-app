@@ -13450,7 +13450,11 @@ app.get('/api/accounting/stock-expenses', async (req, res) => {
             OR ($5::text = 'top20' AND final_profit IS NOT NULL AND final_profit >= thresholds.p80)
             OR ($5::text = 'bottom20' AND final_profit IS NOT NULL AND final_profit <= thresholds.p20)
        )
-       SELECT *, COUNT(*) OVER () AS total_count
+       SELECT *, COUNT(*) OVER () AS total_count,
+         SUM(sale_price) OVER () AS summary_sales_revenue,
+         SUM(purchase_price) OVER () AS summary_purchase_cost,
+         SUM(selling_fees + postage_paid) OVER () AS summary_fees_postage,
+         SUM(final_profit) OVER () AS summary_final_profit
        FROM filtered
        ORDER BY sale_date DESC NULLS LAST, id DESC
        LIMIT $6 OFFSET $7`,
@@ -13458,12 +13462,21 @@ app.get('/api/accounting/stock-expenses', async (req, res) => {
     );
 
     const totalCount = result.rows.length > 0 ? Number(result.rows[0].total_count) : 0;
+    const firstRow = result.rows[0];
+    const summary = {
+      count: totalCount,
+      totalSalesRevenue: firstRow ? Number(firstRow.summary_sales_revenue) || 0 : 0,
+      totalPurchaseCost: firstRow ? Number(firstRow.summary_purchase_cost) || 0 : 0,
+      totalFeesPostage: firstRow ? Number(firstRow.summary_fees_postage) || 0 : 0,
+      totalFinalProfit: firstRow ? Number(firstRow.summary_final_profit) || 0 : 0,
+    };
 
     res.json({
       page,
       pageSize,
       totalCount,
       totalPages: Math.max(1, Math.ceil(totalCount / pageSize)),
+      summary,
       rows: (result.rows ?? []).map((row) => {
         const purchasePrice = row.purchase_price != null ? Number(row.purchase_price) : null;
         const salePrice = row.sale_price != null ? Number(row.sale_price) : null;

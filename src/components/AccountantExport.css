@@ -63,6 +63,56 @@
   margin-bottom: 2px;
 }
 
+.accountant-export-tooltip {
+  position: relative;
+  display: inline-flex;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.accountant-export-tooltip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.5);
+  color: rgba(var(--theme-text-rgb), 0.7);
+  font-size: 0.62rem;
+  font-weight: 700;
+  font-style: italic;
+  cursor: help;
+  text-transform: none;
+}
+
+.accountant-export-tooltip-text {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(var(--theme-bg-rgb), 0.96);
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.35);
+  color: rgba(var(--theme-text-rgb), 0.9);
+  font-size: 0.75rem;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 10;
+}
+
+.accountant-export-tooltip:hover .accountant-export-tooltip-text,
+.accountant-export-tooltip:focus-within .accountant-export-tooltip-text {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .accountant-export-summary dd {
   margin: 0;
   font-size: 1.1rem;

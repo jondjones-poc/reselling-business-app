@@ -2,15 +2,17 @@ import React, { useEffect, useMemo, useState } from 'react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import '../react-datepicker-dark.css';
-import * as XLSX from 'xlsx';
 import { useSearchParams } from 'react-router-dom';
 import { getApiBase } from '../utils/apiBase';
 import AccountantExport from './AccountantExport';
 import StockExpenses from './StockExpenses';
 import SyncEbayFees from './SyncEbayFees';
 import './Stock.css';
+import './StockExpenses.css';
 
 const API_BASE = getApiBase();
+
+const EXPENSE_MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 type Nullable<T> = T | null | undefined;
 
@@ -92,39 +94,6 @@ const dateToIsoString = (value: Date | null) => {
   return iso.slice(0, 10);
 };
 
-const getCurrentTaxYear = () => {
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth(); // 0-11, where 0 is January
-
-  // Tax year runs from April 1 to March 31
-  // If we're in Jan, Feb, or Mar, the tax year started the previous year
-  // If we're in Apr-Dec, the tax year started this year
-  let taxYearStart: Date;
-  let taxYearEnd: Date;
-
-  if (currentMonth < 3) {
-    // Jan, Feb, Mar - tax year started previous year on April 1
-    taxYearStart = new Date(currentYear - 1, 3, 1); // April 1 of previous year
-    taxYearEnd = new Date(currentYear, 2, 31, 23, 59, 59, 999); // March 31 of current year
-  } else {
-    // Apr-Dec - tax year started this year on April 1
-    taxYearStart = new Date(currentYear, 3, 1); // April 1 of current year
-    taxYearEnd = new Date(currentYear + 1, 2, 31, 23, 59, 59, 999); // March 31 of next year
-  }
-
-  return { start: taxYearStart, end: taxYearEnd };
-};
-
-/** Local-date "YYYY-MM-DD", unlike dateToIsoString/stringToDate which round-trip through UTC and can shift by a day. */
-const toLocalDateOnlyString = (date: Date | null): string => {
-  if (!date) return '';
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-};
-
 const Accounting: React.FC = () => {
   const [rows, setRows] = useState<ExpenseRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -145,10 +114,12 @@ const Accounting: React.FC = () => {
     purchase_location: ''
   });
   const [searchTerm, setSearchTerm] = useState('');
+  const [expenseYearFilter, setExpenseYearFilter] = useState<number | 'all'>('all');
+  const [expenseMonthFilter, setExpenseMonthFilter] = useState<number | 'all'>('all');
+  const [expensesPage, setExpensesPage] = useState(1);
+  const EXPENSES_PAGE_SIZE = 50;
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [taxExportStart, setTaxExportStart] = useState<Date | null>(() => getCurrentTaxYear().start);
-  const [taxExportEnd, setTaxExportEnd] = useState<Date | null>(() => getCurrentTaxYear().end);
 
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -225,8 +196,19 @@ const Accounting: React.FC = () => {
       });
     }
 
+    if (expenseYearFilter !== 'all' || expenseMonthFilter !== 'all') {
+      filtered = filtered.filter((row) => {
+        if (!row.purchase_date) return false;
+        const date = new Date(row.purchase_date);
+        if (Number.isNaN(date.getTime())) return false;
+        if (expenseYearFilter !== 'all' && date.getFullYear() !== expenseYearFilter) return false;
+        if (expenseMonthFilter !== 'all' && date.getMonth() + 1 !== expenseMonthFilter) return false;
+        return true;
+      });
+    }
+
     return filtered;
-  }, [rows, searchTerm]);
+  }, [rows, searchTerm, expenseYearFilter, expenseMonthFilter]);
 
   const sortedRows = useMemo(() => {
     if (!sortConfig) {
@@ -272,10 +254,25 @@ const Accounting: React.FC = () => {
     });
   }, [filteredRows, sortConfig]);
 
+  useEffect(() => {
+    setExpensesPage(1);
+  }, [searchTerm, sortConfig, expenseYearFilter, expenseMonthFilter]);
+
+  const expenseYearOptions = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    return Array.from({ length: 8 }, (_, i) => currentYear - i);
+  }, []);
+
+  const expensesTotalPages = Math.max(1, Math.ceil(sortedRows.length / EXPENSES_PAGE_SIZE));
+  const pagedExpenseRows = useMemo(
+    () => sortedRows.slice((expensesPage - 1) * EXPENSES_PAGE_SIZE, expensesPage * EXPENSES_PAGE_SIZE),
+    [sortedRows, expensesPage]
+  );
+
   const totals = useMemo(() => {
     let totalCost = 0;
 
-    rows.forEach((row) => {
+    sortedRows.forEach((row) => {
       if (row.cost) {
         const cost = Number(row.cost);
         if (!Number.isNaN(cost)) {
@@ -287,7 +284,7 @@ const Accounting: React.FC = () => {
     return {
       cost: totalCost
     };
-  }, [rows]);
+  }, [sortedRows]);
 
   const handleSort = (key: keyof Omit<ExpenseRow, 'id'>) => {
     setSortConfig((current) => {
@@ -466,194 +463,6 @@ const Accounting: React.FC = () => {
     setShowDeleteConfirm(false);
   };
 
-  const handleTaxYearExport = async () => {
-    try {
-      setError(null);
-
-      if (!taxExportStart || !taxExportEnd) {
-        setError('Pick a start and end date before downloading.');
-        return;
-      }
-      if (taxExportStart > taxExportEnd) {
-        setError('The start date must be before the end date.');
-        return;
-      }
-      const rangeStart = new Date(
-        taxExportStart.getFullYear(),
-        taxExportStart.getMonth(),
-        taxExportStart.getDate(),
-        0, 0, 0, 0
-      );
-      const rangeEnd = new Date(
-        taxExportEnd.getFullYear(),
-        taxExportEnd.getMonth(),
-        taxExportEnd.getDate(),
-        23, 59, 59, 999
-      );
-      const taxYear = { start: rangeStart, end: rangeEnd };
-      const taxYearStartStr = toLocalDateOnlyString(taxExportStart);
-      const taxYearEndStr = toLocalDateOnlyString(taxExportEnd);
-
-      // Filter expenses for the selected date range
-      const taxYearExpenses = rows.filter((row) => {
-        if (!row.purchase_date) return false;
-        const purchaseDate = new Date(row.purchase_date);
-        return purchaseDate >= taxYear.start && purchaseDate <= taxYear.end;
-      });
-
-      // Fetch stock data
-      const stockResponse = await fetch(`${API_BASE}/api/stock`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!stockResponse.ok) {
-        throw new Error('Failed to fetch stock data');
-      }
-
-      const stockData = await stockResponse.json();
-      const allStockItems = Array.isArray(stockData.rows) ? stockData.rows : [];
-
-      // Filter stock items purchased within tax year
-      const taxYearStockPurchases = allStockItems.filter((item: any) => {
-        if (!item.purchase_date) return false;
-        const purchaseDate = new Date(item.purchase_date);
-        return purchaseDate >= taxYear.start && purchaseDate <= taxYear.end;
-      });
-
-      // Filter stock items sold within tax year
-      const taxYearStockSales = allStockItems.filter((item: any) => {
-        if (!item.sale_date) return false;
-        const saleDate = new Date(item.sale_date);
-        return saleDate >= taxYear.start && saleDate <= taxYear.end;
-      });
-
-      // Calculate total expenses
-      const totalExpenses = taxYearExpenses.reduce((sum, row) => {
-        const cost = row.cost ? Number(row.cost) : 0;
-        return sum + (Number.isNaN(cost) ? 0 : cost);
-      }, 0);
-
-      // Calculate total clothes cost (purchase_price for items purchased in tax year)
-      const totalClothesCost = taxYearStockPurchases.reduce((sum: number, item: any) => {
-        const price = item.purchase_price ? Number(item.purchase_price) : 0;
-        return sum + (Number.isNaN(price) ? 0 : price);
-      }, 0);
-
-      // Calculate total sales (sale_price for items sold in tax year)
-      const totalSales = taxYearStockSales.reduce((sum: number, item: any) => {
-        const price = item.sale_price ? Number(item.sale_price) : 0;
-        return sum + (Number.isNaN(price) ? 0 : price);
-      }, 0);
-
-      // Calculate net: sales - (expenses + clothes cost)
-      // This will be negative when costs exceed sales
-      const netAmount = totalSales - (totalExpenses + totalClothesCost);
-
-      // Create Tax Summary sheet
-      const summaryData = [
-        ['Tax Year Summary'],
-        [''],
-        ['Tax Year Period:', `${taxYearStartStr} to ${taxYearEndStr}`],
-        [''],
-        ['Total Expenses:', formatCurrency(totalExpenses)],
-        ['Total Clothes Cost:', formatCurrency(totalClothesCost)],
-        ['Total Sales:', formatCurrency(totalSales)],
-        [''],
-        ['Net Amount (Sales - Expenses - Clothes Cost):', formatCurrency(netAmount)],
-        [''],
-        ['Number of Expense Records:', taxYearExpenses.length],
-        ['Number of Clothes Purchased:', taxYearStockPurchases.length],
-        ['Number of Items Sold:', taxYearStockSales.length],
-      ];
-
-      const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
-
-      // Set column widths for summary sheet
-      summarySheet['!cols'] = [
-        { wch: 40 },
-        { wch: 30 }
-      ];
-
-      // Right-align the second column (values column)
-      const range = XLSX.utils.decode_range(summarySheet['!ref'] || 'A1');
-      for (let row = 0; row <= range.e.r; row++) {
-        const cellAddress = XLSX.utils.encode_cell({ r: row, c: 1 });
-        if (!summarySheet[cellAddress]) continue;
-        if (!summarySheet[cellAddress].s) {
-          summarySheet[cellAddress].s = {};
-        }
-        if (!summarySheet[cellAddress].s.alignment) {
-          summarySheet[cellAddress].s.alignment = {};
-        }
-        summarySheet[cellAddress].s.alignment.horizontal = 'right';
-      }
-
-      // Create Detailed Expenses sheet
-      const expensesData = taxYearExpenses.map((row) => ({
-        'Item': row.item || '—',
-        'Purchase Location': row.purchase_location || '—',
-        'Cost (£)': row.cost ? formatCurrency(row.cost) : '—',
-        'Purchase Date': row.purchase_date ? formatDate(row.purchase_date) : '—',
-        'Receipt Name': row.receipt_name || '—'
-      }));
-
-      const expensesSheet = XLSX.utils.json_to_sheet(expensesData);
-
-      // Set column widths for expenses sheet
-      expensesSheet['!cols'] = [
-        { wch: 30 }, // Item
-        { wch: 25 }, // Purchase Location
-        { wch: 12 }, // Cost
-        { wch: 15 }, // Purchase Date
-        { wch: 25 }  // Receipt Name
-      ];
-
-      // Create Stock/Clothes sheet
-      const stockSheetData = taxYearStockPurchases.map((item: any) => ({
-        'Item Name': item.item_name || '—',
-        'Category': item.category || '—',
-        'Purchase Price (£)': item.purchase_price ? formatCurrency(item.purchase_price) : '—',
-        'Purchase Date': item.purchase_date ? formatDate(item.purchase_date) : '—',
-        'Sale Date': item.sale_date ? formatDate(item.sale_date) : '—',
-        'Sale Price (£)': item.sale_price ? formatCurrency(item.sale_price) : '—',
-        'Sold Platform': item.sold_platform || '—'
-      }));
-
-      const stockSheet = XLSX.utils.json_to_sheet(stockSheetData);
-
-      // Set column widths for stock sheet
-      stockSheet['!cols'] = [
-        { wch: 40 }, // Item Name
-        { wch: 20 }, // Category
-        { wch: 15 }, // Purchase Price
-        { wch: 15 }, // Purchase Date
-        { wch: 15 }, // Sale Date
-        { wch: 15 }, // Sale Price
-        { wch: 15 }  // Sold Platform
-      ];
-
-      // Create workbook with all sheets
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, summarySheet, 'Tax Summary');
-      XLSX.utils.book_append_sheet(workbook, expensesSheet, 'Expenses');
-      XLSX.utils.book_append_sheet(workbook, stockSheet, 'Clothes Purchased');
-
-      // Generate filename from the selected date range (e.g. Tax_Year_Expenses_2025-04-06_to_2026-04-05.xlsx)
-      const filename = `Tax_Year_Expenses_${taxYearStartStr}_to_${taxYearEndStr}.xlsx`;
-
-      // Write and download
-      XLSX.writeFile(workbook, filename);
-
-      setSuccessMessage(`Tax year export downloaded successfully: ${filename}`);
-    } catch (err: any) {
-      console.error('Tax year export error:', err);
-      setError(err.message || 'Failed to export tax year data');
-    }
-  };
-
   const renderCellContent = (
     row: ExpenseRow,
     key: keyof Omit<ExpenseRow, 'id'>,
@@ -684,28 +493,6 @@ const Accounting: React.FC = () => {
         <button
           type="button"
           role="tab"
-          id="accounting-tab-expenses"
-          aria-selected={accountingTab === 'expenses'}
-          aria-controls="accounting-panel-expenses"
-          className={`expenses-tab${accountingTab === 'expenses' ? ' expenses-tab--active' : ''}`}
-          onClick={() => setAccountingTab('expenses')}
-        >
-          Expenses
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="accounting-tab-sales"
-          aria-selected={accountingTab === 'sales'}
-          aria-controls="accounting-panel-sales"
-          className={`expenses-tab${accountingTab === 'sales' ? ' expenses-tab--active' : ''}`}
-          onClick={() => setAccountingTab('sales')}
-        >
-          Company Accounts
-        </button>
-        <button
-          type="button"
-          role="tab"
           id="accounting-tab-stock-expenses"
           aria-selected={accountingTab === 'stock-expenses'}
           aria-controls="accounting-panel-stock-expenses"
@@ -717,6 +504,17 @@ const Accounting: React.FC = () => {
         <button
           type="button"
           role="tab"
+          id="accounting-tab-expenses"
+          aria-selected={accountingTab === 'expenses'}
+          aria-controls="accounting-panel-expenses"
+          className={`expenses-tab${accountingTab === 'expenses' ? ' expenses-tab--active' : ''}`}
+          onClick={() => setAccountingTab('expenses')}
+        >
+          Expenses
+        </button>
+        <button
+          type="button"
+          role="tab"
           id="accounting-tab-sync-ebay-fees"
           aria-selected={accountingTab === 'sync-ebay-fees'}
           aria-controls="accounting-panel-sync-ebay-fees"
@@ -724,6 +522,17 @@ const Accounting: React.FC = () => {
           onClick={() => setAccountingTab('sync-ebay-fees')}
         >
           Sync eBay Fees
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="accounting-tab-sales"
+          aria-selected={accountingTab === 'sales'}
+          aria-controls="accounting-panel-sales"
+          className={`expenses-tab${accountingTab === 'sales' ? ' expenses-tab--active' : ''}`}
+          onClick={() => setAccountingTab('sales')}
+        >
+          Company Accounts
         </button>
       </nav>
 
@@ -741,6 +550,17 @@ const Accounting: React.FC = () => {
         </div>
       ) : (
         <div id="accounting-panel-expenses" role="tabpanel" aria-labelledby="accounting-tab-expenses">
+      <section className="stock-summary">
+        <div className="summary-card">
+          <span className="summary-label">Total expense records</span>
+          <span className="summary-value">{sortedRows.length.toLocaleString()}</span>
+        </div>
+        <div className="summary-card">
+          <span className="summary-label">Total price paid</span>
+          <span className="summary-value">{formatCurrency(totals.cost)}</span>
+        </div>
+      </section>
+
       {error && <div className="stock-error">{error}</div>}
       {successMessage && <div className="stock-success">{successMessage}</div>}
 
@@ -895,7 +715,7 @@ const Accounting: React.FC = () => {
         </div>
       )}
 
-      <div className="stock-filters">
+      <div className="stock-filters" style={{ flexWrap: 'wrap', justifyContent: 'center', rowGap: '12px' }}>
         <div className="filter-group search-group">
           <div className="search-input-wrapper" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%' }}>
             <div style={{ position: 'relative', flex: '1 1 auto', minWidth: 0 }}>
@@ -950,55 +770,32 @@ const Accounting: React.FC = () => {
         </div>
 
         <div className="filter-group filter-actions">
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              marginRight: '12px',
-            }}
+          <select
+            value={expenseYearFilter}
+            onChange={(e) => setExpenseYearFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+            aria-label="Filter by year"
+            className="stock-expenses-select"
           >
-            <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.72rem', color: 'rgba(var(--theme-text-rgb), 0.7)' }}>
-              <span>Start date</span>
-              <DatePicker
-                selected={taxExportStart}
-                onChange={(date) => setTaxExportStart(date ?? null)}
-                selectsStart
-                startDate={taxExportStart}
-                endDate={taxExportEnd}
-                maxDate={taxExportEnd ?? undefined}
-                dateFormat="yyyy-MM-dd"
-                placeholderText="Start date"
-                className="date-picker-input"
-                calendarClassName="date-picker-calendar"
-                wrapperClassName="date-picker-wrapper"
-              />
-            </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.72rem', color: 'rgba(var(--theme-text-rgb), 0.7)' }}>
-              <span>End date</span>
-              <DatePicker
-                selected={taxExportEnd}
-                onChange={(date) => setTaxExportEnd(date ?? null)}
-                selectsEnd
-                startDate={taxExportStart}
-                endDate={taxExportEnd}
-                minDate={taxExportStart ?? undefined}
-                dateFormat="yyyy-MM-dd"
-                placeholderText="End date"
-                className="date-picker-input"
-                calendarClassName="date-picker-calendar"
-                wrapperClassName="date-picker-wrapper"
-              />
-            </label>
-            <button
-              type="button"
-              className="new-entry-button"
-              onClick={handleTaxYearExport}
-              disabled={loading}
-            >
-              Download Tax Year Spreadsheet
-            </button>
-          </div>
+            <option value="all">All years</option>
+            {expenseYearOptions.map((year) => (
+              <option key={year} value={year}>
+                {year}
+              </option>
+            ))}
+          </select>
+          <select
+            value={expenseMonthFilter}
+            onChange={(e) => setExpenseMonthFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+            aria-label="Filter by month"
+            className="stock-expenses-select"
+          >
+            <option value="all">All months</option>
+            {EXPENSE_MONTH_LABELS.map((label, index) => (
+              <option key={index + 1} value={index + 1}>
+                {label}
+              </option>
+            ))}
+          </select>
           <button
             type="button"
             className="new-entry-button"
@@ -1014,17 +811,6 @@ const Accounting: React.FC = () => {
           </button>
         </div>
       </div>
-
-      <section className="stock-summary">
-        <div className="summary-card">
-          <span className="summary-label">Total Expenses</span>
-          <span className="summary-value">{formatCurrency(totals.cost)}</span>
-        </div>
-        <div className="summary-card">
-          <span className="summary-label">Records</span>
-          <span className="summary-value">{sortedRows.length.toLocaleString()}</span>
-        </div>
-      </section>
 
       <div className="table-wrapper">
         <table className="stock-table">
@@ -1086,7 +872,7 @@ const Accounting: React.FC = () => {
                 </td>
               </tr>
             )}
-            {sortedRows.map((row) => (
+            {pagedExpenseRows.map((row) => (
               <tr key={row.id}>
                 <td>{renderCellContent(row, 'item')}</td>
                 <td>{renderCellContent(row, 'purchase_location')}</td>
@@ -1117,6 +903,22 @@ const Accounting: React.FC = () => {
             ))}
           </tbody>
         </table>
+      </div>
+
+      <div className="stock-expenses-pagination">
+        <button type="button" onClick={() => setExpensesPage((p) => Math.max(1, p - 1))} disabled={expensesPage <= 1}>
+          Previous
+        </button>
+        <span>
+          Page {expensesPage} of {expensesTotalPages} ({sortedRows.length} items)
+        </span>
+        <button
+          type="button"
+          onClick={() => setExpensesPage((p) => Math.min(expensesTotalPages, p + 1))}
+          disabled={expensesPage >= expensesTotalPages}
+        >
+          Next
+        </button>
       </div>
         </div>
       )}

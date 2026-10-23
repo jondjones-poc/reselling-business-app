@@ -53,6 +53,13 @@ const StockExpenses: React.FC = () => {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
+  const [summary, setSummary] = useState({
+    count: 0,
+    totalSalesRevenue: 0,
+    totalPurchaseCost: 0,
+    totalFeesPostage: 0,
+    totalFinalProfit: 0,
+  });
 
   const [yearFilter, setYearFilter] = useState<number | 'all'>('all');
   const [monthFilter, setMonthFilter] = useState<number | 'all'>('all');
@@ -115,6 +122,7 @@ const StockExpenses: React.FC = () => {
       setRows(Array.isArray(data.rows) ? data.rows : []);
       setTotalPages(Number.isInteger(data.totalPages) ? data.totalPages : 1);
       setTotalCount(Number.isInteger(data.totalCount) ? data.totalCount : 0);
+      if (data.summary) setSummary(data.summary);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load stock expenses');
     } finally {
@@ -133,6 +141,31 @@ const StockExpenses: React.FC = () => {
 
   return (
     <div className="stock-expenses">
+      <dl className="stock-expenses-summary-box">
+        <div>
+          <dt>Number of sales</dt>
+          <dd>{summary.count}</dd>
+        </div>
+        <div>
+          <dt>Total sales revenue</dt>
+          <dd>{formatGbp(summary.totalSalesRevenue)}</dd>
+        </div>
+        <div>
+          <dt>Total purchase cost</dt>
+          <dd>{formatGbp(summary.totalPurchaseCost)}</dd>
+        </div>
+        <div>
+          <dt>Total eBay fees + postage paid</dt>
+          <dd>{formatGbp(summary.totalFeesPostage)}</dd>
+        </div>
+        <div>
+          <dt>Total final profit</dt>
+          <dd className={summary.totalFinalProfit >= 0 ? 'stock-expenses-profit--positive' : 'stock-expenses-profit--negative'}>
+            {formatGbp(summary.totalFinalProfit)}
+          </dd>
+        </div>
+      </dl>
+
       <div className="stock-expenses-filters">
         <select
           value={yearFilter}
@@ -206,6 +239,20 @@ const StockExpenses: React.FC = () => {
         <>
           <div className="table-wrapper">
             <table className="stock-table stock-expenses-table">
+              <colgroup>
+                <col style={{ width: '24%' }} />
+                <col style={{ width: '9%' }} />
+                <col style={{ width: '9%' }} />
+                <col style={{ width: '9%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '6%' }} />
+                <col style={{ width: '6%' }} />
+                <col style={{ width: '6%' }} />
+                <col style={{ width: '6%' }} />
+                <col style={{ width: '5%' }} />
+                <col style={{ width: '5%' }} />
+                <col style={{ width: '5%' }} />
+              </colgroup>
               <thead>
                 <tr>
                   <th>Name</th>
