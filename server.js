@@ -13371,6 +13371,14 @@ async function fetchEbayFulfillmentLineLegacyItems(userAccessToken, windowDays =
  * Every eBay-sold stock item with its matched fee/postage rows from
  * stock_item_fees aggregated by fee_type. Items with no synced fee data
  * simply show blank — nothing is invented for unsynced sales.
+ *
+ * Query params (all optional): page (1-based, default 1), pageSize
+ * (default 50), year, month, departmentId, categoryId, profitFilter
+ * ('all' | 'top20' | 'bottom20' | 'loss'). The top20/bottom20 percentiles
+ * are computed over whatever the year/month/department/category filters
+ * leave, and only over items with synced fee data (final_profit known) —
+ * unsynced items can't be classified and are excluded from those two
+ * modes (they still show under 'all').
  */
 app.get('/api/accounting/stock-expenses', async (req, res) => {
   try {
@@ -13379,29 +13387,83 @@ app.get('/api/accounting/stock-expenses', async (req, res) => {
       return res.status(500).json({ error: 'Database connection not configured' });
     }
 
-    const result = await pool.query(`
-      SELECT
-        s.id,
-        s.item_name,
-        s.sold_platform,
-        s.purchase_price,
-        s.sale_price,
-        s.ebay_id,
-        MAX(f.order_id) AS order_id,
-        COALESCE(SUM(f.amount) FILTER (WHERE f.fee_type = 'selling_fee'), 0)::numeric AS selling_fees,
-        COALESCE(SUM(f.amount) FILTER (WHERE f.fee_type = 'buyer_postage'), 0)::numeric AS buyer_postage,
-        COALESCE(SUM(f.amount) FILTER (WHERE f.fee_type = 'postage_paid'), 0)::numeric AS postage_paid,
-        BOOL_OR(f.id IS NOT NULL) AS has_fee_data
-      FROM stock s
-      LEFT JOIN stock_item_fees f ON f.stock_id = s.id
-      WHERE s.sale_date IS NOT NULL
-        AND NOT COALESCE(s.is_inventory_write_off, false)
-        AND LOWER(COALESCE(s.sold_platform, '')) LIKE '%ebay%'
-      GROUP BY s.id, s.item_name, s.sold_platform, s.purchase_price, s.sale_price, s.ebay_id
-      ORDER BY s.sale_date DESC NULLS LAST, s.id DESC
-    `);
+    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const pageSize = Math.min(200, Math.max(1, Number.parseInt(req.query.pageSize, 10) || 50));
+    const year = Number.isInteger(Number(req.query.year)) && req.query.year ? Number(req.query.year) : null;
+    const month =
+      Number.isInteger(Number(req.query.month)) && Number(req.query.month) >= 1 && Number(req.query.month) <= 12
+        ? Number(req.query.month)
+        : null;
+    const departmentId =
+      Number.isInteger(Number(req.query.departmentId)) && req.query.departmentId ? Number(req.query.departmentId) : null;
+    const categoryId =
+      Number.isInteger(Number(req.query.categoryId)) && req.query.categoryId ? Number(req.query.categoryId) : null;
+    const profitFilter = ['top20', 'bottom20', 'loss'].includes(req.query.profitFilter) ? req.query.profitFilter : 'all';
+
+    const result = await pool.query(
+      `WITH base AS (
+         SELECT
+           s.id, s.item_name, s.sold_platform, s.purchase_price, s.sale_price, s.ebay_id, s.sale_date,
+           COALESCE(c.department_id, br.department_id) AS department_id,
+           d.department_name,
+           s.category_id,
+           c.category_name,
+           MAX(f.order_id) AS order_id,
+           COALESCE(SUM(f.amount) FILTER (WHERE f.fee_type = 'selling_fee'), 0)::numeric AS selling_fees,
+           COALESCE(SUM(f.amount) FILTER (WHERE f.fee_type = 'buyer_postage'), 0)::numeric AS buyer_postage,
+           COALESCE(SUM(f.amount) FILTER (WHERE f.fee_type = 'postage_paid'), 0)::numeric AS postage_paid,
+           BOOL_OR(f.id IS NOT NULL) AS has_fee_data
+         FROM stock s
+         LEFT JOIN stock_item_fees f ON f.stock_id = s.id
+         LEFT JOIN category c ON c.id = s.category_id
+         LEFT JOIN brand br ON br.id = s.brand_id
+         LEFT JOIN department d ON d.id = COALESCE(c.department_id, br.department_id)
+         WHERE s.sale_date IS NOT NULL
+           AND NOT COALESCE(s.is_inventory_write_off, false)
+           AND LOWER(COALESCE(s.sold_platform, '')) LIKE '%ebay%'
+           AND ($1::int IS NULL OR EXTRACT(YEAR FROM s.sale_date) = $1::int)
+           AND ($2::int IS NULL OR EXTRACT(MONTH FROM s.sale_date) = $2::int)
+           AND ($3::int IS NULL OR COALESCE(c.department_id, br.department_id) = $3::int)
+           AND ($4::int IS NULL OR s.category_id = $4::int)
+         GROUP BY s.id, s.item_name, s.sold_platform, s.purchase_price, s.sale_price, s.ebay_id, s.sale_date,
+           c.department_id, br.department_id, d.department_name, s.category_id, c.category_name
+       ),
+       profit AS (
+         SELECT base.*,
+           CASE WHEN has_fee_data AND sale_price IS NOT NULL AND purchase_price IS NOT NULL
+             THEN sale_price + buyer_postage - purchase_price - selling_fees - postage_paid
+             ELSE NULL END AS final_profit
+         FROM base
+       ),
+       thresholds AS (
+         SELECT
+           PERCENTILE_CONT(0.8) WITHIN GROUP (ORDER BY final_profit) AS p80,
+           PERCENTILE_CONT(0.2) WITHIN GROUP (ORDER BY final_profit) AS p20
+         FROM profit
+         WHERE final_profit IS NOT NULL
+       ),
+       filtered AS (
+         SELECT profit.*
+         FROM profit, thresholds
+         WHERE ($5::text = 'all')
+            OR ($5::text = 'loss' AND final_profit < 0)
+            OR ($5::text = 'top20' AND final_profit IS NOT NULL AND final_profit >= thresholds.p80)
+            OR ($5::text = 'bottom20' AND final_profit IS NOT NULL AND final_profit <= thresholds.p20)
+       )
+       SELECT *, COUNT(*) OVER () AS total_count
+       FROM filtered
+       ORDER BY sale_date DESC NULLS LAST, id DESC
+       LIMIT $6 OFFSET $7`,
+      [year, month, departmentId, categoryId, profitFilter, pageSize, (page - 1) * pageSize]
+    );
+
+    const totalCount = result.rows.length > 0 ? Number(result.rows[0].total_count) : 0;
 
     res.json({
+      page,
+      pageSize,
+      totalCount,
+      totalPages: Math.max(1, Math.ceil(totalCount / pageSize)),
       rows: (result.rows ?? []).map((row) => {
         const purchasePrice = row.purchase_price != null ? Number(row.purchase_price) : null;
         const salePrice = row.sale_price != null ? Number(row.sale_price) : null;
@@ -13414,16 +13476,17 @@ app.get('/api/accounting/stock-expenses', async (req, res) => {
         // postage label cost actually paid — only computed once fee data has
         // been synced, same as the other eBay-sourced columns.
         const totalPricePaid = salePrice != null ? salePrice + buyerPostage : null;
-        const finalProfit =
-          hasFeeData && salePrice != null && purchasePrice != null
-            ? salePrice + buyerPostage - purchasePrice - sellingFees - postagePaid
-            : null;
+        const finalProfit = row.final_profit != null ? Number(row.final_profit) : null;
         return {
           stockId: row.id,
           itemName: row.item_name,
           platform: row.sold_platform || '',
           ebayId: row.ebay_id || null,
           orderId: row.order_id || null,
+          departmentId: row.department_id || null,
+          departmentName: row.department_name || '',
+          categoryId: row.category_id || null,
+          categoryName: row.category_name || '',
           purchasePrice,
           salePrice,
           sellingFees,

@@ -11,3 +11,64 @@
 .stock-expenses-row--unsynced {
   opacity: 0.6;
 }
+
+.stock-expenses-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.stock-expenses-select {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--theme-summary-select-border, rgba(var(--theme-accent-rgb), 0.35));
+  background: var(--theme-summary-select-bg, rgba(var(--theme-accent-rgb), 0.1));
+  color: var(--theme-action-btn-color, var(--neon-primary-strong));
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  box-shadow: var(--theme-summary-select-inset, none);
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.stock-expenses-select:focus {
+  border-color: var(--neon-border-strong);
+  box-shadow: var(--neon-shadow);
+  background: var(--theme-summary-select-focus-bg, rgba(var(--theme-accent-rgb), 0.16));
+}
+
+.stock-expenses-profit--positive {
+  color: #2e7d32;
+  font-weight: 700;
+}
+
+.stock-expenses-profit--negative {
+  color: #c62828;
+  font-weight: 700;
+}
+
+.stock-expenses-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 16px;
+  font-size: 0.9rem;
+}
+
+.stock-expenses-pagination button {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--theme-summary-select-border, rgba(var(--theme-accent-rgb), 0.35));
+  background: var(--theme-summary-select-bg, rgba(var(--theme-accent-rgb), 0.1));
+  color: var(--theme-action-btn-color, var(--neon-primary-strong));
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.stock-expenses-pagination button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
