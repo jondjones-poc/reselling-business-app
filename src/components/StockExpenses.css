@@ -39,6 +39,30 @@
   background: var(--theme-summary-select-focus-bg, rgba(var(--theme-accent-rgb), 0.16));
 }
 
+.stock-table.stock-expenses-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.stock-table.stock-expenses-table th,
+.stock-table.stock-expenses-table td {
+  padding: 8px 6px;
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stock-table.stock-expenses-table td:first-child {
+  text-align: left;
+  white-space: normal;
+}
+
+.stock-table.stock-expenses-table td:first-child a {
+  color: inherit;
+  text-decoration: underline;
+}
+
 .stock-table td.stock-expenses-profit--positive {
   color: #2e7d32;
   font-weight: 700;

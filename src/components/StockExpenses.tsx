@@ -205,36 +205,38 @@ const StockExpenses: React.FC = () => {
       ) : (
         <>
           <div className="table-wrapper">
-            <table className="stock-table">
+            <table className="stock-table stock-expenses-table">
               <thead>
                 <tr>
-                  <th>Stock ID</th>
                   <th>Name</th>
                   <th>eBay ID</th>
-                  <th>Order Number</th>
+                  <th>Order #</th>
                   <th>Department</th>
                   <th>Category</th>
                   <th>Cost</th>
-                  <th>Item Sold Price</th>
-                  <th>Postage Charged To Buyer</th>
-                  <th>Total Price Paid</th>
+                  <th>Sold Price</th>
+                  <th>Buyer Postage</th>
+                  <th>Total Paid</th>
                   <th>Fees</th>
-                  <th>Postage I Paid</th>
+                  <th>My Postage</th>
                   <th>Final Profit</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.length === 0 && (
                   <tr>
-                    <td colSpan={13} className="empty-state">
+                    <td colSpan={12} className="empty-state">
                       No sold items found.
                     </td>
                   </tr>
                 )}
                 {rows.map((row) => (
                   <tr key={row.stockId} className={row.hasFeeData ? undefined : 'stock-expenses-row--unsynced'}>
-                    <td>{row.stockId}</td>
-                    <td>{row.itemName ?? '—'}</td>
+                    <td>
+                      <a href={`/stock?editId=${row.stockId}`} target="_blank" rel="noopener noreferrer">
+                        {row.itemName ?? `Stock #${row.stockId}`}
+                      </a>
+                    </td>
                     <td>{row.ebayId ?? '—'}</td>
                     <td>{row.orderId ?? '—'}</td>
                     <td>{row.departmentName || '—'}</td>
