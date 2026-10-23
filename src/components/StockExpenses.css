@@ -39,12 +39,12 @@
   background: var(--theme-summary-select-focus-bg, rgba(var(--theme-accent-rgb), 0.16));
 }
 
-.stock-expenses-profit--positive {
+.stock-table td.stock-expenses-profit--positive {
   color: #2e7d32;
   font-weight: 700;
 }
 
-.stock-expenses-profit--negative {
+.stock-table td.stock-expenses-profit--negative {
   color: #c62828;
   font-weight: 700;
 }

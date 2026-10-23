@@ -210,7 +210,6 @@ const StockExpenses: React.FC = () => {
                 <tr>
                   <th>Stock ID</th>
                   <th>Name</th>
-                  <th>Sold On</th>
                   <th>eBay ID</th>
                   <th>Order Number</th>
                   <th>Department</th>
@@ -227,7 +226,7 @@ const StockExpenses: React.FC = () => {
               <tbody>
                 {rows.length === 0 && (
                   <tr>
-                    <td colSpan={14} className="empty-state">
+                    <td colSpan={13} className="empty-state">
                       No sold items found.
                     </td>
                   </tr>
@@ -236,7 +235,6 @@ const StockExpenses: React.FC = () => {
                   <tr key={row.stockId} className={row.hasFeeData ? undefined : 'stock-expenses-row--unsynced'}>
                     <td>{row.stockId}</td>
                     <td>{row.itemName ?? '—'}</td>
-                    <td>{row.platform || '—'}</td>
                     <td>{row.ebayId ?? '—'}</td>
                     <td>{row.orderId ?? '—'}</td>
                     <td>{row.departmentName || '—'}</td>
