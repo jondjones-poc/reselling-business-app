@@ -1907,6 +1907,28 @@
   margin-top: 22px;
   display: flex;
   justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.brand-research-ebay-sold-min-select {
+  display: inline-flex;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.35);
+  background: rgba(var(--theme-accent-rgb), 0.1);
+  color: var(--neon-primary-strong, var(--theme-accent));
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  outline: none;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.brand-research-ebay-sold-min-select:hover,
+.brand-research-ebay-sold-min-select:focus {
+  border-color: rgba(var(--theme-accent-rgb), 0.6);
+  background: rgba(var(--theme-accent-rgb), 0.18);
 }
 
 .brand-research-ebay-sold-refresh {
@@ -4132,6 +4154,30 @@ a.research-tab {
 
 .brand-research-sales-chart-block {
   margin-top: 4px;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+.brand-research-sales-chart-block.brand-research-chart-in-view {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.brand-research-chart-pulse {
+  animation: brandResearchChartPulse 0.9s ease;
+}
+
+@keyframes brandResearchChartPulse {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.015);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 .brand-research-sales-chart-inner {
@@ -4161,6 +4207,12 @@ a.research-tab {
   width: 100%;
   height: 140px;
   max-height: 180px;
+}
+
+.brand-research-sales-chart-inner--pie {
+  width: 100%;
+  height: 260px;
+  margin-bottom: 20px;
 }
 
 .brand-research-brand-totals {

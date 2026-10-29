@@ -682,7 +682,7 @@ const ReceiptScanner: React.FC = () => {
       }
       if (created.length > 0) {
         setItems((prev) => [...prev, ...created]);
-        setActiveId((prev) => prev ?? created[0].id);
+        setActiveId(created[created.length - 1].id);
       }
     } finally {
       setBusy(false);

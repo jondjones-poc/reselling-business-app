@@ -12,7 +12,7 @@ import {
 import { Bar, Pie } from 'react-chartjs-2';
 import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import { getApiBase } from '../utils/apiBase';
-import { themeAccentRgba, themeTextRgba } from '../utils/themeColors';
+import { themeAccentRgba, themeNegativeRgba, themePositiveRgba, themeTextRgba } from '../utils/themeColors';
 import {
   balancePctToHeatColor,
   balancePctToHeatTextColor,
@@ -3115,6 +3115,21 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
   /** Shown when cache is missing/stale until a live sync completes. */
   const [ebaySoldNoCacheNotice, setEbaySoldNoCacheNotice] = useState<string | null>(null);
   const [ebaySoldRefreshing, setEbaySoldRefreshing] = useState(false);
+  const [ebaySoldMinGbp, setEbaySoldMinGbp] = useState(EBAY_SOLD_DISPLAY_MIN_GBP);
+  const [ebaySoldLimit, setEbaySoldLimit] = useState(20);
+
+  /** Gentle periodic pulse on the brand sales charts, while this tab is visible. */
+  const brandChartPulseRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      const el = brandChartPulseRef.current;
+      if (!el) return;
+      el.classList.add('brand-research-chart-pulse');
+      window.setTimeout(() => el.classList.remove('brand-research-chart-pulse'), 900);
+    }, 60000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   const [brandExamplePricing, setBrandExamplePricing] = useState<BrandExamplePricingRow[]>([]);
   const [brandExamplePricingLoading, setBrandExamplePricingLoading] = useState(false);
@@ -7160,7 +7175,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     };
   }, [researchTab, brandTagBrandId, brandsWithWebsites]);
 
-  const handleRefreshEbaySolds = async () => {
+  const handleRefreshEbaySolds = async (limitOverride?: number) => {
     if (brandTagBrandId === '') return;
     const brandId = Number(brandTagBrandId);
     if (!Number.isFinite(brandId)) return;
@@ -7172,7 +7187,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       const syncRes = await fetch(apiUrl(`/api/brands/${brandId}/ebay-sold-cache/sync`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ limit: 20, days: 120 }),
+        body: JSON.stringify({ limit: limitOverride ?? ebaySoldLimit, days: 120 }),
       });
       const syncRaw = await readJsonResponse<unknown>(syncRes, 'eBay sold sync');
       setEbaySoldItems(parseEbaySoldRecentItems(syncRaw));
@@ -7183,13 +7198,20 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     }
   };
 
+  /** Pulls 10 more sold listings than the current fetch limit. */
+  const handlePullMoreEbaySolds = async () => {
+    const nextLimit = ebaySoldLimit + 10;
+    setEbaySoldLimit(nextLimit);
+    await handleRefreshEbaySolds(nextLimit);
+  };
+
   const ebaySoldItemsDisplay = useMemo(
     () =>
       ebaySoldItems.filter((item) => {
         const n = ebaySoldPriceGbpNumber(item);
-        return n != null && n > EBAY_SOLD_DISPLAY_MIN_GBP;
+        return n != null && n > ebaySoldMinGbp;
       }),
-    [ebaySoldItems]
+    [ebaySoldItems, ebaySoldMinGbp]
   );
 
   const handleSaveBrandRefLink = async () => {
@@ -7324,8 +7346,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         {
           label: 'Items',
           data: [s.soldCount, s.unsoldCount],
-          backgroundColor: ['rgba(130, 210, 155, 0.78)', 'rgba(255, 165, 120, 0.72)'],
-          borderColor: [themeAccentRgba(0.5), themeAccentRgba(0.5)],
+          backgroundColor: [themePositiveRgba(0.65), themeNegativeRgba(0.55)],
+          borderColor: [themePositiveRgba(0.95), themeNegativeRgba(0.9)],
           borderWidth: 1,
           barPercentage: 0.65,
           categoryPercentage: 0.85,
@@ -7334,6 +7356,30 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     };
   }, [brandStockSummary]);
 
+  /** Fade the brand sales charts in once they actually scroll into view, not on mount (they sit below the fold). */
+  useEffect(() => {
+    const el = brandChartPulseRef.current;
+    if (!el) return undefined;
+    el.classList.remove('brand-research-chart-in-view');
+    if (typeof IntersectionObserver === 'undefined') {
+      el.classList.add('brand-research-chart-in-view');
+      return undefined;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('brand-research-chart-in-view');
+            observer.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.2 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [brandStockBarChartData]);
+
   const brandStockSellThroughPercent = useMemo(() => {
     const s = brandStockSummary;
     if (!s) return null;
@@ -7341,6 +7387,46 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     if (total === 0) return null;
     return (s.soldCount / total) * 100;
   }, [brandStockSummary]);
+
+  const brandStockSellThroughPieData = useMemo(() => {
+    const s = brandStockSummary;
+    if (!s) return null;
+    const total = s.soldCount + s.unsoldCount;
+    if (total === 0) return null;
+    return {
+      labels: ['Sold', 'Number Of Items In Stock'],
+      datasets: [
+        {
+          data: [s.soldCount, s.unsoldCount],
+          backgroundColor: [themePositiveRgba(0.65), themeNegativeRgba(0.55)],
+          borderColor: [themePositiveRgba(0.95), themeNegativeRgba(0.9)],
+          borderWidth: 1,
+        },
+      ],
+    };
+  }, [brandStockSummary]);
+
+  const brandStockSellThroughPieOptions = useMemo<ChartOptions<'pie'>>(
+    () => ({
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: { color: themeTextRgba(0.85), boxWidth: 12, boxHeight: 12 },
+        },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const n = typeof ctx.raw === 'number' ? ctx.raw : Number(ctx.raw);
+              return `${ctx.label}: ${Number.isFinite(n) ? n : 0} item${n === 1 ? '' : 's'}`;
+            },
+          },
+        },
+      },
+    }),
+    []
+  );
 
   /** Top 4 categories by sold revenue (API: highest first), then ascending by sold value for tag order. */
   const brandStockItemsToBuyTags = useMemo(() => {
@@ -7411,26 +7497,26 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         {
           label: 'Sold',
           data: rows.map((r) => r.sold_count),
-          backgroundColor: 'rgba(130, 210, 155, 0.78)',
-          borderColor: themeAccentRgba(0.45),
+          backgroundColor: themePositiveRgba(0.65),
+          borderColor: themePositiveRgba(0.95),
           borderWidth: 1,
-          stack: 'cat',
         },
         {
           label: 'Unsold',
           data: rows.map((r) => r.unsold_count),
-          backgroundColor: 'rgba(255, 165, 120, 0.72)',
-          borderColor: themeAccentRgba(0.45),
+          backgroundColor: themeNegativeRgba(0.55),
+          borderColor: themeNegativeRgba(0.9),
           borderWidth: 1,
-          stack: 'cat',
         },
       ],
     };
   }, [brandStockSummary?.categorySoldUnsold]);
 
+  // Clustered (grouped) vertical column chart: no `stack` id on the datasets and
+  // no `stacked: true` on the scales, so Sold/Unsold render side-by-side per category.
   const categorySoldUnsoldStackOptions = useMemo<ChartOptions<'bar'>>(
     () => ({
-      indexAxis: 'y',
+      indexAxis: 'x',
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
@@ -7460,7 +7546,13 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       },
       scales: {
         x: {
-          stacked: true,
+          ticks: {
+            color: themeTextRgba(0.88),
+            font: { size: 12 },
+          },
+          grid: { display: false },
+        },
+        y: {
           beginAtZero: true,
           title: {
             display: true,
@@ -7473,14 +7565,6 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
             precision: 0,
           },
           grid: { color: themeAccentRgba(0.1) },
-        },
-        y: {
-          stacked: true,
-          ticks: {
-            color: themeTextRgba(0.88),
-            font: { size: 12 },
-          },
-          grid: { display: false },
         },
       },
     }),
@@ -11019,6 +11103,127 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           </>
         )}
         {brandTagBrandId !== '' && (
+          <section className="brand-research-ebay-sold-section" aria-labelledby="brand-research-ebay-title">
+            <h3 id="brand-research-ebay-title" className="brand-research-sales-heading">
+              {brandsWithWebsites.find((b) => b.id === brandTagBrandId)?.brand_name || 'Brand'} Items Sold On Ebay
+            </h3>
+            <p className="brand-research-ebay-sold-filter-note brand-tag-examples-muted">
+              Showing sold listings over{' '}
+              <select
+                className="brand-research-ebay-sold-min-select"
+                value={ebaySoldMinGbp}
+                onChange={(e) => setEbaySoldMinGbp(Number(e.target.value))}
+                aria-label="Minimum sold price (GBP)"
+              >
+                {[30, 50, 75, 100].map((v) => (
+                  <option key={v} value={v}>
+                    £{v}
+                  </option>
+                ))}
+              </select>{' '}
+              only (GBP).
+            </p>
+            {ebaySoldNoCacheNotice && (
+              <p className="brand-research-ebay-sold-no-cache brand-tag-examples-muted">{ebaySoldNoCacheNotice}</p>
+            )}
+            {ebaySoldLoading && (
+              <div className="brand-tag-examples-muted brand-research-ebay-sold-loading">Loading eBay results…</div>
+            )}
+            {ebaySoldError && (
+              <div className="brand-tag-examples-error brand-research-ebay-sold-error" role="alert">
+                {ebaySoldError}
+              </div>
+            )}
+            {!ebaySoldLoading && !ebaySoldError && ebaySoldItems.length === 0 && (
+              <p className="brand-research-sales-empty">
+                No sold listings matched this brand in the last ~120 days (eBay may return fewer than 20).
+              </p>
+            )}
+            {!ebaySoldLoading &&
+              !ebaySoldError &&
+              ebaySoldItems.length > 0 &&
+              ebaySoldItemsDisplay.length === 0 && (
+                <p className="brand-research-sales-empty">
+                  No sold listings in this set over £{ebaySoldMinGbp}. eBay returned{' '}
+                  {ebaySoldItems.length} result{ebaySoldItems.length === 1 ? '' : 's'} — try refreshing or
+                  browse on eBay for lower-priced comps.
+                </p>
+              )}
+            {!ebaySoldLoading && ebaySoldItemsDisplay.length > 0 && (
+              <ul className="brand-research-ebay-sold-grid">
+                {ebaySoldItemsDisplay.map((item, idx) => (
+                  <li key={item.itemId || `ebay-${idx}`} className="brand-research-ebay-sold-card">
+                    {item.itemWebUrl ? (
+                      <a
+                        href={item.itemWebUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="brand-research-ebay-sold-card-link"
+                      >
+                        {item.imageUrl ? (
+                          <img
+                            src={item.imageUrl}
+                            alt=""
+                            className="brand-research-ebay-sold-card-img"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="brand-research-ebay-sold-card-img-fallback" aria-hidden="true" />
+                        )}
+                        <span className="brand-research-ebay-sold-card-title">{item.title || 'Listing'}</span>
+                        {item.conditionLabel && (
+                          <span className="brand-research-ebay-sold-card-condition">{item.conditionLabel}</span>
+                        )}
+                        <span className="brand-research-ebay-sold-card-price">
+                          {formatEbayDisplayPrice(item.priceCurrency, item.priceValue)}
+                        </span>
+                      </a>
+                    ) : (
+                      <div className="brand-research-ebay-sold-card-static">
+                        {item.imageUrl ? (
+                          <img
+                            src={item.imageUrl}
+                            alt=""
+                            className="brand-research-ebay-sold-card-img"
+                            loading="lazy"
+                          />
+                        ) : null}
+                        <span className="brand-research-ebay-sold-card-title">{item.title || 'Listing'}</span>
+                        {item.conditionLabel && (
+                          <span className="brand-research-ebay-sold-card-condition">{item.conditionLabel}</span>
+                        )}
+                        <span className="brand-research-ebay-sold-card-price">
+                          {formatEbayDisplayPrice(item.priceCurrency, item.priceValue)}
+                        </span>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {!ebaySoldLoading && (
+              <div className="brand-research-ebay-sold-actions">
+                <button
+                  type="button"
+                  className="brand-research-ebay-sold-refresh"
+                  onClick={() => void handleRefreshEbaySolds()}
+                  disabled={ebaySoldRefreshing}
+                >
+                  {ebaySoldRefreshing ? 'Refreshing…' : 'Refresh from eBay'}
+                </button>
+                <button
+                  type="button"
+                  className="brand-research-ebay-sold-refresh"
+                  onClick={() => void handlePullMoreEbaySolds()}
+                  disabled={ebaySoldRefreshing}
+                >
+                  {ebaySoldRefreshing ? 'Loading…' : 'Pull in 10 more'}
+                </button>
+              </div>
+            )}
+          </section>
+        )}
+        {brandTagBrandId !== '' && (
           <section className="brand-research-sales-section" aria-labelledby="brand-research-sales-title">
             <div className="brand-research-sales-header">
               <h3 id="brand-research-sales-title" className="brand-research-sales-heading">
@@ -11111,17 +11316,11 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                         : 'No stock rows are linked to this brand yet. Assign a brand on the Stock page to see charts here.'}
                   </p>
                 ) : (
-                  <div className="brand-research-sales-chart-block">
-                    {brandStockSellThroughPercent != null && (
-                      <p className="brand-research-sales-sell-through">
-                        Sell-through rate:{' '}
-                        <strong>{brandStockSellThroughPercent.toFixed(1)}%</strong>
-                        <span className="brand-research-sales-sell-through-detail">
-                          {' '}
-                          ({brandStockSummary.soldCount} sold of{' '}
-                          {brandStockSummary.soldCount + brandStockSummary.unsoldCount} items)
-                        </span>
-                      </p>
+                  <div className="brand-research-sales-chart-block" ref={brandChartPulseRef}>
+                    {brandStockSellThroughPercent != null && brandStockSellThroughPieData && (
+                      <div className="brand-research-sales-chart-inner brand-research-sales-chart-inner--pie">
+                        <Pie data={brandStockSellThroughPieData} options={brandStockSellThroughPieOptions} />
+                      </div>
                     )}
                     <div className="brand-research-sales-chart-inner brand-research-sales-chart-inner--bar">
                       <Bar data={brandStockBarChartData} options={brandStockBarOptions} />
@@ -11129,16 +11328,11 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                     {categorySoldUnsoldStackData && (
                       <div className="brand-research-category-stack-block">
                         <h4 className="brand-research-category-stack-heading">
-                          Sold vs unsold by category
+                          Inventory Overview
                         </h4>
                         <div
                           className="brand-research-category-stack-chart-inner"
-                          style={{
-                            height: `${Math.max(
-                              200,
-                              (brandStockSummary.categorySoldUnsold?.length ?? 0) * 40 + 120
-                            )}px`,
-                          }}
+                          style={{ height: '360px' }}
                         >
                           <Bar
                             data={categorySoldUnsoldStackData}
@@ -11198,106 +11392,6 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                   </div>
                 ) : null}
               </>
-            )}
-          </section>
-        )}
-        {brandTagBrandId !== '' && (
-          <section className="brand-research-ebay-sold-section" aria-labelledby="brand-research-ebay-title">
-            <h3 id="brand-research-ebay-title" className="brand-research-sales-heading">
-              eBay Solds
-            </h3>
-            <p className="brand-research-ebay-sold-filter-note brand-tag-examples-muted">
-              Showing sold listings over £{EBAY_SOLD_DISPLAY_MIN_GBP} only (GBP).
-            </p>
-            {ebaySoldNoCacheNotice && (
-              <p className="brand-research-ebay-sold-no-cache brand-tag-examples-muted">{ebaySoldNoCacheNotice}</p>
-            )}
-            {ebaySoldLoading && (
-              <div className="brand-tag-examples-muted brand-research-ebay-sold-loading">Loading eBay results…</div>
-            )}
-            {ebaySoldError && (
-              <div className="brand-tag-examples-error brand-research-ebay-sold-error" role="alert">
-                {ebaySoldError}
-              </div>
-            )}
-            {!ebaySoldLoading && !ebaySoldError && ebaySoldItems.length === 0 && (
-              <p className="brand-research-sales-empty">
-                No sold listings matched this brand in the last ~120 days (eBay may return fewer than 20).
-              </p>
-            )}
-            {!ebaySoldLoading &&
-              !ebaySoldError &&
-              ebaySoldItems.length > 0 &&
-              ebaySoldItemsDisplay.length === 0 && (
-                <p className="brand-research-sales-empty">
-                  No sold listings in this set over £{EBAY_SOLD_DISPLAY_MIN_GBP}. eBay returned{' '}
-                  {ebaySoldItems.length} result{ebaySoldItems.length === 1 ? '' : 's'} — try refreshing or
-                  browse on eBay for lower-priced comps.
-                </p>
-              )}
-            {!ebaySoldLoading && ebaySoldItemsDisplay.length > 0 && (
-              <ul className="brand-research-ebay-sold-grid">
-                {ebaySoldItemsDisplay.map((item, idx) => (
-                  <li key={item.itemId || `ebay-${idx}`} className="brand-research-ebay-sold-card">
-                    {item.itemWebUrl ? (
-                      <a
-                        href={item.itemWebUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="brand-research-ebay-sold-card-link"
-                      >
-                        {item.imageUrl ? (
-                          <img
-                            src={item.imageUrl}
-                            alt=""
-                            className="brand-research-ebay-sold-card-img"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <div className="brand-research-ebay-sold-card-img-fallback" aria-hidden="true" />
-                        )}
-                        <span className="brand-research-ebay-sold-card-title">{item.title || 'Listing'}</span>
-                        {item.conditionLabel && (
-                          <span className="brand-research-ebay-sold-card-condition">{item.conditionLabel}</span>
-                        )}
-                        <span className="brand-research-ebay-sold-card-price">
-                          {formatEbayDisplayPrice(item.priceCurrency, item.priceValue)}
-                        </span>
-                      </a>
-                    ) : (
-                      <div className="brand-research-ebay-sold-card-static">
-                        {item.imageUrl ? (
-                          <img
-                            src={item.imageUrl}
-                            alt=""
-                            className="brand-research-ebay-sold-card-img"
-                            loading="lazy"
-                          />
-                        ) : null}
-                        <span className="brand-research-ebay-sold-card-title">{item.title || 'Listing'}</span>
-                        {item.conditionLabel && (
-                          <span className="brand-research-ebay-sold-card-condition">{item.conditionLabel}</span>
-                        )}
-                        <span className="brand-research-ebay-sold-card-price">
-                          {formatEbayDisplayPrice(item.priceCurrency, item.priceValue)}
-                        </span>
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-            {!ebaySoldLoading && (
-              <div className="brand-research-ebay-sold-actions">
-                <button
-                  type="button"
-                  className="brand-research-ebay-sold-refresh"
-                  onClick={() => void handleRefreshEbaySolds()}
-                  disabled={ebaySoldRefreshing}
-                >
-                  {ebaySoldRefreshing ? 'Refreshing…' : 'Refresh from eBay'}
-                </button>
-              </div>
             )}
           </section>
         )}
@@ -14525,7 +14619,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                                 soldCount={b.sold_count}
                                 inStockCount={b.unsold_count}
                                 active={false}
-                                onClick={() => {}}
+                                onClick={() => openBrandResearchInUrl(b.id)}
                               />
                             ))}
                           </div>
