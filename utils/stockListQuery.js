@@ -43,10 +43,16 @@ function parseStockListOptions(query = {}) {
       ? parsePositiveInt(departmentIdRaw, 0)
       : null;
   const brandIdRaw = query.brand_id ?? query.brandId;
-  const brandId =
-    brandIdRaw != null && String(brandIdRaw).trim() !== ''
-      ? parsePositiveInt(brandIdRaw, 0)
-      : null;
+  const brandIdRawStr = brandIdRaw != null ? String(brandIdRaw).trim() : '';
+  // Comma-separated when the same brand name spans multiple department-scoped
+  // brand rows (the Stock filter collapses those into one dropdown entry).
+  const brandIds = brandIdRawStr.includes(',')
+    ? brandIdRawStr
+        .split(',')
+        .map((v) => parsePositiveInt(v, 0))
+        .filter((n) => n > 0)
+    : [];
+  const brandId = brandIds.length === 0 && brandIdRawStr !== '' ? parsePositiveInt(brandIdRawStr, 0) : null;
   const categorySizeIdRaw = query.category_size_id ?? query.categorySizeId;
   const categorySizeId =
     categorySizeIdRaw != null && String(categorySizeIdRaw).trim() !== ''
@@ -72,6 +78,7 @@ function parseStockListOptions(query = {}) {
     categoryId: categoryId && categoryId > 0 ? categoryId : null,
     departmentId: departmentId && departmentId > 0 ? departmentId : null,
     brandId: brandId && brandId > 0 ? brandId : null,
+    brandIds: brandIds.length > 0 ? brandIds : null,
     categorySizeId: categorySizeId && categorySizeId > 0 ? categorySizeId : null,
     editId: editId && editId > 0 ? editId : null,
     isExport: query.export === '1',
@@ -182,7 +189,10 @@ function appendStockAttributeFilters(options, clauses, params) {
     const catParam = addParam(params, options.categoryId);
     clauses.push(`s.category_id = ${catParam}`);
   }
-  if (options.brandId) {
+  if (options.brandIds && options.brandIds.length > 0) {
+    const brandParam = addParam(params, options.brandIds);
+    clauses.push(`s.brand_id = ANY(${brandParam}::int[])`);
+  } else if (options.brandId) {
     const brandParam = addParam(params, options.brandId);
     clauses.push(`s.brand_id = ${brandParam}`);
   }

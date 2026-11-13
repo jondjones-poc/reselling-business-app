@@ -785,7 +785,19 @@ const Stock: React.FC = () => {
         params.set('category_size_id', selectedSizeFilter);
       }
       if (selectedBrandFilter) {
-        params.set('brand_id', selectedBrandFilter);
+        // With no department/category filter, the brand dropdown shows one entry per
+        // name (duplicates across departments collapsed) — resolve it back to every
+        // underlying brand id sharing that name so stock from all of them matches.
+        if (selectedCategoryFilter || selectedDepartmentFilter) {
+          params.set('brand_id', selectedBrandFilter);
+        } else {
+          const selected = brands.find((b) => String(b.id) === selectedBrandFilter);
+          const nameKey = selected?.brand_name.trim().toLowerCase();
+          const ids = nameKey
+            ? brands.filter((b) => b.brand_name.trim().toLowerCase() === nameKey).map((b) => b.id)
+            : [selectedBrandFilter];
+          params.set('brand_id', ids.join(','));
+        }
       }
 
       if (options?.includeEditId) {
@@ -806,6 +818,7 @@ const Stock: React.FC = () => {
       selectedCategoryFilter,
       selectedSizeFilter,
       selectedBrandFilter,
+      brands,
       searchParams,
     ]
   );
@@ -1535,18 +1548,28 @@ const Stock: React.FC = () => {
     );
   }, [categories, selectedDepartmentFilter]);
 
+  /**
+   * With no department/category filter active, the same brand name often exists
+   * as separate rows per department (e.g. "Ralph Lauren" in Menswear and in
+   * Womenswear), which showed as duplicate entries. Collapse those into one
+   * option — `brandIdGroups` tracks every underlying id each option represents,
+   * so selecting it matches stock across all departments/categories.
+   */
   const brandsForFilter = useMemo(() => {
-    let list = brands;
     if (selectedCategoryFilter) {
-      list = brands.filter(
+      const list = brands.filter(
         (b) =>
           String(b.category_id ?? '') === selectedCategoryFilter ||
           (b.category_id == null &&
             selectedDepartmentFilter !== '' &&
             String(b.department_id ?? '') === selectedDepartmentFilter)
       );
-    } else if (selectedDepartmentFilter) {
-      list = brands.filter(
+      return [...list].sort((a, b) =>
+        a.brand_name.localeCompare(b.brand_name, undefined, { sensitivity: 'base' })
+      );
+    }
+    if (selectedDepartmentFilter) {
+      const list = brands.filter(
         (b) =>
           String(b.department_id ?? '') === selectedDepartmentFilter ||
           categories.some(
@@ -1555,8 +1578,17 @@ const Stock: React.FC = () => {
               String(c.department_id ?? '') === selectedDepartmentFilter
           )
       );
+      return [...list].sort((a, b) =>
+        a.brand_name.localeCompare(b.brand_name, undefined, { sensitivity: 'base' })
+      );
     }
-    return [...list].sort((a, b) =>
+    // No filters selected: one entry per distinct brand name, across all departments/categories.
+    const byName = new Map<string, Brand>();
+    for (const b of brands) {
+      const key = b.brand_name.trim().toLowerCase();
+      if (!byName.has(key)) byName.set(key, b);
+    }
+    return Array.from(byName.values()).sort((a, b) =>
       a.brand_name.localeCompare(b.brand_name, undefined, { sensitivity: 'base' })
     );
   }, [brands, categories, selectedCategoryFilter, selectedDepartmentFilter]);
