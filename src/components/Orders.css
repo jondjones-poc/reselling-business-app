@@ -2447,6 +2447,34 @@
   border-top: 2px solid rgba(255, 120, 120, 0.3);
   display: flex;
   justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.orders-copy-order-button {
+  padding: 20px 40px;
+  border-radius: 12px;
+  border: 2px solid rgba(var(--theme-accent-rgb), 0.5);
+  background: rgba(var(--theme-accent-rgb), 0.15);
+  color: var(--neon-primary-strong, var(--theme-accent));
+  font-weight: 700;
+  font-size: 1.3rem;
+  letter-spacing: 0.05rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-transform: uppercase;
+  min-width: 220px;
+}
+
+.orders-copy-order-button:hover:not(:disabled) {
+  background: rgba(var(--theme-accent-rgb), 0.25);
+  border-color: rgba(var(--theme-accent-rgb), 0.7);
+  transform: translateY(-2px);
+}
+
+.orders-copy-order-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .orders-clear-list-button {
@@ -2615,7 +2643,8 @@
     display: flex;
   }
 
-  .orders-clear-list-button {
+  .orders-clear-list-button,
+  .orders-copy-order-button {
     min-width: auto;
     width: 100%;
     font-size: 1.1rem;

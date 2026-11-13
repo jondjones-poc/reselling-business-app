@@ -8,6 +8,25 @@ import './Orders.css';
 
 const API_BASE = getApiBase();
 
+async function copyTextToClipboard(text: string): Promise<void> {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand('copy');
+  } finally {
+    document.body.removeChild(ta);
+  }
+}
+
 type Nullable<T> = T | null | undefined;
 
 interface StockRow {
@@ -1039,6 +1058,7 @@ const Orders: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [clearConfirmCount, setClearConfirmCount] = useState(0);
+  const [copyOrderFeedback, setCopyOrderFeedback] = useState<string | null>(null);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [refundLoadingId, setRefundLoadingId] = useState<number | null>(null);
   const [refundConfirmItem, setRefundConfirmItem] = useState<{
@@ -2403,6 +2423,17 @@ const Orders: React.FC = () => {
     navigate(`/stock?editId=${item.id}`);
   };
 
+  const handleCopyOrder = async () => {
+    const text = orderItems.map((item) => `${item.id} - ${item.item_name || '—'}`).join('\n');
+    try {
+      await copyTextToClipboard(text);
+      setCopyOrderFeedback('Copied!');
+    } catch {
+      setCopyOrderFeedback('Could not copy');
+    }
+    setTimeout(() => setCopyOrderFeedback(null), 2000);
+  };
+
   const handleClearList = async () => {
     if (clearConfirmCount === 0) {
       setClearConfirmCount(1);
@@ -3322,100 +3353,6 @@ const Orders: React.FC = () => {
           role="tabpanel"
           aria-labelledby="orders-tab-to-pack"
         >
-      <div className="orders-search-section">
-        <div className="orders-search-wrapper">
-          <input
-            type="text"
-            className="orders-search-input"
-            placeholder="Search all items by name or SKU..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            disabled={loading}
-          />
-          {searchTerm && (
-            <button
-              type="button"
-              onClick={() => setSearchTerm('')}
-              className="orders-search-clear"
-              title="Clear search"
-            >
-              ×
-            </button>
-          )}
-        </div>
-
-        {searchResults.length > 0 && (
-          <div className="orders-search-results">
-            {searchResults.map((item) => {
-              const isEbaySold = item.sold_platform === 'eBay' && item.ebay_id;
-              const isVintedSold = item.sold_platform === 'Vinted' && item.vinted_id;
-              const itemName = item.item_name || '—';
-              const searchBulky = stockIsBulky(item);
-
-              return (
-                <div
-                  key={item.id}
-                  className={`orders-search-result-item${searchBulky ? ' orders-search-result-item--bulky' : ''}`}
-                >
-                  <span className="orders-result-sku orders-result-sku-with-bulk">
-                    <span className="orders-result-sku-num">{item.id}</span>
-                    {searchBulky ? <span className="orders-sales-bulk-badge">BULK</span> : null}
-                  </span>
-                  <span className="orders-result-name">
-                    {isEbaySold ? (
-                      <a
-                        href={`https://www.ebay.co.uk/itm/${item.ebay_id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        style={{
-                          color: 'var(--neon-primary-strong)',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {itemName}
-                      </a>
-                    ) : isVintedSold ? (
-                      <a
-                        href={`https://www.vinted.co.uk/items/${item.vinted_id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        style={{
-                          color: 'var(--neon-primary-strong)',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {itemName}
-                      </a>
-                    ) : (
-                      itemName
-                    )}
-                  </span>
-                  <span className="orders-result-price">
-                    {formatCurrency(item.purchase_price)}
-                  </span>
-                  <button
-                    type="button"
-                    className="orders-add-button"
-                    onClick={() => handleAddItem(item)}
-                    disabled={orderItems.some((orderItem) => orderItem.id === item.id) || ordersLoading}
-                  >
-                    {orderItems.some((orderItem) => orderItem.id === item.id) ? 'Added' : 'Add'}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {searchTerm && searchResults.length === 0 && !loading && (
-          <div className="orders-no-results">
-            No items found matching "{searchTerm}"
-          </div>
-        )}
-      </div>
-
       {orderItems.length > 0 && (
         <div className="orders-list-section">
           {/* Desktop Table View */}
@@ -3589,6 +3526,14 @@ const Orders: React.FC = () => {
           </div>
 
           <div className="orders-clear-list-section">
+            <button
+              type="button"
+              className="orders-copy-order-button"
+              onClick={() => void handleCopyOrder()}
+              disabled={ordersLoading || orderItems.length === 0}
+            >
+              {copyOrderFeedback ?? 'Copy Order'}
+            </button>
             <button
               type="button"
               className={`orders-clear-list-button ${clearConfirmCount > 0 ? 'confirm' : ''}`}
@@ -4998,6 +4943,100 @@ const Orders: React.FC = () => {
               </span>
             </div>
           )}
+
+          <div className="orders-search-section">
+            <div className="orders-search-wrapper">
+              <input
+                type="text"
+                className="orders-search-input"
+                placeholder="Search all items by name or SKU..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                disabled={loading}
+              />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="orders-search-clear"
+                  title="Clear search"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+
+            {searchResults.length > 0 && (
+              <div className="orders-search-results">
+                {searchResults.map((item) => {
+                  const isEbaySold = item.sold_platform === 'eBay' && item.ebay_id;
+                  const isVintedSold = item.sold_platform === 'Vinted' && item.vinted_id;
+                  const itemName = item.item_name || '—';
+                  const searchBulky = stockIsBulky(item);
+
+                  return (
+                    <div
+                      key={item.id}
+                      className={`orders-search-result-item${searchBulky ? ' orders-search-result-item--bulky' : ''}`}
+                    >
+                      <span className="orders-result-sku orders-result-sku-with-bulk">
+                        <span className="orders-result-sku-num">{item.id}</span>
+                        {searchBulky ? <span className="orders-sales-bulk-badge">BULK</span> : null}
+                      </span>
+                      <span className="orders-result-name">
+                        {isEbaySold ? (
+                          <a
+                            href={`https://www.ebay.co.uk/itm/${item.ebay_id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              color: 'var(--neon-primary-strong)',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            {itemName}
+                          </a>
+                        ) : isVintedSold ? (
+                          <a
+                            href={`https://www.vinted.co.uk/items/${item.vinted_id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              color: 'var(--neon-primary-strong)',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            {itemName}
+                          </a>
+                        ) : (
+                          itemName
+                        )}
+                      </span>
+                      <span className="orders-result-price">
+                        {formatCurrency(item.purchase_price)}
+                      </span>
+                      <button
+                        type="button"
+                        className="orders-add-button"
+                        onClick={() => handleAddItem(item)}
+                        disabled={orderItems.some((orderItem) => orderItem.id === item.id) || ordersLoading}
+                      >
+                        {orderItems.some((orderItem) => orderItem.id === item.id) ? 'Added' : 'Add'}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {searchTerm && searchResults.length === 0 && !loading && (
+              <div className="orders-no-results">
+                No items found matching "{searchTerm}"
+              </div>
+            )}
+          </div>
 
           {soldLoading ? (
             <div className="orders-empty-state">
