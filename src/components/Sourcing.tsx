@@ -11,6 +11,28 @@ const SOURCING_CATEGORY_OPTIONS = [
   { value: 'top', label: 'Top' },
 ];
 
+// Vinted "Men's sizes" filter options (catalog[]=5), read directly from
+// vinted.co.uk's own size filter dropdown — id -> label, in the order Vinted
+// displays them. Used for Top / default category searches; Trousers has its
+// own separate waist-size filter below and isn't affected by this list.
+const VINTED_SIZE_OPTIONS = [
+  { id: '206', label: 'XS' },
+  { id: '207', label: 'S' },
+  { id: '208', label: 'M' },
+  { id: '209', label: 'L' },
+  { id: '210', label: 'XL' },
+  { id: '211', label: 'XXL' },
+  { id: '212', label: 'XXXL' },
+  { id: '308', label: '4XL' },
+  { id: '309', label: '5XL' },
+  { id: '1192', label: '6XL' },
+  { id: '1193', label: '7XL' },
+  { id: '1194', label: '8XL' },
+  { id: '213', label: 'One size' },
+];
+
+const DEFAULT_SIZE_IDS = ['208', '209', '210', '211', '212'];
+
 // Fallback brands list (extracted from Research component's fallback data)
 const fallbackBrands = [
   "AllSaints", "Aligne", "AMI Paris", "A.P.C.", "Aquascutum", "Arket", "Arc'teryx",
@@ -29,7 +51,8 @@ const fallbackBrands = [
 const Sourcing: React.FC = () => {
   const [searchText, setSearchText] = useState('');
   const [category, setCategory] = useState<string>('');
-  const [priceTo, setPriceTo] = useState<string>('8');
+  const [priceTo, setPriceTo] = useState<string>('8.00');
+  const [selectedSizeIds, setSelectedSizeIds] = useState<string[]>(DEFAULT_SIZE_IDS);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [allBrands, setAllBrands] = useState<string[]>([]);
@@ -50,15 +73,17 @@ const Sourcing: React.FC = () => {
     // Base URL parameters
     let vintedUrl = `https://www.vinted.co.uk/catalog?search_text=${encodedSearchText}&order=newest_first&catalog[]=5&status_ids[]=2&status_ids[]=1&status_ids[]=6`;
     
-    // Append size_ids parameters based on selected category
-    if (category === 'top') {
-      vintedUrl += `&size_ids[]=208&size_ids[]=209&size_ids[]=210&size_ids[]=211`;
+    // Append size_ids parameters based on selected category.
+    if (category === 'top' || category === '') {
+      for (const sizeId of selectedSizeIds) {
+        vintedUrl += `&size_ids[]=${encodeURIComponent(sizeId)}`;
+      }
     } else if (category === 'trousers') {
       vintedUrl += `&size_ids[]=1642&size_ids[]=1662&size_ids[]=1643&size_ids[]=1644&size_ids[]=1645`;
     }
     
     // Append price_to parameter
-    const priceValue = priceTo.trim() || '8';
+    const priceValue = priceTo.trim() || '8.00';
     vintedUrl += `&price_to=${encodeURIComponent(priceValue)}&currency=GBP`;
     
     window.open(vintedUrl, '_blank', 'noopener,noreferrer');
@@ -117,6 +142,16 @@ const Sourcing: React.FC = () => {
       filteredBrandsSample: filteredBrands.slice(0, 5)
     });
   }, [allBrands, searchText, filteredBrands, showSuggestions]);
+
+  const handleToggleSize = (sizeId: string) => {
+    setSelectedSizeIds((prev) =>
+      prev.includes(sizeId) ? prev.filter((id) => id !== sizeId) : [...prev, sizeId]
+    );
+  };
+
+  const handleClearSizes = () => {
+    setSelectedSizeIds([]);
+  };
 
   const handleBrandClick = (brand: string) => {
     setSearchText(brand);
@@ -239,15 +274,8 @@ const Sourcing: React.FC = () => {
             ariaLabel="Vinted category filter"
             className="sourcing-category-dropdown"
           />
-          <input
-            type="number"
-            className="sourcing-price-input"
-            placeholder="Max price"
-            value={priceTo}
-            onChange={(e) => setPriceTo(e.target.value)}
-            min="0"
-            step="0.01"
-          />
+        </div>
+        <div className="sourcing-actions-row">
           <button
             type="button"
             className="sourcing-search-button"
@@ -256,6 +284,49 @@ const Sourcing: React.FC = () => {
           >
             Search
           </button>
+          <button
+            type="button"
+            className="sourcing-sizes-clear-button"
+            onClick={handleClearSizes}
+            disabled={selectedSizeIds.length === 0}
+          >
+            Clear
+          </button>
+        </div>
+        <div className="sourcing-price-section">
+          <label htmlFor="sourcing-price-input" className="sourcing-price-label">
+            Max Price (£)
+          </label>
+          <input
+            id="sourcing-price-input"
+            type="number"
+            className="sourcing-price-input"
+            placeholder="8.00"
+            value={priceTo}
+            onChange={(e) => setPriceTo(e.target.value)}
+            min="0"
+            step="0.01"
+          />
+        </div>
+        <div className="sourcing-sizes-section">
+          <div className="sourcing-sizes-header">
+            <div className="sourcing-brands-label">Sizes:</div>
+          </div>
+          <div className="sourcing-sizes-list">
+            {VINTED_SIZE_OPTIONS.map((size) => (
+              <button
+                key={size.id}
+                type="button"
+                className={`sourcing-size-button ${
+                  selectedSizeIds.includes(size.id) ? 'sourcing-size-button--active' : ''
+                }`}
+                onClick={() => handleToggleSize(size.id)}
+                aria-pressed={selectedSizeIds.includes(size.id)}
+              >
+                {size.label}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="sourcing-brands-section">
           <div className="sourcing-brands-label">Quick Search Brands:</div>
