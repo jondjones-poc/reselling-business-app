@@ -580,6 +580,47 @@ function isDefinitiveAuthTokenError(err) {
   );
 }
 
+// Supabase refresh tokens are one-time-use/rotating: if several requests land
+// while the access token is expired (very likely — pages here fire many
+// parallel API calls), each would try to redeem the SAME refresh token
+// independently. Only the first succeeds; the rest get "invalid refresh
+// token" and were wiping the whole session via clearAuthCookies, forcing a
+// real re-login even though one of the concurrent requests had just renewed
+// it. Sharing one in-flight refresh per token (keyed by its value) fixes that.
+const inFlightRefreshByToken = new Map();
+// A rotated-away refresh token's replacement session, kept briefly so a
+// request whose browser-sent cookie was already stale by the time it arrived
+// (sent before the new Set-Cookie reached the browser) reuses that result
+// instead of attempting — and failing — a second redemption of the same token.
+const recentlyRotatedRefreshTokens = new Map();
+const REFRESH_ROTATION_GRACE_MS = 15_000;
+
+function refreshSupabaseSessionOnce(sb, refreshToken) {
+  const recent = recentlyRotatedRefreshTokens.get(refreshToken);
+  if (recent && recent.expiresAtMs > Date.now()) {
+    return Promise.resolve({ data: { session: recent.session }, error: null });
+  }
+  const existing = inFlightRefreshByToken.get(refreshToken);
+  if (existing) return existing;
+  const promise = sb.auth
+    .refreshSession({ refresh_token: refreshToken })
+    .then((result) => {
+      if (result.data?.session) {
+        recentlyRotatedRefreshTokens.set(refreshToken, {
+          session: result.data.session,
+          expiresAtMs: Date.now() + REFRESH_ROTATION_GRACE_MS,
+        });
+        setTimeout(() => recentlyRotatedRefreshTokens.delete(refreshToken), REFRESH_ROTATION_GRACE_MS).unref();
+      }
+      return result;
+    })
+    .finally(() => {
+      inFlightRefreshByToken.delete(refreshToken);
+    });
+  inFlightRefreshByToken.set(refreshToken, promise);
+  return promise;
+}
+
 async function resolveAuthUserFromRequest(req, res) {
   const sb = getSupabaseAdmin();
   if (!sb) return { kind: 'none' };
@@ -611,7 +652,7 @@ async function resolveAuthUserFromRequest(req, res) {
 
   if (refreshToken) {
     try {
-      const { data, error } = await sb.auth.refreshSession({ refresh_token: refreshToken });
+      const { data, error } = await refreshSupabaseSessionOnce(sb, refreshToken);
       if (!error && data.session?.user) {
         setAuthCookies(res, data.session);
         return { kind: 'ok', user: data.session.user, session: data.session };
