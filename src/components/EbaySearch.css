@@ -1062,6 +1062,123 @@
   border: 1px solid var(--neon-border);
 }
 
+.potential-profit-bottom-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  width: 100%;
+  align-items: stretch;
+}
+
+.potential-profit-bottom-col {
+  flex: 1 1 calc(50% - 9px);
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.potential-profit-str-pair {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.potential-profit-str-pair > * {
+  flex: 1 1 50%;
+  min-width: 0;
+  margin-top: 0;
+}
+
+.potential-profit-str-pair > *:only-child {
+  flex-basis: 100%;
+}
+
+.potential-profit-buy-verdict {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 14px 10px;
+  border-radius: 14px;
+  border: 1px solid var(--neon-border);
+  background: var(--theme-fill);
+  text-align: center;
+}
+
+.potential-profit-buy-verdict-label {
+  font-size: 1.3rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.potential-profit-buy-verdict-amount {
+  font-size: 0.85rem;
+  opacity: 0.85;
+}
+
+.potential-profit-buy-verdict--buy {
+  border-color: #00ff88;
+  background: rgba(0, 255, 136, 0.12);
+}
+
+.potential-profit-buy-verdict--buy .potential-profit-buy-verdict-label {
+  color: #00ff88;
+}
+
+.potential-profit-buy-verdict--skip {
+  border-color: #ff7878;
+  background: rgba(255, 120, 120, 0.12);
+}
+
+.potential-profit-buy-verdict--skip .potential-profit-buy-verdict-label {
+  color: #ff7878;
+}
+
+
+.ebay-fee-summary {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ebay-fee-summary-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.95rem;
+  color: var(--theme-text);
+}
+
+.ebay-fee-summary-line--sub {
+  font-size: 0.85rem;
+  color: var(--theme-text-muted, rgba(var(--theme-text-rgb), 0.7));
+}
+
+.ebay-fee-summary-divider {
+  height: 1px;
+  margin: 6px 0;
+  background: var(--neon-border);
+}
+
+.ebay-fee-summary-line--total {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.ebay-fee-summary-line--total.ebay-fee-summary--positive strong {
+  color: #00ff88;
+}
+
+.ebay-fee-summary-line--total.ebay-fee-summary--negative strong {
+  color: #ff7878;
+}
+
 .potential-profit-stock-sold-prices {
   width: 100%;
   max-width: 920px;

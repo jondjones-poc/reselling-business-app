@@ -1,32 +1,23 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import BarcodeScanner from 'react-qr-barcode-scanner';
 import { augmentEbaySearchQuery } from '../utils/augmentEbaySearchQuery';
 import { buildEbayUkSearchUrl } from '../utils/ebayUkSearchUrl';
 import { getApiBase } from '../utils/apiBase';
 import { pingDatabase } from '../utils/dbPing';
 import ScoutItemIdentify from './ScoutItemIdentify';
+import {
+  calculateEbayFees,
+  calculateProfit,
+  type EbaySellerLevel,
+  type EbaySellerType,
+} from '../utils/ebayFeeCalculator';
 import './EbaySearch.css';
 
 interface AppSettings {
-  categories: string[];
   material: string[];
-  colors: string[];
   patterns: string[];
   brands: string[];
   gender: string[];
-}
-
-interface ResearchResult {
-  query: string;
-  activeCount: number;
-  soldCount: number;
-  sellThroughRatio: number | null;
-  diagnostics?: {
-    browseTotal: number | null;
-    completedTotalEntries: number | null;
-    completedError?: string | null;
-  };
 }
 
 const API_BASE = getApiBase();
@@ -35,83 +26,43 @@ const EbaySearch: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showScanner, setShowScanner] = useState(false);
   const [scannedData, setScannedData] = useState<string | null>(null);
-  const [categories, setCategories] = useState<string[]>([]);
   const [materials, setMaterials] = useState<string[]>([]);
-  const [colors, setColors] = useState<string[]>([]);
   const [patterns, setPatterns] = useState<string[]>([]);
   const [brands, setBrands] = useState<string[]>([]);
-  /** Resolved from GET /api/brands — sold-price stats + Research links. */
-  const [dbBrandRows, setDbBrandRows] = useState<{ id: number; brand_name: string }[]>([]);
-  const [dbCategoryRows, setDbCategoryRows] = useState<{ id: number; category_name: string }[]>([]);
   const [settingsLoading, setSettingsLoading] = useState(true);
   const [settingsError, setSettingsError] = useState<string | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState('');
-  const [selectedMaterial, setSelectedMaterial] = useState('');
-  const [selectedColor, setSelectedColor] = useState('');
-  const [selectedPattern, setSelectedPattern] = useState('');
   const [selectedBrand, setSelectedBrand] = useState('');
   /** Homepage eBay: when on, append `mens` to the query (server + site search). Default on. */
   const [includeMens, setIncludeMens] = useState(true);
   const [itemsSold, setItemsSold] = useState('');
   const [activeListings, setActiveListings] = useState('');
-  const [ebayResearchLoading, setEbayResearchLoading] = useState(false);
-  const [ebayResearchError, setEbayResearchError] = useState<string | null>(null);
-  const [ebayResearchResult, setEbayResearchResult] = useState<ResearchResult | null>(null);
 
-  const [soldPriceStats, setSoldPriceStats] = useState<{
-    soldCount: number;
-    unsoldCount: number;
-    avgPrice: number | null;
-    minPrice: number | null;
-    maxPrice: number | null;
-  } | null>(null);
-  const [soldPriceStatsLoading, setSoldPriceStatsLoading] = useState(false);
-  const [soldPriceStatsError, setSoldPriceStatsError] = useState<string | null>(null);
-
-  // Potential Profit Calculator state
+  // eBay fee calculator state
   const [itemPrice, setItemPrice] = useState('');
-  const [salePrice, setSalePrice] = useState('');
-  const [listingFees, setListingFees] = useState('0.10');
-  const [promotedFees, setPromotedFees] = useState('10');
+  const [soldPrice, setSoldPrice] = useState('');
+  const [sellerType, setSellerType] = useState<EbaySellerType>('business');
+  const [sellerLevel, setSellerLevel] = useState<EbaySellerLevel>('top_rated');
+  const [promotedFees, setPromotedFees] = useState('0');
+  const [vatPercent, setVatPercent] = useState('20');
 
-  const hasSearchableInput = [
-    searchTerm,
-    selectedCategory,
-    selectedMaterial,
-    selectedColor,
-    selectedPattern,
-    selectedBrand,
-    scannedData ?? ''
-  ].some((value) => value.trim().length > 0);
+  /** Combined, deduplicated options for the patterns/materials tag picker. */
+  const materialsAndPatterns = useMemo(() => {
+    const combined = Array.from(new Set([...patterns, ...materials]));
+    return combined.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  }, [patterns, materials]);
+
+  const hasSearchableInput = [searchTerm, selectedBrand, scannedData ?? ''].some(
+    (value) => value.trim().length > 0
+  );
 
   const buildSearchTokens = () => {
     const tokens: string[] = [];
 
     const trimmedSearch = searchTerm.trim();
-    const trimmedCategory = selectedCategory.trim();
-    const trimmedMaterial = selectedMaterial.trim();
-    const trimmedColor = selectedColor.trim();
-    const trimmedPattern = selectedPattern.trim();
     const trimmedBrand = selectedBrand.trim();
 
     if (trimmedSearch) {
       tokens.push(trimmedSearch);
-    }
-
-    if (trimmedCategory) {
-      tokens.push(trimmedCategory);
-    }
-
-    if (trimmedMaterial) {
-      tokens.push(trimmedMaterial);
-    }
-
-    if (trimmedColor) {
-      tokens.push(trimmedColor);
-    }
-
-    if (trimmedPattern) {
-      tokens.push(trimmedPattern);
     }
 
     if (trimmedBrand) {
@@ -149,13 +100,19 @@ const EbaySearch: React.FC = () => {
     setItemsSold('');
     setActiveListings('');
     setSearchTerm('');
-    setSelectedCategory('');
-    setSelectedMaterial('');
-    setSelectedColor('');
-    setSelectedPattern('');
     setSelectedBrand('');
     setScannedData(null);
     setShowScanner(false);
+  };
+
+  /** Patterns/materials tag picker: each pick appends to the search text instead of replacing it. */
+  const handleAppendTag = (value: string) => {
+    const trimmedValue = value.trim();
+    if (!trimmedValue) return;
+    setSearchTerm((prev) => {
+      const trimmedPrev = prev.trim();
+      return trimmedPrev ? `${trimmedPrev} ${trimmedValue}` : trimmedValue;
+    });
   };
 
   const handleCopyToClipboard = async () => {
@@ -194,76 +151,28 @@ const EbaySearch: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const sanitizeCategories = (rawCategories: unknown): string[] => {
-      if (!Array.isArray(rawCategories)) {
-        return [];
-      }
-
-      const sanitized = rawCategories
-        .filter((item): item is string => typeof item === 'string')
-        .map((item) => item.trim())
-        .filter((item) => item.length > 0);
-
-      return Array.from(new Set(sanitized)).sort((a, b) =>
-        a.localeCompare(b, undefined, { sensitivity: 'base' })
-      );
-    };
-
-    const loadCategoriesFromDatabase = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/categories`);
-        if (!res.ok) {
-          return;
-        }
-        const data = (await res.json()) as { rows?: Record<string, unknown>[] };
-        const raw = Array.isArray(data.rows) ? data.rows : [];
-        const mapped: { id: number; category_name: string }[] = [];
-        for (const row of raw) {
-          const idNum =
-            typeof row.id === 'number' && Number.isFinite(row.id)
-              ? Math.trunc(row.id)
-              : parseInt(String(row.id ?? '').trim(), 10);
-          const nm = String(row.category_name ?? '').trim();
-          if (!Number.isFinite(idNum) || idNum < 1 || !nm) continue;
-          mapped.push({ id: idNum, category_name: nm });
-        }
-        mapped.sort((a, b) =>
-          a.category_name.localeCompare(b.category_name, undefined, { sensitivity: 'base' })
-        );
-        if (mapped.length > 0) {
-          setDbCategoryRows(mapped);
-          setCategories(mapped.map((m) => m.category_name));
-        }
-      } catch {
-        /* keep categories from settings / fallback */
-      }
-    };
-
     const loadBrandsFromDatabase = async () => {
       try {
         const brRes = await fetch(`${API_BASE}/api/brands`);
         if (!brRes.ok) return;
         const data = (await brRes.json()) as { rows?: unknown[] };
         const raw = Array.isArray(data?.rows) ? data.rows : [];
-        const mapped: { id: number; brand_name: string }[] = [];
+        const seen = new Set<string>();
+        const names: string[] = [];
         for (const row of raw) {
           if (!row || typeof row !== 'object') continue;
           const r = row as Record<string, unknown>;
-          const idNum =
-            typeof r.id === 'number' && Number.isFinite(r.id)
-              ? Math.trunc(r.id)
-              : parseInt(String(r.id ?? '').trim(), 10);
           const nameRaw = r.brand_name ?? r.name;
           const brand_name = (typeof nameRaw === 'string' ? nameRaw : String(nameRaw ?? '')).trim();
-          if (!Number.isFinite(idNum) || idNum < 1 || !brand_name) continue;
-          mapped.push({ id: idNum, brand_name });
+          if (!brand_name) continue;
+          const key = brand_name.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          names.push(brand_name);
         }
-        mapped.sort((a, b) =>
-          a.brand_name.localeCompare(b.brand_name, undefined, { sensitivity: 'base' })
-        );
-        if (mapped.length > 0) {
-          setDbBrandRows(mapped);
-          setBrands(mapped.map((m) => m.brand_name));
+        names.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+        if (names.length > 0) {
+          setBrands(names);
         }
       } catch {
         /* keep brands from settings / fallback */
@@ -276,33 +185,27 @@ const EbaySearch: React.FC = () => {
           return false;
         }
 
-        const sanitizedCategories = sanitizeCategories(data.categories);
         const sortedMaterials = [...(data.material ?? [])].sort((a, b) =>
-          a.localeCompare(b, undefined, { sensitivity: 'base' })
-        );
-        const sortedColors = [...(data.colors ?? [])].sort((a, b) =>
           a.localeCompare(b, undefined, { sensitivity: 'base' })
         );
         const sortedPatterns = [...(data.patterns ?? [])].sort((a, b) =>
           a.localeCompare(b, undefined, { sensitivity: 'base' })
         );
-        const sortedBrands = [...(data.brands ?? [])].sort((a, b) =>
-          a.localeCompare(b, undefined, { sensitivity: 'base' })
-        );
+        const seenBrands = new Set<string>();
+        const sortedBrands = (data.brands ?? [])
+          .filter((brand) => {
+            const key = brand.trim().toLowerCase();
+            if (!key || seenBrands.has(key)) return false;
+            seenBrands.add(key);
+            return true;
+          })
+          .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
 
-        setCategories(sanitizedCategories);
         setMaterials(sortedMaterials);
-        setColors(sortedColors);
         setPatterns(sortedPatterns);
         setBrands(sortedBrands);
 
-        return (
-          sanitizedCategories.length > 0 ||
-          sortedColors.length > 0 ||
-          sortedMaterials.length > 0 ||
-          sortedBrands.length > 0 ||
-          sortedPatterns.length > 0
-        );
+        return sortedMaterials.length > 0 || sortedBrands.length > 0 || sortedPatterns.length > 0;
       };
 
       try {
@@ -322,7 +225,7 @@ const EbaySearch: React.FC = () => {
           if (apiResponse.ok) {
             const apiData: AppSettings = await apiResponse.json();
             const applied = applySettings(apiData);
-            if (applied && apiData.colors?.length) {
+            if (applied && apiData.material?.length) {
               apiSuccess = true;
             }
           }
@@ -351,29 +254,12 @@ const EbaySearch: React.FC = () => {
         setSettingsError('Unable to load configuration settings.');
       } finally {
         setSettingsLoading(false);
-        await loadCategoriesFromDatabase();
         await loadBrandsFromDatabase();
       }
     };
 
     fetchSettings();
   }, []);
-
-  const handleCategorySelect = (value: string) => {
-    setSelectedCategory(value);
-  };
-
-  const handleMaterialSelect = (value: string) => {
-    setSelectedMaterial(value);
-  };
-
-  const handleColorSelect = (value: string) => {
-    setSelectedColor(value);
-  };
-
-  const handlePatternSelect = (value: string) => {
-    setSelectedPattern(value);
-  };
 
   const handleBrandSelect = (value: string) => {
     setSelectedBrand(value);
@@ -389,69 +275,6 @@ const EbaySearch: React.FC = () => {
     if (totalInventory <= 0) return null;
     return (sold / totalInventory) * 100;
   }, [itemsSold, activeListings]);
-
-  const resolvedHomeBrandCategoryIds = useMemo(() => {
-    const b = selectedBrand.trim();
-    const c = selectedCategory.trim();
-    if (!b || !c) return null;
-    const br = dbBrandRows.find((row) => row.brand_name === b);
-    const cat = dbCategoryRows.find((row) => row.category_name === c);
-    if (!br || !cat) return null;
-    return { brandId: br.id, categoryId: cat.id };
-  }, [selectedBrand, selectedCategory, dbBrandRows, dbCategoryRows]);
-
-  useEffect(() => {
-    if (!resolvedHomeBrandCategoryIds) {
-      setSoldPriceStats(null);
-      setSoldPriceStatsError(null);
-      setSoldPriceStatsLoading(false);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      setSoldPriceStatsLoading(true);
-      setSoldPriceStatsError(null);
-      try {
-        const q = new URLSearchParams({
-          brandId: String(resolvedHomeBrandCategoryIds.brandId),
-          categoryId: String(resolvedHomeBrandCategoryIds.categoryId),
-        });
-        const res = await fetch(`${API_BASE}/api/stock/sold-price-stats?${q.toString()}`);
-        const text = await res.text();
-        if (!res.ok) {
-          throw new Error(text.slice(0, 200) || res.statusText);
-        }
-        const data = JSON.parse(text) as {
-          soldCount?: number;
-          unsoldCount?: number;
-          avgPrice?: number | null;
-          minPrice?: number | null;
-          maxPrice?: number | null;
-        };
-        if (cancelled) return;
-        setSoldPriceStats({
-          soldCount: Number(data.soldCount ?? 0),
-          unsoldCount: Number(data.unsoldCount ?? 0),
-          avgPrice: data.avgPrice ?? null,
-          minPrice: data.minPrice ?? null,
-          maxPrice: data.maxPrice ?? null,
-        });
-      } catch (e) {
-        if (!cancelled) {
-          setSoldPriceStats(null);
-          setSoldPriceStatsError(e instanceof Error ? e.message : 'Unable to load sold price stats');
-        }
-      } finally {
-        if (!cancelled) setSoldPriceStatsLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [resolvedHomeBrandCategoryIds]);
-
-  const formatSoldStatGbp = (value: number | null) =>
-    value != null && Number.isFinite(value) ? `£${value.toFixed(2)}` : '—';
 
   const getSTRColor = (rate: number | null): string => {
     if (rate === null) return '';
@@ -477,54 +300,6 @@ const EbaySearch: React.FC = () => {
     } else if (err) {
       console.error('Barcode scan error:', err);
     }
-  };
-
-  const handleEbayResearchSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // Use the main search form tokens
-    const queryToUse = buildSearchTokens().join(' ');
-    if (!queryToUse) {
-      setEbayResearchError('Please enter a search term in the main search form');
-      return;
-    }
-
-    setEbayResearchLoading(true);
-    setEbayResearchError(null);
-    setEbayResearchResult(null);
-
-    try {
-      const params = new URLSearchParams({
-        q: queryToUse,
-        phraseWrap: '0',
-        appendMens: includeMens ? '1' : '0',
-      });
-      const response = await fetch(`${API_BASE}/api/ebay/research?${params.toString()}`);
-
-      if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || 'Failed to fetch research data.');
-      }
-
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const message = await response.text();
-        throw new Error(message || 'Unexpected response format from server.');
-      }
-
-      const data: ResearchResult = await response.json();
-      setEbayResearchResult(data);
-    } catch (err: any) {
-      console.error('Research fetch error:', err);
-      setEbayResearchError(err.message || 'Unable to load research data. Please try again later.');
-    } finally {
-      setEbayResearchLoading(false);
-    }
-  };
-
-  const handleClearEbayResearch = () => {
-    setEbayResearchResult(null);
-    setEbayResearchError(null);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -679,7 +454,7 @@ const EbaySearch: React.FC = () => {
         )}
 
         <div className="category-section">
-          {/* Row 1: Apply Mens Filter, Brands, Categories */}
+          {/* Row 1: Apply Mens Filter, Brands */}
           <div className="category-filter-row">
             <div className="category-control category-control--toggle">
               <button
@@ -719,70 +494,17 @@ const EbaySearch: React.FC = () => {
 
             <div className="category-control">
               <select
-                id="category-select"
-                value={selectedCategory}
-                onChange={(e) => handleCategorySelect(e.target.value)}
+                id="pattern-material-select"
+                value=""
+                onChange={(e) => handleAppendTag(e.target.value)}
                 className="dropdown-select"
-                disabled={settingsLoading || categories.length === 0}
+                disabled={materialsAndPatterns.length === 0}
+                title="Pick as many as you like — each one is added to the search text"
               >
-                <option value="">Categories</option>
-                {categories.map((category) => (
-                  <option key={category} value={category}>
-                    {category}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Row 2: Patterns, Colors, Materials */}
-          <div className="category-filter-row">
-            <div className="category-control">
-              <select
-                id="pattern-select"
-                value={selectedPattern}
-                onChange={(e) => handlePatternSelect(e.target.value)}
-                className="dropdown-select"
-                disabled={patterns.length === 0}
-              >
-                <option value="">Patterns</option>
-                {patterns.map((patternName) => (
-                  <option key={patternName} value={patternName}>
-                    {patternName}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="category-control">
-              <select
-                id="color-select"
-                value={selectedColor}
-                onChange={(e) => handleColorSelect(e.target.value)}
-                className="dropdown-select"
-                disabled={colors.length === 0}
-              >
-                <option value="">Colors</option>
-                {colors.map((colorName) => (
-                  <option key={colorName} value={colorName}>
-                    {colorName}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="category-control">
-              <select
-                id="material-select"
-                value={selectedMaterial}
-                onChange={(e) => handleMaterialSelect(e.target.value)}
-                className="dropdown-select"
-                disabled={materials.length === 0}
-              >
-                <option value="">Materials</option>
-                {materials.map((materialName) => (
-                  <option key={materialName} value={materialName}>
-                    {materialName}
+                <option value="">Keywords</option>
+                {materialsAndPatterns.map((tag) => (
+                  <option key={tag} value={tag}>
+                    {tag}
                   </option>
                 ))}
               </select>
@@ -831,6 +553,7 @@ const EbaySearch: React.FC = () => {
               />
             </div>
           </div>
+
           <div className="potential-profit-inputs">
             <div className="potential-profit-input-group">
               <label htmlFor="item-price" className="potential-profit-label">Item Price</label>
@@ -846,26 +569,13 @@ const EbaySearch: React.FC = () => {
               />
             </div>
             <div className="potential-profit-input-group">
-              <label htmlFor="sale-price" className="potential-profit-label">Sale Price</label>
+              <label htmlFor="sold-price" className="potential-profit-label">Sold Price</label>
               <input
-                id="sale-price"
+                id="sold-price"
                 type="number"
-                value={salePrice}
-                onChange={(e) => setSalePrice(e.target.value)}
+                value={soldPrice}
+                onChange={(e) => setSoldPrice(e.target.value)}
                 placeholder="0.00"
-                className="potential-profit-input"
-                step="0.01"
-                min="0"
-              />
-            </div>
-            <div className="potential-profit-input-group">
-              <label htmlFor="listing-fees" className="potential-profit-label">Listing Fees</label>
-              <input
-                id="listing-fees"
-                type="number"
-                value={listingFees}
-                onChange={(e) => setListingFees(e.target.value)}
-                placeholder="0.10"
                 className="potential-profit-input"
                 step="0.01"
                 min="0"
@@ -878,7 +588,21 @@ const EbaySearch: React.FC = () => {
                 type="number"
                 value={promotedFees}
                 onChange={(e) => setPromotedFees(e.target.value)}
-                placeholder="10"
+                placeholder="0"
+                className="potential-profit-input"
+                step="0.1"
+                min="0"
+                max="100"
+              />
+            </div>
+            <div className="potential-profit-input-group">
+              <label htmlFor="vat-percent" className="potential-profit-label">VAT (%)</label>
+              <input
+                id="vat-percent"
+                type="number"
+                value={vatPercent}
+                onChange={(e) => setVatPercent(e.target.value)}
+                placeholder="20"
                 className="potential-profit-input"
                 step="0.1"
                 min="0"
@@ -887,227 +611,146 @@ const EbaySearch: React.FC = () => {
             </div>
           </div>
 
-          <div className="potential-profit-results">
-            {(() => {
-              const hasBothPrices =
-                itemPrice &&
-                salePrice &&
-                itemPrice.trim() !== '' &&
-                salePrice.trim() !== '';
-              const item = parseFloat(itemPrice) || 0;
-              const sale = parseFloat(salePrice) || 0;
-              const listing = parseFloat(listingFees) || 0;
-              const promotedPercent = parseFloat(promotedFees) || 0;
-              const promotedFee = hasBothPrices ? (sale * promotedPercent) / 100 : 0;
-
-              const fmtProfit = (profit: number) =>
-                profit >= 0 ? `£${profit.toFixed(2)}` : `-£${Math.abs(profit).toFixed(2)}`;
-
-              const profitMult = (profit: number) =>
-                item > 0 ? `${(profit / item).toFixed(2)}x` : '—';
-
-              let vintedProfit = 0;
-              let profitWithoutPromo = 0;
-              let profitWithPromo = 0;
-              if (hasBothPrices) {
-                vintedProfit = sale - item;
-                profitWithoutPromo = sale - (item + listing);
-                profitWithPromo = sale - (item + listing + promotedFee);
-              }
-
-              const vintedDisplay = hasBothPrices ? fmtProfit(vintedProfit) : '£0.00';
-              const ebayMainDisplay = hasBothPrices ? fmtProfit(profitWithoutPromo) : '£0.00';
-              const withPromoDisplay = hasBothPrices ? fmtProfit(profitWithPromo) : '£0.00';
-
-              const isVintedBuy = hasBothPrices && item > 0 && vintedProfit >= item * 2;
-              const isEbayBuyWithoutPromo =
-                hasBothPrices && item > 0 && profitWithoutPromo >= item * 2;
-
-              /** Same bands as STR UI: “skip” below 30; medium = risky+ */
-              const CTR_MEDIUM_OR_GOOD_MIN = 30;
-              const isClickthroughMediumOrGood =
-                manualSellThroughPercent !== null &&
-                manualSellThroughPercent >= CTR_MEDIUM_OR_GOOD_MIN;
-              const isOverallBuy =
-                hasBothPrices && isClickthroughMediumOrGood && isEbayBuyWithoutPromo;
-
-              return (
-                <div className="potential-profit-align-grid potential-profit-align-grid--four">
-                  <div className="potential-profit-platform-label">Click-through</div>
-                  <div className="potential-profit-platform-label">Vinted</div>
-                  <div className="potential-profit-platform-label">eBay</div>
-                  <div className="potential-profit-platform-label">Overall</div>
-
-                  <div className="potential-profit-cell-body potential-profit-cell-body--str">
-                    {manualSellThroughPercent !== null ? (
-                      <div
-                        className={`potential-profit-str-embed str-result ${getSTRColor(manualSellThroughPercent)}`}
-                      >
-                        <div className="str-rate-value">{manualSellThroughPercent.toFixed(1)}%</div>
-                        <div className="str-rate-label">{getSTRLabel(manualSellThroughPercent)}</div>
-                        <div className="str-rate-formula">
-                          ({itemsSold} / ({itemsSold} + {activeListings})) × 100 ={' '}
-                          {manualSellThroughPercent.toFixed(1)}%
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="potential-profit-str-embed potential-profit-str-embed--empty">
-                        <div className="potential-profit-str-placeholder-pct">—</div>
-                        <div className="potential-profit-str-placeholder-hint">
-                          Sold rate + active listings
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="potential-profit-cell-body">
-                    <div
-                      className={`potential-profit-platform-value potential-profit-value-row${
-                        !hasBothPrices
-                          ? ''
-                          : isVintedBuy
-                            ? ' potential-profit-value--buy'
-                            : ' potential-profit-value--pass'
-                      }`}
-                    >
-                      {vintedDisplay}
-                      <span className="potential-profit-mult">
-                        {' '}
-                        / {hasBothPrices ? profitMult(vintedProfit) : item > 0 ? '0.00x' : '—'}
-                      </span>
-                    </div>
-                    {hasBothPrices && (
-                      <div
-                        className={`potential-profit-tag ${isVintedBuy ? 'potential-profit-buy' : 'potential-profit-avoid'}`}
-                      >
-                        {isVintedBuy ? 'Buy' : 'Avoid'}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="potential-profit-cell-body potential-profit-cell-body--ebay">
-                    <div
-                      className={`potential-profit-platform-value potential-profit-value-row${
-                        !hasBothPrices
-                          ? ''
-                          : isEbayBuyWithoutPromo
-                            ? ' potential-profit-value--buy'
-                            : ' potential-profit-value--pass'
-                      }`}
-                    >
-                      {ebayMainDisplay}
-                      <span className="potential-profit-mult">
-                        {' '}
-                        / {hasBothPrices ? profitMult(profitWithoutPromo) : item > 0 ? '0.00x' : '—'}
-                      </span>
-                    </div>
-                    {hasBothPrices && (
-                      <div
-                        className={`potential-profit-tag ${isEbayBuyWithoutPromo ? 'potential-profit-buy' : 'potential-profit-avoid'}`}
-                      >
-                        {isEbayBuyWithoutPromo ? 'Buy' : 'Avoid'}
-                      </div>
-                    )}
-                    <div className="potential-profit-ebay-sub">
-                      <div className="potential-profit-with-promo-line">
-                        (with promo: {withPromoDisplay})
-                      </div>
-                      <div className="potential-profit-promo-fee">
-                        (promotion fee: £{hasBothPrices ? promotedFee.toFixed(2) : '0.00'})
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="potential-profit-cell-body potential-profit-cell-body--decision">
-                    {!hasBothPrices ? (
-                      <div className="potential-profit-decision-box potential-profit-decision-box--empty">
-                        <div className="potential-profit-decision-placeholder">—</div>
-                        <div className="potential-profit-decision-hint">Prices + CTR</div>
-                      </div>
-                    ) : (
-                      <div
-                        className={`potential-profit-decision-box ${
-                          isOverallBuy
-                            ? 'potential-profit-decision-box--buy'
-                            : 'potential-profit-decision-box--avoid'
-                        }`}
-                      >
-                        <div
-                          className={`potential-profit-tag potential-profit-decision-tag ${
-                            isOverallBuy ? 'potential-profit-buy' : 'potential-profit-avoid'
-                          }`}
-                        >
-                          {isOverallBuy ? 'Buy' : 'Avoid'}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })()}
-
-            {selectedBrand.trim() && selectedCategory.trim() && (
-              <div className="potential-profit-stock-sold-prices" aria-live="polite">
-                <div className="potential-profit-stock-sold-prices-heading">
-                  {selectedBrand.trim()} {selectedCategory.trim()} Prices
-                </div>
-                {!resolvedHomeBrandCategoryIds ? (
-                  <p className="potential-profit-stock-sold-prices-hint">
-                    Match brand and category to the lists loaded from the database (reload if dropdowns
-                    don&apos;t align).
-                  </p>
-                ) : soldPriceStatsLoading ? (
-                  <p className="potential-profit-stock-sold-prices-hint">Loading sold prices…</p>
-                ) : soldPriceStatsError ? (
-                  <p className="potential-profit-stock-sold-prices-err">{soldPriceStatsError}</p>
-                ) : soldPriceStats ? (
-                  <>
-                    <div className="potential-profit-stock-sold-prices-grid">
-                      <div className="potential-profit-stock-sold-prices-item">
-                        <span className="potential-profit-stock-sold-prices-label">Avg sold</span>
-                        <span className="potential-profit-stock-sold-prices-value">
-                          {formatSoldStatGbp(soldPriceStats.avgPrice)}
-                        </span>
-                      </div>
-                      <div className="potential-profit-stock-sold-prices-item">
-                        <span className="potential-profit-stock-sold-prices-label">Lowest sold</span>
-                        <span className="potential-profit-stock-sold-prices-value">
-                          {formatSoldStatGbp(soldPriceStats.minPrice)}
-                        </span>
-                      </div>
-                      <div className="potential-profit-stock-sold-prices-item">
-                        <span className="potential-profit-stock-sold-prices-label">Highest sold</span>
-                        <span className="potential-profit-stock-sold-prices-value">
-                          {formatSoldStatGbp(soldPriceStats.maxPrice)}
-                        </span>
-                      </div>
-                      <div className="potential-profit-stock-sold-prices-count">
-                        {soldPriceStats.soldCount.toLocaleString()} items sold ·{' '}
-                        {soldPriceStats.unsoldCount.toLocaleString()} items in stock
-                      </div>
-                    </div>
-                    <div className="potential-profit-stock-sold-prices-links">
-                      <Link
-                        className="potential-profit-stock-sold-prices-link"
-                        to={`/analytics?brand=${encodeURIComponent(String(resolvedHomeBrandCategoryIds.brandId))}`}
-                      >
-                        Research
-                      </Link>
-                      <span className="potential-profit-stock-sold-prices-link-sep" aria-hidden>
-                        ·
-                      </span>
-                      <Link
-                        className="potential-profit-stock-sold-prices-link"
-                        to={`/analytics?tab=menswear-categories&menswearCategoryId=${resolvedHomeBrandCategoryIds.categoryId}&menswearBrandId=${resolvedHomeBrandCategoryIds.brandId}`}
-                      >
-                        Inventory
-                      </Link>
-                    </div>
-                  </>
-                ) : null}
-              </div>
-            )}
+          <div className="potential-profit-inputs">
+            <div className="potential-profit-input-group">
+              <label htmlFor="seller-type" className="potential-profit-label">Seller Type</label>
+              <select
+                id="seller-type"
+                value={sellerType}
+                onChange={(e) => setSellerType(e.target.value as EbaySellerType)}
+                className="dropdown-select"
+              >
+                <option value="business">Business</option>
+                <option value="private">Private</option>
+              </select>
+            </div>
+            <div className="potential-profit-input-group">
+              <label htmlFor="seller-level" className="potential-profit-label">Seller Level</label>
+              <select
+                id="seller-level"
+                value={sellerLevel}
+                onChange={(e) => setSellerLevel(e.target.value as EbaySellerLevel)}
+                className="dropdown-select"
+              >
+                <option value="top_rated">Top Rated</option>
+                <option value="above_standard">Above Standard</option>
+                <option value="below_standard">Below Standard</option>
+              </select>
+            </div>
           </div>
+
+          {(() => {
+            const soldPriceNum = parseFloat(soldPrice) || 0;
+            const itemPriceNum = parseFloat(itemPrice) || 0;
+            const promotedFeesNum = parseFloat(promotedFees) || 0;
+            const vatPercentNum = parseFloat(vatPercent) || 0;
+            const hasSoldPrice = soldPrice.trim() !== '' && soldPriceNum > 0;
+
+            const fees = calculateEbayFees({
+              soldPrice: soldPriceNum,
+              sellerType,
+              sellerLevel,
+              promotedFeesPercent: promotedFeesNum,
+              vatPercent: vatPercentNum,
+            });
+            const { totalProfit, profitMarginPercent } = calculateProfit(
+              soldPriceNum,
+              itemPriceNum,
+              fees.totalEbayFee
+            );
+
+            const fmtGbp = (value: number) =>
+              value >= 0 ? `£${value.toFixed(2)}` : `-£${Math.abs(value).toFixed(2)}`;
+
+            const isGoodBuy = hasSoldPrice && totalProfit > 10;
+            const hasCalculatedProfit = hasSoldPrice;
+            const showBuyVerdict = hasSoldPrice;
+            const showStrBox = manualSellThroughPercent !== null;
+
+            return (
+              <div className="potential-profit-bottom-row">
+                <div
+                  className="potential-profit-bottom-col potential-profit-str-pair"
+                  style={{ order: hasCalculatedProfit ? 2 : 1 }}
+                >
+                  {showBuyVerdict && (
+                    <div
+                      className={`potential-profit-buy-verdict ${
+                        isGoodBuy ? 'potential-profit-buy-verdict--buy' : 'potential-profit-buy-verdict--skip'
+                      }`}
+                    >
+                      <div className="potential-profit-buy-verdict-label">{isGoodBuy ? 'Buy' : 'Skip'}</div>
+                      <div className="potential-profit-buy-verdict-amount">{fmtGbp(totalProfit)} profit</div>
+                    </div>
+                  )}
+
+                  {showStrBox && (
+                    <div className={`str-result ${getSTRColor(manualSellThroughPercent as number)}`}>
+                      <div className="str-rate-value">{(manualSellThroughPercent as number).toFixed(1)}%</div>
+                      <div className="str-rate-label">{getSTRLabel(manualSellThroughPercent as number)}</div>
+                      <div className="str-rate-formula">
+                        ({itemsSold} / ({itemsSold} + {activeListings})) × 100 ={' '}
+                        {(manualSellThroughPercent as number).toFixed(1)}%
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div
+                  className="potential-profit-bottom-col potential-profit-results"
+                  style={{ order: hasCalculatedProfit ? 1 : 2 }}
+                >
+                  <div className="ebay-fee-summary" aria-live="polite">
+                    <div className="ebay-fee-summary-line">
+                      <span>eBay Fee</span>
+                      <strong>{hasSoldPrice ? fmtGbp(fees.totalEbayFee) : '£0.00'}</strong>
+                    </div>
+                    <div className="ebay-fee-summary-line ebay-fee-summary-line--sub">
+                      <span>Final Fee</span>
+                      <span>{hasSoldPrice ? fmtGbp(fees.finalFee) : '£0.00'}</span>
+                    </div>
+                    <div className="ebay-fee-summary-line ebay-fee-summary-line--sub">
+                      <span>Transaction fee</span>
+                      <span>{hasSoldPrice ? fmtGbp(fees.transactionFee) : '£0.00'}</span>
+                    </div>
+                    <div className="ebay-fee-summary-line ebay-fee-summary-line--sub">
+                      <span>Regulatory Operating fee</span>
+                      <span>{hasSoldPrice ? fmtGbp(fees.regulatoryFee) : '£0.00'}</span>
+                    </div>
+                    {promotedFeesNum > 0 && (
+                      <div className="ebay-fee-summary-line ebay-fee-summary-line--sub">
+                        <span>Promoted fee</span>
+                        <span>{hasSoldPrice ? fmtGbp(fees.promotedFee) : '£0.00'}</span>
+                      </div>
+                    )}
+                    <div className="ebay-fee-summary-line ebay-fee-summary-line--sub">
+                      <span>{vatPercentNum % 1 === 0 ? vatPercentNum.toFixed(0) : vatPercentNum} % VAT</span>
+                      <span>{hasSoldPrice ? fmtGbp(fees.vat) : '£0.00'}</span>
+                    </div>
+
+                    <div className="ebay-fee-summary-divider" />
+
+                    <div
+                      className={`ebay-fee-summary-line ebay-fee-summary-line--total${
+                        hasSoldPrice ? (totalProfit >= 0 ? ' ebay-fee-summary--positive' : ' ebay-fee-summary--negative') : ''
+                      }`}
+                    >
+                      <span>Total Profit</span>
+                      <strong>{hasSoldPrice ? fmtGbp(totalProfit) : '£0.00'}</strong>
+                    </div>
+                    <div className="ebay-fee-summary-line ebay-fee-summary-line--sub">
+                      <span>Profit margin</span>
+                      <span>
+                        {hasSoldPrice && profitMarginPercent !== null
+                          ? `${profitMarginPercent.toFixed(2)}% of sold price`
+                          : '—'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           <div className="potential-profit-reset-container">
             <button
@@ -1116,9 +759,11 @@ const EbaySearch: React.FC = () => {
                 setItemsSold('');
                 setActiveListings('');
                 setItemPrice('');
-                setSalePrice('');
-                setListingFees('0.10');
-                setPromotedFees('10');
+                setSoldPrice('');
+                setPromotedFees('0');
+                setVatPercent('20');
+                setSellerType('business');
+                setSellerLevel('top_rated');
               }}
               className="potential-profit-reset-button"
               title="Reset form"
@@ -1131,76 +776,6 @@ const EbaySearch: React.FC = () => {
         </div>
       </div>
     </div>
-
-    <section
-      className="ebay-search-container homepage-ctr-research-section"
-      aria-labelledby="homepage-ctr-heading"
-    >
-        <h3 id="homepage-ctr-heading" className="homepage-section-title">
-          Search Click-Through Rate
-        </h3>
-        <form onSubmit={handleEbayResearchSubmit} className="ebay-search-form">
-          <div className="primary-action-row research-action-row" style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
-            <button
-              type="submit"
-              className="ebay-search-button"
-              disabled={ebayResearchLoading || !hasSearchableInput}
-              aria-label="Search click-through rate"
-            >
-              {ebayResearchLoading ? 'Searching...' : 'Search'}
-            </button>
-            {ebayResearchResult && (
-              <button
-                type="button"
-                onClick={handleClearEbayResearch}
-                className="research-clear-button clear-red"
-              >
-                Clear
-              </button>
-            )}
-          </div>
-
-          {ebayResearchError && <div className="settings-error">{ebayResearchError}</div>}
-
-          {ebayResearchResult && !ebayResearchError && (() => {
-            // Swap the values - API returns them backwards
-            const active = ebayResearchResult.soldCount; // API's soldCount is actually active
-            const sold = ebayResearchResult.activeCount; // API's activeCount is actually sold
-            const totalInventory = sold + active;
-            const strRate = totalInventory > 0 ? (sold / totalInventory) * 100 : null;
-            
-            return (
-              <div className="listings-container">
-                <h3>Research for "{ebayResearchResult.query}"</h3>
-                <div className="price-stats">
-                  <div className="price-stat">
-                    <span className="label">Active Listings</span>
-                    <span className="value">{active.toLocaleString()}</span>
-                  </div>
-                  <div className="price-stat">
-                    <span className="label">Sold Listings</span>
-                    <span className="value">{sold.toLocaleString()}</span>
-                  </div>
-                </div>
-                {strRate !== null && (
-                  <div className={`str-result ${getSTRColor(strRate)}`} style={{ marginTop: '24px' }}>
-                    <div className="str-rate-value">{strRate.toFixed(1)}%</div>
-                    <div className="str-rate-label">{getSTRLabel(strRate)}</div>
-                    <div className="str-rate-formula">
-                      ({sold} / ({sold} + {active})) × 100 = {strRate.toFixed(1)}%
-                    </div>
-                  </div>
-                )}
-                {ebayResearchResult.diagnostics?.completedError && (
-                  <div className="settings-error" style={{ marginTop: '16px', marginBottom: '0' }}>
-                    Sold data is temporarily unavailable: {ebayResearchResult.diagnostics.completedError}
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-        </form>
-    </section>
     </>
   );
 };
