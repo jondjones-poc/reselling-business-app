@@ -1215,7 +1215,28 @@ async function ensureDatabaseSchema() {
       )
     `);
 
-    console.log('Database schema ready: app_settings, ebay_oauth_token, ebay_signing_key, receipt_upload, box_location, tag, stock_tag, stock_item_fees');
+    // Saved Vinted searches for the Sniping page — lets the seller re-run a
+    // tuned search (brand/category/price/size/condition) with one click
+    // instead of retyping the Vinted filters every time.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS saved_search (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        search_text TEXT NOT NULL DEFAULT '',
+        category TEXT NOT NULL DEFAULT '',
+        price_to NUMERIC,
+        size_ids TEXT[] NOT NULL DEFAULT '{}',
+        status_ids TEXT[] NOT NULL DEFAULT '{}',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_saved_search_name_lower
+        ON saved_search (LOWER(TRIM(name)))
+    `);
+    await pool.query(`ALTER TABLE saved_search ADD COLUMN IF NOT EXISTS price_from NUMERIC`);
+
+    console.log('Database schema ready: app_settings, ebay_oauth_token, ebay_signing_key, receipt_upload, box_location, tag, stock_tag, stock_item_fees, saved_search');
   } catch (error) {
     console.error('Could not initialize database tables:', error.message);
   }
@@ -20316,6 +20337,81 @@ app.delete('/api/box-locations/:id', async (req, res) => {
   } catch (error) {
     console.error('Box location delete failed:', error);
     res.status(500).json({ error: 'Failed to delete box location', details: error.message });
+  }
+});
+
+// Saved Vinted searches — reusable sniping-page search presets (search text,
+// category, max price, size_ids, status_ids). Simple name-keyed CRUD, no
+// auth scoping beyond the global apiAuthMiddleware since this is a
+// single-seller private workspace.
+app.get('/api/saved-searches', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    const result = await pool.query(
+      `SELECT id, name, search_text, category, price_from, price_to, size_ids, status_ids, created_at
+       FROM saved_search
+       ORDER BY name ASC`
+    );
+    res.json({ rows: result.rows ?? [], count: result.rowCount ?? 0 });
+  } catch (error) {
+    console.error('Saved searches query failed:', error);
+    res.status(500).json({ error: 'Failed to load saved searches', details: error.message });
+  }
+});
+
+app.post('/api/saved-searches', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    const { name, search_text, category, price_from, price_to, size_ids, status_ids } = req.body ?? {};
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ error: 'name is required' });
+    }
+    const toNullableNumber = (value) =>
+      value !== null && value !== undefined && String(value).trim() !== '' ? Number(value) : null;
+    const priceFromNum = toNullableNumber(price_from);
+    const priceToNum = toNullableNumber(price_to);
+    const sizeIdsArr = Array.isArray(size_ids) ? size_ids.map(String) : [];
+    const statusIdsArr = Array.isArray(status_ids) ? status_ids.map(String) : [];
+    const ins = await pool.query(
+      `INSERT INTO saved_search (name, search_text, category, price_from, price_to, size_ids, status_ids)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, name, search_text, category, price_from, price_to, size_ids, status_ids, created_at`,
+      [name.trim(), String(search_text ?? ''), String(category ?? ''), priceFromNum, priceToNum, sizeIdsArr, statusIdsArr]
+    );
+    res.status(201).json({ row: ins.rows[0] });
+  } catch (error) {
+    console.error('Saved search insert failed:', error);
+    if (error.code === '23505') {
+      return res.status(400).json({ error: 'A saved search with this name already exists' });
+    }
+    res.status(500).json({ error: 'Failed to create saved search', details: error.message });
+  }
+});
+
+app.delete('/api/saved-searches/:id', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id) || id < 1) {
+      return res.status(400).json({ error: 'Invalid saved search id' });
+    }
+    const del = await pool.query('DELETE FROM saved_search WHERE id = $1 RETURNING id', [id]);
+    if (!del.rowCount) {
+      return res.status(404).json({ error: 'Saved search not found' });
+    }
+    res.json({ ok: true, id });
+  } catch (error) {
+    console.error('Saved search delete failed:', error);
+    res.status(500).json({ error: 'Failed to delete saved search', details: error.message });
   }
 });
 

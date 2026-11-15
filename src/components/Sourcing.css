@@ -16,7 +16,7 @@
 .sourcing-input-group {
   display: flex;
   gap: 16px;
-  align-items: flex-start;
+  align-items: center;
   flex-wrap: wrap;
 }
 
@@ -89,19 +89,22 @@
   min-width: 180px;
 }
 
-.sourcing-price-section {
+.sourcing-price-inputs {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  margin-top: 24px;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
-.sourcing-price-label {
+.sourcing-price-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sourcing-price-field-label {
   color: var(--text-strong);
-  font-size: 0.95rem;
-  font-weight: 600;
-  opacity: 0.85;
+  font-size: 0.8rem;
+  opacity: 0.7;
 }
 
 .sourcing-price-input {
@@ -128,14 +131,6 @@
   color: rgba(var(--theme-text-rgb), 0.5);
 }
 
-.sourcing-actions-row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  margin-top: 16px;
-}
-
 .sourcing-search-button {
   padding: 14px 32px;
   border-radius: 16px;
@@ -160,22 +155,50 @@
   cursor: not-allowed;
 }
 
-.sourcing-sizes-section {
+.sourcing-filters-table {
   margin-top: 32px;
   padding-top: 32px;
   border-top: 1px solid rgba(var(--theme-accent-rgb), 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
-.sourcing-sizes-header {
+.sourcing-divider {
+  width: 100%;
+  border: none;
+  height: 1px;
+  margin: 32px 0 0;
+  background: linear-gradient(
+    to right,
+    transparent,
+    rgba(var(--theme-accent-rgb), 0.5) 50%,
+    transparent
+  );
+}
+
+.sourcing-filters-row {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 16px;
 }
 
-.sourcing-sizes-header .sourcing-brands-label {
-  margin-bottom: 0;
+.sourcing-filters-label {
+  flex: 0 0 33%;
+  max-width: 33%;
+  text-align: center;
+  font-weight: 700;
+  color: var(--text-strong);
+  align-self: center;
+}
+
+.sourcing-filters-control {
+  flex: 1;
+  min-width: 0;
+}
+
+.sourcing-filters-control .sourcing-sizes-list {
+  justify-content: flex-start;
 }
 
 .sourcing-sizes-clear-button {
@@ -272,6 +295,107 @@
   transform: translateY(-1px);
 }
 
+.sourcing-save-search-row {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.sourcing-save-search-input {
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--theme-summary-select-border, rgba(var(--theme-accent-rgb), 0.28));
+  background: var(--theme-summary-select-bg, rgba(var(--theme-accent-rgb), 0.08));
+  color: var(--text-strong);
+  font-size: 0.9rem;
+  outline: none;
+  flex: 1;
+  min-width: 220px;
+}
+
+.sourcing-save-search-input:focus {
+  border-color: var(--neon-border-strong, rgba(var(--theme-accent-rgb), 0.5));
+}
+
+.sourcing-save-search-button {
+  padding: 10px 20px;
+  border-radius: 12px;
+  border: 1px solid rgba(var(--theme-accent-rgb), 0.3);
+  background: rgba(var(--theme-accent-rgb), 0.15);
+  color: var(--neon-primary-strong);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sourcing-save-search-button:hover:not(:disabled) {
+  background: rgba(var(--theme-accent-rgb), 0.25);
+}
+
+.sourcing-save-search-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.sourcing-save-search-error {
+  color: #ff7878;
+  font-size: 0.85rem;
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.sourcing-saved-searches-empty {
+  color: rgba(var(--theme-text-rgb), 0.5);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.sourcing-saved-search-chip {
+  position: relative;
+  display: inline-flex;
+}
+
+.sourcing-saved-search-chip .sourcing-brand-button {
+  padding-right: 32px;
+}
+
+.sourcing-saved-search-delete {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  line-height: 1;
+  border: none;
+  border-radius: 50%;
+  background: rgba(200, 90, 90, 0.25);
+  color: #d47b7b;
+  font-size: 0.9rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.sourcing-saved-search-delete:hover {
+  background: rgba(200, 90, 90, 0.4);
+}
+
+.sourcing-clear-form-row {
+  display: flex;
+  justify-content: center;
+  margin-top: 32px;
+  padding-top: 32px;
+  border-top: 1px solid rgba(var(--theme-accent-rgb), 0.2);
+}
+
 @media (max-width: 768px) {
   .sourcing-container {
     padding: 16px;
@@ -302,14 +426,25 @@
     min-width: 0 !important;
   }
 
-  .sourcing-price-section {
+  .sourcing-price-inputs {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .sourcing-actions-row {
+  .sourcing-filters-row {
     flex-direction: column;
     align-items: stretch;
+    gap: 8px;
+  }
+
+  .sourcing-filters-label {
+    flex-basis: auto;
+    max-width: 100%;
+    text-align: left;
+  }
+
+  .sourcing-filters-control .sourcing-sizes-list {
+    justify-content: flex-start;
   }
 
   .sourcing-sizes-clear-button {
