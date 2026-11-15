@@ -567,6 +567,7 @@ const Stock: React.FC = () => {
   } | null>(null);
   const [viewMode, setViewMode] = useState<'all' | 'vinted' | 'ebay' | 'none'>('all');
   const [showNewEntry, setShowNewEntry] = useState(false);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createForm, setCreateForm] = useState<StockCreateFormState>({
     item_name: '',
@@ -2676,7 +2677,11 @@ const Stock: React.FC = () => {
   );
 
   const renderTagsField = (fieldId: string) => (
-    <div className="new-entry-field stock-tags-field">
+    <div
+      className={`new-entry-field stock-tags-field${
+        createForm.tags.length === 0 ? ' stock-tags-field--empty' : ''
+      }`}
+    >
       <span id={`stock-tags-field-label-${fieldId}`}>Tags</span>
       <div className="stock-tags-chip-list">
         <div className="stock-tags-input-wrap">
@@ -2734,6 +2739,142 @@ const Stock: React.FC = () => {
     </div>
   );
 
+  // Extracted so the same JSX can be rendered a second time, lower down the
+  // form, on mobile only (editingRowId) — these prompts/comps are rarely
+  // used on mobile and were crowding the top of the card there.
+  const topBarEditActionsEl = editingRowId ? (
+    <div className="stock-new-entry-top-bar-edit-actions">
+      {showVintedListingDownload ? (
+        <button
+          type="button"
+          className="stock-listing-pack-btn stock-listing-pack-btn--vinted"
+          onClick={() => void handleDownloadVintedListingPack()}
+          disabled={creating || deleting || listingPackDownloading != null}
+          aria-label={
+            listingPackDownloading === 'vinted'
+              ? 'Downloading Vinted listing zip'
+              : 'Download Vinted listing zip'
+          }
+          title="Download Vinted listing photos + listing.txt as a zip"
+        >
+          {listingPackDownloading === 'vinted' ? 'Exporting…' : 'Download Vinted'}
+        </button>
+      ) : null}
+      <button
+        type="button"
+        className="stock-image-prompt-btn stock-edit-row-1-image-prompt"
+        onClick={handleCopyListingImageBgPrompt}
+        disabled={creating || deleting}
+        aria-label="Copy Image Prompt: ChatGPT — remove background, grey gradient, brand logo"
+        title="Copy prompt for ChatGPT: background removal, neutral grey gradient, brand logo (uses selected brand)"
+      >
+        <svg
+          className="stock-image-prompt-btn-icon"
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.75"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <rect x="3" y="5" width="18" height="14" rx="2" />
+          <circle cx="8.5" cy="10" r="1.75" />
+          <path d="M21 17l-5.09-5.09a1.5 1.5 0 0 0-2.12 0L9 17" />
+        </svg>
+        Image Prompt
+      </button>
+      <button
+        type="button"
+        className="stock-instagram-ai-button stock-edit-row-1-instagram"
+        onClick={handleInstagramAskAi}
+        disabled={creating || deleting}
+        aria-label="Copy Instagram Prompt: caption and hashtags (shop link in bio only, no item URLs)"
+        title="Copy AI prompt: caption + hashtags — points people to your bio, no listing links"
+      >
+        <svg
+          className="stock-instagram-prompt-btn-icon"
+          xmlns="http://www.w3.org/2000/svg"
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
+          <circle cx="12" cy="12" r="4" />
+          <circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none" />
+        </svg>
+        Instagram Prompt
+      </button>
+      {showEbayListingDownload ? (
+        <button
+          type="button"
+          className="stock-listing-pack-btn stock-listing-pack-btn--ebay"
+          onClick={() => void handleDownloadEbayListingPack()}
+          disabled={creating || deleting || listingPackDownloading != null}
+          aria-label={
+            listingPackDownloading === 'ebay'
+              ? 'Downloading eBay listing zip'
+              : 'Download eBay listing zip'
+          }
+          title="Download eBay listing photos + listing.txt as a zip"
+        >
+          {listingPackDownloading === 'ebay' ? 'Exporting…' : 'Download eBay'}
+        </button>
+      ) : null}
+    </div>
+  ) : null;
+
+  const topBarMetricsEl = (
+    <div
+      className={
+        'stock-new-entry-top-bar-metrics' +
+        (!editingRowId ? ' stock-new-entry-top-bar-metrics--add' : '')
+      }
+    >
+      <div className="new-entry-field stock-new-entry-top-bar-comps-field">
+        <div
+          className={`stock-edit-brand-category-comps stock-new-entry-top-bar-comps${
+            editFormBrandCategorySaleComps.ready && editFormBrandCategorySaleComps.count > 0
+              ? ''
+              : ' stock-edit-brand-category-comps--empty'
+          }`}
+          role="region"
+          aria-label="Average and top sale price for this brand and category"
+        >
+          {!editFormBrandCategorySaleComps.ready && (
+            <p className="stock-edit-brand-category-comps__muted">Select brand &amp; category</p>
+          )}
+          {editFormBrandCategorySaleComps.ready && editFormBrandCategorySaleComps.count === 0 && (
+            <p className="stock-edit-brand-category-comps__muted">No sold comps</p>
+          )}
+          {editFormBrandCategorySaleComps.ready && editFormBrandCategorySaleComps.count > 0 && (
+            <div className="stock-edit-brand-category-comps__stack">
+              <div className="stock-edit-brand-category-comps__stat-line">
+                <span className="stock-edit-brand-category-comps__key">Avg</span>
+                <span className="stock-edit-brand-category-comps__val">
+                  {formatCurrency(editFormBrandCategorySaleComps.avg ?? 0)}
+                </span>
+              </div>
+              <div className="stock-edit-brand-category-comps__stat-line">
+                <span className="stock-edit-brand-category-comps__key">Top</span>
+                <span className="stock-edit-brand-category-comps__val">
+                  {formatCurrency(editFormBrandCategorySaleComps.max ?? 0)}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
   const stockEntryFormEl = showNewEntry ? (
         <div className="new-entry-card" ref={editFormRef}>
           <div className="new-entry-grid">
@@ -2786,131 +2927,8 @@ const Stock: React.FC = () => {
                   </button>
                 ) : null}
               </div>
-              {editingRowId ? (
-                <div className="stock-new-entry-top-bar-edit-actions">
-                  {showVintedListingDownload ? (
-                    <button
-                      type="button"
-                      className="stock-listing-pack-btn stock-listing-pack-btn--vinted"
-                      onClick={() => void handleDownloadVintedListingPack()}
-                      disabled={creating || deleting || listingPackDownloading != null}
-                      aria-label={
-                        listingPackDownloading === 'vinted'
-                          ? 'Downloading Vinted listing zip'
-                          : 'Download Vinted listing zip'
-                      }
-                      title="Download Vinted listing photos + listing.txt as a zip"
-                    >
-                      {listingPackDownloading === 'vinted' ? 'Exporting…' : 'Download Vinted'}
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="stock-image-prompt-btn stock-edit-row-1-image-prompt"
-                    onClick={handleCopyListingImageBgPrompt}
-                    disabled={creating || deleting}
-                    aria-label="Copy Image Prompt: ChatGPT — remove background, grey gradient, brand logo"
-                    title="Copy prompt for ChatGPT: background removal, neutral grey gradient, brand logo (uses selected brand)"
-                  >
-                    <svg
-                      className="stock-image-prompt-btn-icon"
-                      xmlns="http://www.w3.org/2000/svg"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.75"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden
-                    >
-                      <rect x="3" y="5" width="18" height="14" rx="2" />
-                      <circle cx="8.5" cy="10" r="1.75" />
-                      <path d="M21 17l-5.09-5.09a1.5 1.5 0 0 0-2.12 0L9 17" />
-                    </svg>
-                    Image Prompt
-                  </button>
-                  <button
-                    type="button"
-                    className="stock-instagram-ai-button stock-edit-row-1-instagram"
-                    onClick={handleInstagramAskAi}
-                    disabled={creating || deleting}
-                    aria-label="Copy Instagram Prompt: caption and hashtags (shop link in bio only, no item URLs)"
-                    title="Copy AI prompt: caption + hashtags — points people to your bio, no listing links"
-                  >
-                    <svg
-                      className="stock-instagram-prompt-btn-icon"
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden
-                    >
-                      <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
-                      <circle cx="12" cy="12" r="4" />
-                      <circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none" />
-                    </svg>
-                    Instagram Prompt
-                  </button>
-                  {showEbayListingDownload ? (
-                    <button
-                      type="button"
-                      className="stock-listing-pack-btn stock-listing-pack-btn--ebay"
-                      onClick={() => void handleDownloadEbayListingPack()}
-                      disabled={creating || deleting || listingPackDownloading != null}
-                      aria-label={
-                        listingPackDownloading === 'ebay'
-                          ? 'Downloading eBay listing zip'
-                          : 'Download eBay listing zip'
-                      }
-                      title="Download eBay listing photos + listing.txt as a zip"
-                    >
-                      {listingPackDownloading === 'ebay' ? 'Exporting…' : 'Download eBay'}
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
-              <div
-                className={
-                  'stock-new-entry-top-bar-metrics' +
-                  (!editingRowId ? ' stock-new-entry-top-bar-metrics--add' : '')
-                }
-              >
-                <div className="new-entry-field stock-new-entry-top-bar-comps-field">
-                  <div
-                    className="stock-edit-brand-category-comps stock-new-entry-top-bar-comps"
-                    role="region"
-                    aria-label="Average and top sale price for this brand and category"
-                  >
-                    {!editFormBrandCategorySaleComps.ready && (
-                      <p className="stock-edit-brand-category-comps__muted">Select brand &amp; category</p>
-                    )}
-                    {editFormBrandCategorySaleComps.ready && editFormBrandCategorySaleComps.count === 0 && (
-                      <p className="stock-edit-brand-category-comps__muted">No sold comps</p>
-                    )}
-                    {editFormBrandCategorySaleComps.ready && editFormBrandCategorySaleComps.count > 0 && (
-                      <div className="stock-edit-brand-category-comps__stack">
-                        <div className="stock-edit-brand-category-comps__stat-line">
-                          <span className="stock-edit-brand-category-comps__key">Avg</span>
-                          <span className="stock-edit-brand-category-comps__val">
-                            {formatCurrency(editFormBrandCategorySaleComps.avg ?? 0)}
-                          </span>
-                        </div>
-                        <div className="stock-edit-brand-category-comps__stat-line">
-                          <span className="stock-edit-brand-category-comps__key">Top</span>
-                          <span className="stock-edit-brand-category-comps__val">
-                            {formatCurrency(editFormBrandCategorySaleComps.max ?? 0)}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
+              {topBarEditActionsEl}
+              {topBarMetricsEl}
               {editingRowId ? (
                 <div className="stock-new-entry-top-bar-edit-end">
                   <button
@@ -3504,19 +3522,6 @@ const Stock: React.FC = () => {
                   placeholder="Optional"
                 />
               </label>
-              <label className="new-entry-field stock-new-entry-id-field stock-new-entry-id-field--ebay-draft stock-new-entry-toggle-field">
-                <span>eBay draft</span>
-                <div className="stock-new-entry-bulky-input-skin">
-                  <input
-                    type="checkbox"
-                    checked={createForm.ebay_draft}
-                    onChange={(event) =>
-                      setCreateForm((prev) => ({ ...prev, ebay_draft: event.target.checked }))
-                    }
-                    aria-label="eBay draft listing"
-                  />
-                </div>
-              </label>
               <label className="new-entry-field stock-new-entry-box-location-field">
                 <span>Box location</span>
                 <StockFormDropdown
@@ -3840,6 +3845,12 @@ const Stock: React.FC = () => {
               </div>
             </div>
           )}
+          {editingRowId && (
+            <div className="stock-mobile-bottom-extras">
+              {topBarEditActionsEl}
+              {topBarMetricsEl}
+            </div>
+          )}
         </div>
   ) : null;
 
@@ -4141,6 +4152,23 @@ const Stock: React.FC = () => {
           >
             + Add
           </button>
+          <button
+            type="button"
+            className="stock-mobile-filter-toggle"
+            onClick={() => setMobileFiltersOpen(true)}
+            aria-label="Show filters"
+            title="Filters"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M4 5h16M7 12h10M10 19h4"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
+            Filters
+          </button>
         </div>
 
         <div className="filter-group search-group">
@@ -4212,24 +4240,6 @@ const Stock: React.FC = () => {
                 ×
               </button>
             </div>
-            <select
-              value={selectedDepartmentFilter}
-              onChange={(e) => {
-                setSelectedDepartmentFilter(e.target.value);
-                setSelectedCategoryFilter('');
-                setSelectedSizeFilter('');
-                setSelectedBrandFilter('');
-              }}
-              className="filter-select"
-              title="Filter by department"
-            >
-              <option value="">Filter by Department</option>
-              {departments.map((department) => (
-                <option key={department.id} value={String(department.id)}>
-                  {department.department_name}
-                </option>
-              ))}
-            </select>
             {showTypeahead && typeaheadSuggestions.length > 0 && (
               <div className="typeahead-dropdown">
                 {typeaheadSuggestions.map((suggestion, index) => (
@@ -4249,6 +4259,48 @@ const Stock: React.FC = () => {
             )}
           </div>
         </div>
+
+        {mobileFiltersOpen && (
+          <div
+            className="stock-mobile-filters-backdrop"
+            role="presentation"
+            onClick={() => setMobileFiltersOpen(false)}
+          />
+        )}
+
+        <div className={`stock-extra-filters${mobileFiltersOpen ? ' stock-extra-filters--open' : ''}`}>
+          <div className="stock-mobile-filters-header">
+            <span>Filters</span>
+            <button
+              type="button"
+              className="stock-mobile-filters-close"
+              onClick={() => setMobileFiltersOpen(false)}
+              aria-label="Close filters"
+            >
+              ×
+            </button>
+          </div>
+
+          <div className="filter-group">
+            <select
+              value={selectedDepartmentFilter}
+              onChange={(e) => {
+                setSelectedDepartmentFilter(e.target.value);
+                setSelectedCategoryFilter('');
+                setSelectedSizeFilter('');
+                setSelectedBrandFilter('');
+              }}
+              className="filter-select"
+              title="Filter by department"
+            >
+              <option value="">Filter by Department</option>
+              {departments.map((department) => (
+                <option key={department.id} value={String(department.id)}>
+                  {department.department_name}
+                </option>
+              ))}
+            </select>
+          </div>
 
         <div className="filter-group">
           <select
@@ -4355,6 +4407,7 @@ const Stock: React.FC = () => {
           >
             ↻
           </button>
+        </div>
         </div>
       </div>
 
@@ -4478,33 +4531,6 @@ const Stock: React.FC = () => {
         </table>
       </div>
 
-      {stockTotalPages > 1 ? (
-        <div className="stock-pagination stock-pagination--shared" aria-label="Stock list pagination">
-          <button
-            type="button"
-            className="stock-pagination-button"
-            disabled={loading || stockPage <= 1}
-            onClick={() => goToStockPage(stockPage - 1)}
-          >
-            Previous
-          </button>
-          <span className="stock-pagination-status">
-            Page {stockPage} of {stockTotalPages}
-            <span className="stock-pagination-count">
-              ({stockTotalCount.toLocaleString()} records)
-            </span>
-          </span>
-          <button
-            type="button"
-            className="stock-pagination-button"
-            disabled={loading || stockPage >= stockTotalPages}
-            onClick={() => goToStockPage(stockPage + 1)}
-          >
-            Next
-          </button>
-        </div>
-      ) : null}
-
       {/* Mobile Card View */}
       <div className="stock-cards-wrapper">
         {!loading && rows.length === 0 && (
@@ -4584,6 +4610,33 @@ const Stock: React.FC = () => {
           );
         })}
       </div>
+
+      {stockTotalPages > 1 ? (
+        <div className="stock-pagination stock-pagination--shared" aria-label="Stock list pagination">
+          <button
+            type="button"
+            className="stock-pagination-button"
+            disabled={loading || stockPage <= 1}
+            onClick={() => goToStockPage(stockPage - 1)}
+          >
+            Previous
+          </button>
+          <span className="stock-pagination-status">
+            Page {stockPage} of {stockTotalPages}
+            <span className="stock-pagination-count">
+              ({stockTotalCount.toLocaleString()} records)
+            </span>
+          </span>
+          <button
+            type="button"
+            className="stock-pagination-button"
+            disabled={loading || stockPage >= stockTotalPages}
+            onClick={() => goToStockPage(stockPage + 1)}
+          >
+            Next
+          </button>
+        </div>
+      ) : null}
         </>
       )}
 

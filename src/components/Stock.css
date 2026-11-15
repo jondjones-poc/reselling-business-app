@@ -2081,8 +2081,10 @@ button.stock-close-circle-btn:disabled {
   flex-wrap: wrap;
 }
 
-/* Listing zip export — same row as Image / Instagram prompts */
-.stock-new-entry-top-bar-row-1--edit .stock-listing-pack-btn {
+/* Listing zip export — same row as Image / Instagram prompts, and the
+   mobile bottom-extras duplicate of that row */
+.stock-new-entry-top-bar-row-1--edit .stock-listing-pack-btn,
+.stock-mobile-bottom-extras .stock-listing-pack-btn {
   flex: 0 0 auto;
   align-self: center;
   display: inline-flex;
@@ -2640,6 +2642,7 @@ button.stock-close-circle-btn:disabled {
   .stock-new-entry-row-edit-sale-platform-row .new-entry-field--stock-compact-date,
   .stock-new-entry-row-edit-sale-platform-row .stock-edit-sold-platform-field,
   .stock-new-entry-row-edit-sale-platform-row .stock-edit-write-off-field.new-entry-field,
+  .stock-new-entry-row-edit-sale-platform-row .stock-tags-field,
   .stock-new-entry-row-edit-sale-platform-row .stock-edit-save-in-row4 {
     flex: 1 1 100%;
     max-width: 100%;
@@ -3079,6 +3082,19 @@ button.stock-close-circle-btn:disabled {
   gap: 8px;
   align-items: center;
   flex: 0 0 auto;
+}
+
+/* Desktop/tablet: the extra filter selects render inline exactly as before;
+   the mobile popup chrome (toggle button, backdrop, header) stays hidden. */
+.stock-extra-filters {
+  display: contents;
+}
+
+.stock-mobile-filters-header,
+.stock-mobile-filters-backdrop,
+.stock-mobile-filter-toggle,
+.stock-mobile-bottom-extras {
+  display: none;
 }
 
 .view-group {
@@ -4469,6 +4485,252 @@ a.stock-action-icon:hover {
 
   .stock-container.editing-mode .stock-cards-wrapper {
     display: none;
+  }
+
+  /* Add/edit form takes the whole screen on mobile — the filters toolbar
+     and list underneath are hidden rather than squeezed in behind it. */
+  .stock-container.editing-mode .stock-filters {
+    display: none;
+  }
+
+  .stock-container.editing-mode .stock-entry-form-top {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    margin: 0;
+    padding: 16px;
+    overflow-y: auto;
+    background: var(--theme-bg);
+    box-sizing: border-box;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .stock-container.editing-mode .stock-entry-form-top .new-entry-card {
+    min-height: 100%;
+    margin-bottom: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  /* The image/Instagram prompts, listing downloads, and Avg/Top comps are
+     rarely used on mobile — moved below the Save button instead of
+     crowding the top of the edit form. Add mode (no editingRowId) is
+     untouched since it has no edit-actions and keeps its comps box at top. */
+  .stock-new-entry-top-bar-row-1--edit .stock-new-entry-top-bar-edit-actions,
+  .stock-new-entry-top-bar-row-1--edit .stock-new-entry-top-bar-metrics {
+    display: none;
+  }
+
+  .stock-mobile-bottom-extras {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-top: 24px;
+    padding-top: 24px;
+    border-top: 1px solid var(--theme-form-border);
+  }
+
+  .stock-mobile-bottom-extras .stock-new-entry-top-bar-edit-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  /* Avg/Top comps box: full width, bigger, left-aligned — wherever it
+     renders on mobile (top of the Add form, or the edit bottom-extras). */
+  .stock-new-entry-top-bar-metrics {
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: 1 1 100% !important;
+    justify-content: flex-start !important;
+    justify-items: stretch !important;
+  }
+
+  .new-entry-field.stock-new-entry-top-bar-comps-field {
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: 1 1 100% !important;
+  }
+
+  .stock-edit-brand-category-comps {
+    width: 100% !important;
+    align-items: flex-start !important;
+    padding: 14px 18px;
+    border-radius: 16px;
+    min-height: 0;
+  }
+
+  /* .stock-new-entry-top-bar-comps is a second class on the same element,
+     capping it at 168px — that cap, not .stock-edit-brand-category-comps
+     above, is what was actually keeping the box narrow. */
+  .stock-new-entry-top-bar-comps {
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: 1 1 100% !important;
+  }
+
+  .stock-edit-brand-category-comps__stack {
+    flex-direction: row !important;
+    align-items: stretch !important;
+    width: 100%;
+    gap: 0 !important;
+  }
+
+  .stock-edit-brand-category-comps__stat-line {
+    justify-content: flex-start !important;
+    flex: 1 1 50%;
+    width: 50%;
+    gap: 8px;
+    position: relative;
+    padding: 0 12px;
+    box-sizing: border-box;
+  }
+
+  .stock-edit-brand-category-comps__stat-line:first-of-type {
+    padding-left: 0;
+  }
+
+  .stock-edit-brand-category-comps__stat-line:last-of-type {
+    padding-right: 0;
+  }
+
+  .stock-edit-brand-category-comps__stat-line:last-of-type::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 1px;
+    bottom: 1px;
+    width: 1px;
+    background: rgba(var(--theme-text-rgb), 0.25);
+  }
+
+  .stock-edit-brand-category-comps__key {
+    font-size: 0.9rem !important;
+  }
+
+  .stock-edit-brand-category-comps__val {
+    font-size: 1.2rem !important;
+  }
+
+  /* The tags box reserves room for wrapped chips; with no tags yet it just
+     holds the small input, so the gap before Save/Add-to-order shrinks too. */
+  .stock-tags-field--empty {
+    margin-bottom: 0;
+  }
+
+  .stock-tags-field--empty + .stock-entry-mobile-save-bar {
+    /* .stock-new-entry-row-edit-sale-platform-row already adds an 18px
+       flex gap above every child — cancel most of it here rather than
+       stacking it on top of this bar's own margin/padding. */
+    margin-top: -10px;
+    padding-top: 10px;
+  }
+
+  /* No brand/category selected yet, or no sold comps — the box would just
+     show non-interactive hint text, so hide the whole box rather than
+     leave an empty-looking coloured box on screen. */
+  .stock-edit-brand-category-comps--empty {
+    display: none;
+  }
+
+  /* Bigger Add button + a Filters button that opens the rest of the
+     filters as a popup, keeping only search visible on its own row. */
+  .stock-filters .new-entry-button {
+    padding: 14px 20px;
+    font-size: 0.95rem;
+    border-radius: 14px;
+    flex: 1 1 auto;
+  }
+
+  .filter-actions {
+    width: 100%;
+    gap: 10px;
+  }
+
+  .stock-mobile-filter-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    flex: 1 1 auto;
+    padding: 14px 16px;
+    border-radius: 14px;
+    border: 1px solid var(--theme-list-control-border);
+    background: var(--theme-list-control-bg);
+    color: var(--text-strong);
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .stock-mobile-filters-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 10000;
+  }
+
+  .stock-extra-filters {
+    display: none;
+  }
+
+  .stock-extra-filters.stock-extra-filters--open {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    position: fixed;
+    left: 16px;
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    max-height: 80vh;
+    overflow-y: auto;
+    background: var(--theme-form-bg);
+    border: 1px solid var(--theme-form-border);
+    border-radius: 20px;
+    padding: 20px;
+    box-shadow: 0 22px 48px rgba(0, 0, 0, 0.6), var(--neon-shadow);
+    z-index: 10001;
+  }
+
+  .stock-mobile-filters-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-weight: 700;
+    color: var(--text-strong);
+    letter-spacing: 0.04rem;
+  }
+
+  .stock-mobile-filters-close {
+    background: transparent;
+    border: none;
+    color: var(--text-strong);
+    font-size: 1.4rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 4px;
+  }
+
+  /* Bigger, full-width form controls inside the mobile filters popup */
+  .stock-extra-filters--open .filter-group {
+    width: 100%;
+  }
+
+  .stock-extra-filters--open .filter-select {
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: 1 1 100% !important;
+    padding: 14px 18px;
+    font-size: 1rem;
+    border-radius: 14px;
+  }
+
+  /* Bigger search bar on mobile */
+  .search-input {
+    padding: 14px 18px;
+    font-size: 1rem;
   }
 
   .stock-table {
