@@ -3040,30 +3040,34 @@ async function uploadEbayDraftImages(sb, sku, images) {
   if (!sb || !Array.isArray(images) || images.length === 0) return [];
   await ensureEbayDraftImageBucket(sb);
   const safeSku = String(sku || 'item').replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 60) || 'item';
-  const urls = [];
-  for (let i = 0; i < images.length; i += 1) {
-    const img = images[i];
-    if (!img || typeof img.dataBase64 !== 'string' || !img.dataBase64) continue;
-    const contentType = typeof img.type === 'string' && img.type.startsWith('image/') ? img.type : 'image/jpeg';
-    const ext = contentType.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
-    const storagePath = `${safeSku}/${Date.now()}-${i + 1}.${ext}`;
-    let buffer;
-    try {
-      buffer = Buffer.from(img.dataBase64, 'base64');
-    } catch {
-      continue;
-    }
-    const { error: uploadErr } = await sb.storage
-      .from(EBAY_DRAFT_IMAGE_BUCKET)
-      .upload(storagePath, buffer, { contentType, upsert: false });
-    if (uploadErr) {
-      console.warn('eBay draft image upload warning:', uploadErr.message);
-      continue;
-    }
-    const { data: pub } = sb.storage.from(EBAY_DRAFT_IMAGE_BUCKET).getPublicUrl(storagePath);
-    if (pub?.publicUrl) urls.push(pub.publicUrl);
-  }
-  return urls;
+  // Each upload is its own round-trip to Supabase Storage — with a typical
+  // 5-10 photo listing, doing these one at a time (the previous for-loop)
+  // was the main reason this endpoint felt slow. They're independent of
+  // each other, so run them concurrently instead.
+  const uploaded = await Promise.all(
+    images.map(async (img, i) => {
+      if (!img || typeof img.dataBase64 !== 'string' || !img.dataBase64) return null;
+      const contentType = typeof img.type === 'string' && img.type.startsWith('image/') ? img.type : 'image/jpeg';
+      const ext = contentType.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
+      const storagePath = `${safeSku}/${Date.now()}-${i + 1}.${ext}`;
+      let buffer;
+      try {
+        buffer = Buffer.from(img.dataBase64, 'base64');
+      } catch {
+        return null;
+      }
+      const { error: uploadErr } = await sb.storage
+        .from(EBAY_DRAFT_IMAGE_BUCKET)
+        .upload(storagePath, buffer, { contentType, upsert: false });
+      if (uploadErr) {
+        console.warn('eBay draft image upload warning:', uploadErr.message);
+        return null;
+      }
+      const { data: pub } = sb.storage.from(EBAY_DRAFT_IMAGE_BUCKET).getPublicUrl(storagePath);
+      return pub?.publicUrl || null;
+    })
+  );
+  return uploaded.filter((url) => Boolean(url));
 }
 
 function slugForReceiptFileName(name) {
