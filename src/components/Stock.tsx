@@ -564,8 +564,18 @@ const Stock: React.FC = () => {
   const [sortConfig, setSortConfig] = useState<{
     key: keyof StockRow;
     direction: 'asc' | 'desc';
-  } | null>(null);
-  const [viewMode, setViewMode] = useState<'all' | 'vinted' | 'ebay' | 'none'>('all');
+  } | null>(() => {
+    const sortKey = searchParams.get('sort');
+    const order = searchParams.get('order');
+    if (sortKey && (order === 'asc' || order === 'desc')) {
+      return { key: sortKey as keyof StockRow, direction: order };
+    }
+    return null;
+  });
+  const [viewMode, setViewMode] = useState<'all' | 'vinted' | 'ebay' | 'none'>(() => {
+    const v = searchParams.get('view');
+    return v === 'vinted' || v === 'ebay' || v === 'none' ? v : 'all';
+  });
   const [showNewEntry, setShowNewEntry] = useState(false);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -600,16 +610,27 @@ const Stock: React.FC = () => {
   const [stockTagDropdownOpen, setStockTagDropdownOpen] = useState(false);
   const stockTagDropdownRef = useRef<HTMLDivElement>(null);
   const [brands, setBrands] = useState<Brand[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(() => searchParams.get('q') || '');
   /** Debounced search used for the stock table query (input updates instantly). */
-  const [listSearchTerm, setListSearchTerm] = useState('');
+  const [listSearchTerm, setListSearchTerm] = useState(() => searchParams.get('q') || '');
   const [showTypeahead, setShowTypeahead] = useState(false);
   const [typeaheadSuggestions, setTypeaheadSuggestions] = useState<string[]>([]);
-  const [unsoldFilter, setUnsoldFilter] = useState<'off' | 'unsold' | 'sold'>('off');
-  const [selectedDepartmentFilter, setSelectedDepartmentFilter] = useState<string>('');
-  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('');
-  const [selectedSizeFilter, setSelectedSizeFilter] = useState<string>('');
-  const [selectedBrandFilter, setSelectedBrandFilter] = useState<string>('');
+  const [unsoldFilter, setUnsoldFilter] = useState<'off' | 'unsold' | 'sold'>(() => {
+    const u = searchParams.get('unsold');
+    return u === 'unsold' || u === 'sold' ? u : 'off';
+  });
+  const [selectedDepartmentFilter, setSelectedDepartmentFilter] = useState<string>(
+    () => searchParams.get('department_id') || ''
+  );
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>(
+    () => searchParams.get('category_id') || ''
+  );
+  const [selectedSizeFilter, setSelectedSizeFilter] = useState<string>(
+    () => searchParams.get('category_size_id') || ''
+  );
+  const [selectedBrandFilter, setSelectedBrandFilter] = useState<string>(
+    () => searchParams.get('brand_id') || ''
+  );
   const [filterSizes, setFilterSizes] = useState<CategorySizeRow[]>([]);
   const [showSoldPlatformDropdown, setShowSoldPlatformDropdown] = useState(false);
   const soldPlatformDropdownRef = useRef<HTMLDivElement>(null);
@@ -656,7 +677,10 @@ const Stock: React.FC = () => {
   const editFormRef = useRef<HTMLDivElement>(null);
   /** Block auto-opening `?editId=` for this SKU until the param changes or is cleared (avoids reopen after save). */
   const suppressAutoOpenEditSkuRef = useRef<number | null>(null);
-  const [stockPage, setStockPage] = useState(1);
+  const [stockPage, setStockPage] = useState(() => {
+    const p = parseInt(searchParams.get('page') || '1', 10);
+    return Number.isFinite(p) && p > 0 ? p : 1;
+  });
   const [stockTotalCount, setStockTotalCount] = useState(0);
   const [stockTotalPages, setStockTotalPages] = useState(1);
   const [nextSku, setNextSku] = useState(1);
@@ -1090,7 +1114,14 @@ const Stock: React.FC = () => {
     return () => ac.abort();
   }, [loadStockPage, stockPage, searchParams]);
 
+  // Skip the very first run so a `?page=` restored from the URL on load isn't
+  // immediately reset to 1 — this should only fire when a filter actually changes.
+  const skipNextFilterPageResetRef = useRef(true);
   useEffect(() => {
+    if (skipNextFilterPageResetRef.current) {
+      skipNextFilterPageResetRef.current = false;
+      return;
+    }
     setStockPage(1);
   }, [
     viewMode,
@@ -1101,6 +1132,51 @@ const Stock: React.FC = () => {
     selectedSizeFilter,
     selectedBrandFilter,
     sortConfig,
+  ]);
+
+  // Reflect the active filters in the URL (as querystrings, omitted when at their
+  // default) so a search can be bookmarked/shared, and so navigating away and back
+  // restores the same view. Built off the current search params rather than a blank
+  // slate so `editId` and any OAuth-callback params already in the URL survive.
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+
+    const applyFilter = (key: string, value: string) => {
+      if (value) next.set(key, value);
+      else next.delete(key);
+    };
+
+    applyFilter('q', listSearchTerm.trim());
+    applyFilter('unsold', unsoldFilter !== 'off' ? unsoldFilter : '');
+    applyFilter('view', viewMode !== 'all' ? viewMode : '');
+    applyFilter('department_id', selectedDepartmentFilter);
+    applyFilter('category_id', selectedCategoryFilter);
+    applyFilter('category_size_id', selectedSizeFilter);
+    applyFilter('brand_id', selectedBrandFilter);
+    if (sortConfig) {
+      next.set('sort', String(sortConfig.key));
+      next.set('order', sortConfig.direction);
+    } else {
+      next.delete('sort');
+      next.delete('order');
+    }
+    applyFilter('page', stockPage !== 1 ? String(stockPage) : '');
+
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+  }, [
+    listSearchTerm,
+    unsoldFilter,
+    viewMode,
+    selectedDepartmentFilter,
+    selectedCategoryFilter,
+    selectedSizeFilter,
+    selectedBrandFilter,
+    sortConfig,
+    stockPage,
+    searchParams,
+    setSearchParams,
   ]);
 
   useEffect(() => {

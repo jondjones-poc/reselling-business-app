@@ -19446,9 +19446,54 @@ app.get('/api/brands/:brandId/unsold-stock-items', async (req, res) => {
 });
 
 /**
+ * A brand like "Nike" is stored as one `brand` row PER DEPARTMENT (Menswear Nike,
+ * Womenswear Nike, Shoes Nike, …), each with its own id. Scoping by a single
+ * `brandId` therefore silently limits brand analytics to whichever one
+ * department that id happens to belong to. This resolves every brand row
+ * sharing the same (trimmed, case-insensitive) name, optionally narrowed to
+ * one department via `departmentId`, so analytics can cover the whole brand
+ * by default and still offer a per-department breakdown.
+ */
+async function resolveBrandIdsByName(pool, brandId, departmentId) {
+  const nameResult = await pool.query('SELECT brand_name FROM brand WHERE id = $1', [brandId]);
+  if (!nameResult.rowCount) {
+    return null;
+  }
+  const brandName = nameResult.rows[0].brand_name;
+
+  const matchesResult = await pool.query(
+    `SELECT b.id, b.department_id, d.department_name
+     FROM brand b
+     LEFT JOIN department d ON d.id = b.department_id
+     WHERE LOWER(TRIM(b.brand_name)) = LOWER(TRIM($1))`,
+    [brandName]
+  );
+
+  const departmentsMap = new Map();
+  for (const row of matchesResult.rows) {
+    if (row.department_id == null) continue;
+    departmentsMap.set(row.department_id, row.department_name || 'Unnamed');
+  }
+  const departments = Array.from(departmentsMap.entries())
+    .map(([id, name]) => ({ id, name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const allIds = matchesResult.rows.map((r) => r.id);
+  const scopedIds =
+    departmentId != null ? matchesResult.rows.filter((r) => r.department_id === departmentId).map((r) => r.id) : allIds;
+
+  return {
+    brandName,
+    departments,
+    ids: scopedIds.length > 0 ? scopedIds : allIds,
+  };
+}
+
+/**
  * Brand research: stock sold vs unsold, category breakdown (best sold vs heavy unsold), stacked category chart.
- * GET /api/brands/:brandId/stock-summary?period=all|last_12_months|2026|2025
+ * GET /api/brands/:brandId/stock-summary?period=all|last_12_months|2026|2025&department_id=<id>
  * When period is not all: rows included are sold lines with sale_date in range OR unsold with purchase_date in range.
+ * department_id is optional — when omitted, combines every department this brand name sells under.
  */
 app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
   try {
@@ -19462,10 +19507,18 @@ app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
       return res.status(500).json({ error: 'Database connection not configured' });
     }
 
-    const brandCheck = await pool.query('SELECT id FROM brand WHERE id = $1', [brandId]);
-    if (!brandCheck.rowCount) {
+    const departmentIdRaw = req.query.department_id ?? req.query.departmentId;
+    const departmentIdNum = Number(departmentIdRaw);
+    const departmentIdFilter =
+      departmentIdRaw != null && String(departmentIdRaw).trim() !== '' && Number.isInteger(departmentIdNum)
+        ? departmentIdNum
+        : null;
+
+    const resolved = await resolveBrandIdsByName(pool, brandId, departmentIdFilter);
+    if (!resolved) {
       return res.status(404).json({ error: 'Brand not found' });
     }
+    const brandIds = resolved.ids;
 
     const rawPeriod = String(req.query.period ?? 'all').trim().toLowerCase();
     const period =
@@ -19522,8 +19575,8 @@ app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
     }
 
     const lifetimeCountResult = await pool.query(
-      `SELECT COUNT(*)::int AS c FROM stock s WHERE s.brand_id = $1`,
-      [brandId]
+      `SELECT COUNT(*)::int AS c FROM stock s WHERE s.brand_id = ANY($1)`,
+      [brandIds]
     );
     const stockRowCountLifetime = Number(lifetimeCountResult.rows[0]?.c) || 0;
 
@@ -19536,18 +19589,38 @@ app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
           )::int AS sold_count,
           COUNT(*) FILTER (
             WHERE NOT (s.sale_price IS NOT NULL AND s.sale_price::numeric > 0)
-          )::int AS unsold_count
+          )::int AS unsold_count,
+          COUNT(*) FILTER (
+            WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+              AND LOWER(TRIM(s.sold_platform)) = 'ebay'
+          )::int AS ebay_sold_count,
+          COUNT(*) FILTER (
+            WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+              AND LOWER(TRIM(s.sold_platform)) = 'vinted'
+          )::int AS vinted_sold_count,
+          COUNT(*) FILTER (
+            WHERE NOT (s.sale_price IS NOT NULL AND s.sale_price::numeric > 0)
+              AND s.vinted_id IS NOT NULL AND TRIM(s.vinted_id::text) <> ''
+          )::int AS vinted_for_sale_count,
+          COUNT(*) FILTER (
+            WHERE NOT (s.sale_price IS NOT NULL AND s.sale_price::numeric > 0)
+              AND s.ebay_id IS NOT NULL AND TRIM(s.ebay_id::text) <> ''
+          )::int AS ebay_for_sale_count
         FROM stock s
-        WHERE s.brand_id = $1
+        WHERE s.brand_id = ANY($1)
         ${periodSql}
       `,
-      [brandId]
+      [brandIds]
     );
 
     const countsRow = countsResult.rows[0] || {};
     const totalItems = Number(countsRow.total_items) || 0;
     const soldCount = Number(countsRow.sold_count) || 0;
     const unsoldCount = Number(countsRow.unsold_count) || 0;
+    const ebaySoldCount = Number(countsRow.ebay_sold_count) || 0;
+    const vintedSoldCount = Number(countsRow.vinted_sold_count) || 0;
+    const vintedForSaleCount = Number(countsRow.vinted_for_sale_count) || 0;
+    const ebayForSaleCount = Number(countsRow.ebay_for_sale_count) || 0;
 
     const moneyResult = await pool.query(
       `
@@ -19561,17 +19634,35 @@ app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
               WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
             ),
             0
-          )::numeric AS total_sold_revenue
+          )::numeric AS total_sold_revenue,
+          COALESCE(
+            SUM(s.sale_price::numeric - s.purchase_price::numeric) FILTER (
+              WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+                AND s.purchase_price IS NOT NULL
+                AND LOWER(TRIM(s.sold_platform)) = 'ebay'
+            ),
+            0
+          )::numeric AS ebay_profit,
+          COALESCE(
+            SUM(s.sale_price::numeric - s.purchase_price::numeric) FILTER (
+              WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+                AND s.purchase_price IS NOT NULL
+                AND LOWER(TRIM(s.sold_platform)) = 'vinted'
+            ),
+            0
+          )::numeric AS vinted_profit
         FROM stock s
-        WHERE s.brand_id = $1
+        WHERE s.brand_id = ANY($1)
         ${periodSql}
       `,
-      [brandId]
+      [brandIds]
     );
     const moneyRow = moneyResult.rows[0] || {};
     const totalPurchaseSpend = Number(moneyRow.total_purchase_spend) || 0;
     const totalSoldRevenue = Number(moneyRow.total_sold_revenue) || 0;
     const brandNetPosition = totalSoldRevenue - totalPurchaseSpend;
+    const ebayProfit = Number(moneyRow.ebay_profit) || 0;
+    const vintedProfit = Number(moneyRow.vinted_profit) || 0;
 
     const soldPriceStatsResult = await pool.query(
       `
@@ -19589,10 +19680,10 @@ app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
               AND s.purchase_price::numeric > 0
           ) AS avg_sold_profit_multiple
         FROM stock s
-        WHERE s.brand_id = $1
+        WHERE s.brand_id = ANY($1)
         ${periodSql}
       `,
-      [brandId]
+      [brandIds]
     );
     const soldPriceStats = soldPriceStatsResult.rows[0] || {};
     const minSoldSalePriceRaw = soldPriceStats.min_sold_sale_price;
@@ -19675,7 +19766,7 @@ app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
         END AS sales_multiple
       FROM stock s
       LEFT JOIN category c ON c.id = s.category_id
-      WHERE s.brand_id = $1
+      WHERE s.brand_id = ANY($1)
         ${periodSql}
       GROUP BY c.id, c.category_name
       HAVING
@@ -19714,7 +19805,7 @@ app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
       WHERE cat.total_sold_value > 0
       ORDER BY cat.total_sold_value DESC NULLS LAST, cat.total_unsold_value ASC NULLS LAST, cat.category_name ASC
       LIMIT 30`,
-      [brandId]
+      [brandIds]
     );
     const bestSoldByCategory = bestSoldByCategoryResult.rows.map(mapCategoryRow);
 
@@ -19723,7 +19814,7 @@ app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
       WHERE cat.total_unsold_value > 0
       ORDER BY cat.total_unsold_value DESC NULLS LAST, cat.total_sold_value ASC NULLS LAST, cat.category_name ASC
       LIMIT 30`,
-      [brandId]
+      [brandIds]
     );
     const heavyUnsoldByCategory = heavyUnsoldByCategoryResult.rows.map(mapCategoryRow);
 
@@ -19740,12 +19831,12 @@ app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
           )::int AS unsold_count
         FROM stock s
         LEFT JOIN category c ON c.id = s.category_id
-        WHERE s.brand_id = $1
+        WHERE s.brand_id = ANY($1)
         ${periodSql}
         GROUP BY c.id, c.category_name
         ORDER BY COUNT(*) DESC, COALESCE(c.category_name, 'Uncategorized') ASC
       `,
-      [brandId]
+      [brandIds]
     );
 
     const categorySoldUnsold = categorySoldUnsoldResult.rows.map((row) => ({
@@ -19757,14 +19848,23 @@ app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
 
     res.json({
       brandId,
+      brandName: resolved.brandName,
+      departments: resolved.departments,
+      departmentId: departmentIdFilter,
       period,
       stockRowCountLifetime,
       totalItems,
       soldCount,
       unsoldCount,
+      ebaySoldCount,
+      vintedSoldCount,
+      vintedForSaleCount,
+      ebayForSaleCount,
       totalPurchaseSpend,
       totalSoldRevenue,
       brandNetPosition,
+      ebayProfit,
+      vintedProfit,
       minSoldSalePrice,
       maxSoldSalePrice,
       avgSoldProfitMultiple,
@@ -19775,6 +19875,362 @@ app.get('/api/brands/:brandId/stock-summary', async (req, res) => {
   } catch (error) {
     console.error('Brand stock summary failed:', error);
     res.status(500).json({ error: 'Failed to load brand stock summary', details: error.message });
+  }
+});
+
+/**
+ * GET /api/brands/:brandId/purchase-sale-dates?department_id=<id>
+ * Every stock row's purchase_date and (when actually sold) sale_date for this
+ * brand, so the frontend can bucket "items bought" vs "items sold" into
+ * weekly/monthly series itself — lets it answer "did this brand stop selling
+ * while I kept buying it?" without baking a fixed period into the API.
+ * department_id is optional — when omitted, combines every department this
+ * brand name sells under (see resolveBrandIdsByName).
+ */
+app.get('/api/brands/:brandId/purchase-sale-dates', async (req, res) => {
+  try {
+    const brandId = parseInt(req.params.brandId, 10);
+    if (Number.isNaN(brandId) || brandId < 1) {
+      return res.status(400).json({ error: 'Invalid brand id' });
+    }
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const departmentIdRaw = req.query.department_id ?? req.query.departmentId;
+    const departmentIdNum = Number(departmentIdRaw);
+    const departmentIdFilter =
+      departmentIdRaw != null && String(departmentIdRaw).trim() !== '' && Number.isInteger(departmentIdNum)
+        ? departmentIdNum
+        : null;
+
+    const resolved = await resolveBrandIdsByName(pool, brandId, departmentIdFilter);
+    if (!resolved) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+
+    const result = await pool.query(
+      `SELECT
+         s.purchase_date::date AS purchase_date,
+         s.purchase_price::numeric AS purchase_price,
+         CASE WHEN s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+           THEN s.sale_date::date
+           ELSE NULL
+         END AS sale_date,
+         CASE WHEN s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+           THEN s.sale_price::numeric
+           ELSE NULL
+         END AS sale_price,
+         CASE WHEN s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+           THEN LOWER(TRIM(s.sold_platform))
+           ELSE NULL
+         END AS sold_platform
+       FROM stock s
+       WHERE s.brand_id = ANY($1)`,
+      [resolved.ids]
+    );
+
+    const rows = (result.rows ?? []).map((r) => ({
+      purchaseDate: normalizeDateOnlyString(r.purchase_date),
+      purchasePrice: r.purchase_price != null ? Number(r.purchase_price) : null,
+      saleDate: r.sale_date ? normalizeDateOnlyString(r.sale_date) : null,
+      salePrice: r.sale_price != null ? Number(r.sale_price) : null,
+      soldPlatform: r.sold_platform ?? null,
+    }));
+
+    res.json({ rows, brandName: resolved.brandName, departments: resolved.departments, departmentId: departmentIdFilter });
+  } catch (error) {
+    console.error('Brand purchase/sale dates failed:', error);
+    res.status(500).json({ error: 'Failed to load brand purchase/sale dates', details: error.message });
+  }
+});
+
+/**
+ * GET /api/brands/avoid-candidates?department_id=<id>
+ * Ranks every brand name (combined across the departments it's stored under,
+ * unless department_id narrows it to one) by an "avoid score" — how strongly
+ * the data says to stop buying it. Considers three things together:
+ *   - how much stock is sitting unsold (the dominant weight: a brand with 1-2
+ *     unsold items barely scores even if everything else looks bad, while one
+ *     with 20 unsold items is weighted heavily)
+ *   - how slowly it's selling right now (sold in the last 120 days vs current
+ *     unsold stock — 0 when recent sales keep pace with stock, up to 1 when
+ *     nothing recent has sold at all)
+ *   - whether average profit per sold item is healthy. At/above the £10
+ *     target this is a hard gate: profitShortfall is 0, so the whole score
+ *     collapses to 0 no matter how much stock is sitting there — a brand
+ *     that's genuinely profitable isn't a "stop buying" candidate just
+ *     because it's a slow mover. Below £10 the shortfall scales up linearly
+ *     to 1 at £0/item, then keeps climbing past 1 for an actual loss per
+ *     item. Never-sold brands get the same shortfall as a £0 item (1).
+ * avoidScore = unsoldCount * slowSellingScore * profitShortfall
+ */
+app.get('/api/brands/avoid-candidates', async (req, res) => {
+  try {
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const departmentIdRaw = req.query.department_id ?? req.query.departmentId;
+    const departmentIdNum = Number(departmentIdRaw);
+    const departmentIdFilter =
+      departmentIdRaw != null && String(departmentIdRaw).trim() !== '' && Number.isInteger(departmentIdNum)
+        ? departmentIdNum
+        : null;
+
+    const departmentsResult = await pool.query(
+      `SELECT id, department_name FROM department ORDER BY department_name ASC`
+    );
+    const departments = departmentsResult.rows.map((r) => ({ id: r.id, name: r.department_name }));
+
+    const statsResult = await pool.query(
+      `
+        WITH brand_groups AS (
+          SELECT
+            LOWER(TRIM(b.brand_name)) AS name_key,
+            MIN(b.brand_name) AS brand_name,
+            (array_agg(b.id ORDER BY b.id))[1] AS sample_brand_id,
+            array_agg(b.id) AS brand_ids
+          FROM brand b
+          WHERE ($1::int IS NULL OR b.department_id = $1)
+          GROUP BY LOWER(TRIM(b.brand_name))
+        )
+        SELECT
+          bg.brand_name,
+          bg.sample_brand_id,
+          COUNT(*) FILTER (
+            WHERE NOT (s.sale_price IS NOT NULL AND s.sale_price::numeric > 0)
+          )::int AS unsold_count,
+          COUNT(*) FILTER (
+            WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+          )::int AS sold_count,
+          COUNT(*) FILTER (
+            WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+              AND s.sale_date IS NOT NULL
+              AND s.sale_date >= (CURRENT_DATE - INTERVAL '120 days')
+          )::int AS recent_sold_count,
+          COALESCE(
+            SUM(s.sale_price::numeric - s.purchase_price::numeric) FILTER (
+              WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+                AND s.purchase_price IS NOT NULL
+            ),
+            0
+          )::numeric AS total_profit
+        FROM brand_groups bg
+        JOIN stock s ON s.brand_id = ANY(bg.brand_ids)
+        GROUP BY bg.name_key, bg.brand_name, bg.sample_brand_id
+        HAVING COUNT(*) FILTER (
+          WHERE NOT (s.sale_price IS NOT NULL AND s.sale_price::numeric > 0)
+        ) > 0
+      `,
+      [departmentIdFilter]
+    );
+
+    const rows = statsResult.rows
+      .map((row) => {
+        const unsoldCount = Number(row.unsold_count) || 0;
+        const soldCount = Number(row.sold_count) || 0;
+        const recentSoldCount = Number(row.recent_sold_count) || 0;
+        const totalProfit = Number(row.total_profit) || 0;
+        const avgProfitPerItem = soldCount > 0 ? totalProfit / soldCount : null;
+
+        const slowSellingScore = unsoldCount > 0 ? 1 - Math.min(1, recentSoldCount / unsoldCount) : 0;
+        const profitShortfall = avgProfitPerItem == null ? 1 : Math.max(0, (10 - avgProfitPerItem) / 10);
+        const avoidScore = unsoldCount * slowSellingScore * profitShortfall;
+
+        return {
+          brandName: row.brand_name,
+          sampleBrandId: Number(row.sample_brand_id),
+          unsoldCount,
+          soldCount,
+          recentSoldCount,
+          totalProfit,
+          avgProfitPerItem,
+          avoidScore,
+        };
+      })
+      .sort((a, b) => b.avoidScore - a.avoidScore);
+
+    res.json({ departments, departmentId: departmentIdFilter, rows });
+  } catch (error) {
+    console.error('Brand avoid-candidates failed:', error);
+    res.status(500).json({ error: 'Failed to load brand avoid candidates', details: error.message });
+  }
+});
+
+/**
+ * GET /api/brands/:brandId/category-avoid?department_id=<id>
+ * Same "avoid score" idea as /api/brands/avoid-candidates, but one level down:
+ * ranks this brand's own categories (e.g. for Superdry: Coats, Shorts, …) so you
+ * can see which parts of a brand are worth continuing to buy vs which to stop.
+ * Returns two rankings built from the same per-category stats:
+ *   - avoidRows: avoidScore = unsoldCount * slowSellingScore * profitShortfall
+ *     (only categories with something currently unsold).
+ *   - buyRows: the mirror image — demand relative to current stock times a
+ *     soft (not hard) profit factor, rewarding fast sellers even at a thinner
+ *     margin (only categories with evidence of recent demand).
+ * Both compare sales in the last 120 days against the 120-240-days-ago window,
+ * so a seasonal item (e.g. shorts selling well half a year ago, not currently)
+ * gets flagged `possiblySeasonal` rather than silently mis-ranked — a human
+ * call, not an automatic correction. Categories with fewer than 2 recorded
+ * items are left out of both rankings entirely — not enough data to call.
+ */
+app.get('/api/brands/:brandId/category-avoid', async (req, res) => {
+  try {
+    const brandId = parseInt(req.params.brandId, 10);
+    if (Number.isNaN(brandId) || brandId < 1) {
+      return res.status(400).json({ error: 'Invalid brand id' });
+    }
+
+    const pool = getDatabasePool();
+    if (!pool) {
+      return res.status(500).json({ error: 'Database connection not configured' });
+    }
+
+    const departmentIdRaw = req.query.department_id ?? req.query.departmentId;
+    const departmentIdNum = Number(departmentIdRaw);
+    const departmentIdFilter =
+      departmentIdRaw != null && String(departmentIdRaw).trim() !== '' && Number.isInteger(departmentIdNum)
+        ? departmentIdNum
+        : null;
+
+    const resolved = await resolveBrandIdsByName(pool, brandId, departmentIdFilter);
+    if (!resolved) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+
+    // A category like "Coat" is stored as one `category` row PER DEPARTMENT, same
+    // as brands — combine them by name so "Coat" isn't split into several near-
+    // empty slices when a brand spans more than one department.
+    const statsResult = await pool.query(
+      `
+        WITH category_groups AS (
+          SELECT
+            LOWER(TRIM(COALESCE(c.category_name, 'Uncategorized'))) AS name_key,
+            MIN(COALESCE(c.category_name, 'Uncategorized')) AS category_name,
+            (array_agg(COALESCE(c.id, 0) ORDER BY COALESCE(c.id, 0)))[1] AS sample_category_id,
+            array_agg(DISTINCT COALESCE(c.id, 0)) AS category_ids
+          FROM stock s
+          LEFT JOIN category c ON c.id = s.category_id
+          WHERE s.brand_id = ANY($1)
+          GROUP BY LOWER(TRIM(COALESCE(c.category_name, 'Uncategorized')))
+        )
+        SELECT
+          cg.sample_category_id AS category_id,
+          cg.category_name,
+          COUNT(*)::int AS total_items,
+          COUNT(*) FILTER (
+            WHERE NOT (s.sale_price IS NOT NULL AND s.sale_price::numeric > 0)
+          )::int AS unsold_count,
+          COUNT(*) FILTER (
+            WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+          )::int AS sold_count,
+          COUNT(*) FILTER (
+            WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+              AND s.sale_date IS NOT NULL
+              AND s.sale_date >= (CURRENT_DATE - INTERVAL '120 days')
+          )::int AS recent_sold_count,
+          COUNT(*) FILTER (
+            WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+              AND s.sale_date IS NOT NULL
+              AND s.sale_date >= (CURRENT_DATE - INTERVAL '240 days')
+              AND s.sale_date < (CURRENT_DATE - INTERVAL '120 days')
+          )::int AS prior_sold_count,
+          COALESCE(
+            SUM(s.sale_price::numeric - s.purchase_price::numeric) FILTER (
+              WHERE s.sale_price IS NOT NULL AND s.sale_price::numeric > 0
+                AND s.purchase_price IS NOT NULL
+            ),
+            0
+          )::numeric AS total_profit
+        FROM category_groups cg
+        JOIN stock s ON s.brand_id = ANY($1) AND COALESCE(s.category_id, 0) = ANY(cg.category_ids)
+        GROUP BY cg.name_key, cg.category_name, cg.sample_category_id
+        HAVING COUNT(*) >= 2
+      `,
+      [resolved.ids]
+    );
+
+    // Two rankings off the same per-category stats:
+    //  - avoidScore: as before (unsold * slow-selling * profit shortfall), only
+    //    for categories with something currently unsold — nothing to avoid
+    //    buying if none is left in stock.
+    //  - buyScore: the mirror image — rewards categories selling faster than
+    //    they're being restocked (demand relative to current stock) and a
+    //    healthy margin, with a soft (not hard) profit penalty since a fast
+    //    seller at a thinner margin can still be worth restocking.
+    // `recentSoldCount` (last 120 days) vs `priorSoldCount` (120-240 days ago)
+    // lets a seasonal item (e.g. shorts selling well 120-240 days ago, not in
+    // the last 120) be flagged rather than silently miscounted either way —
+    // `possiblySeasonal` is just a flag for a human to weigh, not auto-corrected.
+    const allRows = statsResult.rows.map((row) => {
+      const unsoldCount = Number(row.unsold_count) || 0;
+      const soldCount = Number(row.sold_count) || 0;
+      const recentSoldCount = Number(row.recent_sold_count) || 0;
+      const priorSoldCount = Number(row.prior_sold_count) || 0;
+      const totalProfit = Number(row.total_profit) || 0;
+      const avgProfitPerItem = soldCount > 0 ? totalProfit / soldCount : null;
+      const possiblySeasonal = priorSoldCount > recentSoldCount && priorSoldCount > 0;
+
+      const slowSellingScore = unsoldCount > 0 ? 1 - Math.min(1, recentSoldCount / unsoldCount) : 0;
+      const profitShortfall = avgProfitPerItem == null ? 1 : Math.max(0, (10 - avgProfitPerItem) / 10);
+      const avoidScore = unsoldCount > 0 ? unsoldCount * slowSellingScore * profitShortfall : 0;
+
+      // Seasonal items get credit for whichever 120-day window shows more
+      // demand, so an off-season dip in the recent window doesn't hide that
+      // it's actually selling well.
+      const bestWindowSold = Math.max(recentSoldCount, priorSoldCount);
+      const demandScore = bestWindowSold / (unsoldCount + 1);
+      const profitFactor =
+        avgProfitPerItem == null ? 0 : avgProfitPerItem >= 10 ? 1 : Math.max(0.3, avgProfitPerItem / 10);
+      const buyScore = bestWindowSold > 0 ? demandScore * profitFactor : 0;
+
+      return {
+        categoryId: Number(row.category_id),
+        categoryName: row.category_name,
+        unsoldCount,
+        soldCount,
+        recentSoldCount,
+        priorSoldCount,
+        totalProfit,
+        avgProfitPerItem,
+        possiblySeasonal,
+        avoidScore,
+        buyScore,
+      };
+    });
+
+    // Each category goes in exactly one list, not both — whichever score is
+    // stronger wins. A category with a weak signal in both directions (e.g.
+    // barely overstocked and barely in demand) is left out of both rather than
+    // double-counted or arbitrarily placed.
+    const avoidRows = [];
+    const buyRows = [];
+    for (const r of allRows) {
+      const avoidSignal = r.unsoldCount > 0 ? r.avoidScore : 0;
+      if (avoidSignal <= 0 && r.buyScore <= 0) continue;
+      if (avoidSignal > r.buyScore) {
+        avoidRows.push(r);
+      } else {
+        buyRows.push(r);
+      }
+    }
+    avoidRows.sort((a, b) => b.avoidScore - a.avoidScore);
+    buyRows.sort((a, b) => b.buyScore - a.buyScore);
+
+    res.json({
+      brandName: resolved.brandName,
+      departments: resolved.departments,
+      departmentId: departmentIdFilter,
+      avoidRows,
+      buyRows,
+    });
+  } catch (error) {
+    console.error('Brand category-avoid failed:', error);
+    res.status(500).json({ error: 'Failed to load brand category avoid data', details: error.message });
   }
 });
 

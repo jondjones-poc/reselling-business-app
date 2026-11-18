@@ -134,12 +134,11 @@ export default function CreateEbayListing() {
         if (!response.ok) throw new Error(data.error || 'Could not fetch eBay categories.');
         const fetched: { id: string; name: string }[] = Array.isArray(data.categories) ? data.categories : [];
         setCategories(fetched);
-        // Default to the Clothes category — nearly every item listed here is
-        // clothing, so this saves picking it from the dropdown every time.
+        // Default to the Clothes category (11450) — nearly every item listed here
+        // is clothing, so this saves picking it from the dropdown every time.
         setCategoryId((prev) => {
           if (prev) return prev;
-          const clothes = fetched.find((c) => /clothes/i.test(c.name));
-          return clothes ? clothes.id : prev;
+          return fetched.some((c) => c.id === '11450') ? '11450' : prev;
         });
       } catch (e) {
         if (!cancelled) setCategoriesError(e instanceof Error ? e.message : 'Could not fetch eBay categories.');

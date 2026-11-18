@@ -2566,6 +2566,92 @@ a.research-tab {
   overflow: visible;
 }
 
+/* Brand detail: name/edit/tags/eBay sold/brand new prices/useful links on the
+   left; the bought-vs-sold chart, in-stock CTA, quick stats and sales data
+   charts on the right — only when a brand is selected. */
+.brand-tag-examples-container:has(.brand-research-detail-split--active) {
+  max-width: 1400px;
+}
+
+.brand-research-detail-split--active {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+  gap: 32px;
+}
+
+@media (max-width: 960px) {
+  .brand-research-detail-split--active {
+    grid-template-columns: 1fr;
+  }
+}
+
+.brand-research-department-toggle-group {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  margin-bottom: 16px;
+}
+
+/* Period + metric toggles on one row, left-aligned, instead of the centered
+   default other channel-analytics-toolbar instances use. */
+.brand-research-channel-trend-toolbar {
+  justify-content: flex-start;
+}
+
+.brand-research-brand-quick-stats {
+  margin: 24px 0;
+  row-gap: 28px;
+  text-align: center;
+}
+
+.brand-research-brand-quick-stats .brand-research-brand-totals-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.brand-research-ask-ai-col {
+  justify-content: center;
+  gap: 8px;
+}
+
+.brand-research-ask-ai-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--neon-border);
+  background: rgba(var(--theme-accent-rgb), 0.12);
+  color: var(--neon-primary-strong);
+  font-size: 0.84rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.brand-research-ask-ai-button:hover:not(:disabled) {
+  background: rgba(var(--theme-accent-rgb), 0.22);
+  box-shadow: var(--neon-shadow);
+}
+
+.brand-research-ask-ai-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.brand-research-ask-ai-status {
+  font-size: 0.74rem;
+  color: rgba(var(--theme-text-rgb), 0.6);
+  text-align: center;
+  max-width: 200px;
+}
+
 .brand-tag-examples-heading {
   color: var(--neon-primary-strong);
   font-size: 2.2rem;
@@ -3166,6 +3252,23 @@ a.research-tab {
 .brand-research-brand-toolbar-row .brand-tag-examples-brand-toolbar-actions {
   flex: 0 1 auto;
   margin-left: auto;
+}
+
+/* Name + logo now share the toolbar row with the edit icons, instead of their
+   own row below it — sit on the left, icons stay pushed right. */
+.brand-research-brand-toolbar-row .brand-research-selected-brand-heading-row {
+  width: auto;
+  max-width: none;
+  margin: 0;
+  justify-content: flex-start;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .brand-research-brand-toolbar-row .brand-research-selected-brand-heading-row {
+    flex: 1 1 100%;
+  }
 }
 
 .brand-research-selected-brand-heading-row {
@@ -4422,6 +4525,11 @@ a.research-tab {
   padding: 0;
   list-style: none;
   box-sizing: border-box;
+}
+
+.brand-research-items-to-buy-tags,
+.brand-research-avoid-buying-tags {
+  justify-content: center;
 }
 
 .brand-research-items-to-buy-tag {

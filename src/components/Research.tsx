@@ -31,6 +31,11 @@ import SoldWithinWindowHeatmap from './SoldWithinWindowHeatmap';
 import SeasonalWeeklyTopItems from './SeasonalWeeklyTopItems';
 import BrandTrendingOverview from './BrandTrendingOverview';
 import SeasonalYearlyCalendar from './SeasonalYearlyCalendar';
+import SalesByChannel from './SalesByChannel';
+import BrandBoughtVsSoldChart from './BrandBoughtVsSoldChart';
+import BrandsToAvoid from './BrandsToAvoid';
+import BrandCategoryAvoid from './BrandCategoryAvoid';
+import BrandChannelTrendChart from './BrandChannelTrendChart';
 import './BrandResearch.css';
 
 ChartJS.register(ArcElement, BarElement, CategoryScale, LinearScale, Tooltip, Legend);
@@ -45,6 +50,165 @@ const CLOTHING_TYPES_PIE_LOAD_ANIMATION = {
 
 function formatResearchCurrency(value: number): string {
   return new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(value);
+}
+
+/** Profit/loss stat tiles: green/red colour carries the meaning, no "Profit"/"Loss" text prefix. */
+function netPositionClass(value: number): string {
+  if (value > 0) return 'brand-research-brand-totals-value--profit';
+  if (value < 0) return 'brand-research-brand-totals-value--loss';
+  return 'brand-research-brand-totals-value--even';
+}
+
+function formatNetPosition(value: number): string {
+  if (value < 0) {
+    return `£-${new Intl.NumberFormat('en-GB', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(Math.abs(value))}`;
+  }
+  return formatResearchCurrency(value);
+}
+
+interface BrandPurchaseSaleRow {
+  purchaseDate: string | null;
+  purchasePrice: number | null;
+  saleDate: string | null;
+  salePrice: number | null;
+  soldPlatform: string | null;
+}
+
+interface BrandMonthlyTrendPoint {
+  label: string;
+  bought: number;
+  sold: number;
+  inventory: number;
+  profit: number;
+  profitPerItem: number | null;
+  ebayItems: number;
+  ebayProfit: number;
+  vintedItems: number;
+  vintedProfit: number;
+}
+
+function monthKeyAndLabel(dateOnly: string): { key: string; label: string } {
+  const d = new Date(`${dateOnly}T00:00:00Z`);
+  const year = d.getUTCFullYear();
+  const month = d.getUTCMonth();
+  const key = `${year}-${String(month + 1).padStart(2, '0')}`;
+  const label = d.toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+  return { key, label };
+}
+
+/** Monthly bought/sold/inventory-level/profit-per-item trend, split by eBay/Vinted —
+ * built fresh for the Ask AI prompt so it reflects whatever department filter is
+ * currently active, without the two chart components needing to expose their state. */
+function buildBrandMonthlyTrend(rows: BrandPurchaseSaleRow[]): BrandMonthlyTrendPoint[] {
+  const bought = new Map<string, number>();
+  const sold = new Map<string, number>();
+  const profit = new Map<string, number>();
+  const ebayItems = new Map<string, number>();
+  const ebayProfit = new Map<string, number>();
+  const vintedItems = new Map<string, number>();
+  const vintedProfit = new Map<string, number>();
+
+  let earliest: string | null = null;
+  for (const row of rows) {
+    if (row.purchaseDate) {
+      const { key } = monthKeyAndLabel(row.purchaseDate);
+      bought.set(key, (bought.get(key) ?? 0) + 1);
+      if (earliest == null || row.purchaseDate < earliest) earliest = row.purchaseDate;
+    }
+    if (row.saleDate && row.salePrice != null) {
+      const { key } = monthKeyAndLabel(row.saleDate);
+      sold.set(key, (sold.get(key) ?? 0) + 1);
+      const itemProfit = row.purchasePrice != null ? row.salePrice - row.purchasePrice : 0;
+      profit.set(key, (profit.get(key) ?? 0) + itemProfit);
+      if (row.soldPlatform === 'ebay') {
+        ebayItems.set(key, (ebayItems.get(key) ?? 0) + 1);
+        ebayProfit.set(key, (ebayProfit.get(key) ?? 0) + itemProfit);
+      } else if (row.soldPlatform === 'vinted') {
+        vintedItems.set(key, (vintedItems.get(key) ?? 0) + 1);
+        vintedProfit.set(key, (vintedProfit.get(key) ?? 0) + itemProfit);
+      }
+      if (earliest == null || row.saleDate < earliest) earliest = row.saleDate;
+    }
+  }
+
+  if (earliest == null) return [];
+
+  const today = new Date().toISOString().slice(0, 10);
+  const start = new Date(`${earliest}T00:00:00Z`);
+  const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1));
+  const endDate = new Date(`${today}T00:00:00Z`);
+  const end = new Date(Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth(), 1));
+
+  const out: BrandMonthlyTrendPoint[] = [];
+  let running = 0;
+  while (cursor.getTime() <= end.getTime()) {
+    const { key, label } = monthKeyAndLabel(cursor.toISOString().slice(0, 10));
+    const boughtCount = bought.get(key) ?? 0;
+    const soldCount = sold.get(key) ?? 0;
+    running += boughtCount - soldCount;
+    const monthProfit = profit.get(key) ?? 0;
+    out.push({
+      label,
+      bought: boughtCount,
+      sold: soldCount,
+      inventory: running,
+      profit: monthProfit,
+      profitPerItem: soldCount > 0 ? monthProfit / soldCount : null,
+      ebayItems: ebayItems.get(key) ?? 0,
+      ebayProfit: ebayProfit.get(key) ?? 0,
+      vintedItems: vintedItems.get(key) ?? 0,
+      vintedProfit: vintedProfit.get(key) ?? 0,
+    });
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+  }
+  return out;
+}
+
+function buildBrandBuyAdviceAskAiPrompt(input: {
+  brandName: string;
+  departmentLabel: string;
+  currentStock: number;
+  itemsSold: number;
+  totalProfit: number;
+  soldOnVinted: number;
+  soldOnEbay: number;
+  avgProfitPerItem: number | null;
+  forSaleOnVinted: number;
+  forSaleOnEbay: number;
+  monthly: BrandMonthlyTrendPoint[];
+}): string {
+  const money = (n: number) => `£${n.toFixed(2)}`;
+  const lines: string[] = [
+    `I resell secondhand clothing and want advice on whether to keep buying ${input.brandName} (${input.departmentLabel}).`,
+    '',
+    'Current snapshot:',
+    `- Items currently in stock (unsold): ${input.currentStock}`,
+    `- Items sold (lifetime): ${input.itemsSold}`,
+    `- Total profit/loss: ${money(input.totalProfit)}`,
+    `- Sold on Vinted: ${input.soldOnVinted}, Sold on eBay: ${input.soldOnEbay}`,
+    `- Average profit per item: ${input.avgProfitPerItem != null ? money(input.avgProfitPerItem) : 'n/a'}`,
+    `- Currently listed for sale — Vinted: ${input.forSaleOnVinted}, eBay: ${input.forSaleOnEbay}`,
+    '',
+    'Monthly trend — bought vs sold, resulting inventory level, profit, profit per item, and the eBay/Vinted split (oldest first):',
+    'Month | Bought | Sold | Inventory level | Total profit | Profit per item | eBay items | eBay profit | Vinted items | Vinted profit',
+  ];
+  for (const m of input.monthly) {
+    lines.push(
+      `${m.label} | ${m.bought} | ${m.sold} | ${m.inventory} | ${money(m.profit)} | ${
+        m.profitPerItem != null ? money(m.profitPerItem) : '—'
+      } | ${m.ebayItems} | ${money(m.ebayProfit)} | ${m.vintedItems} | ${money(m.vintedProfit)}`
+    );
+  }
+  lines.push(
+    '',
+    "My target is £15-£20 profit per item on this brand. I'll accept less only if it's flipping quickly (fast turnover, low time sitting in stock).",
+    '',
+    'Based on this data — especially whether sales are increasing or decreasing over time, and whether profit per item is holding up — should I buy more of this brand, hold at my current stock level, or avoid buying more?'
+  );
+  return lines.join('\n');
 }
 
 /** Keep +/− glued to the amount so it cannot wrap onto its own line. */
@@ -1127,12 +1291,21 @@ type BrandStockSummaryPayload = {
   totalItems: number;
   soldCount: number;
   unsoldCount: number;
+  /** Sold count split by platform (sale_price > 0 rows only). */
+  ebaySoldCount: number;
+  vintedSoldCount: number;
+  /** Unsold rows currently listed on each platform (has a vinted_id / ebay_id). */
+  vintedForSaleCount: number;
+  ebayForSaleCount: number;
   /** Sum of purchase_price for all rows with a purchase price recorded. */
   totalPurchaseSpend: number;
   /** Sum of sale_price for sold rows (sale_price > 0). */
   totalSoldRevenue: number;
   /** totalSoldRevenue − totalPurchaseSpend (sales vs all buy-in for the brand). */
   brandNetPosition: number;
+  /** Profit split by platform (sold rows with both prices > 0). */
+  ebayProfit: number;
+  vintedProfit: number;
   /** Min sale_price among sold rows (> 0), when any. */
   minSoldSalePrice: number | null;
   /** Max sale_price among sold rows (> 0), when any. */
@@ -1143,6 +1316,10 @@ type BrandStockSummaryPayload = {
   heavyUnsoldByCategory: BrandStockCategoryMoneyRow[];
   /** Per inventory category: sold vs not-sold counts for this brand. */
   categorySoldUnsold: BrandCategorySoldUnsoldRow[];
+  /** Every department this brand name sells under (e.g. Nike: Menswear, Womenswear, Shoes) — lets the UI offer a per-department toggle. */
+  departments: { id: number; name: string }[];
+  /** The department this payload is scoped to, or null when combining every department above. */
+  departmentId: number | null;
 };
 
 function BrandStockSpendSoldNetTotals({
@@ -1391,6 +1568,22 @@ function parseBrandStockSummaryPayload(data: unknown): BrandStockSummaryPayload 
   const avgMult = d.avgSoldProfitMultiple ?? d.avg_sold_profit_multiple;
   const avgSoldProfitMultiple =
     avgMult != null && Number.isFinite(Number(avgMult)) ? Number(avgMult) : null;
+  const departmentsRaw = d.departments;
+  const departments: { id: number; name: string }[] = Array.isArray(departmentsRaw)
+    ? departmentsRaw
+        .map((row) => {
+          if (!row || typeof row !== 'object') return null;
+          const r = row as Record<string, unknown>;
+          const id = Number(r.id);
+          if (!Number.isFinite(id)) return null;
+          const name = r.name != null ? String(r.name) : 'Unnamed';
+          return { id, name };
+        })
+        .filter((x): x is { id: number; name: string } => x != null)
+    : [];
+  const departmentIdRaw = d.departmentId;
+  const departmentId =
+    departmentIdRaw != null && Number.isFinite(Number(departmentIdRaw)) ? Number(departmentIdRaw) : null;
 
   return {
     brandId: Number(d.brandId) || 0,
@@ -1399,15 +1592,23 @@ function parseBrandStockSummaryPayload(data: unknown): BrandStockSummaryPayload 
     totalItems: Number(d.totalItems) || 0,
     soldCount: Number(d.soldCount) || 0,
     unsoldCount: Number(d.unsoldCount) || 0,
+    ebaySoldCount: Number(d.ebaySoldCount) || 0,
+    vintedSoldCount: Number(d.vintedSoldCount) || 0,
+    vintedForSaleCount: Number(d.vintedForSaleCount) || 0,
+    ebayForSaleCount: Number(d.ebayForSaleCount) || 0,
     totalPurchaseSpend: Number(d.totalPurchaseSpend) || 0,
     totalSoldRevenue: Number(d.totalSoldRevenue) || 0,
     brandNetPosition: Number(d.brandNetPosition) || 0,
+    ebayProfit: Number(d.ebayProfit) || 0,
+    vintedProfit: Number(d.vintedProfit) || 0,
     minSoldSalePrice,
     maxSoldSalePrice,
     avgSoldProfitMultiple,
     bestSoldByCategory,
     heavyUnsoldByCategory,
     categorySoldUnsold,
+    departments,
+    departmentId,
   };
 }
 
@@ -2242,6 +2443,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     | 'menswear-categories'
     | 'clothing-types'
     | 'seasonal'
+    | 'online-sales'
+    | 'brands-to-avoid'
     | 'sourced'
     | 'item-views'
     | 'inventory-ageing'
@@ -2257,6 +2460,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       t === 'menswear-categories' ||
       t === 'clothing-types' ||
       t === 'seasonal' ||
+      t === 'online-sales' ||
+      t === 'brands-to-avoid' ||
       t === 'sourced' ||
       t === 'item-views' ||
       t === 'inventory-ageing'
@@ -2363,6 +2568,8 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         | 'menswear-categories'
         | 'clothing-types'
         | 'seasonal'
+        | 'online-sales'
+        | 'brands-to-avoid'
         | 'sourced'
         | 'item-views'
         | 'inventory-ageing'
@@ -3108,6 +3315,12 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     useState<BrandStockSummaryPeriod>('all');
   const [brandStockPeriodMenuOpen, setBrandStockPeriodMenuOpen] = useState(false);
   const brandStockPeriodMenuRef = useRef<HTMLDivElement>(null);
+  /** A brand like Nike is stored as one row per department (Menswear, Womenswear, Shoes…).
+   * `null` combines every department; set to scope the bought-vs-sold chart and sales
+   * data charts to just one. Shared across all graphs in the brand detail's right column. */
+  const [brandDepartmentFilter, setBrandDepartmentFilter] = useState<number | null>(null);
+  const [brandAskAiStatus, setBrandAskAiStatus] = useState<string | null>(null);
+  const [brandAskAiLoading, setBrandAskAiLoading] = useState(false);
 
   const [ebaySoldItems, setEbaySoldItems] = useState<EbaySoldItemRow[]>([]);
   const [ebaySoldLoading, setEbaySoldLoading] = useState(false);
@@ -4586,8 +4799,12 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       setClothingTypeBrandInventoryStockSummaryLoading(true);
       setClothingTypeBrandInventoryStockSummaryError(null);
       try {
+        const deptQs =
+          clothingTypesListDepartmentIdForApi != null
+            ? `?department_id=${clothingTypesListDepartmentIdForApi}`
+            : '';
         const res = await fetch(
-          apiUrl(`/api/brands/${clothingTypeBrandIdFromUrl}/stock-summary`),
+          apiUrl(`/api/brands/${clothingTypeBrandIdFromUrl}/stock-summary${deptQs}`),
           { signal: ac.signal }
         );
         const raw = await readJsonResponse<unknown>(res, 'clothing-type brand stock summary');
@@ -4606,7 +4823,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       cancelled = true;
       ac.abort();
     };
-  }, [researchTab, clothingTypeSelection, clothingTypeBrandIdFromUrl]);
+  }, [researchTab, clothingTypeSelection, clothingTypeBrandIdFromUrl, clothingTypesListDepartmentIdForApi]);
 
   useEffect(() => {
     if (clothingTypeBrandIdFromUrl == null) {
@@ -4923,8 +5140,12 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       setMenswearBrandInventoryStockSummaryLoading(true);
       setMenswearBrandInventoryStockSummaryError(null);
       try {
+        const deptQs =
+          menswearCategoriesListDepartmentIdForApi != null
+            ? `?department_id=${menswearCategoriesListDepartmentIdForApi}`
+            : '';
         const res = await fetch(
-          apiUrl(`/api/brands/${menswearBrandIdFromUrl}/stock-summary`),
+          apiUrl(`/api/brands/${menswearBrandIdFromUrl}/stock-summary${deptQs}`),
           { signal: ac.signal }
         );
         const raw = await readJsonResponse<unknown>(res, 'brand stock summary');
@@ -4943,7 +5164,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       cancelled = true;
       ac.abort();
     };
-  }, [researchTab, menswearCategoryIdFromUrl, menswearBrandIdFromUrl]);
+  }, [researchTab, menswearCategoryIdFromUrl, menswearBrandIdFromUrl, menswearCategoriesListDepartmentIdForApi]);
 
   useEffect(() => {
     if (researchTab !== 'menswear-categories' || menswearCategoryIdFromUrl == null || !menswearStockDrilldown) {
@@ -7047,6 +7268,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       setBrandStockSummaryLoading(false);
       setBrandStockSummaryPeriod('all');
       setBrandStockPeriodMenuOpen(false);
+      setBrandDepartmentFilter(null);
       return;
     }
 
@@ -7054,6 +7276,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     if (brandSwitched) {
       prevBrandStockSummaryBrandRef.current = brandTagBrandId;
       setBrandStockPeriodMenuOpen(false);
+      setBrandDepartmentFilter(null);
       if (brandStockSummaryPeriod !== 'all') {
         setBrandStockSummaryPeriod('all');
         return;
@@ -7070,6 +7293,9 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         const params = new URLSearchParams();
         if (brandStockSummaryPeriod !== 'all') {
           params.set('period', brandStockSummaryPeriod);
+        }
+        if (brandDepartmentFilter != null) {
+          params.set('department_id', String(brandDepartmentFilter));
         }
         const qs = params.toString();
         const path =
@@ -7096,7 +7322,82 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     return () => {
       cancelled = true;
     };
-  }, [brandTagBrandId, brandStockSummaryPeriod]);
+  }, [brandTagBrandId, brandStockSummaryPeriod, brandDepartmentFilter]);
+
+  /** "Current {brand} in stock" CTA — lives in the detail-right column now, computed
+   * here (rather than inline where it renders) since the heading that used to sit
+   * beside it is in the detail-left column, a separate part of the JSX tree. */
+  const selectedBrandInStockCta = useMemo(() => {
+    if (brandTagBrandId === '') return null;
+    const selBrand = brandsWithWebsites.find((x) => x.id === brandTagBrandId);
+    if (!selBrand) return null;
+    const clothingCatId = selBrand.menswear_category_id;
+    if (clothingCatId == null) return null;
+    const title = (selBrand.brand_name ?? '').trim() || 'Brand';
+    const q = new URLSearchParams();
+    q.set('tab', 'menswear-categories');
+    q.set('menswearCategoryId', String(clothingCatId));
+    q.set('menswearBrandId', String(selBrand.id));
+    return {
+      to: `/analytics?${q.toString()}`,
+      label: title ? `Current ${title} in stock` : 'Current brand in stock',
+    };
+  }, [brandTagBrandId, brandsWithWebsites]);
+
+  /** Name + website link for the selected brand — now rendered beside the edit
+   * icons in the toolbar row rather than its own row. */
+  const selectedBrandHeading = useMemo(() => {
+    if (brandTagBrandId === '') return null;
+    const selBrand = brandsWithWebsites.find((x) => x.id === brandTagBrandId);
+    if (!selBrand) return null;
+    const title = (selBrand.brand_name ?? '').trim() || 'Brand';
+    const rawSite = selBrand.brand_website?.trim() ?? '';
+    const fullUrlBrowse =
+      rawSite && (rawSite.startsWith('http://') || rawSite.startsWith('https://') ? rawSite : `https://${rawSite}`);
+    return { title, rawSite, fullUrlBrowse: fullUrlBrowse || null };
+  }, [brandTagBrandId, brandsWithWebsites]);
+
+  /** Builds a buy/hold/avoid Ask AI prompt from the current quick stats plus a
+   * fresh monthly trend (so it respects whatever department filter is active),
+   * and copies it to the clipboard to paste into ChatGPT or similar. */
+  const handleBrandAskAi = useCallback(async () => {
+    if (brandTagBrandId === '' || !brandStockSummary) return;
+    setBrandAskAiLoading(true);
+    setBrandAskAiStatus(null);
+    try {
+      const qs = brandDepartmentFilter != null ? `?department_id=${brandDepartmentFilter}` : '';
+      const response = await fetch(apiUrl(`/api/brands/${brandTagBrandId}/purchase-sale-dates${qs}`));
+      const raw = await readJsonResponse<{ rows?: unknown }>(response, 'brand purchase/sale dates');
+      const rows = Array.isArray(raw.rows) ? (raw.rows as BrandPurchaseSaleRow[]) : [];
+      const monthly = buildBrandMonthlyTrend(rows);
+      const brandName = selectedBrandHeading?.title ?? 'this brand';
+      const departmentLabel =
+        brandDepartmentFilter == null
+          ? 'all departments'
+          : brandStockSummary.departments.find((d) => d.id === brandDepartmentFilter)?.name ?? 'selected department';
+      const text = buildBrandBuyAdviceAskAiPrompt({
+        brandName,
+        departmentLabel,
+        currentStock: brandStockSummary.unsoldCount,
+        itemsSold: brandStockSummary.soldCount,
+        totalProfit: brandStockSummary.brandNetPosition,
+        soldOnVinted: brandStockSummary.vintedSoldCount,
+        soldOnEbay: brandStockSummary.ebaySoldCount,
+        avgProfitPerItem:
+          brandStockSummary.soldCount > 0 ? brandStockSummary.brandNetPosition / brandStockSummary.soldCount : null,
+        forSaleOnVinted: brandStockSummary.vintedForSaleCount,
+        forSaleOnEbay: brandStockSummary.ebayForSaleCount,
+        monthly,
+      });
+      await navigator.clipboard.writeText(text);
+      setBrandAskAiStatus('Prompt copied — paste it into ChatGPT or your AI tool of choice.');
+      window.setTimeout(() => setBrandAskAiStatus(null), 5000);
+    } catch (e) {
+      setBrandAskAiStatus(e instanceof Error ? e.message : 'Could not build the prompt.');
+    } finally {
+      setBrandAskAiLoading(false);
+    }
+  }, [brandTagBrandId, brandStockSummary, brandDepartmentFilter, selectedBrandHeading]);
 
   useEffect(() => {
     if (researchTab !== 'brand' || brandTagBrandId === '') {
@@ -7380,53 +7681,6 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
     return () => observer.disconnect();
   }, [brandStockBarChartData]);
 
-  const brandStockSellThroughPercent = useMemo(() => {
-    const s = brandStockSummary;
-    if (!s) return null;
-    const total = s.soldCount + s.unsoldCount;
-    if (total === 0) return null;
-    return (s.soldCount / total) * 100;
-  }, [brandStockSummary]);
-
-  const brandStockSellThroughPieData = useMemo(() => {
-    const s = brandStockSummary;
-    if (!s) return null;
-    const total = s.soldCount + s.unsoldCount;
-    if (total === 0) return null;
-    return {
-      labels: ['Sold', 'Number Of Items In Stock'],
-      datasets: [
-        {
-          data: [s.soldCount, s.unsoldCount],
-          backgroundColor: [themePositiveRgba(0.65), themeNegativeRgba(0.55)],
-          borderColor: [themePositiveRgba(0.95), themeNegativeRgba(0.9)],
-          borderWidth: 1,
-        },
-      ],
-    };
-  }, [brandStockSummary]);
-
-  const brandStockSellThroughPieOptions = useMemo<ChartOptions<'pie'>>(
-    () => ({
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: {
-          position: 'bottom',
-          labels: { color: themeTextRgba(0.85), boxWidth: 12, boxHeight: 12 },
-        },
-        tooltip: {
-          callbacks: {
-            label: (ctx) => {
-              const n = typeof ctx.raw === 'number' ? ctx.raw : Number(ctx.raw);
-              return `${ctx.label}: ${Number.isFinite(n) ? n : 0} item${n === 1 ? '' : 's'}`;
-            },
-          },
-        },
-      },
-    }),
-    []
-  );
 
   /** Top 4 categories by sold revenue (API: highest first), then ascending by sold value for tag order. */
   const brandStockItemsToBuyTags = useMemo(() => {
@@ -9455,6 +9709,17 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
         <button
           type="button"
           role="tab"
+          id="research-tab-online-sales"
+          aria-selected={researchTab === 'online-sales'}
+          aria-controls="research-panel-online-sales"
+          className={`research-tab${researchTab === 'online-sales' ? ' active' : ''}`}
+          onClick={() => setResearchTab('online-sales')}
+        >
+          Online Sales Data
+        </button>
+        <button
+          type="button"
+          role="tab"
           id="research-tab-department"
           aria-selected={researchTab === 'department'}
           aria-controls="research-panel-department"
@@ -9473,6 +9738,17 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           onClick={() => setResearchTab('brand')}
         >
           Sales by Brand
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="research-tab-brands-to-avoid"
+          aria-selected={researchTab === 'brands-to-avoid'}
+          aria-controls="research-panel-brands-to-avoid"
+          className={`research-tab${researchTab === 'brands-to-avoid' ? ' active' : ''}`}
+          onClick={() => setResearchTab('brands-to-avoid')}
+        >
+          Brands To Avoid
         </button>
         <button
           type="button"
@@ -9699,6 +9975,26 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
             />
           </nav>
         )}
+      {researchTab === 'online-sales' && (
+        <div
+          id="research-panel-online-sales"
+          role="tabpanel"
+          aria-labelledby="research-tab-online-sales"
+          className="research-tab-panel"
+        >
+          <SalesByChannel />
+        </div>
+      )}
+      {researchTab === 'brands-to-avoid' && (
+        <div
+          id="research-panel-brands-to-avoid"
+          role="tabpanel"
+          aria-labelledby="research-tab-brands-to-avoid"
+          className="research-tab-panel"
+        >
+          <BrandsToAvoid />
+        </div>
+      )}
       {researchTab === 'department' && (
         <div
           id="research-panel-department"
@@ -10271,6 +10567,13 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
       >
         <div
           className={
+            'brand-research-detail-split' +
+            (brandTagBrandId !== '' ? ' brand-research-detail-split--active' : '')
+          }
+        >
+        <div className="brand-research-detail-left">
+        <div
+          className={
             'brand-tag-examples-form' +
             (brandTagBrandId === '' ? ' brand-tag-examples-form--no-brand-selected' : '')
           }
@@ -10314,6 +10617,33 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
               }
             >
               <div className="brand-research-brand-toolbar-row">
+                {selectedBrandHeading && (
+                  <div className="brand-research-selected-brand-heading-row">
+                    {brandLogoRow?.public_url ? (
+                      <img
+                        src={brandLogoRow.public_url}
+                        alt=""
+                        className="brand-research-selected-brand-logo-thumb"
+                      />
+                    ) : null}
+                    {selectedBrandHeading.fullUrlBrowse ? (
+                      <h1 className="brand-research-selected-brand-title">
+                        <a
+                          href={selectedBrandHeading.fullUrlBrowse}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="brand-research-selected-brand-title-link"
+                          title={selectedBrandHeading.rawSite}
+                          aria-label={`Visit ${selectedBrandHeading.title} website`}
+                        >
+                          {selectedBrandHeading.title}
+                        </a>
+                      </h1>
+                    ) : (
+                      <h1 className="brand-research-selected-brand-title">{selectedBrandHeading.title}</h1>
+                    )}
+                  </div>
+                )}
                 {brandTagBrandId !== '' && (
                   <div className="brand-tag-examples-brand-toolbar-actions">
                     <button
@@ -10642,92 +10972,6 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
                   ))}
               </div>
             )}
-            {brandTagBrandId !== '' && (() => {
-              const selBrand = brandsWithWebsites.find((x) => x.id === brandTagBrandId);
-              if (!selBrand) return null;
-              const title = (selBrand.brand_name ?? '').trim() || 'Brand';
-              const rawSite = selBrand.brand_website?.trim() ?? '';
-              const fullUrlBrowse =
-                rawSite &&
-                (rawSite.startsWith('http://') || rawSite.startsWith('https://')
-                  ? rawSite
-                  : `https://${rawSite}`);
-              const clothingCatId = selBrand.menswear_category_id;
-              const clothingCategoryStockTo = (() => {
-                if (clothingCatId == null) return '';
-                const q = new URLSearchParams();
-                q.set('tab', 'menswear-categories');
-                q.set('menswearCategoryId', String(clothingCatId));
-                q.set('menswearBrandId', String(selBrand.id));
-                return `/analytics?${q.toString()}`;
-              })();
-              const currentBrandInStockLabel = title
-                ? `Current ${title} in stock`
-                : 'Current brand in stock';
-              return (
-                <>
-                  <div className="brand-research-selected-brand-heading-row">
-                    {brandLogoRow?.public_url ? (
-                      <img
-                        src={brandLogoRow.public_url}
-                        alt=""
-                        className="brand-research-selected-brand-logo-thumb"
-                      />
-                    ) : null}
-                    {fullUrlBrowse ? (
-                      <h1 className="brand-research-selected-brand-title">
-                        <a
-                          href={fullUrlBrowse}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="brand-research-selected-brand-title-link"
-                          title={rawSite}
-                          aria-label={`Visit ${title} website`}
-                        >
-                          {title}
-                        </a>
-                      </h1>
-                    ) : (
-                      <h1 className="brand-research-selected-brand-title">{title}</h1>
-                    )}
-                  </div>
-                  {clothingCatId != null && clothingCategoryStockTo ? (
-                    <div className="brand-tag-examples-in-stock-cta-wrap">
-                      <Link
-                        to={clothingCategoryStockTo}
-                        className="brand-website-link brand-tag-examples-in-stock-cta"
-                        aria-label={`${currentBrandInStockLabel} — open Menswear category stock list`}
-                      >
-                        <svg
-                          className="brand-tag-examples-in-stock-cta-icon"
-                          width="18"
-                          height="18"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          xmlns="http://www.w3.org/2000/svg"
-                          aria-hidden
-                        >
-                          <path
-                            d="M21 8l-9-5-9 5v8l9 5 9-5V8z"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinejoin="round"
-                          />
-                          <path
-                            d="M3.5 8.5L12 13l8.5-4.5M12 13v9"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                        <span>{currentBrandInStockLabel}</span>
-                      </Link>
-                    </div>
-                  ) : null}
-                </>
-              );
-            })()}
             {brandTagBrandId !== '' &&
               (() => {
                 const br = brandsWithWebsites.find((x) => x.id === brandTagBrandId);
@@ -11224,176 +11468,7 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
           </section>
         )}
         {brandTagBrandId !== '' && (
-          <section className="brand-research-sales-section" aria-labelledby="brand-research-sales-title">
-            <div className="brand-research-sales-header">
-              <h3 id="brand-research-sales-title" className="brand-research-sales-heading">
-                Sales Data
-              </h3>
-              <div
-                className="brand-research-sales-period-wrap"
-                ref={brandStockPeriodMenuRef}
-              >
-                <button
-                  type="button"
-                  className={`brand-research-sales-period-trigger${brandStockPeriodMenuOpen ? ' brand-research-sales-period-trigger--open' : ''}`}
-                  aria-expanded={brandStockPeriodMenuOpen}
-                  aria-haspopup="listbox"
-                  aria-label={`Sales period: ${brandStockPeriodMenuLabel(brandStockSummaryPeriod)}. Change period`}
-                  onClick={() => setBrandStockPeriodMenuOpen((open) => !open)}
-                >
-                  <svg
-                    className="brand-research-sales-period-trigger-icon"
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                    aria-hidden
-                  >
-                    <path
-                      d="M5 5h14l-5 7.5V18l-4 2v-7.5L5 5z"
-                      stroke="currentColor"
-                      strokeWidth="1.85"
-                      strokeLinejoin="round"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                </button>
-                {brandStockPeriodMenuOpen ? (
-                  <ul
-                    className="brand-research-sales-period-menu"
-                    role="listbox"
-                    aria-label="Sales period"
-                  >
-                    {(
-                      [
-                        { value: 'all' as const, label: 'All time' },
-                        { value: 'last_12_months' as const, label: 'Last 12 months' },
-                        { value: '2026' as const, label: '2026' },
-                        { value: '2025' as const, label: '2025' },
-                      ] as const
-                    ).map((opt) => (
-                      <li key={opt.value} role="presentation">
-                        <button
-                          type="button"
-                          role="option"
-                          className={
-                            'brand-research-sales-period-option' +
-                            (brandStockSummaryPeriod === opt.value
-                              ? ' brand-research-sales-period-option--active'
-                              : '')
-                          }
-                          aria-selected={brandStockSummaryPeriod === opt.value}
-                          onClick={() => {
-                            setBrandStockSummaryPeriod(opt.value);
-                            setBrandStockPeriodMenuOpen(false);
-                          }}
-                        >
-                          {opt.label}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-              </div>
-            </div>
-            {brandStockSummaryLoading && (
-              <div className="brand-tag-examples-muted brand-research-sales-loading">Loading sales data…</div>
-            )}
-            {brandStockSummaryError && (
-              <div className="brand-tag-examples-error brand-research-sales-error" role="alert">
-                {brandStockSummaryError}
-              </div>
-            )}
-            {!brandStockSummaryLoading && brandStockSummary && (
-              <>
-                {!brandStockBarChartData ? (
-                  <p className="brand-research-sales-empty">
-                    {brandStockSummary.stockRowCountLifetime === 0
-                      ? 'No stock rows are linked to this brand yet. Assign a brand on the Stock page to see charts here.'
-                      : brandStockSummaryPeriod !== 'all'
-                        ? 'No items match this period for this brand (sold lines need a sale date in range; unsold lines need a purchase date in range).'
-                        : 'No stock rows are linked to this brand yet. Assign a brand on the Stock page to see charts here.'}
-                  </p>
-                ) : (
-                  <div className="brand-research-sales-chart-block" ref={brandChartPulseRef}>
-                    {brandStockSellThroughPercent != null && brandStockSellThroughPieData && (
-                      <div className="brand-research-sales-chart-inner brand-research-sales-chart-inner--pie">
-                        <Pie data={brandStockSellThroughPieData} options={brandStockSellThroughPieOptions} />
-                      </div>
-                    )}
-                    <div className="brand-research-sales-chart-inner brand-research-sales-chart-inner--bar">
-                      <Bar data={brandStockBarChartData} options={brandStockBarOptions} />
-                    </div>
-                    {categorySoldUnsoldStackData && (
-                      <div className="brand-research-category-stack-block">
-                        <h4 className="brand-research-category-stack-heading">
-                          Inventory Overview
-                        </h4>
-                        <div
-                          className="brand-research-category-stack-chart-inner"
-                          style={{ height: '360px' }}
-                        >
-                          <Bar
-                            data={categorySoldUnsoldStackData}
-                            options={categorySoldUnsoldStackOptions}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-                {brandStockItemsToBuyTags.length > 0 ? (
-                  <div className="brand-research-sales-table-block brand-research-sales-table-block--to-buy">
-                    <h4 className="brand-research-sales-subheading" id="brand-research-items-to-buy">
-                      Items to buy
-                    </h4>
-                    <ul
-                      className="brand-research-items-to-buy-tags"
-                      aria-labelledby="brand-research-items-to-buy"
-                    >
-                      {brandStockItemsToBuyTags.map((row, idx) => (
-                        <li
-                          key={
-                            row.categoryId > 0
-                              ? `buy-cat-${row.categoryId}`
-                              : `buy-cat-${idx}-${row.categoryName}`
-                          }
-                          className="brand-research-items-to-buy-tag"
-                        >
-                          {row.categoryName}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-                {brandStockSummary.heavyUnsoldByCategory.length > 0 ? (
-                  <div className="brand-research-sales-table-block brand-research-sales-table-block--unsold">
-                    <h4 className="brand-research-sales-subheading" id="brand-research-items-to-avoid-buying">
-                      Items To Avoid Buying
-                    </h4>
-                    <ul
-                      className="brand-research-avoid-buying-tags"
-                      aria-labelledby="brand-research-items-to-avoid-buying"
-                    >
-                      {brandStockSummary.heavyUnsoldByCategory.map((row, idx) => (
-                        <li
-                          key={
-                            row.categoryId > 0
-                              ? `avoid-buy-cat-${row.categoryId}`
-                              : `avoid-buy-cat-${idx}-${row.categoryName}`
-                          }
-                          className="brand-research-avoid-buying-tag"
-                        >
-                          {row.categoryName}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-              </>
-            )}
-          </section>
+          <BrandCategoryAvoid brandId={Number(brandTagBrandId)} departmentId={brandDepartmentFilter} />
         )}
         {brandTagBrandId !== '' && (
           <section
@@ -11605,6 +11680,301 @@ const Research: React.FC<ResearchProps> = ({ forcedView }) => {
             )}
           </section>
         )}
+        </div>
+        {brandTagBrandId !== '' && (
+          <div className="brand-research-detail-right">
+            {brandStockSummary && brandStockSummary.departments.length > 1 && (
+              <div
+                className="channel-toggle-group brand-research-department-toggle-group"
+                role="group"
+                aria-label="Department"
+              >
+                <div className="channel-toggle-buttons">
+                  <button
+                    type="button"
+                    className={`channel-toggle-button ${brandDepartmentFilter == null ? 'active' : ''}`}
+                    aria-pressed={brandDepartmentFilter == null}
+                    onClick={() => setBrandDepartmentFilter(null)}
+                  >
+                    All
+                  </button>
+                  {brandStockSummary.departments.map((d) => (
+                    <button
+                      key={d.id}
+                      type="button"
+                      className={`channel-toggle-button ${brandDepartmentFilter === d.id ? 'active' : ''}`}
+                      aria-pressed={brandDepartmentFilter === d.id}
+                      onClick={() => setBrandDepartmentFilter(d.id)}
+                    >
+                      {d.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <BrandBoughtVsSoldChart brandId={Number(brandTagBrandId)} departmentId={brandDepartmentFilter} />
+            <BrandChannelTrendChart brandId={Number(brandTagBrandId)} departmentId={brandDepartmentFilter} />
+            {selectedBrandInStockCta && (
+              <div className="brand-tag-examples-in-stock-cta-wrap">
+                <Link
+                  to={selectedBrandInStockCta.to}
+                  className="brand-website-link brand-tag-examples-in-stock-cta"
+                  aria-label={`${selectedBrandInStockCta.label} — open Menswear category stock list`}
+                >
+                  <svg
+                    className="brand-tag-examples-in-stock-cta-icon"
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    aria-hidden
+                  >
+                    <path
+                      d="M21 8l-9-5-9 5v8l9 5 9-5V8z"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinejoin="round"
+                    />
+                    <path
+                      d="M3.5 8.5L12 13l8.5-4.5M12 13v9"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  <span>{selectedBrandInStockCta.label}</span>
+                </Link>
+              </div>
+            )}
+            {brandStockSummary && (
+              <div className="brand-research-brand-totals brand-research-brand-quick-stats" aria-label="Brand quick stats">
+                <div className="brand-research-brand-totals-col">
+                  <span className="brand-research-brand-totals-label">Number of items in stock</span>
+                  <span className="brand-research-brand-totals-value">{brandStockSummary.unsoldCount}</span>
+                </div>
+                <div className="brand-research-brand-totals-col">
+                  <span className="brand-research-brand-totals-label">Number of items sold</span>
+                  <span className="brand-research-brand-totals-value">{brandStockSummary.soldCount}</span>
+                </div>
+                <div className="brand-research-brand-totals-col">
+                  <span className="brand-research-brand-totals-label">Total profit/loss</span>
+                  <span className={`brand-research-brand-totals-value brand-research-brand-totals-value--net ${netPositionClass(brandStockSummary.brandNetPosition)}`}>
+                    {formatNetPosition(brandStockSummary.brandNetPosition)}
+                  </span>
+                </div>
+                <div className="brand-research-brand-totals-col">
+                  <span className="brand-research-brand-totals-label">Sold on Vinted</span>
+                  <span className="brand-research-brand-totals-value">{brandStockSummary.vintedSoldCount}</span>
+                </div>
+                <div className="brand-research-brand-totals-col">
+                  <span className="brand-research-brand-totals-label">Sold on eBay</span>
+                  <span className="brand-research-brand-totals-value">{brandStockSummary.ebaySoldCount}</span>
+                </div>
+                <div className="brand-research-brand-totals-col">
+                  <span className="brand-research-brand-totals-label">Average profit per item</span>
+                  {brandStockSummary.soldCount > 0 ? (
+                    <span
+                      className={`brand-research-brand-totals-value brand-research-brand-totals-value--net ${netPositionClass(
+                        brandStockSummary.brandNetPosition / brandStockSummary.soldCount
+                      )}`}
+                    >
+                      {formatNetPosition(brandStockSummary.brandNetPosition / brandStockSummary.soldCount)}
+                    </span>
+                  ) : (
+                    <span className="brand-research-brand-totals-value">—</span>
+                  )}
+                </div>
+                <div className="brand-research-brand-totals-col">
+                  <span className="brand-research-brand-totals-label">For sale on Vinted</span>
+                  <span className="brand-research-brand-totals-value">{brandStockSummary.vintedForSaleCount}</span>
+                </div>
+                <div className="brand-research-brand-totals-col">
+                  <span className="brand-research-brand-totals-label">For sale on eBay</span>
+                  <span className="brand-research-brand-totals-value">{brandStockSummary.ebayForSaleCount}</span>
+                </div>
+                <div className="brand-research-brand-totals-col brand-research-ask-ai-col">
+                  <button
+                    type="button"
+                    className="brand-research-ask-ai-button"
+                    onClick={() => void handleBrandAskAi()}
+                    disabled={brandAskAiLoading}
+                  >
+                    {brandAskAiLoading ? 'Copying…' : 'Ask AI: Buy, Hold or Avoid?'}
+                  </button>
+                  {brandAskAiStatus && <span className="brand-research-ask-ai-status">{brandAskAiStatus}</span>}
+                </div>
+              </div>
+            )}
+          <section className="brand-research-sales-section" aria-labelledby="brand-research-sales-title">
+            <div className="brand-research-sales-header">
+              <h3 id="brand-research-sales-title" className="brand-research-sales-heading">
+                Sales Data
+              </h3>
+              <div
+                className="brand-research-sales-period-wrap"
+                ref={brandStockPeriodMenuRef}
+              >
+                <button
+                  type="button"
+                  className={`brand-research-sales-period-trigger${brandStockPeriodMenuOpen ? ' brand-research-sales-period-trigger--open' : ''}`}
+                  aria-expanded={brandStockPeriodMenuOpen}
+                  aria-haspopup="listbox"
+                  aria-label={`Sales period: ${brandStockPeriodMenuLabel(brandStockSummaryPeriod)}. Change period`}
+                  onClick={() => setBrandStockPeriodMenuOpen((open) => !open)}
+                >
+                  <svg
+                    className="brand-research-sales-period-trigger-icon"
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    aria-hidden
+                  >
+                    <path
+                      d="M5 5h14l-5 7.5V18l-4 2v-7.5L5 5z"
+                      stroke="currentColor"
+                      strokeWidth="1.85"
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
+                {brandStockPeriodMenuOpen ? (
+                  <ul
+                    className="brand-research-sales-period-menu"
+                    role="listbox"
+                    aria-label="Sales period"
+                  >
+                    {(
+                      [
+                        { value: 'all' as const, label: 'All time' },
+                        { value: 'last_12_months' as const, label: 'Last 12 months' },
+                        { value: '2026' as const, label: '2026' },
+                        { value: '2025' as const, label: '2025' },
+                      ] as const
+                    ).map((opt) => (
+                      <li key={opt.value} role="presentation">
+                        <button
+                          type="button"
+                          role="option"
+                          className={
+                            'brand-research-sales-period-option' +
+                            (brandStockSummaryPeriod === opt.value
+                              ? ' brand-research-sales-period-option--active'
+                              : '')
+                          }
+                          aria-selected={brandStockSummaryPeriod === opt.value}
+                          onClick={() => {
+                            setBrandStockSummaryPeriod(opt.value);
+                            setBrandStockPeriodMenuOpen(false);
+                          }}
+                        >
+                          {opt.label}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            </div>
+            {brandStockSummaryLoading && (
+              <div className="brand-tag-examples-muted brand-research-sales-loading">Loading sales data…</div>
+            )}
+            {brandStockSummaryError && (
+              <div className="brand-tag-examples-error brand-research-sales-error" role="alert">
+                {brandStockSummaryError}
+              </div>
+            )}
+            {!brandStockSummaryLoading && brandStockSummary && (
+              <>
+                {!brandStockBarChartData ? (
+                  <p className="brand-research-sales-empty">
+                    {brandStockSummary.stockRowCountLifetime === 0
+                      ? 'No stock rows are linked to this brand yet. Assign a brand on the Stock page to see charts here.'
+                      : brandStockSummaryPeriod !== 'all'
+                        ? 'No items match this period for this brand (sold lines need a sale date in range; unsold lines need a purchase date in range).'
+                        : 'No stock rows are linked to this brand yet. Assign a brand on the Stock page to see charts here.'}
+                  </p>
+                ) : (
+                  <div className="brand-research-sales-chart-block" ref={brandChartPulseRef}>
+                    <div className="brand-research-sales-chart-inner brand-research-sales-chart-inner--bar">
+                      <Bar data={brandStockBarChartData} options={brandStockBarOptions} />
+                    </div>
+                    {categorySoldUnsoldStackData && (
+                      <div className="brand-research-category-stack-block">
+                        <h4 className="brand-research-category-stack-heading">
+                          Inventory Overview
+                        </h4>
+                        <div
+                          className="brand-research-category-stack-chart-inner"
+                          style={{ height: '360px' }}
+                        >
+                          <Bar
+                            data={categorySoldUnsoldStackData}
+                            options={categorySoldUnsoldStackOptions}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {brandStockItemsToBuyTags.length > 0 ? (
+                  <div className="brand-research-sales-table-block brand-research-sales-table-block--to-buy">
+                    <h4 className="brand-research-sales-subheading" id="brand-research-items-to-buy">
+                      Items to buy
+                    </h4>
+                    <ul
+                      className="brand-research-items-to-buy-tags"
+                      aria-labelledby="brand-research-items-to-buy"
+                    >
+                      {brandStockItemsToBuyTags.map((row, idx) => (
+                        <li
+                          key={
+                            row.categoryId > 0
+                              ? `buy-cat-${row.categoryId}`
+                              : `buy-cat-${idx}-${row.categoryName}`
+                          }
+                          className="brand-research-items-to-buy-tag"
+                        >
+                          {row.categoryName}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                {brandStockSummary.heavyUnsoldByCategory.length > 0 ? (
+                  <div className="brand-research-sales-table-block brand-research-sales-table-block--unsold">
+                    <h4 className="brand-research-sales-subheading" id="brand-research-items-to-avoid-buying">
+                      Items To Avoid Buying
+                    </h4>
+                    <ul
+                      className="brand-research-avoid-buying-tags"
+                      aria-labelledby="brand-research-items-to-avoid-buying"
+                    >
+                      {brandStockSummary.heavyUnsoldByCategory.map((row, idx) => (
+                        <li
+                          key={
+                            row.categoryId > 0
+                              ? `avoid-buy-cat-${row.categoryId}`
+                              : `avoid-buy-cat-${idx}-${row.categoryName}`
+                          }
+                          className="brand-research-avoid-buying-tag"
+                        >
+                          {row.categoryName}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </section>
+          </div>
+        )}
+        </div>
       </div>
           </div>
           )}
